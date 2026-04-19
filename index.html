@@ -1,0 +1,219 @@
+<!DOCTYPE html>
+<html lang="en" dir="ltr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GulfLedger — Login</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&family=Playfair+Display:wght@700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root {
+  --navy:#0C447C; --blue:#185FA5; --sky:#378ADD; --light:#B5D4F4;
+  --tint:#E6F1FB; --green:#1D9E75; --red:#C62828; --ink:#0d1a2a;
+  --muted:#5a7a99; --border:#d4e6f7; --bg:#f7fafd; --white:#ffffff;
+}
+* { box-sizing:border-box; margin:0; padding:0; }
+body { font-family:'Tajawal',sans-serif; background:var(--bg); color:var(--ink); min-height:100vh; display:flex; align-items:center; justify-content:center; }
+
+.auth-wrapper { width:100%; max-width:420px; padding:24px; }
+
+.logo { text-align:center; margin-bottom:32px; }
+.logo-bars { display:flex; gap:4px; height:36px; align-items:stretch; justify-content:center; margin-bottom:10px; }
+.logo-bar { width:5px; border-radius:3px; }
+.logo-name { font-family:'Playfair Display',serif; font-size:28px; color:var(--navy); }
+.logo-sub { font-size:11px; letter-spacing:4px; color:var(--sky); font-weight:400; }
+
+.card { background:var(--white); border-radius:16px; padding:32px; box-shadow:0 4px 40px rgba(12,68,124,0.1); border:1px solid var(--border); }
+
+.tabs { display:flex; background:var(--tint); border-radius:8px; padding:3px; margin-bottom:24px; gap:3px; }
+.tab { flex:1; padding:8px; font-size:13px; font-weight:600; border:none; border-radius:6px; cursor:pointer; font-family:'Tajawal',sans-serif; background:transparent; color:var(--muted); transition:all .2s; }
+.tab.active { background:var(--white); color:var(--navy); box-shadow:0 1px 4px rgba(0,0,0,0.1); }
+
+.form-panel { display:none; }
+.form-panel.active { display:block; }
+
+.field { margin-bottom:16px; }
+.field label { display:block; font-size:12px; font-weight:600; color:var(--muted); text-transform:uppercase; letter-spacing:.04em; margin-bottom:5px; }
+.field input { width:100%; padding:10px 14px; border:1.5px solid var(--border); border-radius:8px; font-family:'Tajawal',sans-serif; font-size:14px; color:var(--ink); background:var(--white); transition:border .2s; }
+.field input:focus { outline:none; border-color:var(--sky); box-shadow:0 0 0 3px rgba(55,138,221,0.1); }
+
+.btn-submit { width:100%; padding:12px; background:var(--blue); color:#fff; border:none; border-radius:8px; font-family:'Tajawal',sans-serif; font-size:15px; font-weight:700; cursor:pointer; transition:background .2s; margin-top:4px; }
+.btn-submit:hover { background:var(--navy); }
+.btn-submit:disabled { opacity:0.6; cursor:default; }
+
+.msg { padding:10px 14px; border-radius:8px; font-size:13px; margin-top:12px; display:none; }
+.msg.error { background:#fff5f5; border:1px solid #fca5a5; color:var(--red); display:block; }
+.msg.success { background:#f0fdf4; border:1px solid #86efac; color:var(--green); display:block; }
+
+.divider { text-align:center; font-size:12px; color:var(--muted); margin:16px 0; }
+
+.lang-row { text-align:center; margin-top:20px; }
+.lang-btn { background:none; border:none; font-size:12px; color:var(--muted); cursor:pointer; padding:4px 8px; border-radius:6px; font-family:'Tajawal',sans-serif; }
+.lang-btn:hover { background:var(--tint); color:var(--blue); }
+
+.footer-note { text-align:center; font-size:11px; color:var(--muted); margin-top:16px; line-height:1.6; }
+</style>
+</head>
+<body>
+
+<div class="auth-wrapper">
+  <div class="logo">
+    <div class="logo-bars">
+      <div class="logo-bar" style="background:var(--blue);"></div>
+      <div class="logo-bar" style="background:var(--sky);"></div>
+    </div>
+    <div class="logo-name">Gulf<span style="color:var(--sky);">Ledger</span></div>
+    <div class="logo-sub">ACCOUNTING & COMPLIANCE</div>
+  </div>
+
+  <div class="card">
+    <div class="tabs">
+      <button class="tab active" onclick="switchTab('login')" id="tab-login">Sign In</button>
+      <button class="tab" onclick="switchTab('signup')" id="tab-signup">Create Account</button>
+    </div>
+
+    <!-- LOGIN -->
+    <div class="form-panel active" id="panel-login">
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="login-email" placeholder="you@company.com" autocomplete="email">
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <button class="btn-submit" onclick="handleLogin()" id="btn-login">Sign In</button>
+      <div class="msg" id="login-msg"></div>
+    </div>
+
+    <!-- SIGNUP -->
+    <div class="form-panel" id="panel-signup">
+      <div class="field">
+        <label>Business Name</label>
+        <input type="text" id="signup-business" placeholder="Al-Noor Trading Co.">
+      </div>
+      <div class="field">
+        <label>Email</label>
+        <input type="email" id="signup-email" placeholder="you@company.com" autocomplete="email">
+      </div>
+      <div class="field">
+        <label>Password</label>
+        <input type="password" id="signup-password" placeholder="Min. 8 characters" autocomplete="new-password">
+      </div>
+      <button class="btn-submit" onclick="handleSignup()" id="btn-signup">Create Account</button>
+      <div class="msg" id="signup-msg"></div>
+    </div>
+  </div>
+
+  <div class="lang-row">
+    <button class="lang-btn" onclick="setLang('ar')">العربية</button>
+    <button class="lang-btn" onclick="setLang('en')">English</button>
+  </div>
+
+  <div class="footer-note">
+    Your data is encrypted and stored securely.<br>
+    ZATCA-compliant • Saudi businesses only
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// Check if already logged in
+sb.auth.getSession().then(({ data }) => {
+  if (data.session) window.location.href = 'dashboard.html';
+});
+
+function switchTab(tab) {
+  document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+  document.querySelectorAll('.form-panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('tab-' + tab).classList.add('active');
+  document.getElementById('panel-' + tab).classList.add('active');
+}
+
+async function handleLogin() {
+  const email = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const btn = document.getElementById('btn-login');
+  const msg = document.getElementById('login-msg');
+
+  if (!email || !password) { showMsg(msg, 'Please enter email and password.', 'error'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Signing in...';
+  msg.className = 'msg';
+
+  const { error } = await sb.auth.signInWithPassword({ email, password });
+
+  if (error) {
+    showMsg(msg, error.message, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Sign In';
+  } else {
+    window.location.href = 'dashboard.html';
+  }
+}
+
+async function handleSignup() {
+  const business = document.getElementById('signup-business').value.trim();
+  const email = document.getElementById('signup-email').value.trim();
+  const password = document.getElementById('signup-password').value;
+  const btn = document.getElementById('btn-signup');
+  const msg = document.getElementById('signup-msg');
+
+  if (!business || !email || !password) { showMsg(msg, 'Please fill all fields.', 'error'); return; }
+  if (password.length < 8) { showMsg(msg, 'Password must be at least 8 characters.', 'error'); return; }
+
+  btn.disabled = true;
+  btn.textContent = 'Creating account...';
+  msg.className = 'msg';
+
+  const { data, error } = await sb.auth.signUp({
+    email, password,
+    options: { data: { business_name: business } }
+  });
+
+  if (error) {
+    showMsg(msg, error.message, 'error');
+    btn.disabled = false;
+    btn.textContent = 'Create Account';
+  } else {
+    showMsg(msg, 'Account created! Please check your email to confirm, then sign in.', 'success');
+    btn.disabled = false;
+    btn.textContent = 'Create Account';
+  }
+}
+
+function showMsg(el, text, type) {
+  el.textContent = text;
+  el.className = 'msg ' + type;
+}
+
+const translations = {
+  en: {
+    signin: 'Sign In', create: 'Create Account', email: 'Email', password: 'Password',
+    business: 'Business Name', signinBtn: 'Sign In', signupBtn: 'Create Account',
+    footer: 'Your data is encrypted and stored securely.\nZATCA-compliant • Saudi businesses only'
+  },
+  ar: {
+    signin: 'تسجيل الدخول', create: 'إنشاء حساب', email: 'البريد الإلكتروني', password: 'كلمة المرور',
+    business: 'اسم المنشأة', signinBtn: 'دخول', signupBtn: 'إنشاء الحساب',
+    footer: 'بياناتك مشفّرة ومحفوظة بأمان\nمتوافق مع زاتكا • للأعمال السعودية فقط'
+  }
+};
+
+function setLang(lang) {
+  const t = translations[lang];
+  document.documentElement.setAttribute('lang', lang);
+  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+  document.getElementById('tab-login').textContent = t.signin;
+  document.getElementById('tab-signup').textContent = t.create;
+  document.getElementById('btn-login').textContent = t.signinBtn;
+  document.getElementById('btn-signup').textContent = t.signupBtn;
+  document.querySelector('.footer-note').textContent = t.footer;
+}
+</script>
+</body>
+</html>
