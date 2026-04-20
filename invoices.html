@@ -149,7 +149,8 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
   border:1px solid var(--border);border-radius:8px;overflow:hidden;
 }
 .inv-parties > div{
-  padding:12px 14px;
+  padding:12px 16px;
+  text-align:center;
 }
 .inv-parties > div:first-child{
   border-right:1px solid var(--border);
@@ -205,10 +206,15 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
   .topnav,.app-nav,.form-panel,.preview-label,.actions,.zatca-warning,.inv-list-header,#inv-list{display:none!important;}
   .app{display:block!important;}
   .preview-panel{display:block!important;background:#fff!important;padding:0!important;}
-  .invoice-doc{box-shadow:none!important;max-width:100%!important;border-radius:0!important;}
+  .invoice-doc{box-shadow:none!important;max-width:100%!important;border-radius:0!important;min-height:100vh!important;}
+  /* Force background colors to print */
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;color-adjust:exact!important;}
+  .inv-header{background:var(--navy)!important;}
+  .inv-items th{background:var(--navy)!important;color:#fff!important;}
   .inv-qr-box img{display:block!important;width:76px!important;height:76px!important;}
   .inv-qr-box canvas{display:block!important;}
-  .inv-qr-section{border:1px solid #eee!important;}
+  .inv-qr-section{border:1px solid #eee!important;background:var(--tint)!important;}
+  .inv-date-row{background:var(--tint)!important;}
 }
 @media(max-width:600px){
   .field-row.triple{grid-template-columns:1fr 1fr;}
@@ -749,6 +755,11 @@ function render() {
   const date    = v('f-date');
   const type    = v('f-type');
   const isB2B   = type === 'b2b';
+  // Keep description col aligned to language (invoice is always LTR)
+  const descAlign = currentLang==='ar' ? 'right' : 'left';
+  document.querySelectorAll('.inv-items td:nth-child(1), .inv-items th:nth-child(1)').forEach(el=>{
+    el.style.textAlign = descAlign;
+  });
 
   setText('p-invnum', invNum); setText('p-invnum2', invNum);
   setText('p-type-badge', isB2B ? 'B2B TAX INVOICE — فاتورة ضريبية' : 'B2C SIMPLIFIED — فاتورة مبسطة');
@@ -1099,7 +1110,19 @@ async function newInvoice() {
 }
 
 /* ── LANGUAGE ── */
-function setLang(lang){ L=lang; applyLang(lang); if(typeof onBusinessTypeChange==='function')onBusinessTypeChange(); if(typeof renderStock==='function')renderStock(); if(typeof renderSuppliers==='function')renderSuppliers(); if(typeof renderPartners==='function')renderPartners(); }
+function setLang(lang){
+  L=lang;
+  currentLang=lang;
+  applyLang(lang);
+  // Description col: right-align for Arabic, left-align for English
+  // Invoice doc is always LTR, so we control text-align explicitly
+  const descAlign = lang==='ar' ? 'right' : 'left';
+  document.querySelectorAll('.inv-items td:nth-child(1), .inv-items th:nth-child(1)').forEach(el=>{
+    el.style.textAlign = descAlign;
+  });
+  renderItems();
+  render();
+}
 
 /* ── HELPERS ── */
 function v(id)         { const el=document.getElementById(id); return el?el.value.trim():''; }
