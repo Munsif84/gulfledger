@@ -1023,6 +1023,7 @@ async function saveInvoice() {
   // DEDUCT STOCK + POST COGS for items picked from inventory
   if (currentBiz?.id) {
     let totalCOGS = 0;
+    const useFIFO = (currentBiz.costing_method || 'wac') === 'fifo';
 
     for (const it of items) {
       if (!it.itemId || !it.qty) continue;
@@ -1031,8 +1032,17 @@ async function saveInvoice() {
         .eq('id', it.itemId).single();
       if (!invItem) continue;
       const newQty    = Math.max(0, (invItem.current_qty||0) - it.qty);
-      const itemCOGS  = (invItem.cost_price||0) * it.qty;
-      totalCOGS      += itemCOGS;
+
+      let itemCOGS;
+      if (useFIFO) {
+        // FIFO: consume oldest batches first, get actual cost
+        itemCOGS = await consumeFIFOBatches(it.itemId, it.qty, currentBiz.id);
+        if (!itemCOGS) itemCOGS = (invItem.cost_price||0) * it.qty; // fallback to WAC
+      } else {
+        // WAC: use current average cost
+        itemCOGS = (invItem.cost_price||0) * it.qty;
+      }
+      totalCOGS += itemCOGS;
 
       // Update stock quantity
       await sb.from('inventory_items').update({
@@ -1040,16 +1050,19 @@ async function saveInvoice() {
         updated_at:  new Date().toISOString()
       }).eq('id', it.itemId);
 
-      // Record outgoing movement
+      // Record outgoing movement with actual unit cost
+      const unitCost = it.qty > 0 ? Math.round(itemCOGS / it.qty * 100) / 100 : invItem.cost_price || 0;
       await sb.from('inventory_movements').insert({
         business_id:   currentBiz.id,
         item_id:       it.itemId,
         movement_type: 'out',
         quantity:      it.qty,
         balance_after: newQty,
-        unit_cost:     invItem.cost_price || 0,
+        unit_cost:     unitCost,
         reference:     invoiceData.invoice_number,
-        note:          (currentLang==='ar'?'بيع — فاتورة ':'Sale — Invoice ') + invoiceData.invoice_number,
+        note:          (currentLang==='ar'?'بيع — فاتورة ':'Sale — Invoice ')
+                       + invoiceData.invoice_number
+                       + (useFIFO ? ' (FIFO)' : ' (WAC)'),
         movement_date: invoiceData.issue_date || today()
       });
     }
@@ -1216,6 +1229,33 @@ function v(id)         { const el=document.getElementById(id); return el?el.valu
 function setText(id,t) { const el=document.getElementById(id); if(el) el.textContent=t; }
 function fmt(n)        { return (n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
 function today()       { return new Date().toISOString().split('T')[0]; }
+
+/* ── FIFO BATCH CONSUMPTION ── */
+async function consumeFIFOBatches(itemId, qtyNeeded, businessId){
+  const {data:batches}=await sb.from('inventory_batches')
+    .select('*')
+    .eq('item_id',itemId)
+    .eq('business_id',businessId)
+    .eq('is_depleted',false)
+    .order('received_date',{ascending:true})
+    .order('created_at',{ascending:true});
+
+  if(!batches||!batches.length) return 0;
+
+  let qtyLeft=qtyNeeded, totalCost=0;
+  for(const batch of batches){
+    if(qtyLeft<=0) break;
+    const consume=Math.min(qtyLeft, batch.qty_remaining);
+    totalCost+=consume*batch.unit_cost;
+    qtyLeft-=consume;
+    const newRemaining=Math.round((batch.qty_remaining-consume)*1000)/1000;
+    await sb.from('inventory_batches').update({
+      qty_remaining: newRemaining,
+      is_depleted:   newRemaining<=0
+    }).eq('id', batch.id);
+  }
+  return Math.round(totalCost*100)/100;
+}
 async function logout(){ await sb.auth.signOut(); window.location.href='login.html'; }
 
 // Ensure QR renders before print

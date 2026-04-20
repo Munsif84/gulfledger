@@ -302,6 +302,10 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
       <div class="sb-item" id="sb-sup-inv"   onclick="window.location.href='purchasing.html#sup-inv'"><div class="sb-dot" style="background:#a855f7;"></div><span data-ar="فواتير الموردين" data-en="Supplier Invoices">فواتير الموردين</span></div>
     </div>
     <div class="sb-sec">
+      <span class="sb-lbl" data-ar="🔷 Pro — FIFO" data-en="🔷 Pro — FIFO">🔷 Pro — FIFO</span>
+      <div class="sb-item" id="sb-fifo" onclick="goTab('fifo')"><div class="sb-dot" style="background:#0891b2;"></div><span data-ar="دفتر الدُفعات FIFO" data-en="FIFO Batch Ledger">دفتر الدُفعات FIFO</span></div>
+    </div>
+    <div class="sb-sec">
       <span class="sb-lbl" data-ar="تنبيهات" data-en="Alerts">تنبيهات</span>
       <div id="sb-alerts"><div style="font-size:11px;color:var(--muted);padding:4px 6px;" data-ar="لا تنبيهات ✓" data-en="No alerts ✓">لا تنبيهات ✓</div></div>
     </div>
@@ -719,6 +723,66 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
 
           <!-- Result -->
           <div id="upload-result" style="display:none;margin-top:12px;"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: FIFO BATCH LEDGER -->
+    <div class="tc" id="tc-fifo">
+      <div class="card">
+        <div class="card-hdr">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <span class="card-ttl" data-ar="دفتر الدُفعات FIFO" data-en="FIFO Batch Ledger">دفتر الدُفعات FIFO</span>
+            <span style="background:#f0f9ff;border:1px solid #bae6fd;color:#0369a1;font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;">🔷 Pro</span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <select id="fifo-item-filter" onchange="loadFIFOBatches()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;">
+              <option value="" data-ar="كل الأصناف" data-en="All Items">كل الأصناف</option>
+            </select>
+            <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer;">
+              <input type="checkbox" id="fifo-hide-depleted" onchange="loadFIFOBatches()" checked>
+              <span data-ar="إخفاء المستنفدة" data-en="Hide depleted">إخفاء المستنفدة</span>
+            </label>
+          </div>
+        </div>
+        <!-- Costing method selector -->
+        <div style="padding:12px 18px;background:var(--tint);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <div style="font-size:12px;color:var(--navy);">
+            <strong data-ar="طريقة التكلفة الحالية:" data-en="Current costing method:">طريقة التكلفة الحالية:</strong>
+            <span id="fifo-current-method" style="font-weight:700;margin-right:6px;margin-left:6px;"></span>
+          </div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <span style="font-size:11px;color:var(--muted);" data-ar="تغيير:" data-en="Change:">تغيير:</span>
+            <button class="btn-s" onclick="setCostingMethod('wac')" id="btn-wac" style="font-size:11px;">WAC</button>
+            <button class="btn-s" onclick="setCostingMethod('fifo')" id="btn-fifo" style="font-size:11px;">FIFO 🔷</button>
+          </div>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="tbl">
+            <thead><tr>
+              <th data-ar="الصنف" data-en="Item">الصنف</th>
+              <th data-ar="رقم الدُفعة" data-en="Batch No.">رقم الدُفعة</th>
+              <th data-ar="المورد" data-en="Supplier">المورد</th>
+              <th data-ar="تاريخ الاستلام" data-en="Received">تاريخ الاستلام</th>
+              <th data-ar="الكمية المستلمة" data-en="Qty In">الكمية المستلمة</th>
+              <th data-ar="الكمية المتبقية" data-en="Qty Left">الكمية المتبقية</th>
+              <th data-ar="سعر التكلفة" data-en="Unit Cost">سعر التكلفة</th>
+              <th data-ar="قيمة المتبقي" data-en="Value">قيمة المتبقي</th>
+              <th data-ar="تاريخ الانتهاء" data-en="Expiry">تاريخ الانتهاء</th>
+              <th data-ar="الحالة" data-en="Status">الحالة</th>
+            </tr></thead>
+            <tbody id="fifo-tbody">
+              <tr><td colspan="10" style="text-align:center;padding:20px;color:var(--muted);">جارٍ التحميل...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <div id="fifo-summary" style="padding:14px 18px;border-top:1px solid var(--border);display:none;">
+          <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:12px;">
+            <div style="text-align:center;"><div style="font-size:11px;color:var(--muted);margin-bottom:4px;" data-ar="إجمالي الدُفعات" data-en="Total Batches">إجمالي الدُفعات</div><div style="font-size:18px;font-weight:700;color:var(--navy);font-family:'DM Mono',monospace;" id="fifo-total-batches">0</div></div>
+            <div style="text-align:center;"><div style="font-size:11px;color:var(--muted);margin-bottom:4px;" data-ar="دُفعات نشطة" data-en="Active">دُفعات نشطة</div><div style="font-size:18px;font-weight:700;color:var(--green);font-family:'DM Mono',monospace;" id="fifo-active-batches">0</div></div>
+            <div style="text-align:center;"><div style="font-size:11px;color:var(--muted);margin-bottom:4px;" data-ar="قيمة المخزون FIFO" data-en="FIFO Value">قيمة المخزون FIFO</div><div style="font-size:18px;font-weight:700;color:var(--navy);font-family:'DM Mono',monospace;" id="fifo-total-value">SAR 0</div></div>
+            <div style="text-align:center;"><div style="font-size:11px;color:var(--amber);margin-bottom:4px;" data-ar="تنتهي خلال 30 يوم" data-en="Expiring Soon">تنتهي قريباً</div><div style="font-size:18px;font-weight:700;color:var(--amber);font-family:'DM Mono',monospace;" id="fifo-expiring-soon">0</div></div>
+          </div>
         </div>
       </div>
     </div>
@@ -1259,10 +1323,14 @@ async function confirmReceipt(){
     const oldQty=item.current_qty||0;const oldCost=item.cost_price||0;
     const newQty=oldQty+line.qty;
     const wac=newQty>0?((oldQty*oldCost)+(line.qty*line.cost))/newQty:line.cost;
+
+    // Update item — always update WAC (used for non-FIFO display and fallback)
     await sb.from('inventory_items').update({
       current_qty:newQty,cost_price:Math.round(wac*100)/100,updated_at:new Date().toISOString()
     }).eq('id',line.itemId);
-    await sb.from('inventory_movements').insert({
+
+    // Insert movement
+    const {data:movement}=await sb.from('inventory_movements').insert({
       business_id:currentBiz?.id,item_id:line.itemId,movement_type:'in',
       quantity:line.qty,balance_after:newQty,unit_cost:line.cost,
       reference:poNum,
@@ -1271,6 +1339,24 @@ async function confirmReceipt(){
       manufacture_date:mfgDate||null,
       note:(L==='ar'?'استلام من ':'Received from ')+supName+' | WAC: SAR '+fmt(wac),
       movement_date:date
+    }).select().single();
+
+    // Create FIFO batch record (always — used if business switches to FIFO later)
+    await sb.from('inventory_batches').insert({
+      business_id:    currentBiz?.id,
+      item_id:        line.itemId,
+      movement_id:    movement?.id||null,
+      po_reference:   poNum,
+      supplier_name:  supName,
+      batch_number:   batchNum||null,
+      expiry_date:    expiryDate||null,
+      manufacture_date:mfgDate||null,
+      received_date:  date,
+      qty_received:   line.qty,
+      qty_remaining:  line.qty,
+      unit_cost:      line.cost,
+      total_cost:     Math.round(line.qty*line.cost*100)/100,
+      is_depleted:    false
     });
   }
 
@@ -1686,7 +1772,7 @@ function renderAlerts(){
 
 /* ── NAV ── */
 function goTab(name){
-  const tabs=['stock','registry','receive','movements','cogs','suppliers','upload'];
+  const tabs=['stock','registry','receive','movements','cogs','suppliers','upload','fifo'];
   tabs.forEach(t=>{
     document.getElementById('tc-'+t)?.classList.toggle('active',t===name);
     const sbEl=document.getElementById('sb-'+t);
@@ -1694,6 +1780,176 @@ function goTab(name){
   });
   if(name==='receive')refreshSupDropdown();
   if(name==='registry'){refreshSupDropdown();renderSuppliers();}
+  if(name==='fifo')loadFIFOBatches();
+}
+
+/* ── FIFO FUNCTIONS ── */
+
+async function loadFIFOBatches(){
+  const itemFilter=document.getElementById('fifo-item-filter')?.value||'';
+  const hideDepletd=document.getElementById('fifo-hide-depleted')?.checked;
+
+  let q=sb.from('inventory_batches')
+    .select('*, inventory_items(name,sku,unit)')
+    .eq('business_id',currentBiz?.id)
+    .order('received_date',{ascending:true})
+    .order('created_at',{ascending:true});
+
+  if(itemFilter) q=q.eq('item_id',itemFilter);
+  if(hideDepletd) q=q.eq('is_depleted',false);
+
+  const {data:batches}=await q;
+  renderFIFOBatches(batches||[]);
+  updateFIFOItemFilter();
+  updateCostingMethodUI();
+}
+
+function renderFIFOBatches(batches){
+  const tb=document.getElementById('fifo-tbody');
+  if(!batches.length){
+    tb.innerHTML=`<tr><td colspan="10" style="text-align:center;padding:24px;color:var(--muted);">${L==='ar'?'لا توجد دُفعات — استلم بضاعة لبدء تتبع FIFO':'No batches yet — receive stock to start FIFO tracking'}</td></tr>`;
+    document.getElementById('fifo-summary').style.display='none';
+    return;
+  }
+
+  const today30=new Date();today30.setDate(today30.getDate()+30);
+  const todayStr=new Date().toISOString().split('T')[0];
+  let totalVal=0,activeCnt=0,expiringSoon=0;
+
+  tb.innerHTML=batches.map(b=>{
+    const item=b.inventory_items;
+    const remaining=b.qty_remaining||0;
+    const val=remaining*(b.unit_cost||0);
+    totalVal+=val;
+    if(!b.is_depleted)activeCnt++;
+
+    // Expiry status
+    let expiryDisplay='—';
+    let expiryStyle='';
+    if(b.expiry_date){
+      const expDate=new Date(b.expiry_date);
+      expiryDisplay=b.expiry_date;
+      if(expDate<=new Date(todayStr)){
+        expiryStyle='color:var(--red);font-weight:700;';
+        expiringSoon++;
+      } else if(expDate<=today30){
+        expiryStyle='color:var(--amber);font-weight:700;';
+        if(!b.is_depleted)expiringSoon++;
+      }
+    }
+
+    // Status badge
+    const statusBadge=b.is_depleted
+      ? `<span style="background:#f1f5f9;color:#64748b;font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;">${L==='ar'?'مستنفد':'Depleted'}</span>`
+      : remaining===b.qty_received
+      ? `<span style="background:#dcfce7;color:#166534;font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;">${L==='ar'?'جديد':'Full'}</span>`
+      : `<span style="background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;">${L==='ar'?'جزئي':'Partial'}</span>`;
+
+    return `<tr style="${b.is_depleted?'opacity:0.5;':''}">
+      <td><strong>${item?.name||'—'}</strong><div style="font-size:10px;color:var(--muted);">${item?.sku||''}</div></td>
+      <td class="mono" style="font-size:11px;">${b.batch_number||'—'}</td>
+      <td style="font-size:11px;">${b.supplier_name||'—'}</td>
+      <td style="font-size:11px;color:var(--muted);">${b.received_date||'—'}</td>
+      <td class="mono">${b.qty_received||0} ${item?.unit||''}</td>
+      <td class="mono" style="font-weight:700;color:${remaining===0?'var(--muted)':remaining<b.qty_received?'var(--amber)':'var(--green)'};">${remaining} ${item?.unit||''}</td>
+      <td class="mono">SAR ${fmt(b.unit_cost)}</td>
+      <td class="mono" style="font-weight:600;color:var(--navy);">SAR ${fmt(val)}</td>
+      <td style="font-size:11px;${expiryStyle}">${expiryDisplay}</td>
+      <td>${statusBadge}</td>
+    </tr>`;
+  }).join('');
+
+  // Update summary
+  document.getElementById('fifo-total-batches').textContent=batches.length;
+  document.getElementById('fifo-active-batches').textContent=activeCnt;
+  document.getElementById('fifo-total-value').textContent='SAR '+fmt(totalVal);
+  document.getElementById('fifo-expiring-soon').textContent=expiringSoon;
+  document.getElementById('fifo-summary').style.display='block';
+}
+
+function updateFIFOItemFilter(){
+  const sel=document.getElementById('fifo-item-filter');
+  if(!sel||invItems.length===0)return;
+  const curr=sel.value;
+  sel.innerHTML='<option value="">'+(L==='ar'?'كل الأصناف':'All Items')+'</option>'
+    +invItems.map(i=>`<option value="${i.id}" ${i.id===curr?'selected':''}>${i.name}${i.sku?' ('+i.sku+')':''}</option>`).join('');
+}
+
+async function setCostingMethod(method){
+  if(!currentBiz?.id)return;
+
+  // Pro gate
+  if(method==='fifo'&&(currentBiz.plan||'starter')!=='pro'){
+    notify(L==='ar'?'FIFO متاح في باقة Pro فقط':'FIFO available in Pro plan only','r');
+    return;
+  }
+
+  await sb.from('businesses').update({costing_method:method}).eq('id',currentBiz.id);
+  currentBiz.costing_method=method;
+  updateCostingMethodUI();
+  notify((L==='ar'?'تم تغيير طريقة التكلفة إلى ':'Costing method changed to ')+method.toUpperCase(),'g');
+}
+
+function updateCostingMethodUI(){
+  const method=currentBiz?.costing_method||'wac';
+  const el=document.getElementById('fifo-current-method');
+  if(el){
+    el.textContent=method.toUpperCase();
+    el.style.color=method==='fifo'?'#0369a1':'var(--green)';
+    el.style.background=method==='fifo'?'#f0f9ff':'#f0fdf4';
+    el.style.padding='2px 8px';
+    el.style.borderRadius='6px';
+    el.style.fontSize='11px';
+  }
+  const wacBtn=document.getElementById('btn-wac');
+  const fifoBtn=document.getElementById('btn-fifo');
+  if(wacBtn)wacBtn.style.background=method==='wac'?'var(--green)':'';
+  if(wacBtn)wacBtn.style.color=method==='wac'?'#fff':'';
+  if(fifoBtn)fifoBtn.style.background=method==='fifo'?'#0369a1':'';
+  if(fifoBtn)fifoBtn.style.color=method==='fifo'?'#fff':'';
+}
+
+/* ── FIFO STOCK CONSUMPTION (called from invoices.html logic) ── */
+// This function is called when a sale needs to consume FIFO batches
+// Returns the FIFO cost of the consumed quantity
+async function consumeFIFOBatches(itemId, qtyNeeded, businessId){
+  // Load available batches oldest first
+  const {data:batches}=await sb.from('inventory_batches')
+    .select('*')
+    .eq('item_id',itemId)
+    .eq('business_id',businessId)
+    .eq('is_depleted',false)
+    .order('received_date',{ascending:true})
+    .order('created_at',{ascending:true});
+
+  if(!batches||!batches.length)return 0;
+
+  let qtyLeft=qtyNeeded;
+  let totalCost=0;
+  const updates=[];
+
+  for(const batch of batches){
+    if(qtyLeft<=0)break;
+    const consume=Math.min(qtyLeft,batch.qty_remaining);
+    totalCost+=consume*batch.unit_cost;
+    qtyLeft-=consume;
+    const newRemaining=batch.qty_remaining-consume;
+    updates.push({
+      id:batch.id,
+      qty_remaining:Math.round(newRemaining*1000)/1000,
+      is_depleted:newRemaining<=0
+    });
+  }
+
+  // Update all batches
+  for(const u of updates){
+    await sb.from('inventory_batches').update({
+      qty_remaining:u.qty_remaining,
+      is_depleted:u.is_depleted
+    }).eq('id',u.id);
+  }
+
+  return Math.round(totalCost*100)/100;
 }
 
 /* ── LANGUAGE ── */
