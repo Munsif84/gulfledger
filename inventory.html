@@ -775,7 +775,7 @@ function addPOLine(){
         <input type="text" class="search-picker-input" placeholder="${L==='ar'?'ابحث بالاسم أو SKU أو الباركود...':'Search by name, SKU or barcode...'}"
           oninput="filterPicker('${lineId}',this.value)"
           onfocus="showPicker('${lineId}')"
-          onblur="setTimeout(()=>hidePicker('${lineId}'),200)"
+          onblur="setTimeout(()=>hidePicker('${lineId}'),300)"
           autocomplete="off">
         <button class="scan-btn" onclick="openCameraForLine('${lineId}')" title="${L==='ar'?'مسح الباركود':'Scan barcode'}">📷</button>
         <div class="picker-dropdown" id="picker-${lineId}"></div>
@@ -828,10 +828,15 @@ function selectItem(lineId,itemId,name,cost,sku,qty,unit){
   const itemInp=d.querySelector('.po-item-id');
   const info=document.getElementById('info-'+lineId);
   inp.value=name;
-  if(costInp&&!costInp.value)costInp.value=cost;
+  inp.style.borderColor='var(--green)';
+  inp.style.background='#f0fdf4';
+  if(costInp&&(!costInp.value||costInp.value==='0'))costInp.value=cost;
   if(itemInp)itemInp.value=itemId;
-  if(info)info.innerHTML=`<span class="sku-badge">${sku||'—'}</span> <span style="color:var(--muted);">${L==='ar'?'المخزون الحالي:':'Current stock:'} <strong class="${qty===0?'c-red':qty<=5?'c-amber':'c-green'}">${qty} ${unit}</strong></span>`;
-  hidePicker(lineId);calcPOTotals();
+  if(info)info.innerHTML=`<span class="sku-badge">${sku||'—'}</span> <span style="color:var(--muted);">${L==='ar'?'المخزون الحالي:':'Current stock:'} <strong class="${qty===0?'c-red':qty<=5?'c-amber':'c-green'}">${qty} ${unit}</strong> | ${L==='ar'?'سعر الشراء:':'Cost:'} SAR ${fmt(cost)}</span>`;
+  hidePicker(lineId);
+  calcPOTotals();
+  // Move focus to qty field
+  setTimeout(()=>{const qtyEl=d.querySelector('.po-qty');if(qtyEl)qtyEl.focus();},50);
 }
 
 function showPicker(lineId){const dd=document.getElementById('picker-'+lineId);if(dd)dd.classList.add('open');}
@@ -858,11 +863,26 @@ async function confirmReceipt(){
   const lines=[];
   document.querySelectorAll('.po-line').forEach(row=>{
     const itemId=row.querySelector('.po-item-id')?.value;
+    const searchText=(row.querySelector('.search-picker-input')?.value||'').trim();
     const qty=parseFloat(row.querySelector('.po-qty')?.value)||0;
     const cost=parseFloat(row.querySelector('.po-cost')?.value)||0;
-    if(itemId&&qty>0)lines.push({itemId,qty,cost});
+    if(qty<=0)return; // skip empty lines
+
+    if(itemId){
+      // Item selected from picker
+      lines.push({itemId,qty,cost});
+    } else if(searchText){
+      // Try to find by name or SKU from text typed
+      const found=invItems.find(i=>
+        i.name.toLowerCase()===searchText.toLowerCase()||
+        (i.sku||'').toLowerCase()===searchText.toLowerCase()||
+        (i.barcode||'')===searchText
+      );
+      if(found){lines.push({itemId:found.id,qty,cost});}
+      else{notify((L==='ar'?'الصنف غير موجود: ':'Item not found: ')+searchText,'r');}
+    }
   });
-  if(!lines.length){notify(L==='ar'?'أضف صنفاً على الأقل':'Add at least one item','r');return;}
+  if(!lines.length){notify(L==='ar'?'أضف صنفاً واحداً على الأقل مع الكمية':'Add at least one item with quantity','r');return;}
   const poNum=gval('f-po-num')||'PO-'+Date.now();
   const date=gval('f-po-date')||today();
   for(const line of lines){
