@@ -215,20 +215,30 @@ async function init() {
   const { data: biz } = await sb.from('businesses').select('*').eq('user_id', user.id).single();
 
   if (biz) {
+    currentBiz = biz;
     document.getElementById('biz-name').textContent = biz.name;
-    document.getElementById('dash-title').textContent = 'Welcome, ' + biz.name;
+    document.getElementById('dash-title').textContent = 'مرحباً، ' + biz.name;
     if (!biz.trn) document.getElementById('setup-banner').style.display = 'flex';
+
+    // Apply plan gating
+    applyPlanGating(biz.plan || 'starter');
+
   } else {
     // First time — create business from signup metadata
     const bizName = user.user_metadata?.business_name || 'My Business';
     document.getElementById('biz-name').textContent = bizName;
-    document.getElementById('dash-title').textContent = 'Welcome, ' + bizName;
+    document.getElementById('dash-title').textContent = 'مرحباً، ' + bizName;
     document.getElementById('setup-banner').style.display = 'flex';
 
-    await sb.from('businesses').insert({
+    const { data: newBiz } = await sb.from('businesses').insert({
       user_id: user.id,
-      name: bizName
-    });
+      name: bizName,
+      plan: 'starter',
+      plan_status: 'active'
+    }).select().single();
+
+    currentBiz = newBiz;
+    applyPlanGating('starter');
   }
 
   // Load stats
@@ -247,6 +257,44 @@ async function init() {
     const low = items.filter(i => i.current_qty <= i.alert_level).length;
     document.getElementById('s-stock').textContent = low;
   }
+}
+
+// Plan features map
+const PLAN_FEATURES = {
+  starter:  ['invoices', 'ledger', 'vat', 'statements', 'settings'],
+  business: ['invoices', 'ledger', 'vat', 'statements', 'settings', 'inventory', 'ai-invoice', 'whatsapp', 'accountant'],
+  pro:      ['invoices', 'ledger', 'vat', 'statements', 'settings', 'inventory', 'ai-invoice', 'whatsapp', 'accountant', 'ai-contract', 'compliance', 'multi-branch', 'multi-entity', 'custom-templates']
+};
+
+function applyPlanGating(plan) {
+  const allowed = PLAN_FEATURES[plan] || PLAN_FEATURES.starter;
+
+  // Show plan badge
+  const badge = document.createElement('span');
+  badge.style.cssText = 'font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;margin-right:8px;' +
+    (plan === 'pro' ? 'background:#f5f3ff;color:#6d28d9;' :
+     plan === 'business' ? 'background:var(--tint);color:var(--blue);' :
+     'background:#f0fdf4;color:var(--green);');
+  badge.textContent = plan === 'pro' ? 'Pro' : plan === 'business' ? 'Business' : 'Starter';
+  document.getElementById('biz-name').after(badge);
+
+  // Gate inventory module card
+  if (!allowed.includes('inventory')) {
+    const invCard = document.querySelector('a[href="inventory.html"]');
+    if (invCard) {
+      invCard.style.opacity = '0.5';
+      invCard.style.pointerEvents = 'none';
+      invCard.href = '#';
+      const lock = document.createElement('div');
+      lock.style.cssText = 'font-size:10px;color:var(--amber);font-weight:700;margin-top:4px;';
+      lock.textContent = '🔒 يتطلب باقة الأعمال';
+      invCard.appendChild(lock);
+    }
+  }
+
+  // Gate AI invoice nav (handled inside invoices page)
+  // Store plan in session storage for other pages to read
+  sessionStorage.setItem('gl_plan', plan);
 }
 
 async function logout() {
