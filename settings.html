@@ -129,6 +129,23 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);}
       <button class="export-btn" onclick="exportData('journal')">Export Ledger</button>
     </div>
   </div>
+
+  <div class="card" style="margin-top:16px;">
+    <div class="card-title">🔒 تغيير كلمة المرور / Change Password</div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:16px;line-height:1.6;">يُنصح بتغيير كلمة المرور بعد أول دخول وبشكل دوري لحماية حسابك.</p>
+    <div class="fg fg-2" style="margin-bottom:14px;">
+      <div class="fld">
+        <label>كلمة المرور الجديدة / New Password</label>
+        <input type="password" id="new-pass" placeholder="••••••••" minlength="8">
+      </div>
+      <div class="fld">
+        <label>تأكيد كلمة المرور / Confirm Password</label>
+        <input type="password" id="confirm-pass" placeholder="••••••••">
+      </div>
+    </div>
+    <button class="btn-save" onclick="changePassword()" id="btn-change-pass">تغيير كلمة المرور</button>
+    <div class="msg" id="pass-msg"></div>
+  </div>
 </div>
 
 <script>
@@ -217,6 +234,38 @@ async function exportData(type) {
   const a = document.createElement('a');
   a.href = 'data:text/csv;charset=utf-8,\uFEFF' + encodeURIComponent(csv);
   a.download = filename; a.click();
+}
+
+async function changePassword() {
+  const newPass     = document.getElementById('new-pass').value;
+  const confirmPass = document.getElementById('confirm-pass').value;
+  const btn         = document.getElementById('btn-change-pass');
+  const msg         = document.getElementById('pass-msg');
+
+  if (newPass.length < 8) {
+    msg.textContent = 'كلمة المرور يجب أن تكون 8 أحرف على الأقل';
+    msg.className = 'msg error'; return;
+  }
+  if (newPass !== confirmPass) {
+    msg.textContent = 'كلمتا المرور غير متطابقتين';
+    msg.className = 'msg error'; return;
+  }
+
+  btn.disabled = true; btn.textContent = 'جارٍ الحفظ...';
+
+  const { error } = await sb.auth.updateUser({ password: newPass });
+
+  if (error) {
+    msg.textContent = error.message;
+    msg.className = 'msg error';
+  } else {
+    msg.textContent = '✓ تم تغيير كلمة المرور بنجاح';
+    msg.className = 'msg success';
+    document.getElementById('new-pass').value     = '';
+    document.getElementById('confirm-pass').value = '';
+    setTimeout(() => msg.className = 'msg', 4000);
+  }
+  btn.disabled = false; btn.textContent = 'تغيير كلمة المرور';
 }
 
 async function logout() { await sb.auth.signOut(); window.location.href = 'login.html'; }
