@@ -805,21 +805,26 @@ async function saveInvoice() {
   }));
   await sb.from('invoice_items').insert(itemRows);
 
-  // DEDUCT STOCK for items picked from inventory
+  // DEDUCT STOCK + POST COGS for items picked from inventory
   if (currentBiz?.id) {
+    let totalCOGS = 0;
+
     for (const it of items) {
       if (!it.itemId || !it.qty) continue;
-      // Get current qty
       const { data: invItem } = await sb.from('inventory_items')
         .select('current_qty, cost_price, name, sku')
         .eq('id', it.itemId).single();
       if (!invItem) continue;
-      const newQty = Math.max(0, (invItem.current_qty||0) - it.qty);
-      // Update stock
+      const newQty    = Math.max(0, (invItem.current_qty||0) - it.qty);
+      const itemCOGS  = (invItem.cost_price||0) * it.qty;
+      totalCOGS      += itemCOGS;
+
+      // Update stock quantity
       await sb.from('inventory_items').update({
         current_qty: newQty,
         updated_at:  new Date().toISOString()
       }).eq('id', it.itemId);
+
       // Record outgoing movement
       await sb.from('inventory_movements').insert({
         business_id:   currentBiz.id,
@@ -832,6 +837,56 @@ async function saveInvoice() {
         note:          (currentLang==='ar'?'بيع — فاتورة ':'Sale — Invoice ') + invoiceData.invoice_number,
         movement_date: invoiceData.issue_date || today()
       });
+    }
+
+    // Post COGS journal entry if we have inventory items
+    // Dr 5100 تكلفة البضاعة المباعة | Cr 1300 المخزون
+    if (totalCOGS > 0) {
+      const cogsRef  = invoiceData.invoice_number + '-COGS';
+      const { data: existing } = await sb.from('journal_entries')
+        .select('id').eq('reference', cogsRef).eq('user_id', currentUser.id).limit(1);
+
+      let cogsEntryId;
+      if (existing && existing.length) {
+        cogsEntryId = existing[0].id;
+        await sb.from('journal_lines').delete().eq('entry_id', cogsEntryId);
+      } else {
+        const { data: cogsEntry } = await sb.from('journal_entries').insert({
+          user_id:     currentUser.id,
+          business_id: currentBiz.id,
+          entry_date:  invoiceData.issue_date || today(),
+          reference:   cogsRef,
+          description: (currentLang==='ar'?'تكلفة البضاعة المباعة — ':'Cost of goods sold — ') + invoiceData.invoice_number,
+          source:      'invoice',
+          source_id:   invoiceId,
+          status:      'posted',
+          is_balanced: true
+        }).select().single();
+        if (cogsEntry) cogsEntryId = cogsEntry.id;
+      }
+
+      if (cogsEntryId) {
+        await sb.from('journal_lines').insert([
+          {
+            entry_id:     cogsEntryId,
+            user_id:      currentUser.id,
+            account_code: '5100',
+            account_name: 'تكلفة البضاعة المباعة',
+            debit:        totalCOGS,
+            credit:       0,
+            description:  (currentLang==='ar'?'تكلفة مبيعات — ':'COGS — ') + invoiceData.invoice_number
+          },
+          {
+            entry_id:     cogsEntryId,
+            user_id:      currentUser.id,
+            account_code: '1300',
+            account_name: 'المخزون',
+            debit:        0,
+            credit:       totalCOGS,
+            description:  (currentLang==='ar'?'إخراج من المخزون — ':'Inventory out — ') + invoiceData.invoice_number
+          }
+        ]);
+      }
     }
   }
   await autoPostInvoice({
