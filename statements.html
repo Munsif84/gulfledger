@@ -1,0 +1,683 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GulfLedger — القوائم المالية</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&family=Playfair+Display:wght@700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#C62828;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--border:#d4e6f7;--bg:#f7fafd;--white:#ffffff;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;}
+.topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;}
+.nav-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
+.nav-bars{display:flex;gap:3px;height:22px;}
+.nav-bar{width:3px;border-radius:2px;}
+.nav-name{font-family:'Playfair Display',serif;font-size:16px;color:#fff;}
+.nav-right{display:flex;align-items:center;gap:10px;}
+.nav-biz{font-size:12px;color:var(--light);}
+.btn-logout{padding:5px 14px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
+.lang-switch{display:flex;border:1px solid rgba(255,255,255,0.2);border-radius:6px;overflow:hidden;}
+.lang-btn{padding:4px 10px;font-size:11px;cursor:pointer;border:none;background:transparent;color:rgba(255,255,255,0.6);font-family:'Tajawal',sans-serif;}
+.lang-btn.on{background:var(--sky);color:#fff;}
+.app-nav{background:var(--blue);padding:8px 20px;display:flex;gap:4px;align-items:center;overflow-x:auto;}
+.app-nav-link{padding:5px 14px;font-size:12px;font-weight:500;color:rgba(255,255,255,0.7);text-decoration:none;border-radius:6px;white-space:nowrap;}
+.app-nav-link:hover{background:rgba(255,255,255,0.12);color:#fff;}
+.app-nav-link.active{background:rgba(255,255,255,0.18);color:#fff;}
+
+/* LAYOUT */
+.layout{display:grid;grid-template-columns:200px 1fr;min-height:calc(100vh - 88px);}
+.sidebar{background:var(--white);border-left:1px solid var(--border);padding:14px 0;overflow-y:auto;}
+.sb-sec{padding:0 12px;margin-bottom:8px;}
+.sb-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);padding:8px 6px 5px;display:block;}
+.sb-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px;color:var(--ink);margin-bottom:2px;user-select:none;transition:background .15s;}
+.sb-item:hover{background:var(--tint);color:var(--blue);}
+.sb-item.active{background:var(--tint);color:var(--blue);font-weight:600;border-right:3px solid var(--blue);}
+.sb-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.main{padding:20px;overflow-y:auto;}
+
+/* PERIOD BAR */
+.period-bar{background:var(--white);border:1px solid var(--border);border-radius:10px;padding:13px 18px;margin-bottom:20px;display:flex;align-items:center;gap:12px;flex-wrap:wrap;}
+.period-bar label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+.period-bar select,.period-bar input{padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:13px;color:var(--ink);}
+.btn-gen{padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;}
+.btn-gen:hover{background:var(--navy);}
+
+/* TABS */
+.tc{display:none;}.tc.active{display:block;}
+
+/* STATEMENT DOC */
+.stmt-doc{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px;}
+.stmt-header{background:var(--navy);padding:18px 24px;}
+.stmt-biz{font-family:'Playfair Display',serif;font-size:18px;color:#fff;margin-bottom:3px;}
+.stmt-title{font-size:13px;color:var(--light);font-weight:500;}
+.stmt-period{font-size:11px;color:rgba(255,255,255,0.5);margin-top:3px;}
+.stmt-body{padding:0;}
+
+/* STATEMENT ROWS */
+.stmt-section{margin-bottom:0;}
+.stmt-group{background:var(--tint);padding:8px 22px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--navy);border-bottom:1px solid var(--border);}
+.stmt-row{display:flex;justify-content:space-between;padding:10px 22px;border-bottom:1px solid var(--tint);font-size:13px;}
+.stmt-row:last-child{border-bottom:none;}
+.stmt-row.indent{padding-right:36px;}
+.stmt-row.subtotal{background:var(--tint);font-weight:600;color:var(--navy);}
+.stmt-row.total{background:var(--navy);color:#fff;font-size:14px;font-weight:700;padding:12px 22px;}
+.stmt-row.profit{background:var(--green);color:#fff;font-size:15px;font-weight:700;padding:14px 22px;}
+.stmt-row.loss{background:var(--red);color:#fff;font-size:15px;font-weight:700;padding:14px 22px;}
+.stmt-val{font-family:'DM Mono',monospace;font-weight:500;}
+.stmt-val.green{color:var(--green);}
+.stmt-val.red{color:var(--red);}
+.stmt-val.white{color:#fff;}
+.stmt-label{color:var(--ink);}
+
+/* ZAKAT */
+.zakat-box{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px;}
+.zakat-header{background:linear-gradient(135deg,#0C447C,#1D9E75);padding:16px 22px;}
+.zakat-title{font-family:'Playfair Display',serif;font-size:16px;color:#fff;}
+.zakat-sub{font-size:11px;color:rgba(255,255,255,0.6);margin-top:2px;}
+.zakat-row{display:flex;justify-content:space-between;padding:10px 22px;border-bottom:1px solid var(--tint);font-size:13px;}
+.zakat-row:last-child{border-bottom:none;}
+.zakat-row.total{background:linear-gradient(135deg,#0C447C,#1D9E75);color:#fff;font-size:14px;font-weight:700;padding:13px 22px;}
+.zakat-val{font-family:'DM Mono',monospace;font-weight:600;}
+
+/* QAWAEM */
+.qawaem-box{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;}
+.qawaem-title{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+.qawaem-step{background:var(--tint);border-radius:8px;padding:14px;margin-bottom:10px;}
+.qawaem-step-num{font-size:11px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;}
+.qawaem-step-text{font-size:12px;color:var(--ink);line-height:1.6;}
+.qawaem-badge{background:var(--green);color:#fff;font-size:10px;font-weight:700;padding:2px 9px;border-radius:8px;display:inline-block;margin-right:6px;}
+
+/* BUTTONS */
+.btn-p{padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;}
+.btn-p:hover{background:var(--navy);}
+.btn-s{padding:8px 16px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;text-decoration:none;display:inline-block;}
+.btn-s:hover{border-color:var(--blue);}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
+
+/* NOTE */
+.note-box{display:flex;align-items:flex-start;gap:8px;padding:10px 13px;border-radius:8px;margin-bottom:13px;font-size:12px;line-height:1.5;}
+.note-box.amber{background:#fffbeb;border:1px solid #fde68a;color:var(--amber);}
+.note-box.blue{background:var(--tint);border:1px solid var(--light);color:var(--navy);}
+
+@media print{
+  .topnav,.app-nav,.sidebar,.period-bar,.btn-row,.qawaem-box{display:none!important;}
+  .layout{display:block;}
+  .main{padding:0;}
+  .stmt-doc,.zakat-box{border:1px solid #000;border-radius:0;margin-bottom:20px;}
+}
+@media(max-width:768px){
+  .layout{grid-template-columns:1fr;}
+  .sidebar{display:none;}
+}
+</style>
+</head>
+<body>
+
+<div class="topnav">
+  <a href="dashboard.html" class="nav-logo">
+    <div class="nav-bars">
+      <div class="nav-bar" style="background:#fff;"></div>
+      <div class="nav-bar" style="background:rgba(255,255,255,0.45);"></div>
+    </div>
+    <span class="nav-name">Gulf<span style="color:var(--light);">Ledger</span></span>
+  </a>
+  <div class="nav-right">
+    <div class="lang-switch">
+      <button class="lang-btn on" id="btn-ar" onclick="setLang('ar')">ع</button>
+      <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
+    </div>
+    <span class="nav-biz" id="biz-name">...</span>
+    <button class="btn-logout" onclick="logout()" data-ar="خروج" data-en="Sign Out">خروج</button>
+  </div>
+</div>
+
+<div class="app-nav">
+  <a href="dashboard.html"  class="app-nav-link" data-ar="الرئيسية"           data-en="Dashboard">الرئيسية</a>
+  <a href="invoices.html"   class="app-nav-link" data-ar="الفواتير"           data-en="Invoices">الفواتير</a>
+  <a href="inventory.html"  class="app-nav-link" data-ar="المخزون"            data-en="Inventory">المخزون</a>
+  <a href="ledger.html"     class="app-nav-link" data-ar="دفتر الأستاذ"       data-en="Ledger">دفتر الأستاذ</a>
+  <a href="vat.html"        class="app-nav-link" data-ar="إقرار VAT"          data-en="VAT Return">إقرار VAT</a>
+  <a href="statements.html" class="app-nav-link active" data-ar="القوائم المالية" data-en="Statements">القوائم المالية</a>
+  <a href="settings.html"   class="app-nav-link" data-ar="الإعدادات"          data-en="Settings">الإعدادات</a>
+</div>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sb-sec">
+      <span class="sb-lbl" data-ar="القوائم" data-en="Statements">القوائم</span>
+      <div class="sb-item active" id="sb-income"  onclick="goTab('income')">
+        <div class="sb-dot" style="background:var(--green);"></div>
+        <span data-ar="قائمة الدخل"       data-en="Income Statement">قائمة الدخل</span>
+      </div>
+      <div class="sb-item" id="sb-balance" onclick="goTab('balance')">
+        <div class="sb-dot" style="background:var(--blue);"></div>
+        <span data-ar="الميزانية العمومية" data-en="Balance Sheet">الميزانية العمومية</span>
+      </div>
+      <div class="sb-item" id="sb-zakat"   onclick="goTab('zakat')">
+        <div class="sb-dot" style="background:var(--amber);"></div>
+        <span data-ar="حساب الزكاة"       data-en="Zakat Calculation">حساب الزكاة</span>
+      </div>
+      <div class="sb-item" id="sb-qawaem"  onclick="goTab('qawaem')">
+        <div class="sb-dot" style="background:#6d28d9;"></div>
+        <span data-ar="رفع على قوائم"     data-en="Submit to Qawaem">رفع على قوائم</span>
+      </div>
+    </div>
+    <div class="sb-sec">
+      <span class="sb-lbl" data-ar="ملخص" data-en="Summary">ملخص</span>
+      <div style="padding:6px;font-size:11px;color:var(--muted);line-height:1.8;">
+        <div><span data-ar="الإيرادات: " data-en="Revenue: ">الإيرادات: </span><span class="c-green" id="sb-revenue">—</span></div>
+        <div><span data-ar="المصاريف: " data-en="Expenses: ">المصاريف: </span><span class="c-red" id="sb-expenses">—</span></div>
+        <div><span data-ar="صافي الربح: " data-en="Net Profit: ">صافي الربح: </span><span id="sb-profit" style="font-weight:700;">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="main">
+
+    <!-- PERIOD BAR -->
+    <div class="period-bar">
+      <div>
+        <label data-ar="من" data-en="From">من</label>
+        <input type="date" id="stmt-from">
+      </div>
+      <div>
+        <label data-ar="إلى" data-en="To">إلى</label>
+        <input type="date" id="stmt-to">
+      </div>
+      <div>
+        <label data-ar="السنة المالية" data-en="Fiscal Year">السنة المالية</label>
+        <select id="fiscal-year" onchange="setFiscalYear()">
+          <option value="2026">2026</option>
+          <option value="2025">2025</option>
+          <option value="2024">2024</option>
+        </select>
+      </div>
+      <button class="btn-gen" onclick="generateStatements()" data-ar="إنشاء القوائم" data-en="Generate Statements">إنشاء القوائم</button>
+      <button class="btn-s" onclick="window.print()" style="font-size:12px;" data-ar="🖨 طباعة" data-en="🖨 Print">🖨 طباعة</button>
+    </div>
+
+    <!-- TAB: INCOME STATEMENT -->
+    <div class="tc active" id="tc-income">
+
+      <div class="note-box blue">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+        <span data-ar="قائمة الدخل محتسبة من الفواتير والقيود المحاسبية المسجّلة في النظام. راجع دقة القيود قبل الرفع على قوائم." data-en="Income statement calculated from invoices and journal entries. Verify accuracy before submitting to Qawaem.">قائمة الدخل محتسبة من الفواتير والقيود المسجّلة. راجع الدقة قبل الرفع على قوائم.</span>
+      </div>
+
+      <div class="stmt-doc" id="income-doc">
+        <div class="stmt-header">
+          <div class="stmt-biz" id="inc-biz-name">—</div>
+          <div class="stmt-title" data-ar="قائمة الدخل" data-en="Income Statement">قائمة الدخل</div>
+          <div class="stmt-period" id="inc-period">—</div>
+        </div>
+        <div class="stmt-body" id="income-body">
+          <div style="text-align:center;padding:30px;color:var(--muted);font-size:13px;" data-ar="اضغط 'إنشاء القوائم' لعرض النتائج" data-en="Click 'Generate Statements' to view results">اضغط "إنشاء القوائم" لعرض النتائج</div>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn-p" onclick="generateStatements()" data-ar="تحديث القوائم" data-en="Refresh">تحديث القوائم</button>
+        <button class="btn-s" onclick="goTab('balance')" data-ar="الميزانية العمومية ←" data-en="Balance Sheet →">الميزانية العمومية ←</button>
+        <button class="btn-s" onclick="goTab('zakat')" data-ar="حساب الزكاة ←" data-en="Zakat →">حساب الزكاة ←</button>
+      </div>
+    </div>
+
+    <!-- TAB: BALANCE SHEET -->
+    <div class="tc" id="tc-balance">
+      <div class="stmt-doc" id="balance-doc">
+        <div class="stmt-header">
+          <div class="stmt-biz" id="bal-biz-name">—</div>
+          <div class="stmt-title" data-ar="الميزانية العمومية" data-en="Balance Sheet">الميزانية العمومية</div>
+          <div class="stmt-period" id="bal-period">—</div>
+        </div>
+        <div class="stmt-body" id="balance-body">
+          <div style="text-align:center;padding:30px;color:var(--muted);font-size:13px;" data-ar="اضغط 'إنشاء القوائم' لعرض النتائج" data-en="Click 'Generate Statements' to view results">اضغط "إنشاء القوائم" لعرض النتائج</div>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn-s" onclick="goTab('income')" data-ar="قائمة الدخل ←" data-en="Income Statement →">قائمة الدخل ←</button>
+        <button class="btn-s" onclick="goTab('zakat')" data-ar="حساب الزكاة ←" data-en="Zakat →">حساب الزكاة ←</button>
+      </div>
+    </div>
+
+    <!-- TAB: ZAKAT -->
+    <div class="tc" id="tc-zakat">
+      <div class="note-box amber">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span data-ar="الزكاة محتسبة وفق طريقة الأصول المتداولة المعدّلة المعتمدة من هيئة الزكاة والضريبة. النسبة 2.5% من وعاء الزكاة." data-en="Zakat calculated per the adjusted net assets method approved by ZATCA. Rate: 2.5% of Zakat base.">الزكاة محتسبة وفق طريقة الأصول المتداولة المعدّلة. النسبة 2.5% من وعاء الزكاة.</span>
+      </div>
+
+      <div class="zakat-box" id="zakat-doc">
+        <div class="zakat-header">
+          <div class="zakat-title" data-ar="حساب الزكاة السنوية" data-en="Annual Zakat Calculation">حساب الزكاة السنوية</div>
+          <div class="zakat-sub" id="zakat-period">—</div>
+        </div>
+        <div id="zakat-body">
+          <div style="text-align:center;padding:30px;color:var(--muted);font-size:13px;" data-ar="اضغط 'إنشاء القوائم' لعرض النتائج" data-en="Click 'Generate Statements' to view results">اضغط "إنشاء القوائم" لعرض النتائج</div>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn-s" onclick="goTab('qawaem')" data-ar="رفع على قوائم ←" data-en="Submit to Qawaem →">رفع على قوائم ←</button>
+        <a href="vat.html" class="btn-s" data-ar="إقرار VAT ←" data-en="VAT Return →">إقرار VAT ←</a>
+      </div>
+    </div>
+
+    <!-- TAB: QAWAEM -->
+    <div class="tc" id="tc-qawaem">
+      <div class="note-box blue">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+        <span data-ar="منصة قوائم هي بوابة الهيئة السعودية للمحاسبين القانونيين (SOCPA) لرفع القوائم المالية السنوية. الرفع إلزامي لجميع الشركات." data-en="Qawaem is the SOCPA portal for annual financial statement filing. Filing is mandatory for all companies.">منصة قوائم هي بوابة SOCPA لرفع القوائم المالية السنوية. الرفع إلزامي.</span>
+      </div>
+
+      <div class="qawaem-box">
+        <div class="qawaem-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span data-ar="خطوات الرفع على منصة قوائم" data-en="Steps to Submit on Qawaem Platform">خطوات الرفع على منصة قوائم</span>
+        </div>
+
+        <div class="qawaem-step">
+          <div class="qawaem-step-num" data-ar="الخطوة الأولى" data-en="Step 1">الخطوة الأولى</div>
+          <div class="qawaem-step-text" data-ar="اطبع القوائم المالية من هذه الصفحة — قائمة الدخل والميزانية العمومية" data-en="Print financial statements from this page — income statement and balance sheet">اطبع القوائم المالية من هذه الصفحة — قائمة الدخل والميزانية العمومية</div>
+        </div>
+
+        <div class="qawaem-step">
+          <div class="qawaem-step-num" data-ar="الخطوة الثانية" data-en="Step 2">الخطوة الثانية</div>
+          <div class="qawaem-step-text">
+            <span data-ar="افتح منصة قوائم على:" data-en="Open Qawaem platform at:">افتح منصة قوائم على:</span>
+            <a href="https://qawaem.bc.gov.sa" target="_blank" style="color:var(--blue);font-weight:700;margin-right:6px;">qawaem.bc.gov.sa</a>
+          </div>
+        </div>
+
+        <div class="qawaem-step">
+          <div class="qawaem-step-num" data-ar="الخطوة الثالثة" data-en="Step 3">الخطوة الثالثة</div>
+          <div class="qawaem-step-text" data-ar="سجّل الدخول عبر نفاذ ← اختر 'إنشاء قوائم مالية' ← أدخل البيانات من القوائم المطبوعة" data-en="Login via Nafath → Select 'Create Financial Statements' → Enter data from printed statements">سجّل الدخول عبر نفاذ ← اختر "إنشاء قوائم مالية" ← أدخل البيانات</div>
+        </div>
+
+        <div class="qawaem-step">
+          <div class="qawaem-step-num" data-ar="الخطوة الرابعة" data-en="Step 4">الخطوة الرابعة</div>
+          <div class="qawaem-step-text" data-ar="راجع القوائم وأرسلها — ستحصل على رقم مرجعي وشهادة تقديم" data-en="Review and submit — you will receive a reference number and submission certificate">راجع وأرسل — ستحصل على رقم مرجعي وشهادة تقديم</div>
+        </div>
+
+        <div style="margin-top:14px;padding:12px 14px;background:var(--tint);border-radius:8px;">
+          <div style="font-size:11px;font-weight:700;color:var(--navy);margin-bottom:6px;" data-ar="البيانات الجاهزة للرفع" data-en="Data ready for submission">البيانات الجاهزة للرفع</div>
+          <div id="qawaem-summary" style="font-size:12px;color:var(--muted);line-height:1.8;">
+            <span data-ar="احتسب القوائم أولاً لعرض ملخص الرفع" data-en="Generate statements first to view submission summary">احتسب القوائم أولاً لعرض ملخص الرفع</span>
+          </div>
+        </div>
+
+        <div class="btn-row" style="margin-top:14px;">
+          <a href="https://qawaem.bc.gov.sa" target="_blank" class="btn-p" style="text-decoration:none;font-size:13px;" data-ar="فتح منصة قوائم ←" data-en="Open Qawaem Platform →">فتح منصة قوائم ←</a>
+          <button class="btn-s" onclick="window.print()" data-ar="🖨 طباعة القوائم" data-en="🖨 Print Statements">🖨 طباعة القوائم</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let currentUser = null;
+let currentBiz  = null;
+let L = 'ar';
+let stmtData = {};
+
+/* ── INIT ── */
+async function init() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { window.location.href = 'index.html'; return; }
+  currentUser = session.user;
+
+  const { data: biz } = await sb.from('businesses').select('*').eq('user_id', currentUser.id).single();
+  if (biz) {
+    currentBiz = biz;
+    document.getElementById('biz-name').textContent = biz.name;
+  }
+
+  setFiscalYear();
+  setLang('ar');
+}
+
+function setFiscalYear() {
+  const yr = document.getElementById('fiscal-year').value;
+  document.getElementById('stmt-from').value = yr + '-01-01';
+  document.getElementById('stmt-to').value   = yr + '-12-31';
+}
+
+/* ── GENERATE ALL STATEMENTS ── */
+async function generateStatements() {
+  const from = document.getElementById('stmt-from').value;
+  const to   = document.getElementById('stmt-to').value;
+  if (!from || !to) { notify(L==='ar'?'اختر الفترة':'Select period', 'r'); return; }
+
+  const periodLabel = from + ' — ' + to;
+  const bizName     = currentBiz?.name || '—';
+
+  // Load invoices (revenue)
+  const { data: invoices } = await sb.from('invoices')
+    .select('*').eq('user_id', currentUser.id)
+    .gte('issue_date', from).lte('issue_date', to);
+
+  // Load journal entries with lines (expenses)
+  const { data: entries } = await sb.from('journal_entries')
+    .select('*, journal_lines(*)')
+    .eq('user_id', currentUser.id)
+    .gte('entry_date', from).lte('entry_date', to);
+
+  // Load inventory for COGS and balance sheet
+  const { data: invItems } = await sb.from('inventory_items')
+    .select('*').eq('user_id', currentUser.id);
+
+  // Load last inventory snapshot for opening stock
+  const { data: snapshots } = await sb.from('inventory_snapshots')
+    .select('*').eq('business_id', currentBiz?.id)
+    .lt('snapshot_date', from)
+    .order('snapshot_date', { ascending: false }).limit(1);
+
+  /* ── REVENUE ── */
+  const revenue     = (invoices||[]).reduce((s,i) => s + (i.subtotal||0), 0);
+  const vatOutput   = (invoices||[]).reduce((s,i) => s + (i.vat_amount||0), 0);
+  const invCount    = (invoices||[]).length;
+
+  /* ── COGS from ledger entries (account 5100) ── */
+  let cogs = 0, salaries = 0, rent = 0, utilities = 0, marketing = 0, depreciation = 0, bankCharges = 0, misc = 0, zakat = 0;
+  let cash = 0, receivables = 0, prepaid = 0, fixedAssets = 0, accumDeprec = 0;
+  let payables = 0, vatPayable = 0, loans = 0;
+  let capital = 0, retained = 0;
+
+  (entries||[]).forEach(e => {
+    (e.journal_lines||[]).forEach(l => {
+      const dr = l.debit  || 0;
+      const cr = l.credit || 0;
+      switch(l.account_code) {
+        case '5100': cogs        += dr; break;
+        case '5200': salaries    += dr; break;
+        case '5300': rent        += dr; break;
+        case '5400': utilities   += dr; break;
+        case '5500': marketing   += dr; break;
+        case '5600': depreciation+= dr; break;
+        case '5700': bankCharges += dr; break;
+        case '5800': misc        += dr; break;
+        case '5900': zakat       += dr; break;
+        case '1100': cash        += dr - cr; break;
+        case '1200': receivables += dr - cr; break;
+        case '1400': prepaid     += dr - cr; break;
+        case '1500': case '1600': fixedAssets  += dr - cr; break;
+        case '1700': accumDeprec += cr - dr; break;
+        case '2100': payables    += cr - dr; break;
+        case '2200': case '2210': vatPayable  += cr - dr; break;
+        case '2300': case '2500': loans       += cr - dr; break;
+        case '3100': capital     += cr - dr; break;
+        case '3200': retained    += cr - dr; break;
+      }
+    });
+  });
+
+  // If no COGS from ledger, calculate from inventory
+  if (cogs === 0 && invItems && invItems.length) {
+    const openingVal = snapshots && snapshots.length ? snapshots[0].total_value : 0;
+    const closingVal = (invItems||[]).reduce((s,i) => s + (i.cost_price||0)*(i.current_qty||0), 0);
+    const purchases  = 0; // would need to sum PO receipts
+    cogs = Math.max(0, openingVal + purchases - closingVal);
+  }
+
+  // Inventory asset value
+  const inventoryVal = (invItems||[]).reduce((s,i) => s + (i.cost_price||0)*(i.current_qty||0), 0);
+
+  // Cash from invoices (simplified)
+  if (cash === 0) cash = revenue;
+  if (receivables === 0) receivables = 0;
+
+  const grossProfit  = revenue - cogs;
+  const totalExpenses= salaries + rent + utilities + marketing + depreciation + bankCharges + misc;
+  const ebitda       = grossProfit - totalExpenses;
+  const netProfit    = ebitda - zakat;
+
+  stmtData = { revenue, cogs, grossProfit, totalExpenses, salaries, rent, utilities, marketing,
+    depreciation, bankCharges, misc, zakat, ebitda, netProfit, vatOutput,
+    cash, receivables, inventoryVal, prepaid, fixedAssets, accumDeprec,
+    payables, vatPayable, loans, capital, retained, invCount, periodLabel, bizName, from, to };
+
+  renderIncomeStatement();
+  renderBalanceSheet();
+  renderZakat();
+  renderQawaemSummary();
+
+  // Update sidebar
+  document.getElementById('sb-revenue').textContent  = 'SAR ' + fmt(revenue);
+  document.getElementById('sb-expenses').textContent = 'SAR ' + fmt(cogs + totalExpenses);
+  document.getElementById('sb-profit').textContent   = 'SAR ' + fmt(netProfit);
+  document.getElementById('sb-profit').style.color   = netProfit >= 0 ? 'var(--green)' : 'var(--red)';
+}
+
+/* ── INCOME STATEMENT ── */
+function renderIncomeStatement() {
+  const d = stmtData;
+  const L2 = L;
+
+  document.getElementById('inc-biz-name').textContent = d.bizName;
+  document.getElementById('inc-period').textContent   = (L2==='ar'?'للفترة المنتهية في ':'For period ending ') + d.to;
+
+  const rows = (label, val, cls='', indent=false) =>
+    `<div class="stmt-row${indent?' indent':''}${cls?' '+cls:''}">
+      <span class="stmt-label">${label}</span>
+      <span class="stmt-val${val<0?' red':val>0?' green':''}">${val<0?'('+fmt(-val)+')':fmt(val)}</span>
+    </div>`;
+
+  document.getElementById('income-body').innerHTML = `
+    <div class="stmt-group" data-group="rev">${L2==='ar'?'الإيرادات':'Revenue'}</div>
+    ${rows(L2==='ar'?'إيرادات المبيعات':'Sales Revenue', d.revenue)}
+    ${rows(L2==='ar'?'(عدد الفواتير: '+d.invCount+')':'(Invoices: '+d.invCount+')', 0, 'indent')}
+
+    <div class="stmt-group">${L2==='ar'?'تكلفة البضاعة المباعة':'Cost of Goods Sold'}</div>
+    ${rows(L2==='ar'?'تكلفة المبيعات (COGS)':'Cost of Sales (COGS)', d.cogs)}
+    <div class="stmt-row subtotal">
+      <span>${L2==='ar'?'مجمل الربح':'Gross Profit'}</span>
+      <span class="stmt-val${d.grossProfit>=0?' green':' red'}">${fmt(Math.abs(d.grossProfit))}</span>
+    </div>
+
+    <div class="stmt-group">${L2==='ar'?'المصاريف التشغيلية':'Operating Expenses'}</div>
+    ${d.salaries>0    ? rows(L2==='ar'?'مصاريف الرواتب':'Salaries', d.salaries, '', true) : ''}
+    ${d.rent>0        ? rows(L2==='ar'?'مصاريف الإيجار':'Rent', d.rent, '', true) : ''}
+    ${d.utilities>0   ? rows(L2==='ar'?'مصاريف الكهرباء والمياه':'Utilities', d.utilities, '', true) : ''}
+    ${d.marketing>0   ? rows(L2==='ar'?'مصاريف التسويق':'Marketing', d.marketing, '', true) : ''}
+    ${d.depreciation>0? rows(L2==='ar'?'مصاريف الإهلاك':'Depreciation', d.depreciation, '', true) : ''}
+    ${d.bankCharges>0 ? rows(L2==='ar'?'مصاريف بنكية':'Bank Charges', d.bankCharges, '', true) : ''}
+    ${d.misc>0        ? rows(L2==='ar'?'مصاريف متنوعة':'Misc Expenses', d.misc, '', true) : ''}
+    ${d.totalExpenses===0 ? `<div class="stmt-row indent"><span style="color:var(--muted);font-size:12px;">${L2==='ar'?'لا توجد مصاريف مسجّلة — أضف قيوداً في دفتر الأستاذ':'No expenses recorded — add entries in the ledger'}</span></div>` : ''}
+    <div class="stmt-row subtotal">
+      <span>${L2==='ar'?'إجمالي المصاريف':'Total Expenses'}</span>
+      <span class="stmt-val red">${fmt(d.totalExpenses)}</span>
+    </div>
+
+    <div class="stmt-group">${L2==='ar'?'صافي الربح قبل الزكاة':'Net Profit before Zakat'}</div>
+    <div class="stmt-row subtotal">
+      <span>${L2==='ar'?'الربح قبل الزكاة':'Profit before Zakat'}</span>
+      <span class="stmt-val${d.ebitda>=0?' green':' red'}">${d.ebitda<0?'('+fmt(-d.ebitda)+')':fmt(d.ebitda)}</span>
+    </div>
+    ${d.zakat>0 ? rows(L2==='ar'?'الزكاة المستحقة':'Zakat', d.zakat) : ''}
+
+    <div class="stmt-row ${d.netProfit>=0?'profit':'loss'}">
+      <span>${L2==='ar'?'صافي الربح (الخسارة)':'Net Profit (Loss)'}</span>
+      <span class="stmt-val white">${d.netProfit<0?'('+fmt(-d.netProfit)+')':fmt(d.netProfit)} SAR</span>
+    </div>`;
+}
+
+/* ── BALANCE SHEET ── */
+function renderBalanceSheet() {
+  const d  = stmtData;
+  const L2 = L;
+
+  document.getElementById('bal-biz-name').textContent = d.bizName;
+  document.getElementById('bal-period').textContent   = (L2==='ar'?'كما في ':'As at ') + d.to;
+
+  const totalCurrentAssets  = d.cash + d.receivables + d.inventoryVal + d.prepaid;
+  const totalFixedAssets     = d.fixedAssets - d.accumDeprec;
+  const totalAssets          = totalCurrentAssets + totalFixedAssets;
+  const totalCurrentLiab     = d.payables + d.vatPayable;
+  const totalLongTermLiab    = d.loans;
+  const totalLiabilities     = totalCurrentLiab + totalLongTermLiab;
+  const equityRetained       = d.retained + d.netProfit;
+  const totalEquity          = d.capital + equityRetained;
+  const totalLiabEquity      = totalLiabilities + totalEquity;
+
+  const row = (label, val, bold=false, indent=false) =>
+    `<div class="stmt-row${indent?' indent':''}">
+      <span class="stmt-label" style="${bold?'font-weight:700;':''}">${label}</span>
+      <span class="stmt-val">${fmt(val)}</span>
+    </div>`;
+
+  document.getElementById('balance-body').innerHTML = `
+    <div class="stmt-group">${L2==='ar'?'الأصول المتداولة':'Current Assets'}</div>
+    ${row(L2==='ar'?'النقد وما في حكمه':'Cash & Equivalents', d.cash, false, true)}
+    ${row(L2==='ar'?'ذمم مدينة':'Receivables', d.receivables, false, true)}
+    ${row(L2==='ar'?'المخزون':'Inventory', d.inventoryVal, false, true)}
+    ${d.prepaid>0?row(L2==='ar'?'مصاريف مدفوعة مقدماً':'Prepaid Expenses', d.prepaid, false, true):''}
+    <div class="stmt-row subtotal"><span>${L2==='ar'?'إجمالي الأصول المتداولة':'Total Current Assets'}</span><span class="stmt-val">${fmt(totalCurrentAssets)}</span></div>
+
+    <div class="stmt-group">${L2==='ar'?'الأصول الثابتة':'Fixed Assets'}</div>
+    ${d.fixedAssets>0?row(L2==='ar'?'الأصول الثابتة — إجمالي':'Fixed Assets — Gross', d.fixedAssets, false, true):''}
+    ${d.accumDeprec>0?row(L2==='ar'?'يُطرح: مجمع الإهلاك':'Less: Accumulated Depreciation', -d.accumDeprec, false, true):''}
+    <div class="stmt-row subtotal"><span>${L2==='ar'?'صافي الأصول الثابتة':'Net Fixed Assets'}</span><span class="stmt-val">${fmt(totalFixedAssets)}</span></div>
+
+    <div class="stmt-row total"><span>${L2==='ar'?'إجمالي الأصول':'TOTAL ASSETS'}</span><span class="stmt-val white">${fmt(totalAssets)}</span></div>
+
+    <div class="stmt-group">${L2==='ar'?'الخصوم المتداولة':'Current Liabilities'}</div>
+    ${d.payables>0?row(L2==='ar'?'ذمم دائنة':'Payables', d.payables, false, true):''}
+    ${d.vatPayable>0?row(L2==='ar'?'ضريبة القيمة المضافة المستحقة':'VAT Payable', d.vatPayable, false, true):''}
+    <div class="stmt-row subtotal"><span>${L2==='ar'?'إجمالي الخصوم المتداولة':'Total Current Liabilities'}</span><span class="stmt-val">${fmt(totalCurrentLiab)}</span></div>
+
+    ${d.loans>0?`
+    <div class="stmt-group">${L2==='ar'?'الخصوم طويلة الأجل':'Long-term Liabilities'}</div>
+    ${row(L2==='ar'?'قروض طويلة الأجل':'Long-term Loans', d.loans, false, true)}
+    `:''}
+
+    <div class="stmt-row subtotal"><span>${L2==='ar'?'إجمالي الخصوم':'Total Liabilities'}</span><span class="stmt-val">${fmt(totalLiabilities)}</span></div>
+
+    <div class="stmt-group">${L2==='ar'?'حقوق الملكية':'Equity'}</div>
+    ${d.capital>0?row(L2==='ar'?'رأس المال':'Share Capital', d.capital, false, true):''}
+    ${row(L2==='ar'?'الأرباح المحتجزة وصافي الربح':'Retained Earnings + Net Profit', equityRetained, false, true)}
+    <div class="stmt-row subtotal"><span>${L2==='ar'?'إجمالي حقوق الملكية':'Total Equity'}</span><span class="stmt-val">${fmt(totalEquity)}</span></div>
+
+    <div class="stmt-row total"><span>${L2==='ar'?'إجمالي الخصوم وحقوق الملكية':'TOTAL LIABILITIES & EQUITY'}</span><span class="stmt-val white">${fmt(totalLiabEquity)}</span></div>
+
+    ${Math.abs(totalAssets - totalLiabEquity) > 1 ? `
+    <div style="padding:10px 22px;background:#fffbeb;font-size:11px;color:var(--amber);">
+      ⚠ ${L2==='ar'?'الميزانية غير متوازنة — الفجوة: SAR '+fmt(Math.abs(totalAssets-totalLiabEquity))+' — أضف قيوداً في دفتر الأستاذ لتسوية الفروقات':'Balance sheet unbalanced — gap: SAR '+fmt(Math.abs(totalAssets-totalLiabEquity))+' — add journal entries to reconcile'}
+    </div>` : ''}`;
+}
+
+/* ── ZAKAT ── */
+function renderZakat() {
+  const d  = stmtData;
+  const L2 = L;
+
+  document.getElementById('zakat-period').textContent = (L2==='ar'?'السنة المالية: ':'Fiscal Year: ') + d.from.substring(0,4);
+
+  // Zakat base = Net Working Capital
+  const currentAssets = d.cash + d.receivables + d.inventoryVal + d.prepaid;
+  const currentLiab   = d.payables + d.vatPayable;
+  const workingCap    = currentAssets - currentLiab;
+  const zakatBase     = Math.max(0, workingCap);
+  const zakatDue      = zakatBase * 0.025;
+  const nisab         = 20650; // approx SAR nisab for 2026
+
+  document.getElementById('zakat-body').innerHTML = `
+    <div class="zakat-row">
+      <span>${L2==='ar'?'إجمالي الأصول المتداولة':'Total Current Assets'}</span>
+      <span class="zakat-val">SAR ${fmt(currentAssets)}</span>
+    </div>
+    <div class="zakat-row">
+      <span>${L2==='ar'?'يُطرح: الخصوم المتداولة':'Less: Current Liabilities'}</span>
+      <span class="zakat-val" style="color:var(--red);">(SAR ${fmt(currentLiab)})</span>
+    </div>
+    <div class="zakat-row" style="background:var(--tint);font-weight:600;">
+      <span>${L2==='ar'?'رأس المال العامل (وعاء الزكاة)':'Working Capital (Zakat Base)'}</span>
+      <span class="zakat-val" style="color:var(--navy);">SAR ${fmt(zakatBase)}</span>
+    </div>
+    <div class="zakat-row">
+      <span>${L2==='ar'?'نسبة الزكاة':'Zakat Rate'}</span>
+      <span class="zakat-val">2.5%</span>
+    </div>
+    <div class="zakat-row">
+      <span>${L2==='ar'?'النصاب (تقريباً)':'Nisab (approx)'}</span>
+      <span class="zakat-val">SAR ${fmt(nisab)}</span>
+    </div>
+    <div class="zakat-row">
+      <span>${L2==='ar'?'هل وعاء الزكاة يبلغ النصاب؟':'Zakat base meets Nisab?'}</span>
+      <span class="zakat-val" style="color:${zakatBase>=nisab?'var(--green)':'var(--muted)'};font-weight:700;">${zakatBase>=nisab?(L2==='ar'?'✓ نعم':'✓ Yes'):(L2==='ar'?'لا — أقل من النصاب':'No — below Nisab')}</span>
+    </div>
+    <div class="zakat-row total">
+      <span>${L2==='ar'?'الزكاة المستحقة':'Zakat Due'}</span>
+      <span class="zakat-val" style="font-size:18px;">${zakatBase>=nisab?'SAR '+fmt(zakatDue):(L2==='ar'?'لا زكاة مستحقة':'No Zakat due')}</span>
+    </div>
+    <div style="padding:12px 22px;font-size:11px;color:var(--muted);line-height:1.7;border-top:1px solid var(--border);">
+      ${L2==='ar'
+        ?'ملاحظة: هذا الحساب تقديري وفق طريقة الأصول المتداولة المعدّلة. يُنصح بمراجعة محاسب معتمد قبل تقديم إقرار الزكاة الرسمي لدى هيئة الزكاة والضريبة والجمارك.'
+        :'Note: This is an estimate using the adjusted net current assets method. Consult a certified accountant before filing the official Zakat return with ZATCA.'}
+    </div>`;
+}
+
+/* ── QAWAEM SUMMARY ── */
+function renderQawaemSummary() {
+  const d  = stmtData;
+  const L2 = L;
+  document.getElementById('qawaem-summary').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;">
+      <div><strong>${L2==='ar'?'إجمالي الإيرادات:':'Total Revenue:'}</strong> SAR ${fmt(d.revenue)}</div>
+      <div><strong>${L2==='ar'?'صافي الربح:':'Net Profit:'}</strong> <span style="color:${d.netProfit>=0?'var(--green)':'var(--red)'};">SAR ${fmt(Math.abs(d.netProfit))}</span></div>
+      <div><strong>${L2==='ar'?'عدد الفواتير:':'Invoices:'}</strong> ${d.invCount}</div>
+      <div><strong>${L2==='ar'?'الفترة:':'Period:'}</strong> ${d.from.substring(0,4)}</div>
+    </div>`;
+}
+
+/* ── NAVIGATION ── */
+function goTab(name) {
+  ['income','balance','zakat','qawaem'].forEach(t => {
+    document.getElementById('tc-'+t).classList.toggle('active', t===name);
+    const sb = document.getElementById('sb-'+t);
+    if (sb) sb.classList.toggle('active', t===name);
+  });
+}
+
+/* ── LANGUAGE ── */
+function setLang(lang) {
+  L = lang;
+  document.getElementById('btn-ar').classList.toggle('on', lang==='ar');
+  document.getElementById('btn-en').classList.toggle('on', lang==='en');
+  document.documentElement.setAttribute('lang', lang);
+  document.documentElement.setAttribute('dir', lang==='ar'?'rtl':'ltr');
+  document.querySelectorAll('[data-ar][data-en]').forEach(el => el.textContent = el.getAttribute('data-'+lang));
+  if (stmtData.revenue !== undefined) {
+    renderIncomeStatement();
+    renderBalanceSheet();
+    renderZakat();
+    renderQawaemSummary();
+  }
+}
+
+/* ── HELPERS ── */
+function fmt(n)        { return (n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
+function today()       { return new Date().toISOString().split('T')[0]; }
+async function logout(){ await sb.auth.signOut(); window.location.href='index.html'; }
+
+function notify(msg, type) {
+  const d = document.createElement('div');
+  d.style.cssText = 'position:fixed;top:80px;left:50%;transform:translateX(-50%);background:'+(type==='g'?'var(--green)':'var(--red)')+';color:#fff;padding:10px 24px;border-radius:8px;font-family:Tajawal,sans-serif;font-size:13px;z-index:9999;text-align:center;';
+  d.textContent = msg;
+  document.body.appendChild(d);
+  setTimeout(()=>{ if(d.parentNode) d.parentNode.removeChild(d); }, 3000);
+}
+
+init();
+</script>
+</body>
+</html>
