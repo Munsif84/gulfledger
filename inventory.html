@@ -271,7 +271,13 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
       <div class="card">
         <div class="card-hdr">
           <span class="card-ttl" data-ar="كشف المخزون الحالي" data-en="Current Stock List">كشف المخزون الحالي</span>
-          <input type="text" id="stock-search" placeholder="بحث بالاسم أو SKU أو الباركود..." style="padding:6px 11px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;width:220px;" oninput="renderStock()">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+            <select id="filter-supplier" onchange="renderStock()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;">
+              <option value="" data-ar="كل الموردين" data-en="All Suppliers">كل الموردين</option>
+            </select>
+            <input type="text" id="stock-search" placeholder="بحث بالاسم أو SKU أو الباركود..." style="padding:6px 11px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;width:200px;" oninput="renderStock()">
+            <button class="btn-s" onclick="exportStockReport()" style="font-size:11px;" data-ar="📥 تصدير Excel" data-en="📥 Export Excel">📥 تصدير Excel</button>
+          </div>
         </div>
         <div style="overflow-x:auto;"><table class="tbl">
           <thead><tr>
@@ -287,6 +293,7 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
             <th data-ar="إجراء" data-en="Action">إجراء</th>
           </tr></thead>
           <tbody id="stock-tbody"><tr><td colspan="10" style="text-align:center;padding:20px;color:var(--muted);">جارٍ التحميل...</td></tr></tbody>
+          <tfoot id="stock-tfoot"></tfoot>
         </table></div>
         <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn-s" onclick="goTab('receive')" data-ar="استلام بضاعة ←" data-en="Receive Stock →">استلام بضاعة ←</button>
@@ -856,22 +863,42 @@ function renderStats(){
 /* ── STOCK LIST ── */
 function renderStock(){
   const search=(document.getElementById('stock-search')?.value||'').toLowerCase();
-  const items=invItems.filter(i=>!search||
-    i.name.toLowerCase().includes(search)||
-    (i.sku||'').toLowerCase().includes(search)||
-    (i.barcode||'').toLowerCase().includes(search));
+  const supFilter=document.getElementById('filter-supplier')?.value||'';
+
+  // Refresh supplier filter dropdown
+  const supDd=document.getElementById('filter-supplier');
+  if(supDd){
+    const current=supDd.value;
+    supDd.innerHTML='<option value="">'+(L==='ar'?'كل الموردين':'All Suppliers')+'</option>'
+      +suppliers.map(s=>`<option value="${s.id}" ${s.id===current?'selected':''}>${s.supplier_code||'—'} — ${s.name}</option>`).join('');
+    supDd.value=current;
+  }
+
+  let items=invItems.filter(i=>{
+    const matchSearch=!search||
+      i.name.toLowerCase().includes(search)||
+      (i.sku||'').toLowerCase().includes(search)||
+      (i.barcode||'').toLowerCase().includes(search);
+    const matchSup=!supFilter||(i.supplier_id===supFilter);
+    return matchSearch&&matchSup;
+  });
+
   const tb=document.getElementById('stock-tbody');
   if(!items.length){
-    tb.innerHTML=`<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا توجد أصناف — أضف صنفاً أو ارفع من Excel':'No items yet — add or upload from Excel'}</td></tr>`;
+    tb.innerHTML=`<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا توجد أصناف':'No items found'}</td></tr>`;
+    // Clear totals
+    const tf=document.getElementById('stock-tfoot');if(tf)tf.innerHTML='';
     return;
   }
+
   tb.innerHTML=items.map(item=>{
+    const sup=suppliers.find(s=>s.id===item.supplier_id);
     const s=item.current_qty===0?['bdg-out',L==='ar'?'نفد':'Out']:
             item.current_qty<=(item.alert_level||0)?['bdg-low',L==='ar'?'قارب النفاد':'Low']:
             ['bdg-ok',L==='ar'?'متاح':'OK'];
     const qc=item.current_qty===0?'c-red':item.current_qty<=(item.alert_level||0)?'c-amber':'c-green';
     return `<tr>
-      <td><strong style="font-size:12px;">${item.name}</strong>${item.description?`<div style="font-size:10px;color:var(--muted);">${item.description}</div>`:''}${item.sku?`<div style="font-size:10px;color:var(--muted);">SKU: ${item.sku}</div>`:''}</td>
+      <td><strong style="font-size:12px;">${item.name}</strong>${item.description?`<div style="font-size:10px;color:var(--muted);">${item.description}</div>`:''}${sup?`<div style="font-size:10px;color:var(--sky);">${sup.supplier_code||''} ${sup.name}</div>`:''}</td>
       <td><span class="sku-badge">${item.sku||'—'}</span></td>
       <td class="mono" style="font-size:10px;color:var(--muted);">${item.barcode||'—'}</td>
       <td>${item.unit||'قطعة'}</td>
@@ -886,6 +913,80 @@ function renderStock(){
       </td>
     </tr>`;
   }).join('');
+
+  // Totals row
+  const totalQty=items.reduce((s,i)=>s+(i.current_qty||0),0);
+  const totalVal=items.reduce((s,i)=>s+(i.cost_price||0)*(i.current_qty||0),0);
+  const totalSaleVal=items.reduce((s,i)=>s+(i.sale_price||0)*(i.current_qty||0),0);
+  const tf=document.getElementById('stock-tfoot');
+  if(tf){
+    const supLabel=supFilter?(suppliers.find(s=>s.id===supFilter)?.name||''):(L==='ar'?'جميع الموردين':'All Suppliers');
+    tf.innerHTML=`<tr style="background:var(--navy);color:#fff;">
+      <td colspan="4" style="padding:10px 12px;font-weight:700;font-size:12px;">${supLabel} — ${items.length} ${L==='ar'?'صنف':'items'}</td>
+      <td class="mono" style="padding:10px 12px;color:var(--light);font-size:11px;" colspan="2">${L==='ar'?'إجمالي بيع: SAR ':'Total sale: SAR '}${fmt(totalSaleVal)}</td>
+      <td class="mono" style="padding:10px 12px;font-weight:700;">${totalQty}</td>
+      <td class="mono" style="padding:10px 12px;font-weight:700;font-size:14px;">SAR ${fmt(totalVal)}</td>
+      <td colspan="2" style="padding:10px 12px;font-size:11px;color:var(--light);">${L==='ar'?'إجمالي قيمة المخزون بسعر التكلفة':'Total stock value at cost'}</td>
+    </tr>`;
+  }
+}
+
+function exportStockReport(){
+  const supFilter=document.getElementById('filter-supplier')?.value||'';
+  const search=(document.getElementById('stock-search')?.value||'').toLowerCase();
+  const sup=suppliers.find(s=>s.id===supFilter);
+  const supLabel=sup?`${sup.supplier_code} — ${sup.name}`:(L==='ar'?'جميع الموردين':'All Suppliers');
+
+  let items=invItems.filter(i=>{
+    const matchSearch=!search||i.name.toLowerCase().includes(search)||(i.sku||'').toLowerCase().includes(search);
+    const matchSup=!supFilter||(i.supplier_id===supFilter);
+    return matchSearch&&matchSup;
+  });
+
+  const totalVal=items.reduce((s,i)=>s+(i.cost_price||0)*(i.current_qty||0),0);
+  const totalSaleVal=items.reduce((s,i)=>s+(i.sale_price||0)*(i.current_qty||0),0);
+  const bizName=currentBiz?.name||'GulfLedger';
+
+  const rows=[
+    [bizName],
+    [L==='ar'?'تقرير المخزون — '+supLabel:'Stock Report — '+supLabel],
+    [L==='ar'?'تاريخ التقرير: '+today():'Report Date: '+today()],
+    [],
+    ['SKU',L==='ar'?'اسم الصنف':'Item Name',L==='ar'?'الوصف':'Description',
+     L==='ar'?'الفئة':'Category',L==='ar'?'الوحدة':'Unit',L==='ar'?'الباركود':'Barcode',
+     L==='ar'?'المورد':'Supplier',L==='ar'?'كود المورد':'Supplier Code',
+     L==='ar'?'الكمية':'Qty',L==='ar'?'سعر الشراء':'Cost Price',
+     L==='ar'?'سعر البيع':'Sale Price',L==='ar'?'قيمة المخزون (تكلفة)':'Stock Value (Cost)',
+     L==='ar'?'قيمة المخزون (بيع)':'Stock Value (Sale)',L==='ar'?'الحالة':'Status'],
+    ...items.map(i=>{
+      const itemSup=suppliers.find(s=>s.id===i.supplier_id);
+      const status=i.current_qty===0?(L==='ar'?'نفد':'Out of Stock'):
+                   i.current_qty<=(i.alert_level||0)?(L==='ar'?'قارب النفاد':'Low Stock'):
+                   (L==='ar'?'متاح':'Available');
+      return [
+        i.sku||'—',i.name,i.description||'',i.category||'',i.unit||'',
+        i.barcode||'',itemSup?.name||'—',itemSup?.supplier_code||'—',
+        i.current_qty||0,i.cost_price||0,i.sale_price||0,
+        Math.round((i.cost_price||0)*(i.current_qty||0)*100)/100,
+        Math.round((i.sale_price||0)*(i.current_qty||0)*100)/100,
+        status
+      ];
+    }),
+    [],
+    ['','','','','','','','',
+     L==='ar'?'الإجمالي':'TOTAL','','',
+     Math.round(totalVal*100)/100,Math.round(totalSaleVal*100)/100,'']
+  ];
+
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[{wch:14},{wch:30},{wch:25},{wch:10},{wch:8},{wch:16},{wch:22},{wch:12},{wch:8},{wch:12},{wch:12},{wch:16},{wch:16},{wch:12}];
+  const wb=XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb,ws,'Stock Report');
+  const filename=sup
+    ?`GulfLedger_Stock_${sup.supplier_code}_${today()}.xlsx`
+    :`GulfLedger_Stock_All_${today()}.xlsx`;
+  XLSX.writeFile(wb,filename);
+  notify((L==='ar'?'تم تصدير تقرير المخزون: ':'Stock report exported: ')+items.length+(L==='ar'?' صنف':' items'),'g');
 }
 
 async function deleteItem(id){
@@ -1313,25 +1414,23 @@ async function handleExcelUpload(e){
 }
 
 function downloadTemplate(){
-  const supList=suppliers.length
-    ?suppliers.map(s=>`${s.supplier_code||'SUP-0001'} = ${s.name}`).join(', ')
-    :'Add suppliers first';
   const ws=XLSX.utils.aoa_to_sheet([
     ['Item Name','Description','Category','Unit','Barcode','Cost Price','Sale Price','Opening Qty','Alert Level','Has Expiry','Shelf Life Days','Supplier Code'],
-    ['','','FOOD/BEV/CLN/ELEC/CLTH/HLTH/STAT/BLDG/ITM','قطعة/كيلو/لتر/كرتون/علبة/متر','','0.00','0.00','0','10','YES/NO','365','SUP-0001'],
-    ['Nescafe Classic 190g','190g jar — 24 per carton','BEV','قطعة','6291003080058',25,32,0,20,'NO',0,suppliers[0]?.supplier_code||'SUP-0001'],
-    ['Lipton Tea 100 bags','100 tea bags box','FOOD','علبة','6291004010054',18,25,0,15,'NO',0,suppliers[0]?.supplier_code||'SUP-0001'],
   ]);
-  // Add note about supplier codes
-  XLSX.utils.sheet_add_aoa(ws,[
-    [''],
-    ['SUPPLIER CODES IN YOUR SYSTEM:'],
-    [supList]
-  ],{origin:-1});
+  // Set column widths
+  ws['!cols']=[{wch:30},{wch:30},{wch:12},{wch:10},{wch:18},{wch:12},{wch:12},{wch:12},{wch:12},{wch:12},{wch:16},{wch:14}];
   const wb=XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb,ws,'Items');
+  // Add a reference sheet with supplier codes
+  if(suppliers.length){
+    const supWs=XLSX.utils.aoa_to_sheet([
+      ['Supplier Code','Supplier Name','Phone'],
+      ...suppliers.map(s=>[s.supplier_code||'—',s.name,s.phone||'—'])
+    ]);
+    XLSX.utils.book_append_sheet(wb,supWs,'Supplier Codes');
+  }
   XLSX.writeFile(wb,'GulfLedger_Items_Template.xlsx');
-  notify(L==='ar'?'تم تحميل النموذج — تحقق من أكواد الموردين في الملف':'Template downloaded — check supplier codes in file','g');
+  notify(L==='ar'?'تم تحميل النموذج — شيت "Supplier Codes" يحتوي على أكواد الموردين':'Template downloaded — "Supplier Codes" sheet has your supplier codes','g');
 }
 
 /* ── MOVEMENTS ── */
