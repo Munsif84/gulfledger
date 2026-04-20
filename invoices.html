@@ -796,7 +796,18 @@ async function saveInvoice() {
   }));
   await sb.from('invoice_items').insert(itemRows);
 
-  showSaveStatus('saved', '✓ Saved');
+  // AUTO-POST TO LEDGER
+  await autoPostInvoice({
+    id:             invoiceId,
+    invoice_number: invoiceData.invoice_number,
+    issue_date:     invoiceData.issue_date,
+    buyer_name:     invoiceData.buyer_name,
+    subtotal:       sub,
+    vat_amount:     vat,
+    total:          total
+  });
+
+  showSaveStatus('saved', '✓ ' + (currentLang==='ar'?'تم الحفظ والترحيل للدفتر':'Saved & posted to ledger'));
   loadInvoices();
 }
 
@@ -902,6 +913,65 @@ async function logout(){ await sb.auth.signOut(); window.location.href='login.ht
 window.addEventListener('beforeprint', function() {
   generateQR();
 });
+
+/* ── AUTO-POST ENGINE ── */
+async function autoPostInvoice(invoice) {
+  if (!currentUser || !invoice.subtotal) return;
+  const sub   = parseFloat(invoice.subtotal)   || 0;
+  const vat   = parseFloat(invoice.vat_amount) || 0;
+  const total = parseFloat(invoice.total)      || sub + vat;
+  const ref   = invoice.invoice_number;
+  const date  = invoice.issue_date || today();
+
+  try {
+    // Check if already posted — if so delete old lines and repost (handles edits)
+    const { data: existing } = await sb.from('journal_entries')
+      .select('id').eq('reference', ref).eq('user_id', currentUser.id).limit(1);
+
+    let entryId;
+    if (existing && existing.length) {
+      entryId = existing[0].id;
+      await sb.from('journal_lines').delete().eq('entry_id', entryId);
+      await sb.from('journal_entries').update({
+        entry_date:  date,
+        description: 'فاتورة مبيعات — ' + (invoice.buyer_name || ''),
+        updated_at:  new Date().toISOString()
+      }).eq('id', entryId);
+    } else {
+      const { data: entry, error } = await sb.from('journal_entries').insert({
+        user_id:     currentUser.id,
+        business_id: currentBiz?.id,
+        entry_date:  date,
+        reference:   ref,
+        description: 'فاتورة مبيعات — ' + (invoice.buyer_name || ''),
+        source:      'invoice',
+        source_id:   invoice.id,
+        status:      'posted',
+        is_balanced: true
+      }).select().single();
+      if (error || !entry) { console.warn('Auto-post error:', error?.message); return; }
+      entryId = entry.id;
+    }
+
+    // Three lines: Dr Receivables | Cr Revenue | Cr VAT Output
+    await sb.from('journal_lines').insert([
+      { entry_id: entryId, user_id: currentUser.id,
+        account_code: '1200', account_name: 'ذمم مدينة تجارية',
+        debit: total, credit: 0,
+        description: 'مستحقات من ' + (invoice.buyer_name || 'عميل') },
+      { entry_id: entryId, user_id: currentUser.id,
+        account_code: '4100', account_name: 'إيرادات المبيعات',
+        debit: 0, credit: sub,
+        description: 'إيرادات مبيعات — ' + ref },
+      { entry_id: entryId, user_id: currentUser.id,
+        account_code: '2210', account_name: 'ضريبة القيمة المضافة — مخرجات',
+        debit: 0, credit: vat,
+        description: 'VAT مخرجات 15% — ' + ref }
+    ]);
+  } catch(e) {
+    console.warn('Auto-post failed:', e.message);
+  }
+}
 
 init();
 

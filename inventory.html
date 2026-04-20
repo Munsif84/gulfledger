@@ -1223,6 +1223,16 @@ async function confirmReceipt(){
   }
 
   notify((L==='ar'?'تم الاستلام: ':'Received: ')+lines.length+(L==='ar'?' صنف ✓':' items ✓'),'g');
+
+  // AUTO-POST TO LEDGER
+  await autoPostReceipt({
+    poNumber:      poNum,
+    date:          date,
+    supplierName:  supName,
+    totalCost:     lines.reduce((s,l)=>s+l.qty*l.cost,0),
+    paymentMethod: gval('f-po-pay')||'credit'
+  });
+
   clearPO();await loadItems();await loadMovements();
 }
 
@@ -1666,6 +1676,64 @@ function notify(msg,type){
   fixDates();
   new MutationObserver(fixDates).observe(document.body,{childList:true,subtree:true});
 })();
+
+/* ── AUTO-POST ENGINE ── */
+async function autoPostReceipt(receipt) {
+  if (!currentUser || !receipt.totalCost) return;
+  const total    = parseFloat(receipt.totalCost)     || 0;
+  const ref      = receipt.poNumber;
+  const date     = receipt.date     || today();
+  const supName  = receipt.supplierName || 'مورد';
+  const payMethod= receipt.paymentMethod || 'credit';
+
+  // Credit account depends on payment method
+  const crAcc = payMethod === 'cash'
+    ? { code: '1100', name: 'النقد وما في حكمه' }
+    : payMethod === 'bank'
+    ? { code: '1100', name: 'البنك' }
+    : { code: '2100', name: 'ذمم دائنة تجارية' };
+
+  try {
+    // Check duplicate
+    const { data: existing } = await sb.from('journal_entries')
+      .select('id').eq('reference', ref).eq('user_id', currentUser.id).limit(1);
+
+    let entryId;
+    if (existing && existing.length) {
+      entryId = existing[0].id;
+      await sb.from('journal_lines').delete().eq('entry_id', entryId);
+    } else {
+      const { data: entry, error } = await sb.from('journal_entries').insert({
+        user_id:     currentUser.id,
+        business_id: currentBiz?.id,
+        entry_date:  date,
+        reference:   ref,
+        description: 'استلام بضاعة — ' + supName,
+        source:      'inventory',
+        status:      'posted',
+        is_balanced: true
+      }).select().single();
+      if (error || !entry) { console.warn('Auto-post error:', error?.message); return; }
+      entryId = entry.id;
+    }
+
+    // Dr Inventory | Cr Payables / Cash
+    await sb.from('journal_lines').insert([
+      { entry_id: entryId, user_id: currentUser.id,
+        account_code: '1300', account_name: 'المخزون',
+        debit: total, credit: 0,
+        description: 'استلام بضاعة من ' + supName + ' — ' + ref },
+      { entry_id: entryId, user_id: currentUser.id,
+        account_code: crAcc.code, account_name: crAcc.name,
+        debit: 0, credit: total,
+        description: payMethod === 'credit'
+          ? 'مستحقات لمورد ' + supName
+          : 'دفع نقدي لـ ' + supName }
+    ]);
+  } catch(e) {
+    console.warn('Auto-post failed:', e.message);
+  }
+}
 
 init();
 </script>
