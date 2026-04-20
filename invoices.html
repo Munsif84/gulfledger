@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" dir="ltr">
+<html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -149,14 +149,26 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
 .zatca-warning{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;font-size:11px;color:var(--amber);margin-bottom:12px;display:flex;align-items:flex-start;gap:7px;}
 
 @media print{
-  .topnav,.app-nav,.form-panel,.preview-label,.actions,.zatca-warning{display:none!important;}
-  .app{display:block;}
-  .preview-panel{background:#fff;padding:0;}
-  .invoice-doc{box-shadow:none;max-width:100%;border-radius:0;}
+  body{background:#fff!important;}
+  .topnav,.app-nav,.form-panel,.preview-label,.actions,.zatca-warning,.inv-list-header,#inv-list{display:none!important;}
+  .app{display:block!important;}
+  .preview-panel{display:block!important;background:#fff!important;padding:0!important;}
+  .invoice-doc{box-shadow:none!important;max-width:100%!important;border-radius:0!important;}
+  .inv-qr-box img{display:block!important;width:80px!important;height:80px!important;}
+  .inv-qr-box canvas{display:block!important;}
+}
+@media(max-width:600px){
+  .field-row.triple{grid-template-columns:1fr 1fr;}
+  .field-row.double{grid-template-columns:1fr;}
+  .topnav .nav-biz{display:none;}
+  .app-nav{gap:2px;}
+  .app-nav-link{padding:4px 8px;font-size:11px;}
+  .item-row{grid-template-columns:20px 1fr 45px 65px 65px 24px;}
 }
 @media(max-width:900px){
   .app{grid-template-columns:1fr;}
-  .preview-panel{display:none;}
+  .preview-panel{display:block;}
+  .invoice-doc{margin-top:16px;}
 }
 </style>
 </head>
@@ -172,8 +184,8 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
   </a>
   <div class="nav-right">
     <div class="lang-switch">
-      <button class="lang-btn on" id="btn-en" onclick="setLang('en')">EN</button>
-      <button class="lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button>
+      <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
+      <button class="lang-btn on" id="btn-ar" onclick="setLang('ar')">ع</button>
     </div>
     <span class="nav-biz" id="biz-name">Loading...</span>
     <button class="btn-logout" onclick="logout()">Sign Out</button>
@@ -278,11 +290,11 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
     <!-- Items -->
     <div class="section-title" data-en="Items" data-ar="البنود">Items</div>
     <div class="item-header">
+      <span>#</span>
       <span data-en="Description" data-ar="الوصف">Description</span>
       <span data-en="Qty" data-ar="كمية">Qty</span>
-      <span data-en="Price" data-ar="سعر">Price</span>
-      <span data-en="Sub" data-ar="إجمالي">Sub</span>
-      <span data-en="VAT" data-ar="ضريبة">VAT</span>
+      <span data-en="Price" data-ar="سعر">Price (SAR)</span>
+      <span data-en="Sub+VAT" data-ar="الإجمالي">Sub+VAT</span>
       <span></span>
     </div>
     <div id="items-container"></div>
@@ -418,14 +430,14 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let currentUser = null;
 let currentBiz  = null;
-let currentLang = 'en';
+let currentLang = 'ar';
 let items = [{ desc:'', qty:1, price:0 }];
 let currentInvoiceId = null;
 
 /* ── INIT ── */
 async function init() {
   const { data: { session } } = await sb.auth.getSession();
-  if (!session) { window.location.href = 'index.html'; return; }
+  if (!session) { window.location.href = 'login.html'; return; }
   currentUser = session.user;
 
   const { data: biz } = await sb.from('businesses').select('*').eq('user_id', currentUser.id).single();
@@ -447,6 +459,7 @@ async function init() {
   renderItems();
   render();
   loadInvoices();
+  setLang('ar');
 }
 
 async function setNextInvNumber() {
@@ -527,25 +540,101 @@ function renderItems() {
   const c = document.getElementById('items-container');
   c.innerHTML = '';
   items.forEach((item, i) => {
-    const sub = item.qty * item.price;
-    const vat = sub * 0.15;
-    const row = document.createElement('div');
+    const sub   = item.qty * item.price;
+    const total = sub * 1.15;
+    const row   = document.createElement('div');
     row.className = 'item-row';
     row.innerHTML = `
-      <input type="text" value="${item.desc}" placeholder="${currentLang === 'ar' ? 'وصف البند' : 'Item description'}" oninput="items[${i}].desc=this.value;render()">
+      <div class="item-num">${i+1}</div>
+      <div style="position:relative;">
+        <input type="text" value="${item.desc}" placeholder="${currentLang==='ar'?'وصف البند أو اختر من المخزون':'Item description or pick from inventory'}" oninput="items[${i}].desc=this.value;render()" style="width:100%;padding:6px 7px;border:1px solid var(--border);border-radius:5px;font-family:'Tajawal',sans-serif;font-size:12px;">
+        <button onclick="openInvPicker(${i})" title="${currentLang==='ar'?'اختر من المخزون':'Pick from inventory'}" style="position:absolute;left:4px;top:50%;transform:translateY(-50%);background:var(--tint);border:1px solid var(--light);border-radius:4px;cursor:pointer;font-size:10px;padding:2px 5px;color:var(--blue);" ${document.documentElement.getAttribute('dir')==='rtl'?'':'style="right:4px;left:auto;"'}>📦</button>
+      </div>
       <input type="number" value="${item.qty||''}" placeholder="1" min="0" step="any" oninput="items[${i}].qty=parseFloat(this.value)||0;updateRow(${i});render()">
       <input type="number" value="${item.price||''}" placeholder="0.00" min="0" step="0.01" oninput="items[${i}].price=parseFloat(this.value)||0;updateRow(${i});render()">
-      <input type="text" readonly id="rs-${i}" value="${fmt(sub)}">
-      <input type="text" readonly id="rv-${i}" value="${fmt(vat)}">
+      <input type="text" readonly id="rt-${i}" value="SAR ${fmt(total)}" title="Sub: ${fmt(sub)} + VAT: ${fmt(sub*0.15)}">
       <button class="del-btn" onclick="removeItem(${i})">×</button>`;
     c.appendChild(row);
   });
 }
 
+/* Inventory picker */
+let pickerIdx = 0;
+async function openInvPicker(idx) {
+  pickerIdx = idx;
+  // Load inventory items
+  const { data: invData } = await sb.from('inventory_items')
+    .select('id,name,sku,sale_price,current_qty,unit')
+    .eq('user_id', currentUser.id)
+    .order('name');
+
+  if (!invData || !invData.length) {
+    const d = document.createElement('div');
+    d.style.cssText = 'position:fixed;top:80px;left:50%;transform:translateX(-50%);background:var(--amber);color:#fff;padding:10px 24px;border-radius:8px;font-family:Tajawal,sans-serif;font-size:13px;z-index:9999;';
+    d.textContent = currentLang==='ar'?'لا توجد أصناف في المخزون — أضف أصنافاً من صفحة المخزون أولاً':'No inventory items — add items from Inventory page first';
+    document.body.appendChild(d);
+    setTimeout(()=>d.remove(), 3000);
+    return;
+  }
+
+  // Build picker modal
+  const modal = document.createElement('div');
+  modal.id = 'inv-picker-modal';
+  modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:9998;display:flex;align-items:center;justify-content:center;';
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:12px;padding:20px;width:500px;max-width:95vw;max-height:70vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <div style="font-size:14px;font-weight:700;color:var(--navy);">${currentLang==='ar'?'اختر صنف من المخزون':'Pick from Inventory'}</div>
+        <button onclick="document.getElementById('inv-picker-modal').remove()" style="background:none;border:none;font-size:18px;cursor:pointer;color:var(--muted);">×</button>
+      </div>
+      <input type="text" placeholder="${currentLang==='ar'?'بحث...':'Search...'}" oninput="filterPicker(this.value)" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;margin-bottom:10px;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;" id="picker-table">
+        <thead><tr style="background:var(--tint);">
+          <th style="padding:8px;text-align:right;">الصنف</th>
+          <th style="padding:8px;text-align:right;">SKU</th>
+          <th style="padding:8px;text-align:right;">السعر</th>
+          <th style="padding:8px;text-align:right;">المخزون</th>
+          <th style="padding:8px;"></th>
+        </tr></thead>
+        <tbody>${invData.map(it=>`
+          <tr data-name="${it.name}" data-sku="${it.sku||''}" style="border-bottom:1px solid var(--tint);">
+            <td style="padding:8px;"><strong>${it.name}</strong></td>
+            <td style="padding:8px;font-family:'DM Mono',monospace;font-size:11px;color:var(--blue);">${it.sku||'—'}</td>
+            <td style="padding:8px;font-family:'DM Mono',monospace;">SAR ${(it.sale_price||0).toFixed(2)}</td>
+            <td style="padding:8px;color:${it.current_qty<=0?'var(--red)':'var(--green)'};">${it.current_qty||0} ${it.unit||''}</td>
+            <td style="padding:8px;"><button onclick="pickItem('${it.name}','${it.sale_price||0}')" style="padding:4px 12px;background:var(--blue);color:#fff;border:none;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;">${currentLang==='ar'?'اختر':'Pick'}</button></td>
+          </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  document.body.appendChild(modal);
+  modal.addEventListener('click', e => { if(e.target===modal) modal.remove(); });
+}
+
+function filterPicker(search) {
+  const rows = document.querySelectorAll('#picker-table tbody tr');
+  rows.forEach(row => {
+    const name = row.getAttribute('data-name')||'';
+    const sku  = row.getAttribute('data-sku')||'';
+    row.style.display = (!search || name.toLowerCase().includes(search.toLowerCase()) || sku.toLowerCase().includes(search.toLowerCase())) ? '' : 'none';
+  });
+}
+
+function pickItem(name, price) {
+  items[pickerIdx].desc  = name;
+  items[pickerIdx].price = parseFloat(price) || 0;
+  renderItems();
+  render();
+  const modal = document.getElementById('inv-picker-modal');
+  if (modal) modal.remove();
+  showAISuccess();
+}
+
 function updateRow(i) {
-  const sub = items[i].qty * items[i].price;
-  const s = document.getElementById('rs-'+i); if(s) s.value = fmt(sub);
-  const v = document.getElementById('rv-'+i); if(v) v.value = fmt(sub*0.15);
+  const sub   = items[i].qty * items[i].price;
+  const total = sub * 1.15;
+  const t = document.getElementById('rt-'+i);
+  if (t) { t.value = 'SAR ' + fmt(total); t.title = 'Sub: '+fmt(sub)+' + VAT: '+fmt(sub*0.15); }
   updateTotals();
 }
 
@@ -608,21 +697,37 @@ function render() {
 }
 
 /* ── QR ── */
+let qrInstance = null;
 function generateQR() {
   const container = document.getElementById('qr-container');
   container.innerHTML = '';
+  qrInstance = null;
+
   const name  = v('f-seller-name') || 'GulfLedger';
   const trn   = v('f-seller-trn')  || '300000000000003';
   const date  = v('f-date') || today();
   const sub   = items.reduce((s,it) => s+it.qty*it.price, 0);
   const vat   = sub * 0.15;
   const total = sub + vat;
-  const tlv   = buildTLV(name, trn, date+'T00:00:00Z', total, vat);
-  const b64   = btoa(String.fromCharCode(...tlv));
+
+  if (!name && !trn) return;
+
+  const tlv = buildTLV(name, trn, date+'T00:00:00Z', total, vat);
+  const b64 = btoa(String.fromCharCode(...tlv));
   if (!b64) return;
+
   try {
-    new QRCode(container, { text:b64, width:72, height:72, colorDark:'#000', colorLight:'#fff', correctLevel:QRCode.CorrectLevel.M });
-  } catch(e) {}
+    qrInstance = new QRCode(container, {
+      text: b64,
+      width: 76,
+      height: 76,
+      colorDark: '#0C447C',
+      colorLight: '#ffffff',
+      correctLevel: QRCode.CorrectLevel.M
+    });
+  } catch(e) {
+    container.innerHTML = '<div style="font-size:9px;color:var(--muted);text-align:center;padding:10px;">QR<br>unavailable</div>';
+  }
 }
 
 function buildTLV(name, trn, date, total, vat) {
@@ -787,7 +892,12 @@ function v(id)         { const el=document.getElementById(id); return el?el.valu
 function setText(id,t) { const el=document.getElementById(id); if(el) el.textContent=t; }
 function fmt(n)        { return (n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
 function today()       { return new Date().toISOString().split('T')[0]; }
-async function logout(){ await sb.auth.signOut(); window.location.href='index.html'; }
+async function logout(){ await sb.auth.signOut(); window.location.href='login.html'; }
+
+// Ensure QR renders before print
+window.addEventListener('beforeprint', function() {
+  generateQR();
+});
 
 init();
 </script>

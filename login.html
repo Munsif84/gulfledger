@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GulfLedger — تسجيل الدخول</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#C62828;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--border:#d4e6f7;--bg:#f7fafd;--white:#ffffff;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Tajawal',sans-serif;background:linear-gradient(135deg,#0C447C 0%,#185FA5 50%,#378ADD 100%);min-height:100vh;display:flex;align-items:center;justify-content:center;padding:20px;}
+
+.wrapper{width:100%;max-width:400px;}
+
+/* LOGO */
+.logo{text-align:center;margin-bottom:28px;}
+.logo-bars{display:flex;gap:4px;height:32px;align-items:stretch;justify-content:center;margin-bottom:10px;}
+.logo-bar{width:5px;border-radius:3px;}
+.logo-name{font-family:'Playfair Display',serif;font-size:26px;color:#fff;letter-spacing:1px;}
+.logo-sub{font-size:10px;letter-spacing:4px;color:rgba(255,255,255,0.6);margin-top:3px;}
+
+/* CARD */
+.card{background:var(--white);border-radius:20px;padding:32px;box-shadow:0 20px 60px rgba(0,0,0,0.2);}
+
+/* SCREEN TITLE */
+.screen-title{font-size:18px;font-weight:700;color:var(--navy);margin-bottom:4px;}
+.screen-sub{font-size:12px;color:var(--muted);margin-bottom:24px;line-height:1.5;}
+
+/* FIELD */
+.field{margin-bottom:14px;}
+.field label{display:block;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;}
+.field input{width:100%;padding:11px 14px;border:1.5px solid var(--border);border-radius:9px;font-family:'Tajawal',sans-serif;font-size:14px;color:var(--ink);background:var(--white);transition:all .2s;direction:ltr;}
+.field input:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(55,138,221,0.12);}
+
+/* PASS WRAPPER */
+.pass-wrap{position:relative;}
+.pass-wrap input{padding-left:40px;}
+[dir="rtl"] .pass-wrap input{padding-left:14px;padding-right:40px;}
+.pass-toggle{position:absolute;left:12px;top:50%;transform:translateY(-50%);cursor:pointer;color:var(--muted);font-size:13px;user-select:none;}
+[dir="rtl"] .pass-toggle{left:auto;right:12px;}
+
+/* TEMP PASSWORD NOTICE */
+.temp-notice{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 13px;font-size:12px;color:var(--amber);margin-bottom:16px;display:none;line-height:1.5;}
+.temp-notice.show{display:flex;align-items:flex-start;gap:8px;}
+
+/* BUTTON */
+.btn{width:100%;padding:13px;background:var(--blue);color:#fff;border:none;border-radius:9px;font-family:'Tajawal',sans-serif;font-size:15px;font-weight:700;cursor:pointer;transition:background .2s;margin-top:4px;}
+.btn:hover{background:var(--navy);}
+.btn:disabled{opacity:0.6;cursor:default;}
+.btn-ghost{width:100%;padding:11px;background:transparent;color:var(--blue);border:1.5px solid var(--border);border-radius:9px;font-family:'Tajawal',sans-serif;font-size:14px;font-weight:500;cursor:pointer;transition:all .2s;margin-top:8px;}
+.btn-ghost:hover{border-color:var(--sky);background:var(--tint);}
+
+/* MSG */
+.msg{padding:10px 13px;border-radius:8px;font-size:13px;margin-top:12px;display:none;line-height:1.5;}
+.msg.error{background:#fff5f5;border:1px solid #fca5a5;color:var(--red);display:block;}
+.msg.success{background:#f0fdf4;border:1px solid #86efac;color:var(--green);display:block;}
+
+/* FORGOT LINK */
+.forgot-link{display:block;text-align:center;font-size:12px;color:var(--muted);cursor:pointer;margin-top:14px;transition:color .2s;}
+.forgot-link:hover{color:var(--blue);}
+
+/* BACK LINK */
+.back-link{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer;margin-bottom:18px;width:fit-content;}
+.back-link:hover{color:var(--blue);}
+
+/* SCREENS */
+.screen{display:none;}
+.screen.active{display:block;}
+
+/* PASSWORD STRENGTH */
+.strength-bar{height:3px;border-radius:2px;margin-top:5px;background:var(--border);overflow:hidden;}
+.strength-fill{height:100%;border-radius:2px;transition:width .3s,background .3s;width:0;}
+.strength-label{font-size:10px;color:var(--muted);margin-top:3px;}
+
+/* FOOTER */
+.footer{text-align:center;margin-top:20px;}
+.footer-note{font-size:11px;color:rgba(255,255,255,0.6);line-height:1.6;}
+.lang-row{display:flex;justify-content:center;gap:8px;margin-top:12px;}
+.lang-btn{background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);color:rgba(255,255,255,0.7);font-size:12px;padding:4px 14px;border-radius:20px;cursor:pointer;font-family:'Tajawal',sans-serif;transition:all .2s;}
+.lang-btn:hover,.lang-btn.on{background:rgba(255,255,255,0.2);color:#fff;}
+
+/* SUCCESS ICON */
+.success-icon{width:60px;height:60px;background:#f0fdf4;border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;}
+</style>
+</head>
+<body>
+
+<div class="wrapper">
+
+  <div class="logo">
+    <div class="logo-bars">
+      <div class="logo-bar" style="background:#fff;"></div>
+      <div class="logo-bar" style="background:rgba(255,255,255,0.4);"></div>
+    </div>
+    <div class="logo-name">Gulf<span style="color:rgba(255,255,255,0.6);">Ledger</span></div>
+    <div class="logo-sub" id="logo-sub">المحاسبة والامتثال</div>
+  </div>
+
+  <div class="card">
+
+    <!-- ═══ SCREEN: LOGIN ═══ -->
+    <div class="screen active" id="screen-login">
+      <div class="screen-title" id="t-login-title">تسجيل الدخول</div>
+      <div class="screen-sub" id="t-login-sub">أدخل بريدك الإلكتروني وكلمة المرور للوصول لحسابك</div>
+
+      <div class="temp-notice" id="temp-notice">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px;"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span id="t-temp-notice">أول دخول؟ استخدم كلمة المرور المؤقتة الواردة في بريدك الإلكتروني — ستُطلب منك تغييرها فور الدخول.</span>
+      </div>
+
+      <div class="field">
+        <label id="t-email-lbl">البريد الإلكتروني</label>
+        <input type="email" id="login-email" placeholder="you@company.com" autocomplete="email" oninput="checkTempHint()" dir="ltr">
+      </div>
+
+      <div class="field">
+        <label id="t-pass-lbl">كلمة المرور</label>
+        <div class="pass-wrap">
+          <input type="password" id="login-password" placeholder="••••••••" autocomplete="current-password" onkeydown="if(event.key==='Enter')handleLogin()">
+          <span class="pass-toggle" onclick="togglePass('login-password',this)">👁</span>
+        </div>
+      </div>
+
+      <button class="btn" onclick="handleLogin()" id="btn-login">دخول</button>
+      <div class="msg" id="login-msg"></div>
+      <span class="forgot-link" id="t-forgot" onclick="showScreen('forgot')">نسيت كلمة المرور؟</span>
+    </div>
+
+    <!-- ═══ SCREEN: FORGOT PASSWORD ═══ -->
+    <div class="screen" id="screen-forgot">
+      <div class="back-link" onclick="showScreen('login')">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 18 9 12 15 6"/></svg>
+        <span id="t-back">رجوع</span>
+      </div>
+      <div class="screen-title" id="t-forgot-title">استعادة كلمة المرور</div>
+      <div class="screen-sub" id="t-forgot-sub">أدخل بريدك الإلكتروني المسجّل وسنرسل لك رابط إعادة التعيين</div>
+
+      <div class="field">
+        <label id="t-forgot-email-lbl">البريد الإلكتروني</label>
+        <input type="email" id="forgot-email" placeholder="you@company.com" dir="ltr" onkeydown="if(event.key==='Enter')handleForgot()">
+      </div>
+
+      <button class="btn" onclick="handleForgot()" id="btn-forgot">إرسال رابط الاستعادة</button>
+      <div class="msg" id="forgot-msg"></div>
+    </div>
+
+    <!-- ═══ SCREEN: RESET PASSWORD ═══ -->
+    <div class="screen" id="screen-reset">
+      <div class="screen-title" id="t-reset-title">تعيين كلمة مرور جديدة</div>
+      <div class="screen-sub" id="t-reset-sub">يجب أن تكون 8 أحرف على الأقل وتحتوي على أرقام وحروف</div>
+
+      <div class="field">
+        <label id="t-new-pass-lbl">كلمة المرور الجديدة</label>
+        <div class="pass-wrap">
+          <input type="password" id="new-password" placeholder="••••••••" oninput="checkStrength()" dir="ltr">
+          <span class="pass-toggle" onclick="togglePass('new-password',this)">👁</span>
+        </div>
+        <div class="strength-bar"><div class="strength-fill" id="strength-fill"></div></div>
+        <div class="strength-label" id="strength-label"></div>
+      </div>
+
+      <div class="field">
+        <label id="t-confirm-pass-lbl">تأكيد كلمة المرور</label>
+        <div class="pass-wrap">
+          <input type="password" id="confirm-password" placeholder="••••••••" dir="ltr" onkeydown="if(event.key==='Enter')handleReset()">
+          <span class="pass-toggle" onclick="togglePass('confirm-password',this)">👁</span>
+        </div>
+      </div>
+
+      <button class="btn" onclick="handleReset()" id="btn-reset">حفظ كلمة المرور</button>
+      <div class="msg" id="reset-msg"></div>
+    </div>
+
+    <!-- ═══ SCREEN: RESET SUCCESS ═══ -->
+    <div class="screen" id="screen-success">
+      <div class="success-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="var(--green)" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+      </div>
+      <div class="screen-title" style="text-align:center;" id="t-success-title">تم تغيير كلمة المرور</div>
+      <div class="screen-sub" style="text-align:center;" id="t-success-sub">حسابك آمن الآن. سيتم تحويلك للوحة التحكم خلال ثوانٍ...</div>
+    </div>
+
+  </div>
+
+  <div class="footer">
+    <div class="footer-note" id="t-footer">بياناتك مشفّرة ومحفوظة بأمان<br>متوافق مع زاتكا • للأعمال السعودية فقط</div>
+    <div class="lang-row">
+      <button class="lang-btn on" id="lb-ar" onclick="setLang('ar')">العربية</button>
+      <button class="lang-btn" id="lb-en" onclick="setLang('en')">English</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let L = 'ar';
+
+/* ── CHECK SESSION ── */
+sb.auth.getSession().then(({ data }) => {
+  if (data.session) {
+    // Check if password reset needed
+    const meta = data.session.user.user_metadata;
+    if (meta && meta.force_reset) {
+      showScreen('reset');
+    } else {
+      window.location.href = 'dashboard.html';
+    }
+  }
+});
+
+/* Handle password recovery link from email */
+sb.auth.onAuthStateChange((event, session) => {
+  if (event === 'PASSWORD_RECOVERY') {
+    showScreen('reset');
+  }
+});
+
+/* ── SCREENS ── */
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + name).classList.add('active');
+}
+
+/* ── TEMP PASSWORD HINT ── */
+function checkTempHint() {
+  const email = document.getElementById('login-email').value.trim();
+  const notice = document.getElementById('temp-notice');
+  // Show hint if email filled but no prior logins detected
+  notice.classList.toggle('show', email.length > 4);
+}
+
+/* ── LOGIN ── */
+async function handleLogin() {
+  const email    = document.getElementById('login-email').value.trim();
+  const password = document.getElementById('login-password').value;
+  const btn      = document.getElementById('btn-login');
+  const msg      = document.getElementById('login-msg');
+
+  if (!email || !password) {
+    showMsg(msg, L === 'ar' ? 'أدخل البريد الإلكتروني وكلمة المرور' : 'Enter email and password', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = L === 'ar' ? 'جارٍ الدخول...' : 'Signing in...';
+  msg.className = 'msg';
+
+  const { data, error } = await sb.auth.signInWithPassword({ email, password });
+
+  if (error) {
+    const errMsg = error.message.includes('Invalid') 
+      ? (L === 'ar' ? 'البريد الإلكتروني أو كلمة المرور غير صحيحة' : 'Incorrect email or password')
+      : error.message;
+    showMsg(msg, errMsg, 'error');
+    btn.disabled = false;
+    btn.textContent = L === 'ar' ? 'دخول' : 'Sign In';
+    return;
+  }
+
+  // Check if first login (force_reset flag)
+  const meta = data.user?.user_metadata;
+  if (meta && meta.force_reset) {
+    showScreen('reset');
+    return;
+  }
+
+  window.location.href = 'dashboard.html';
+}
+
+/* ── FORGOT PASSWORD ── */
+async function handleForgot() {
+  const email = document.getElementById('forgot-email').value.trim();
+  const btn   = document.getElementById('btn-forgot');
+  const msg   = document.getElementById('forgot-msg');
+
+  if (!email) {
+    showMsg(msg, L === 'ar' ? 'أدخل بريدك الإلكتروني' : 'Enter your email', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = L === 'ar' ? 'جارٍ الإرسال...' : 'Sending...';
+
+  const { error } = await sb.auth.resetPasswordForEmail(email, {
+    redirectTo: 'https://gulfledger.net/login.html'
+  });
+
+  if (error) {
+    showMsg(msg, error.message, 'error');
+  } else {
+    showMsg(msg,
+      L === 'ar'
+        ? '✓ تم الإرسال — تحقق من بريدك الإلكتروني وانقر على رابط إعادة التعيين'
+        : '✓ Sent — check your email and click the reset link',
+      'success'
+    );
+  }
+
+  btn.disabled = false;
+  btn.textContent = L === 'ar' ? 'إرسال رابط الاستعادة' : 'Send Reset Link';
+}
+
+/* ── RESET PASSWORD ── */
+async function handleReset() {
+  const newPass     = document.getElementById('new-password').value;
+  const confirmPass = document.getElementById('confirm-password').value;
+  const btn         = document.getElementById('btn-reset');
+  const msg         = document.getElementById('reset-msg');
+
+  if (newPass.length < 8) {
+    showMsg(msg, L === 'ar' ? 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' : 'Password must be at least 8 characters', 'error');
+    return;
+  }
+  if (newPass !== confirmPass) {
+    showMsg(msg, L === 'ar' ? 'كلمتا المرور غير متطابقتين' : 'Passwords do not match', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = L === 'ar' ? 'جارٍ الحفظ...' : 'Saving...';
+
+  const { error } = await sb.auth.updateUser({
+    password: newPass,
+    data: { force_reset: false }
+  });
+
+  if (error) {
+    showMsg(msg, error.message, 'error');
+    btn.disabled = false;
+    btn.textContent = L === 'ar' ? 'حفظ كلمة المرور' : 'Save Password';
+    return;
+  }
+
+  showScreen('success');
+  setTimeout(() => { window.location.href = 'dashboard.html'; }, 3000);
+}
+
+/* ── PASSWORD STRENGTH ── */
+function checkStrength() {
+  const pass  = document.getElementById('new-password').value;
+  const fill  = document.getElementById('strength-fill');
+  const label = document.getElementById('strength-label');
+  let score   = 0;
+  if (pass.length >= 8)  score++;
+  if (/[0-9]/.test(pass)) score++;
+  if (/[A-Z]/.test(pass)) score++;
+  if (/[^A-Za-z0-9]/.test(pass)) score++;
+
+  const levels = [
+    { w: '25%',  bg: '#ef4444', ar: 'ضعيفة جداً',  en: 'Too weak' },
+    { w: '50%',  bg: var_amber, ar: 'ضعيفة',       en: 'Weak' },
+    { w: '75%',  bg: '#f59e0b', ar: 'مقبولة',      en: 'Fair' },
+    { w: '100%', bg: '#22c55e', ar: 'قوية ✓',      en: 'Strong ✓' }
+  ];
+  const lvl = levels[Math.max(0, score - 1)] || levels[0];
+  fill.style.width      = pass.length ? lvl.w : '0';
+  fill.style.background = pass.length ? lvl.bg : '';
+  label.textContent     = pass.length ? (L === 'ar' ? lvl.ar : lvl.en) : '';
+}
+const var_amber = '#b45309';
+
+/* ── TOGGLE PASSWORD VISIBILITY ── */
+function togglePass(inputId, btn) {
+  const input = document.getElementById(inputId);
+  const isText = input.type === 'text';
+  input.type = isText ? 'password' : 'text';
+  btn.textContent = isText ? '👁' : '🙈';
+}
+
+/* ── MESSAGES ── */
+function showMsg(el, text, type) {
+  el.textContent = text;
+  el.className = 'msg ' + type;
+}
+
+/* ── LANGUAGE ── */
+const T = {
+  ar: {
+    logoSub:       'المحاسبة والامتثال',
+    loginTitle:    'تسجيل الدخول',
+    loginSub:      'أدخل بريدك الإلكتروني وكلمة المرور للوصول لحسابك',
+    tempNotice:    'أول دخول؟ استخدم كلمة المرور المؤقتة الواردة في بريدك الإلكتروني — ستُطلب منك تغييرها فور الدخول.',
+    emailLbl:      'البريد الإلكتروني',
+    passLbl:       'كلمة المرور',
+    loginBtn:      'دخول',
+    forgot:        'نسيت كلمة المرور؟',
+    back:          'رجوع',
+    forgotTitle:   'استعادة كلمة المرور',
+    forgotSub:     'أدخل بريدك الإلكتروني المسجّل وسنرسل لك رابط إعادة التعيين',
+    forgotEmailLbl:'البريد الإلكتروني',
+    forgotBtn:     'إرسال رابط الاستعادة',
+    resetTitle:    'تعيين كلمة مرور جديدة',
+    resetSub:      'يجب أن تكون 8 أحرف على الأقل وتحتوي على أرقام وحروف',
+    newPassLbl:    'كلمة المرور الجديدة',
+    confirmLbl:    'تأكيد كلمة المرور',
+    resetBtn:      'حفظ كلمة المرور',
+    successTitle:  'تم تغيير كلمة المرور',
+    successSub:    'حسابك آمن الآن. سيتم تحويلك للوحة التحكم خلال ثوانٍ...',
+    footer:        'بياناتك مشفّرة ومحفوظة بأمان\nمتوافق مع زاتكا • للأعمال السعودية فقط',
+  },
+  en: {
+    logoSub:       'Accounting & Compliance',
+    loginTitle:    'Sign In',
+    loginSub:      'Enter your email and password to access your account',
+    tempNotice:    'First time? Use the temporary password sent to your email — you will be asked to change it immediately.',
+    emailLbl:      'Email Address',
+    passLbl:       'Password',
+    loginBtn:      'Sign In',
+    forgot:        'Forgot password?',
+    back:          'Back',
+    forgotTitle:   'Reset Password',
+    forgotSub:     'Enter your registered email and we will send you a reset link',
+    forgotEmailLbl:'Email Address',
+    forgotBtn:     'Send Reset Link',
+    resetTitle:    'Set New Password',
+    resetSub:      'Must be at least 8 characters with numbers and letters',
+    newPassLbl:    'New Password',
+    confirmLbl:    'Confirm Password',
+    resetBtn:      'Save Password',
+    successTitle:  'Password Changed',
+    successSub:    'Your account is secure. Redirecting to dashboard...',
+    footer:        'Your data is encrypted and stored securely.\nZATCA-compliant • Saudi businesses only',
+  }
+};
+
+function setLang(lang) {
+  L = lang;
+  document.documentElement.setAttribute('lang', lang);
+  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+  document.getElementById('lb-ar').classList.toggle('on', lang === 'ar');
+  document.getElementById('lb-en').classList.toggle('on', lang === 'en');
+  const t = T[lang];
+  document.getElementById('logo-sub').textContent          = t.logoSub;
+  document.getElementById('t-login-title').textContent     = t.loginTitle;
+  document.getElementById('t-login-sub').textContent       = t.loginSub;
+  document.getElementById('t-temp-notice').textContent     = t.tempNotice;
+  document.getElementById('t-email-lbl').textContent       = t.emailLbl;
+  document.getElementById('t-pass-lbl').textContent        = t.passLbl;
+  document.getElementById('btn-login').textContent         = t.loginBtn;
+  document.getElementById('t-forgot').textContent          = t.forgot;
+  document.getElementById('t-back').textContent            = t.back;
+  document.getElementById('t-forgot-title').textContent    = t.forgotTitle;
+  document.getElementById('t-forgot-sub').textContent      = t.forgotSub;
+  document.getElementById('t-forgot-email-lbl').textContent= t.forgotEmailLbl;
+  document.getElementById('btn-forgot').textContent        = t.forgotBtn;
+  document.getElementById('t-reset-title').textContent     = t.resetTitle;
+  document.getElementById('t-reset-sub').textContent       = t.resetSub;
+  document.getElementById('t-new-pass-lbl').textContent    = t.newPassLbl;
+  document.getElementById('t-confirm-pass-lbl').textContent= t.confirmLbl;
+  document.getElementById('btn-reset').textContent         = t.resetBtn;
+  document.getElementById('t-success-title').textContent   = t.successTitle;
+  document.getElementById('t-success-sub').textContent     = t.successSub;
+  document.getElementById('t-footer').textContent          = t.footer;
+}
+
+setLang('ar');
+</script>
+</body>
+</html>
