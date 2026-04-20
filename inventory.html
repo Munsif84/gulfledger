@@ -789,35 +789,45 @@ function addPOLine(){
     </div>
     <input type="hidden" class="po-item-id">`;
   document.getElementById('po-lines').appendChild(d);
-  filterPicker(lineId,'');
 }
 
 function filterPicker(lineId,search){
-  const dd=document.getElementById('picker-'+lineId);if(!dd)return;
-  const q=search.toLowerCase().trim();
-  const matches=q?invItems.filter(i=>
-    i.name.toLowerCase().includes(q)||
-    (i.sku||'').toLowerCase().includes(q)||
-    (i.barcode||'').toLowerCase().includes(q)
-  ):invItems.slice(0,20);
+  const dd=document.getElementById('picker-'+lineId);
+  if(!dd)return;
+  // Make sure dropdown is visible
+  dd.classList.add('open');
+  const q=(search||'').toLowerCase().trim();
+  // Filter items
+  const matches=q
+    ?invItems.filter(i=>
+        i.name.toLowerCase().includes(q)||
+        (i.sku||'').toLowerCase().includes(q)||
+        (i.barcode||'').toLowerCase().includes(q)
+      ).slice(0,30)
+    :invItems.slice(0,30);
 
-  if(!matches.length){
-    dd.innerHTML=`<div class="picker-empty">${L==='ar'?'لا نتائج — تحقق من الاسم أو SKU أو أضف الصنف أولاً':'No results — check name/SKU or add item first'}</div>`;
-  }else{
-    dd.innerHTML=matches.map(i=>{
-      const qc=i.current_qty===0?'c-red':i.current_qty<=(i.alert_level||0)?'c-amber':'c-green';
-      return `<div class="picker-item" onclick="selectItem('${lineId}','${i.id}','${escQ(i.name)}','${i.cost_price||0}','${i.sku||''}',${i.current_qty||0},'${i.unit||''}')">
-        <div>
-          <div class="picker-item-name">${i.name}</div>
-          <div class="picker-item-meta">${i.sku||'—'} ${i.barcode?'| '+i.barcode:''}</div>
-        </div>
-        <div style="text-align:left;">
-          <div class="picker-item-stock ${qc}">${i.current_qty||0} ${i.unit||''}</div>
-          <div class="picker-item-meta">SAR ${fmt(i.cost_price)}</div>
-        </div>
-      </div>`;
-    }).join('');
+  if(!invItems.length){
+    dd.innerHTML=`<div class="picker-empty">${L==='ar'?'لا توجد أصناف مسجّلة — أضف أصنافاً أولاً':'No items registered — add items first'}</div>`;
+    return;
   }
+  if(!matches.length){
+    dd.innerHTML=`<div class="picker-empty">${L==='ar'?'لا نتائج للبحث':'No results'}</div>`;
+    return;
+  }
+  dd.innerHTML=matches.map(i=>{
+    const qc=i.current_qty===0?'c-red':i.current_qty<=(i.alert_level||0)?'c-amber':'c-green';
+    const safeName=escQ(i.name);
+    return `<div class="picker-item" onclick="selectItem('${lineId}','${i.id}','${safeName}','${i.cost_price||0}','${i.sku||''}',${i.current_qty||0},'${i.unit||''}')">
+      <div>
+        <div class="picker-item-name">${i.name}</div>
+        <div class="picker-item-meta">${i.sku||'—'}${i.barcode?' | '+i.barcode:''}</div>
+      </div>
+      <div style="text-align:left;">
+        <div class="picker-item-stock ${qc}">${i.current_qty||0} ${i.unit||''}</div>
+        <div class="picker-item-meta">SAR ${fmt(i.cost_price)}</div>
+      </div>
+    </div>`;
+  }).join('');
 }
 
 function selectItem(lineId,itemId,name,cost,sku,qty,unit){
@@ -839,10 +849,9 @@ function selectItem(lineId,itemId,name,cost,sku,qty,unit){
 }
 
 function showPicker(lineId){
-  // Hide all other pickers first
   document.querySelectorAll('.picker-dropdown').forEach(d=>d.classList.remove('open'));
-  const dd=document.getElementById('picker-'+lineId);
-  if(dd)dd.classList.add('open');
+  const inp=document.querySelector('#'+lineId+' .search-picker-input');
+  filterPicker(lineId, inp?.value||'');
 }
 function hidePicker(lineId){
   const dd=document.getElementById('picker-'+lineId);
@@ -851,7 +860,6 @@ function hidePicker(lineId){
 function hideAllPickers(){
   document.querySelectorAll('.picker-dropdown').forEach(d=>d.classList.remove('open'));
 }
-// Close pickers when clicking outside
 document.addEventListener('click',function(e){
   if(!e.target.closest('.search-picker-wrap'))hideAllPickers();
 });
