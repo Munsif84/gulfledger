@@ -1728,13 +1728,23 @@ async function autoPostReceipt(receipt) {
   const date     = receipt.date     || today();
   const supName  = receipt.supplierName || 'مورد';
   const payMethod= receipt.paymentMethod || 'credit';
+  const hasPO    = receipt.hasPO || false;  // linked to a purchasing PO?
 
-  // Credit account depends on payment method
-  const crAcc = payMethod === 'cash'
+  // Credit account:
+  // — cash/bank → 1100 النقد
+  // — credit WITH a formal PO (Pro plan flow) → 2150 GR Clearing (interim)
+  // — credit WITHOUT PO (simple receive) → 2100 Payables directly
+  const crAcc = payMethod === 'cash' || payMethod === 'bank'
     ? { code: '1100', name: 'النقد وما في حكمه' }
-    : payMethod === 'bank'
-    ? { code: '1100', name: 'البنك' }
+    : hasPO
+    ? { code: '2150', name: 'حساب استلام البضاعة (مؤقت)' }
     : { code: '2100', name: 'ذمم دائنة تجارية' };
+
+  const crDesc = payMethod === 'cash' || payMethod === 'bank'
+    ? 'دفع نقدي لـ ' + supName
+    : hasPO
+    ? 'GR Clearing — بانتظار فاتورة ' + supName
+    : 'مستحقات لمورد ' + supName;
 
   try {
     // Check duplicate
@@ -1751,7 +1761,7 @@ async function autoPostReceipt(receipt) {
         business_id: currentBiz?.id,
         entry_date:  date,
         reference:   ref,
-        description: 'استلام بضاعة — ' + supName,
+        description: 'استلام بضاعة — ' + supName + (hasPO ? ' (GR Clearing)' : ''),
         source:      'inventory',
         status:      'posted',
         is_balanced: true
@@ -1760,7 +1770,7 @@ async function autoPostReceipt(receipt) {
       entryId = entry.id;
     }
 
-    // Dr Inventory | Cr Payables / Cash
+    // Dr Inventory | Cr GR Clearing (if PO) or Payables (if no PO) or Cash
     await sb.from('journal_lines').insert([
       { entry_id: entryId, user_id: currentUser.id,
         account_code: '1300', account_name: 'المخزون',
@@ -1769,9 +1779,7 @@ async function autoPostReceipt(receipt) {
       { entry_id: entryId, user_id: currentUser.id,
         account_code: crAcc.code, account_name: crAcc.name,
         debit: 0, credit: total,
-        description: payMethod === 'credit'
-          ? 'مستحقات لمورد ' + supName
-          : 'دفع نقدي لـ ' + supName }
+        description: crDesc }
     ]);
   } catch(e) {
     console.warn('Auto-post failed:', e.message);

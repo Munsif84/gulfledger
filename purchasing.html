@@ -915,47 +915,91 @@ async function postSupplierInvoice(siId){
   const {data:inv}=await sb.from('supplier_invoices').select('*').eq('id',siId).single();
   if(!inv)return;
 
-  // Post journal entry: Dr 2150 GR Clearing | Cr 2100 Payables
-  // (assumes GRN already posted Dr Inventory | Cr 2150 when stock was received)
-  // Net effect: Dr Inventory | Cr Payables
-  const {data:entry}=await sb.from('journal_entries').insert({
+  // 3-WAY MATCH JOURNAL ENTRY:
+  // GRN already posted: Dr 1300 Inventory | Cr 2150 GR Clearing
+  // Now we post:        Dr 2150 GR Clearing | Cr 2100 Payables + Cr 2210 Input VAT
+  //
+  // Net effect across both entries:
+  // Dr 1300 Inventory + Dr 2210 Input VAT | Cr 2100 Payables
+  //
+  // If no PO was linked (simple flow), we post directly:
+  // Dr 1300 Inventory + Dr 2210 Input VAT | Cr 2100 Payables
+
+  const hasPO = !!inv.po_id;
+
+  const {data:entry, error}=await sb.from('journal_entries').insert({
     user_id:currentUser.id,
     business_id:currentBiz?.id,
     entry_date:inv.invoice_date,
     reference:inv.invoice_number,
-    description:(L==='ar'?'فاتورة مورد — ':'Supplier Invoice — ')+inv.supplier_name+' | '+(inv.our_reference||''),
+    description:(L==='ar'?'فاتورة مورد — ':'Supplier Invoice — ')+inv.supplier_name
+      +' | '+(inv.our_reference||'')
+      +(hasPO?' (3-way match)':''),
     source:'supplier_invoice',
     status:'posted',
     is_balanced:true
   }).select().single();
 
-  if(!entry||!entry.data){
-    // Simplified posting if GR clearing not used
-    await sb.from('journal_lines').insert([
-      {entry_id:entry?.id||null,user_id:currentUser.id,account_code:'1300',account_name:'المخزون',debit:inv.subtotal,credit:0,description:inv.supplier_name},
-      {entry_id:entry?.id||null,user_id:currentUser.id,account_code:'2210',account_name:'ضريبة القيمة المضافة — مدخلات',debit:inv.vat_amount,credit:0,description:'VAT مدخلات'},
-      {entry_id:entry?.id||null,user_id:currentUser.id,account_code:'2100',account_name:'ذمم دائنة تجارية',debit:0,credit:inv.total,description:inv.supplier_name}
-    ]);
+  if(error||!entry){notify(error?.message||'Post error','r');return;}
+
+  let lines;
+  if(hasPO){
+    // Proper 3-way match: clear GR Clearing → create real payable
+    lines=[
+      {entry_id:entry.id,user_id:currentUser.id,
+        account_code:'2150',account_name:'حساب استلام البضاعة (مؤقت)',
+        debit:inv.subtotal,credit:0,
+        description:'إقفال GR Clearing — '+(inv.our_reference||inv.supplier_name)},
+      {entry_id:entry.id,user_id:currentUser.id,
+        account_code:'2210',account_name:'ضريبة القيمة المضافة — مدخلات',
+        debit:inv.vat_amount,credit:0,
+        description:'VAT مدخلات 15% — '+inv.supplier_name},
+      {entry_id:entry.id,user_id:currentUser.id,
+        account_code:'2100',account_name:'ذمم دائنة تجارية',
+        debit:0,credit:inv.total,
+        description:(L==='ar'?'مستحق لـ ':'Payable to ')+inv.supplier_name
+          +' | '+inv.invoice_number}
+    ];
+  } else {
+    // Simple flow (no PO): post inventory + VAT directly
+    lines=[
+      {entry_id:entry.id,user_id:currentUser.id,
+        account_code:'1300',account_name:'المخزون',
+        debit:inv.subtotal,credit:0,
+        description:(L==='ar'?'بضاعة من ':'Goods from ')+inv.supplier_name},
+      {entry_id:entry.id,user_id:currentUser.id,
+        account_code:'2210',account_name:'ضريبة القيمة المضافة — مدخلات',
+        debit:inv.vat_amount,credit:0,
+        description:'VAT مدخلات 15%'},
+      {entry_id:entry.id,user_id:currentUser.id,
+        account_code:'2100',account_name:'ذمم دائنة تجارية',
+        debit:0,credit:inv.total,
+        description:(L==='ar'?'مستحق لـ ':'Payable to ')+inv.supplier_name}
+    ];
   }
 
-  // Post journal lines properly
-  if(entry&&entry.id){
-    await sb.from('journal_lines').insert([
-      {entry_id:entry.id,user_id:currentUser.id,account_code:'1300',account_name:'المخزون',debit:inv.subtotal,credit:0,description:(L==='ar'?'بضاعة من ':'Goods from ')+inv.supplier_name},
-      {entry_id:entry.id,user_id:currentUser.id,account_code:'2210',account_name:'ضريبة القيمة المضافة — مدخلات',debit:inv.vat_amount,credit:0,description:'VAT مدخلات 15%'},
-      {entry_id:entry.id,user_id:currentUser.id,account_code:'2100',account_name:'ذمم دائنة تجارية',debit:0,credit:inv.total,description:(L==='ar'?'مستحق لـ ':'Payable to ')+inv.supplier_name}
-    ]);
-  }
+  await sb.from('journal_lines').insert(lines);
 
-  // Update supplier invoice status
-  await sb.from('supplier_invoices').update({status:'approved',journal_entry_id:entry?.id,updated_at:new Date().toISOString()}).eq('id',siId);
+  // Update supplier invoice & PO status
+  await sb.from('supplier_invoices').update({
+    status:'approved',journal_entry_id:entry.id,updated_at:new Date().toISOString()
+  }).eq('id',siId);
 
-  // Update PO status to invoiced
   if(inv.po_id){
-    await sb.from('purchase_orders').update({status:'invoiced',updated_at:new Date().toISOString()}).eq('id',inv.po_id);
+    await sb.from('purchase_orders').update({
+      status:'invoiced',updated_at:new Date().toISOString()
+    }).eq('id',inv.po_id);
   }
 
-  notify(L==='ar'?'✅ تم ترحيل فاتورة المورد للدفتر — Dr مخزون + VAT مدخلات | Cr ذمم دائنة':'✅ Supplier invoice posted — Dr Inventory + Input VAT | Cr Payables','g');
+  const msg = hasPO
+    ? (L==='ar'
+        ? '✅ ترحيل 3-way match — Dr GR Clearing + VAT مدخلات | Cr ذمم دائنة'
+        : '✅ 3-way match posted — Dr GR Clearing + Input VAT | Cr Payables')
+    : (L==='ar'
+        ? '✅ تم ترحيل فاتورة المورد للدفتر — Dr مخزون + VAT مدخلات | Cr ذمم دائنة'
+        : '✅ Supplier invoice posted — Dr Inventory + Input VAT | Cr Payables');
+
+  notify(msg,'g');
   clearSIForm();
   await loadSupplierInvoices();
   await loadPOs();
