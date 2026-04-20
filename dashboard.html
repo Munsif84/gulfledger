@@ -109,7 +109,7 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);}
     <div class="stat">
       <div class="stat-label" data-ar="إجمالي الفواتير" data-en="Total Invoiced">إجمالي الفواتير</div>
       <div class="stat-val" id="s-invoiced">SAR 0</div>
-      <div class="stat-sub" data-ar="جميع الفواتير" data-en="All invoices">جميع الفواتير</div>
+      <div class="stat-sub" data-ar="هذا الشهر" data-en="This month">هذا الشهر</div>
     </div>
     <div class="stat">
       <div class="stat-label" data-ar="VAT المستحق" data-en="VAT Payable">VAT المستحق</div>
@@ -242,14 +242,25 @@ async function init(){
     applyPlanGating('starter');
   }
 
-  // Stats
-  const {data:invoices}=await sb.from('invoices').select('total,vat_amount').eq('user_id',user.id);
-  if(invoices){
-    const tot=invoices.reduce((s,i)=>s+(i.total||0),0);
-    const vat=invoices.reduce((s,i)=>s+(i.vat_amount||0),0);
-    document.getElementById('s-invoiced').textContent='SAR '+tot.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2});
-    document.getElementById('s-vat').textContent='SAR '+vat.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2});
-    document.getElementById('s-count').textContent=invoices.length;
+  // Stats — current month revenue, quarterly VAT, all-time count
+  const now        = new Date();
+  const monthStart = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-01';
+  const monthEnd   = now.toISOString().split('T')[0];
+  // Current quarter
+  const q          = Math.floor(now.getMonth()/3);
+  const qStart     = now.getFullYear()+'-'+String(q*3+1).padStart(2,'0')+'-01';
+
+  const {data:allInv}=await sb.from('invoices').select('total,vat_amount,subtotal,issue_date').eq('user_id',user.id);
+  if(allInv){
+    // This month invoiced
+    const monthInv=allInv.filter(i=>i.issue_date>=monthStart&&i.issue_date<=monthEnd);
+    const monthTot=monthInv.reduce((s,i)=>s+(i.subtotal||0),0);
+    // This quarter VAT
+    const qInv=allInv.filter(i=>i.issue_date>=qStart&&i.issue_date<=monthEnd);
+    const qVat=qInv.reduce((s,i)=>s+(i.vat_amount||0),0);
+    document.getElementById('s-invoiced').textContent='SAR '+monthTot.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2});
+    document.getElementById('s-vat').textContent='SAR '+qVat.toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2});
+    document.getElementById('s-count').textContent=allInv.length;
   }
   const {data:items}=await sb.from('inventory_items').select('current_qty,alert_level').eq('user_id',user.id);
   if(items){

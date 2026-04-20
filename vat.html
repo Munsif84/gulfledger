@@ -326,7 +326,8 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
         <div class="f201-row">
           <div>
             <div class="f201-label" data-ar="4. المشتريات المحلية الخاضعة للضريبة" data-en="4. Standard rated purchases">4. المشتريات المحلية بنسبة 15%</div>
-            <div class="f201-note" data-ar="أدخل إجمالي مشترياتك الخاضعة للضريبة" data-en="Enter your taxable purchases total">أدخل إجمالي مشترياتك الخاضعة للضريبة</div>
+            <div class="f201-note" data-ar="يُحسب تلقائياً من استلامات المخزون — يمكن تعديله يدوياً" data-en="Auto-calculated from inventory receipts — can be edited manually">يُحسب تلقائياً من استلامات المخزون — يمكن تعديله</div>
+            <div id="f4-auto-note" style="display:none;font-size:10px;color:var(--green);font-weight:600;margin-top:3px;"></div>
           </div>
           <div>
             <div class="f201-box-label">المبلغ</div>
@@ -512,7 +513,7 @@ async function calcVAT() {
 
   if (!from || !to) { notify(L==='ar'?'اختر الفترة':'Select period', 'r'); return; }
 
-  // Load invoices in period
+  // ── OUTPUT VAT: Load invoices in period ──
   const { data: invoices } = await sb.from('invoices')
     .select('*')
     .eq('user_id', currentUser.id)
@@ -521,21 +522,53 @@ async function calcVAT() {
     .order('issue_date');
 
   currentInvoices = invoices || [];
-
-  // Calculate totals
   const totalSales  = currentInvoices.reduce((s, i) => s + (i.subtotal   || 0), 0);
   const totalVATOut = currentInvoices.reduce((s, i) => s + (i.vat_amount || 0), 0);
 
-  // Update stats
   set('vs-count',  currentInvoices.length);
   set('vs-sales',  'SAR ' + fmt(totalSales));
   set('vs-output', 'SAR ' + fmt(totalVATOut));
-
-  // Update form section 1
   set('f1-amount', fmt(totalSales));
   set('f1-vat',    fmt(totalVATOut));
 
-  // Update period label
+  // ── INPUT VAT: Auto-pull from inventory receipts ──
+  const { data: receipts } = await sb.from('inventory_movements')
+    .select('quantity, unit_cost, inventory_items(cost_price)')
+    .eq('business_id', currentBiz?.id)
+    .eq('movement_type', 'in')
+    .gte('movement_date', from)
+    .lte('movement_date', to)
+    .neq('reference', 'OPENING');  // exclude opening stock
+
+  let purchasesTotal = 0;
+  (receipts || []).forEach(m => {
+    const cost = m.unit_cost || m.inventory_items?.cost_price || 0;
+    purchasesTotal += (m.quantity || 0) * cost;
+  });
+  purchasesTotal = Math.round(purchasesTotal * 100) / 100;
+
+  // Pre-fill field 4 with auto-calculated purchases
+  const f4Input = document.getElementById('f4-amount');
+  if (f4Input) {
+    f4Input.value = purchasesTotal.toFixed(2);
+    // Mark as auto-filled
+    f4Input.style.background = '#f0fdf4';
+    f4Input.style.borderColor = 'var(--green)';
+    f4Input.title = L==='ar'
+      ? 'تم الحساب تلقائياً من استلامات المخزون — يمكن تعديله'
+      : 'Auto-calculated from inventory receipts — can be edited';
+  }
+
+  // Show purchases summary note
+  const f4Note = document.getElementById('f4-auto-note');
+  if (f4Note) {
+    f4Note.textContent = (L==='ar'
+      ? `تم جلبه تلقائياً من ${(receipts||[]).length} استلام مخزون`
+      : `Auto-pulled from ${(receipts||[]).length} inventory receipts`);
+    f4Note.style.display = 'block';
+  }
+
+  // Period label
   const qNames = {
     ar: { Q1:'الربع الأول', Q2:'الربع الثاني', Q3:'الربع الثالث', Q4:'الربع الرابع' },
     en: { Q1:'Q1', Q2:'Q2', Q3:'Q3', Q4:'Q4' }

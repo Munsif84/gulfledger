@@ -434,15 +434,12 @@ async function generateStatements() {
     cogs = Math.max(0, openingVal + purchases - closingVal);
   }
 
-  /* ── EXPENSES from ledger entries ── */
+  /* ── EXPENSES from period journal entries ── */
   let salaries=0, rent=0, utilities=0, marketing=0, depreciation=0, bankCharges=0, misc=0, zakatExp=0;
-  let cash=0, receivables=0, prepaid=0, fixedAssets=0, accumDeprec=0;
-  let payables=0, vatPayable=0, loans=0, capital=0, retained=0;
 
   (entries||[]).forEach(e => {
     (e.journal_lines||[]).forEach(l => {
       const dr = l.debit  || 0;
-      const cr = l.credit || 0;
       switch(l.account_code) {
         case '5200': salaries    += dr; break;
         case '5300': rent        += dr; break;
@@ -452,31 +449,55 @@ async function generateStatements() {
         case '5700': bankCharges += dr; break;
         case '5800': misc        += dr; break;
         case '5900': zakatExp    += dr; break;
-        case '1100': cash        += dr - cr; break;
-        case '1200': receivables += dr - cr; break;
-        case '1400': prepaid     += dr - cr; break;
-        case '1500': case '1600': fixedAssets  += dr - cr; break;
-        case '1700': accumDeprec += cr - dr; break;
-        case '2100': payables    += cr - dr; break;
-        case '2200': case '2210': vatPayable  += cr - dr; break;
-        case '2300': case '2500': loans       += cr - dr; break;
-        case '3100': capital     += cr - dr; break;
-        case '3200': retained    += cr - dr; break;
       }
     });
   });
 
-  // Inventory asset value from current stock
+  // Inventory asset value from current stock (always from DB)
   const inventoryVal = (invItems||[]).reduce((s,i) => s + (i.cost_price||0)*(i.current_qty||0), 0);
 
-  // Receivables from invoices if not in ledger
-  if (receivables === 0) {
-    receivables = (invoices||[]).reduce((s,i) => s + (i.total||0), 0);
-  }
-  // Payables from purchase movements if not in ledger
-  if (payables === 0) {
-    payables = (inMovements||[]).reduce((s,m) => s + (m.quantity||0)*(m.unit_cost||0), 0);
-  }
+  // ── BALANCE SHEET from journal entries (all-time, not period-filtered) ──
+  // Load ALL journal entries for balance sheet (balance sheet is cumulative, not period)
+  const { data: allEntries } = await sb.from('journal_entries')
+    .select('*, journal_lines(*)')
+    .eq('user_id', currentUser.id);
+
+  let cash2=0, receivables2=0, prepaid2=0, fixedAssets2=0, accumDeprec2=0;
+  let payables2=0, vatPayable2=0, loans2=0, capital2=0, retained2=0;
+
+  (allEntries||[]).forEach(e => {
+    (e.journal_lines||[]).forEach(l => {
+      const dr = l.debit  || 0;
+      const cr = l.credit || 0;
+      switch(l.account_code) {
+        case '1100': cash2        += dr - cr; break;
+        case '1200': receivables2 += dr - cr; break;
+        case '1400': prepaid2     += dr - cr; break;
+        case '1500': case '1600': fixedAssets2  += dr - cr; break;
+        case '1700': accumDeprec2 += cr - dr; break;
+        case '2100': payables2    += cr - dr; break;
+        case '2200': case '2210': vatPayable2  += cr - dr; break;
+        case '2300': case '2500': loans2       += cr - dr; break;
+        case '3100': capital2     += cr - dr; break;
+        case '3200': retained2    += cr - dr; break;
+      }
+    });
+  });
+
+  // Use journal-based values for balance sheet
+  // Cash: journal 1100 net. If zero (no cash entries), show 0 not invoice total
+  const cash        = Math.max(0, cash2);
+  // Receivables: journal 1200 net (Dr Receivables - Cr collections)
+  const receivables = Math.max(0, receivables2);
+  // Payables: journal 2100 net
+  const payables    = Math.max(0, payables2);
+  const vatPayable  = Math.max(0, vatPayable2);
+  const loans       = Math.max(0, loans2);
+  const capital     = Math.max(0, capital2);
+  const retained    = retained2;
+  const prepaid     = Math.max(0, prepaid2);
+  const fixedAssets = Math.max(0, fixedAssets2);
+  const accumDeprec = Math.max(0, accumDeprec2);
 
   const grossProfit  = revenue - cogs;
   const totalExpenses= salaries + rent + utilities + marketing + depreciation + bankCharges + misc;
