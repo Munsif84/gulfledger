@@ -170,6 +170,10 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
   .preview-panel{display:block;}
   .invoice-doc{margin-top:16px;}
 }
+
+/* Force Gregorian calendar on all devices — prevents Hijri on Arabic locale */
+input[type="date"]::-webkit-calendar-picker-indicator { filter: none; }
+input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family: 'DM Mono', monospace; }
 </style>
 </head>
 <body>
@@ -237,7 +241,7 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
       </div>
       <div class="field">
         <label data-en="Date" data-ar="التاريخ">Date</label>
-        <input type="date" id="f-date" oninput="render()">
+        <input type="date" lang="en" id="f-date" oninput="render()">
       </div>
       <div class="field">
         <label data-en="Type" data-ar="النوع">Type</label>
@@ -664,7 +668,7 @@ function render() {
   setText('p-seller-cr',  v('f-seller-cr')  ? 'CR: '  + v('f-seller-cr')  : '');
   setText('p-buyer-name', v('f-buyer-name') || (isB2B ? '—' : 'Cash Customer'));
   setText('p-buyer-trn',  v('f-buyer-trn')  ? 'TRN: ' + v('f-buyer-trn') : '');
-  setText('p-date', date ? new Date(date).toLocaleDateString('en-SA', {year:'numeric',month:'long',day:'numeric'}) : '—');
+  setText('p-date', date ? new Date(date).toLocaleDateString('en-SA', {year:'numeric',month:'long',day:'numeric',calendar:'gregory'}) : '—');
 
   document.getElementById('b2c-notice').style.display  = isB2B ? 'none' : 'block';
   document.getElementById('buyer-fields').style.display = isB2B ? 'block' : 'block';
@@ -900,6 +904,23 @@ window.addEventListener('beforeprint', function() {
 });
 
 init();
+
+// Force Gregorian dates — prevents Hijri calendar on Arabic devices
+(function(){
+  function fixDates(){
+    document.querySelectorAll('input[type="date"]').forEach(function(el){
+      if(!el.getAttribute('data-gregorian-fixed')){
+        el.setAttribute('lang','en-SA-u-ca-gregory');
+        el.setAttribute('data-gregorian-fixed','1');
+      }
+    });
+  }
+  fixDates();
+  // Also fix any dynamically added date inputs
+  var obs = new MutationObserver(fixDates);
+  obs.observe(document.body, {childList:true, subtree:true});
+})();
+
 </script>
 </body>
 </html>

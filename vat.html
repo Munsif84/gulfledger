@@ -115,6 +115,10 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
   .f201-row>div:last-child{display:none;}
   .f201-col-header>span:last-child{display:none;}
 }
+
+/* Force Gregorian calendar on all devices — prevents Hijri on Arabic locale */
+input[type="date"]::-webkit-calendar-picker-indicator { filter: none; }
+input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family: 'DM Mono', monospace; }
 </style>
 </head>
 <body>
@@ -189,11 +193,11 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
     </div>
     <div>
       <label data-ar="من" data-en="From">من</label>
-      <input type="date" id="vat-from">
+      <input type="date" lang="en" id="vat-from">
     </div>
     <div>
       <label data-ar="إلى" data-en="To">إلى</label>
-      <input type="date" id="vat-to">
+      <input type="date" lang="en" id="vat-to">
     </div>
     <button class="btn-calc" onclick="calcVAT()" data-ar="احتساب الإقرار" data-en="Calculate Return">احتساب الإقرار</button>
   </div>
@@ -484,7 +488,7 @@ function calcNextDueDate() {
   const due = new Date(dueDates[q]);
   const diff = Math.ceil((due - now) / (1000*60*60*24));
 
-  document.getElementById('next-due').textContent  = due.toLocaleDateString(L==='ar'?'ar-SA':'en-SA', {year:'numeric',month:'long',day:'numeric'});
+  document.getElementById('next-due').textContent  = due.toLocaleDateString('en-SA', {year:'numeric',month:'long',day:'numeric',calendar:'gregory'});
   document.getElementById('days-left').textContent = diff > 0
     ? (L==='ar'?`متبقي ${diff} يوم`:`${diff} days left`)
     : (L==='ar'?'انتهى الموعد':'Overdue');
@@ -630,6 +634,23 @@ function notify(msg, type) {
 }
 
 init();
+
+// Force Gregorian dates — prevents Hijri calendar on Arabic devices
+(function(){
+  function fixDates(){
+    document.querySelectorAll('input[type="date"]').forEach(function(el){
+      if(!el.getAttribute('data-gregorian-fixed')){
+        el.setAttribute('lang','en-SA-u-ca-gregory');
+        el.setAttribute('data-gregorian-fixed','1');
+      }
+    });
+  }
+  fixDates();
+  // Also fix any dynamically added date inputs
+  var obs = new MutationObserver(fixDates);
+  obs.observe(document.body, {childList:true, subtree:true});
+})();
+
 </script>
 </body>
 </html>

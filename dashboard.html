@@ -269,32 +269,57 @@ const PLAN_FEATURES = {
 function applyPlanGating(plan) {
   const allowed = PLAN_FEATURES[plan] || PLAN_FEATURES.starter;
 
-  // Show plan badge
+  // Show plan badge next to business name
   const badge = document.createElement('span');
   badge.style.cssText = 'font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;margin-right:8px;' +
-    (plan === 'pro' ? 'background:#f5f3ff;color:#6d28d9;' :
+    (plan === 'pro'      ? 'background:#f5f3ff;color:#6d28d9;' :
      plan === 'business' ? 'background:var(--tint);color:var(--blue);' :
-     'background:#f0fdf4;color:var(--green);');
+                           'background:#f0fdf4;color:var(--green);');
   badge.textContent = plan === 'pro' ? 'Pro' : plan === 'business' ? 'Business' : 'Starter';
   document.getElementById('biz-name').after(badge);
 
-  // Gate inventory module card
+  // Store plan for other pages to read
+  sessionStorage.setItem('gl_plan', plan);
+  localStorage.setItem('gl_plan', plan);
+
+  // 360° gating for inventory
   if (!allowed.includes('inventory')) {
+
+    // 1. Lock app nav link
+    const navInv = document.querySelector('.app-nav a[href="inventory.html"]');
+    if (navInv) {
+      navInv.style.opacity = '0.4';
+      navInv.style.pointerEvents = 'none';
+      navInv.href = '#';
+      navInv.title = 'يتطلب باقة الأعمال';
+    }
+
+    // 2. Lock dashboard module card
     const invCard = document.querySelector('a[href="inventory.html"]');
     if (invCard) {
       invCard.style.opacity = '0.5';
       invCard.style.pointerEvents = 'none';
       invCard.href = '#';
+      invCard.style.cursor = 'not-allowed';
       const lock = document.createElement('div');
       lock.style.cssText = 'font-size:10px;color:var(--amber);font-weight:700;margin-top:4px;';
       lock.textContent = '🔒 يتطلب باقة الأعمال';
       invCard.appendChild(lock);
     }
-  }
 
-  // Gate AI invoice nav (handled inside invoices page)
-  // Store plan in session storage for other pages to read
-  sessionStorage.setItem('gl_plan', plan);
+    // 3. Show upgrade banner for Starter plan
+    const banner = document.createElement('div');
+    banner.style.cssText = 'background:linear-gradient(135deg,#b45309,#d97706);border-radius:10px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:12px;';
+    banner.innerHTML = `
+      <div>
+        <div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:3px;">🔒 المخزون متاح في باقة الأعمال</div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.8);">ترقّ للحصول على إدارة المخزون، الباركود، ومتوسط التكلفة المرجّح</div>
+      </div>
+      <a href="https://wa.me/966500000000" style="padding:9px 18px;background:#fff;color:#b45309;border-radius:7px;text-decoration:none;font-size:12px;font-weight:700;white-space:nowrap;">ترقّ الآن ←</a>`;
+    const page = document.querySelector('.page');
+    const firstCard = page?.querySelector('.stats');
+    if (firstCard) page.insertBefore(banner, firstCard);
+  }
 }
 
 async function logout() {

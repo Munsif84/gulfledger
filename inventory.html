@@ -124,6 +124,10 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
   .stats{grid-template-columns:1fr 1fr;}
   .fg-3,.fg-4{grid-template-columns:1fr 1fr;}
 }
+
+/* Force Gregorian calendar on all devices — prevents Hijri on Arabic locale */
+input[type="date"]::-webkit-calendar-picker-indicator { filter: none; }
+input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family: 'DM Mono', monospace; }
 </style>
 </head>
 <body>
@@ -324,7 +328,7 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
             </div>
             <div class="fg fg-3" style="margin-bottom:0;">
               <div class="fld"><label data-ar="رقم فاتورة الشراء" data-en="PO Number">رقم فاتورة الشراء</label><input type="text" id="f-po-num" placeholder="PO-2026-001"></div>
-              <div class="fld"><label data-ar="تاريخ الاستلام" data-en="Date">تاريخ الاستلام</label><input type="date" id="f-po-date"></div>
+              <div class="fld"><label data-ar="تاريخ الاستلام" data-en="Date">تاريخ الاستلام</label><input type="date" lang="en" id="f-po-date"></div>
               <div class="fld"><label data-ar="طريقة الدفع" data-en="Payment">طريقة الدفع</label>
                 <select id="f-po-pay">
                   <option value="credit" data-ar="آجل — ذمم دائنة" data-en="Credit">آجل — ذمم دائنة</option>
@@ -391,8 +395,8 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
             <span data-ar="طريقة الاحتساب: متوسط التكلفة المرجّح (WAC) — معتمدة وفق IFRS وزاتكا للمنشآت الصغيرة والمتوسطة" data-en="Method: Weighted Average Cost (WAC) — approved under IFRS and ZATCA for SMEs">طريقة الاحتساب: متوسط التكلفة المرجّح (WAC)</span>
           </div>
           <div class="fg fg-2">
-            <div class="fld"><label data-ar="من تاريخ" data-en="From">من تاريخ</label><input type="date" id="cogs-from"></div>
-            <div class="fld"><label data-ar="إلى تاريخ" data-en="To">إلى تاريخ</label><input type="date" id="cogs-to"></div>
+            <div class="fld"><label data-ar="من تاريخ" data-en="From">من تاريخ</label><input type="date" lang="en" id="cogs-from"></div>
+            <div class="fld"><label data-ar="إلى تاريخ" data-en="To">إلى تاريخ</label><input type="date" lang="en" id="cogs-to"></div>
           </div>
           <button class="btn-p" onclick="calcCOGS()" style="margin-bottom:16px;" data-ar="احسب تكلفة المبيعات" data-en="Calculate COGS">احسب تكلفة المبيعات</button>
           <div id="cogs-result"></div>
@@ -420,7 +424,7 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
           </div>
 
           <div class="fg fg-2">
-            <div class="fld"><label data-ar="تاريخ الإقفال *" data-en="Closing Date *">تاريخ الإقفال *</label><input type="date" id="close-date"></div>
+            <div class="fld"><label data-ar="تاريخ الإقفال *" data-en="Closing Date *">تاريخ الإقفال *</label><input type="date" lang="en" id="close-date"></div>
             <div class="fld"><label data-ar="ملاحظات" data-en="Notes">ملاحظات</label><input type="text" id="close-notes" placeholder="مثال: إقفال الربع الأول 2026"></div>
           </div>
           <button class="btn-p" onclick="closePeriod()" data-ar="تسجيل إقفال المخزون" data-en="Save Period Closing">تسجيل إقفال المخزون</button>
@@ -521,6 +525,20 @@ async function init() {
   if (biz) {
     currentBiz = biz;
     document.getElementById('biz-name').textContent = biz.name;
+
+    // 360° plan gate — Starter cannot access inventory
+    const plan = biz.plan || localStorage.getItem('gl_plan') || 'starter';
+    if (plan === 'starter') {
+      document.querySelector('.layout').innerHTML = `
+        <div style="grid-column:1/-1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;text-align:center;">
+          <div style="font-size:48px;margin-bottom:16px;">🔒</div>
+          <div style="font-family:'Playfair Display',serif;font-size:22px;color:var(--navy);margin-bottom:8px;">${L==='ar'?'المخزون متاح في باقة الأعمال':'Inventory available in Business plan'}</div>
+          <div style="font-size:14px;color:var(--muted);margin-bottom:24px;max-width:400px;line-height:1.6;">${L==='ar'?'ترقّ لباقة الأعمال للحصول على إدارة المخزون الكاملة، الباركود، متوسط التكلفة المرجّح، وسجل الموردين':'Upgrade to Business plan for full inventory management, barcode, WAC costing, and supplier registry'}</div>
+          <a href="https://wa.me/966500000000" style="padding:12px 28px;background:var(--blue);color:#fff;border-radius:9px;text-decoration:none;font-size:14px;font-weight:700;">${L==='ar'?'💬 ترقّ عبر واتساب':'💬 Upgrade via WhatsApp'}</a>
+          <a href="dashboard.html" style="margin-top:12px;font-size:13px;color:var(--muted);">${L==='ar'?'← العودة للرئيسية':'← Back to Dashboard'}</a>
+        </div>`;
+      return;
+    }
   }
 
   document.getElementById('f-po-date').value = today();
@@ -1054,6 +1072,23 @@ function notify(msg, type) {
 }
 
 init();
+
+// Force Gregorian dates — prevents Hijri calendar on Arabic devices
+(function(){
+  function fixDates(){
+    document.querySelectorAll('input[type="date"]').forEach(function(el){
+      if(!el.getAttribute('data-gregorian-fixed')){
+        el.setAttribute('lang','en-SA-u-ca-gregory');
+        el.setAttribute('data-gregorian-fixed','1');
+      }
+    });
+  }
+  fixDates();
+  // Also fix any dynamically added date inputs
+  var obs = new MutationObserver(fixDates);
+  obs.observe(document.body, {childList:true, subtree:true});
+})();
+
 </script>
 </body>
 </html>
