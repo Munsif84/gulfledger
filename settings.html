@@ -2,6 +2,14 @@
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
+<script>
+/* Apply language before render to prevent flash */
+(function(){
+  var lang = localStorage.getItem('gl_lang') || 'ar';
+  document.documentElement.setAttribute('lang', lang);
+  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+})();
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GulfLedger — الإعدادات</title>
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&family=Playfair+Display:wght@700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
@@ -127,6 +135,22 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
 
   <!-- IDENTITY -->
   <div class="section active" id="sec-identity">
+    <div class="card">
+      <div class="card-title" data-ar="لغة النظام" data-en="System Language">لغة النظام</div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.6;" data-ar="اختر اللغة الافتراضية للنظام — تُطبَّق على جميع الصفحات لجميع المستخدمين على هذا الحساب." data-en="Choose the default system language — applies across all pages for this account.">اختر اللغة الافتراضية — تُطبَّق على جميع الصفحات.</p>
+      <div class="radio-group">
+        <label class="radio-opt" id="lang-opt-ar" onclick="setLang('ar')" style="cursor:pointer;">
+          <span style="font-size:18px;">🇸🇦</span>
+          <span data-ar="العربية (الافتراضي)" data-en="Arabic (default)">العربية</span>
+        </label>
+        <label class="radio-opt" id="lang-opt-en" onclick="setLang('en')" style="cursor:pointer;">
+          <span style="font-size:18px;">🇬🇧</span>
+          <span data-ar="الإنجليزية" data-en="English">الإنجليزية</span>
+        </label>
+      </div>
+      <p style="font-size:11px;color:var(--muted);margin-top:10px;" data-ar="يمكن التغيير في أي وقت من زر اللغة في أعلى كل صفحة." data-en="Can be changed anytime from the language toggle at the top of any page.">يمكن التغيير من زر اللغة في أعلى كل صفحة.</p>
+    </div>
+
     <div class="card">
       <div class="card-title" data-ar="الاسم التجاري" data-en="Business Name">الاسم التجاري</div>
       <div class="fg fg-2">
@@ -386,7 +410,13 @@ async function init(){
   currentUser=session.user;
   document.getElementById('current-email').textContent=currentUser.email;
   const {data:biz}=await sb.from('businesses').select('*').eq('user_id',currentUser.id).single();
-  if(biz){currentBizId=biz.id;populateForm(biz);}
+  if(biz){
+    currentBiz=biz;currentBizId=biz.id;populateForm(biz);
+    // Sync language from DB across devices
+    if(biz.language&&biz.language!==localStorage.getItem('gl_lang')){
+      localStorage.setItem('gl_lang',biz.language);
+    }
+  }
   const {data:pts}=await sb.from('ownership_partners').select('*').eq('business_id',currentBizId).catch(()=>({data:null}));
   partners=pts&&pts.length?pts:[{id:null,partner_name:'',nationality:'Saudi Arabia',nationality_type:'saudi',ownership_pct:100}];
   const {data:rates}=await sb.from('tax_rates').select('*').catch(()=>({data:null}));
@@ -611,7 +641,20 @@ function goSection(name){
   if(name==='identity')onBusinessTypeChange();
 }
 
-function setLang(lang){ L=lang; applyLang(lang); if(typeof onBusinessTypeChange==='function')onBusinessTypeChange(); if(typeof renderStock==='function')renderStock(); if(typeof renderSuppliers==='function')renderSuppliers(); if(typeof renderPartners==='function')renderPartners(); }
+function setLang(lang){
+  L=lang;
+  applyLang(lang);
+  if(typeof onBusinessTypeChange==='function')onBusinessTypeChange();
+  if(typeof renderPartners==='function')renderPartners();
+  if(typeof renderTaxRates==='function'&&Object.keys(taxRates).length){
+    const rates=Object.keys(taxRates).map(k=>({rate_key:k,rate_value:taxRates[k]}));
+    renderTaxRates(rates);
+  }
+  // Save language preference to DB if business loaded
+  if(currentBizId){
+    sb.from('businesses').update({language:lang}).eq('id',currentBizId).then(()=>{});
+  }
+}
 
 function gval(id){const e=document.getElementById(id);return e?e.value.trim():'';}
 function setVal(id,v){const e=document.getElementById(id);if(e)e.value=v;}
@@ -649,6 +692,9 @@ function applyLang(lang){
   localStorage.setItem('gl_lang',lang);
   document.getElementById('btn-ar')?.classList.toggle('on',lang==='ar');
   document.getElementById('btn-en')?.classList.toggle('on',lang==='en');
+  // Highlight language radio buttons in settings
+  document.getElementById('lang-opt-ar')?.classList.toggle('selected',lang==='ar');
+  document.getElementById('lang-opt-en')?.classList.toggle('selected',lang==='en');
   document.documentElement.setAttribute('lang',lang);
   document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
   document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));
