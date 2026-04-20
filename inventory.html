@@ -6,12 +6,11 @@
 <title>GulfLedger — المخزون</title>
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&family=Playfair+Display:wght@700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
 :root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#C62828;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--border:#d4e6f7;--bg:#f7fafd;--white:#ffffff;}
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;}
-
-/* NAV */
 .topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;}
 .nav-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
 .nav-bars{display:flex;gap:3px;height:22px;}
@@ -27,8 +26,6 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
 .app-nav-link{padding:5px 14px;font-size:12px;font-weight:500;color:rgba(255,255,255,0.7);text-decoration:none;border-radius:6px;white-space:nowrap;}
 .app-nav-link:hover{background:rgba(255,255,255,0.12);color:#fff;}
 .app-nav-link.active{background:rgba(255,255,255,0.18);color:#fff;}
-
-/* LAYOUT */
 .layout{display:grid;grid-template-columns:210px 1fr;min-height:calc(100vh - 88px);}
 .sidebar{background:var(--white);border-left:1px solid var(--border);padding:14px 0;overflow-y:auto;}
 .sb-sec{padding:0 12px;margin-bottom:8px;}
@@ -40,13 +37,8 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
 .sb-alert{display:flex;justify-content:space-between;align-items:center;padding:5px 10px;border-radius:6px;cursor:pointer;font-size:11px;margin-bottom:2px;}
 .sb-alert:hover{background:var(--tint);}
 .sb-qty{font-family:'DM Mono',monospace;font-size:11px;font-weight:700;}
-.sb-qty.crit{color:var(--red);}
-.sb-qty.warn{color:var(--amber);}
-
-/* MAIN */
+.sb-qty.crit{color:var(--red);}.sb-qty.warn{color:var(--amber);}
 .main{padding:20px;overflow-y:auto;}
-
-/* STATS */
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;}
 .stat{background:var(--white);border:1px solid var(--border);border-radius:10px;padding:13px 15px;}
 .stat.s-amber{border-color:#fde68a;background:#fffbeb;}
@@ -55,36 +47,56 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
 .stat-num{font-size:20px;font-weight:700;font-family:'DM Mono',monospace;}
 .c-navy{color:var(--navy);}.c-green{color:var(--green);}.c-red{color:var(--red);}.c-amber{color:var(--amber);}
 .stat-sub{font-size:11px;color:var(--muted);margin-top:2px;}
-
-/* TABS */
 .tc{display:none;}.tc.active{display:block;}
-
-/* CARD */
 .card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px;}
-.card-hdr{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.card-hdr{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;}
 .card-ttl{font-size:14px;font-weight:700;color:var(--navy);}
 .card-bdy{padding:18px;}
-
-/* FORM */
 .fg{display:grid;gap:12px;margin-bottom:14px;}
 .fg-2{grid-template-columns:1fr 1fr;}
 .fg-3{grid-template-columns:1fr 1fr 1fr;}
 .fg-4{grid-template-columns:repeat(4,1fr);}
+.fg-5{grid-template-columns:repeat(5,1fr);}
 .fld{display:flex;flex-direction:column;gap:4px;}
 .fld label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
 .fld input,.fld select{padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:13px;color:var(--ink);background:var(--white);width:100%;}
 .fld input:focus,.fld select:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(55,138,221,0.1);}
-
+.fld .hint{font-size:10px;color:var(--muted);margin-top:2px;}
+/* SKU auto badge */
+.sku-auto{display:flex;align-items:center;gap:6px;}
+.sku-auto input{flex:1;}
+.sku-auto-badge{font-size:9px;font-weight:700;padding:2px 7px;border-radius:5px;background:#f0fdf4;color:var(--green);white-space:nowrap;}
+/* SEARCHABLE PICKER */
+.search-picker-wrap{position:relative;}
+.search-picker-input{width:100%;padding:8px 36px 8px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:13px;color:var(--ink);}
+.search-picker-input:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(55,138,221,0.1);}
+.scan-btn{position:absolute;left:6px;top:50%;transform:translateY(-50%);background:none;border:none;cursor:pointer;color:var(--blue);font-size:16px;padding:2px;}
+[dir="ltr"] .scan-btn{left:auto;right:6px;}
+.picker-dropdown{position:absolute;top:100%;right:0;left:0;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.12);z-index:100;max-height:240px;overflow-y:auto;display:none;}
+.picker-dropdown.open{display:block;}
+.picker-item{padding:9px 12px;cursor:pointer;border-bottom:1px solid var(--tint);display:flex;align-items:center;justify-content:space-between;gap:8px;}
+.picker-item:last-child{border-bottom:none;}
+.picker-item:hover{background:var(--tint);}
+.picker-item-name{font-size:13px;font-weight:500;}
+.picker-item-meta{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;}
+.picker-item-stock{font-size:11px;font-weight:700;}
+.picker-empty{padding:14px;text-align:center;color:var(--muted);font-size:12px;}
+/* PO LINES */
+.po-line{background:var(--tint);border-radius:8px;padding:10px 12px;margin-bottom:8px;border:1px solid var(--light);}
+.po-line-top{display:grid;grid-template-columns:1fr 80px 90px 85px 28px;gap:6px;align-items:center;margin-bottom:6px;}
+.po-line-info{font-size:11px;color:var(--muted);display:flex;gap:12px;}
+.po-line input{padding:6px 8px;border:1px solid var(--border);border-radius:5px;font-family:'Tajawal',sans-serif;font-size:12px;width:100%;}
+.po-line input[readonly]{background:var(--white);color:var(--blue);font-family:'DM Mono',monospace;font-weight:600;}
 /* BUTTONS */
 .btn-p{padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;}
 .btn-p:hover{background:var(--navy);}
 .btn-s{padding:7px 14px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
 .btn-s:hover{border-color:var(--blue);}
 .btn-d{padding:5px 10px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;}
+.btn-e{padding:5px 10px;background:var(--tint);color:var(--blue);border:1px solid var(--light);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;}
 .btn-row{display:flex;gap:8px;flex-wrap:wrap;}
-
 /* TABLE */
-.tbl{width:100%;border-collapse:collapse;font-size:13px;}
+.tbl{width:100%;border-collapse:collapse;font-size:12px;}
 .tbl th{padding:9px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-align:right;white-space:nowrap;}
 .tbl td{padding:9px 12px;border-bottom:1px solid var(--tint);vertical-align:middle;}
 .tbl tr:last-child td{border-bottom:none;}
@@ -96,48 +108,50 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
 .bdg-out{background:#fff5f5;color:var(--red);}
 .bdg-in{background:var(--tint);color:var(--blue);}
 .bdg-out2{background:#f5f3ff;color:#6d28d9;}
-
-/* NOTE BOXES */
+.sku-badge{font-family:'DM Mono',monospace;font-size:10px;background:var(--tint);color:var(--blue);padding:2px 7px;border-radius:5px;display:inline-block;}
+/* NOTE */
 .note-box{display:flex;align-items:flex-start;gap:8px;padding:10px 13px;border-radius:8px;margin-bottom:13px;font-size:12px;line-height:1.5;}
 .note-box.blue{background:var(--tint);border:1px solid var(--light);color:var(--navy);}
-.note-box.green{background:#f0fdf4;border:1px solid #86efac;color:#085041;}
 .note-box.amber{background:#fffbeb;border:1px solid #fde68a;color:var(--amber);}
-
+.note-box.green{background:#f0fdf4;border:1px solid #86efac;color:#085041;}
 /* COGS */
 .cogs-box{background:var(--tint);border-radius:9px;padding:13px 15px;}
 .cogs-row{display:flex;justify-content:space-between;padding:4px 0;font-size:13px;color:var(--muted);}
 .cogs-row.tot{border-top:1px solid var(--light);margin-top:6px;padding-top:8px;font-size:15px;font-weight:700;color:var(--navy);}
 .cogs-val{font-family:'DM Mono',monospace;font-weight:500;}
-
-/* SAVE STATUS */
-.save-status{font-size:11px;padding:4px 10px;border-radius:6px;}
-.saving{background:var(--tint);color:var(--blue);}
-.saved{background:#f0fdf4;color:var(--green);}
-.save-error{background:#fff5f5;color:var(--red);}
-
-/* SKU BADGE */
-.sku-badge{font-family:'DM Mono',monospace;font-size:10px;background:var(--tint);color:var(--blue);padding:2px 7px;border-radius:5px;display:inline-block;}
-
+/* UPLOAD ZONE */
+.upload-zone{border:2px dashed var(--border);border-radius:10px;padding:24px;text-align:center;cursor:pointer;transition:border .2s;position:relative;}
+.upload-zone:hover{border-color:var(--sky);background:var(--tint);}
+.upload-zone input{position:absolute;inset:0;opacity:0;cursor:pointer;}
+.upload-zone-icon{font-size:32px;margin-bottom:8px;}
+/* MODAL */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:9990;display:flex;align-items:center;justify-content:center;padding:20px;}
+.modal{background:#fff;border-radius:14px;padding:24px;width:100%;max-width:480px;max-height:85vh;overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.2);}
+.modal-title{font-size:16px;font-weight:700;color:var(--navy);margin-bottom:16px;padding-bottom:10px;border-bottom:1px solid var(--border);}
+/* CAMERA MODAL */
+.camera-modal{background:#000;border-radius:14px;overflow:hidden;width:100%;max-width:400px;}
+#camera-video{width:100%;display:block;}
+.camera-overlay{padding:12px;text-align:center;background:#000;}
+/* UPLOAD PROGRESS */
+.upload-progress{background:var(--tint);border-radius:8px;padding:12px 16px;margin-top:10px;}
+.progress-bar-wrap{background:var(--border);border-radius:4px;height:6px;margin:8px 0;}
+.progress-bar-fill{background:var(--blue);height:6px;border-radius:4px;transition:width .3s;}
 @media(max-width:768px){
   .layout{grid-template-columns:1fr;}
   .sidebar{display:none;}
   .stats{grid-template-columns:1fr 1fr;}
-  .fg-3,.fg-4{grid-template-columns:1fr 1fr;}
+  .fg-3,.fg-4,.fg-5{grid-template-columns:1fr 1fr;}
+  .po-line-top{grid-template-columns:1fr 70px 75px 70px 26px;}
 }
-
-/* Force Gregorian calendar on all devices — prevents Hijri on Arabic locale */
-input[type="date"]::-webkit-calendar-picker-indicator { filter: none; }
-input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family: 'DM Mono', monospace; }
+/* Force Gregorian dates */
+input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
 </style>
 </head>
 <body>
 
 <div class="topnav">
   <a href="dashboard.html" class="nav-logo">
-    <div class="nav-bars">
-      <div class="nav-bar" style="background:#fff;"></div>
-      <div class="nav-bar" style="background:rgba(255,255,255,0.45);"></div>
-    </div>
+    <div class="nav-bars"><div class="nav-bar" style="background:#fff;"></div><div class="nav-bar" style="background:rgba(255,255,255,0.45);"></div></div>
     <span class="nav-name">Gulf<span style="color:var(--light);">Ledger</span></span>
   </a>
   <div class="nav-right">
@@ -151,91 +165,82 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
 </div>
 
 <div class="app-nav">
-  <a href="dashboard.html"  class="app-nav-link" data-ar="الرئيسية"       data-en="Dashboard">الرئيسية</a>
-  <a href="invoices.html"   class="app-nav-link" data-ar="الفواتير"       data-en="Invoices">الفواتير</a>
+  <a href="dashboard.html"  class="app-nav-link" data-ar="الرئيسية" data-en="Dashboard">الرئيسية</a>
+  <a href="invoices.html"   class="app-nav-link" data-ar="الفواتير" data-en="Invoices">الفواتير</a>
   <a href="inventory.html"  class="app-nav-link active" data-ar="المخزون" data-en="Inventory">المخزون</a>
-  <a href="ledger.html"     class="app-nav-link" data-ar="دفتر الأستاذ"   data-en="Ledger">دفتر الأستاذ</a>
-  <a href="vat.html"        class="app-nav-link" data-ar="إقرار VAT"      data-en="VAT Return">إقرار VAT</a>
+  <a href="ledger.html"     class="app-nav-link" data-ar="دفتر الأستاذ" data-en="Ledger">دفتر الأستاذ</a>
+  <a href="vat.html"        class="app-nav-link" data-ar="إقرار VAT" data-en="VAT Return">إقرار VAT</a>
   <a href="statements.html" class="app-nav-link" data-ar="القوائم المالية" data-en="Statements">القوائم المالية</a>
-  <a href="settings.html"   class="app-nav-link" data-ar="الإعدادات"      data-en="Settings">الإعدادات</a>
+  <a href="settings.html"   class="app-nav-link" data-ar="الإعدادات" data-en="Settings">الإعدادات</a>
 </div>
 
 <div class="layout">
-
   <!-- SIDEBAR -->
   <div class="sidebar">
     <div class="sb-sec">
       <span class="sb-lbl" data-ar="الأقسام" data-en="Sections">الأقسام</span>
-      <div class="sb-item active" id="sb-stock"     onclick="goTab('stock')">
-        <div class="sb-dot" style="background:var(--blue);"></div>
-        <span data-ar="كشف المخزون"    data-en="Stock List">كشف المخزون</span>
-      </div>
-      <div class="sb-item" id="sb-receive"  onclick="goTab('receive')">
-        <div class="sb-dot" style="background:var(--green);"></div>
-        <span data-ar="استلام بضاعة"   data-en="Receive Stock">استلام بضاعة</span>
-      </div>
-      <div class="sb-item" id="sb-movements" onclick="goTab('movements')">
-        <div class="sb-dot" style="background:var(--amber);"></div>
-        <span data-ar="حركة المخزون"   data-en="Movements">حركة المخزون</span>
-      </div>
-      <div class="sb-item" id="sb-cogs"      onclick="goTab('cogs')">
-        <div class="sb-dot" style="background:var(--navy);"></div>
-        <span data-ar="تكلفة المبيعات" data-en="Cost of Sales">تكلفة المبيعات</span>
-      </div>
-      <div class="sb-item" id="sb-suppliers" onclick="goTab('suppliers')">
-        <div class="sb-dot" style="background:#6d28d9;"></div>
-        <span data-ar="سجل الموردين"   data-en="Suppliers">سجل الموردين</span>
-      </div>
+      <div class="sb-item active" id="sb-stock"      onclick="goTab('stock')"><div class="sb-dot" style="background:var(--blue);"></div><span data-ar="كشف المخزون" data-en="Stock List">كشف المخزون</span></div>
+      <div class="sb-item"        id="sb-receive"    onclick="goTab('receive')"><div class="sb-dot" style="background:var(--green);"></div><span data-ar="استلام بضاعة" data-en="Receive Stock">استلام بضاعة</span></div>
+      <div class="sb-item"        id="sb-movements"  onclick="goTab('movements')"><div class="sb-dot" style="background:var(--amber);"></div><span data-ar="حركة المخزون" data-en="Movements">حركة المخزون</span></div>
+      <div class="sb-item"        id="sb-cogs"       onclick="goTab('cogs')"><div class="sb-dot" style="background:var(--navy);"></div><span data-ar="تكلفة المبيعات" data-en="COGS">تكلفة المبيعات</span></div>
+      <div class="sb-item"        id="sb-suppliers"  onclick="goTab('suppliers')"><div class="sb-dot" style="background:#6d28d9;"></div><span data-ar="سجل الموردين" data-en="Suppliers">سجل الموردين</span></div>
     </div>
     <div class="sb-sec">
-      <span class="sb-lbl" data-ar="تنبيهات النفاد" data-en="Low Stock Alerts">تنبيهات النفاد</span>
+      <span class="sb-lbl" data-ar="تنبيهات" data-en="Alerts">تنبيهات</span>
       <div id="sb-alerts"><div style="font-size:11px;color:var(--muted);padding:4px 6px;" data-ar="لا تنبيهات ✓" data-en="No alerts ✓">لا تنبيهات ✓</div></div>
     </div>
   </div>
 
   <div class="main">
-
     <!-- STATS -->
     <div class="stats">
-      <div class="stat">
-        <div class="stat-lbl" data-ar="إجمالي الأصناف" data-en="Total SKUs">إجمالي الأصناف</div>
-        <div class="stat-num c-navy" id="s-skus">0</div>
-        <div class="stat-sub" data-ar="صنف مسجل" data-en="items">صنف مسجل</div>
-      </div>
-      <div class="stat">
-        <div class="stat-lbl" data-ar="قيمة المخزون" data-en="Stock Value">قيمة المخزون</div>
-        <div class="stat-num c-navy" id="s-val">SAR 0</div>
-        <div class="stat-sub" data-ar="بسعر التكلفة" data-en="at cost">بسعر التكلفة</div>
-      </div>
-      <div class="stat s-amber">
-        <div class="stat-lbl" data-ar="يقترب من النفاد" data-en="Low Stock">يقترب من النفاد</div>
-        <div class="stat-num c-amber" id="s-low">0</div>
-        <div class="stat-sub" data-ar="تحت حد التنبيه" data-en="below alert">تحت حد التنبيه</div>
-      </div>
-      <div class="stat s-red">
-        <div class="stat-lbl" data-ar="نفد تماماً" data-en="Out of Stock">نفد تماماً</div>
-        <div class="stat-num c-red" id="s-out">0</div>
-        <div class="stat-sub" data-ar="صنف نفد" data-en="depleted">صنف نفد</div>
-      </div>
+      <div class="stat"><div class="stat-lbl" data-ar="إجمالي الأصناف" data-en="Total SKUs">إجمالي الأصناف</div><div class="stat-num c-navy" id="s-skus">0</div><div class="stat-sub" data-ar="صنف مسجّل" data-en="items">صنف مسجّل</div></div>
+      <div class="stat"><div class="stat-lbl" data-ar="قيمة المخزون" data-en="Stock Value">قيمة المخزون</div><div class="stat-num c-navy" id="s-val">SAR 0</div><div class="stat-sub" data-ar="بسعر التكلفة WAC" data-en="at WAC cost">بسعر التكلفة WAC</div></div>
+      <div class="stat s-amber"><div class="stat-lbl" data-ar="يقترب من النفاد" data-en="Low Stock">يقترب من النفاد</div><div class="stat-num c-amber" id="s-low">0</div><div class="stat-sub" data-ar="تحت حد التنبيه" data-en="below alert">تحت حد التنبيه</div></div>
+      <div class="stat s-red"><div class="stat-lbl" data-ar="نفد تماماً" data-en="Out of Stock">نفد تماماً</div><div class="stat-num c-red" id="s-out">0</div><div class="stat-sub" data-ar="صنف نفد" data-en="depleted">صنف نفد</div></div>
     </div>
 
-    <!-- TAB: STOCK -->
+    <!-- TAB: STOCK LIST -->
     <div class="tc active" id="tc-stock">
+      <!-- ADD ITEM FORM -->
       <div class="card">
         <div class="card-hdr">
           <span class="card-ttl" data-ar="إضافة صنف جديد" data-en="Add New Item">إضافة صنف جديد</span>
-          <span id="stock-save-status" style="display:none;" class="save-status"></span>
+          <div style="display:flex;gap:8px;">
+            <button class="btn-s" onclick="goTab('upload')" style="font-size:11px;" data-ar="📤 رفع من Excel" data-en="📤 Upload from Excel">📤 رفع من Excel</button>
+          </div>
         </div>
         <div class="card-bdy">
           <div class="note-box blue">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
-            <span data-ar="رمز الصنف (SKU) يُستخدم لربط المخزون بالفواتير تلقائياً — اختر رمزاً واضحاً ومميزاً" data-en="SKU links inventory to invoices automatically — choose a clear unique code">رمز الصنف (SKU) يُستخدم لربط المخزون بالفواتير تلقائياً</span>
+            <span data-ar="رمز SKU يُنشأ تلقائياً بناءً على الفئة — يمكنك تعديله. الباركود اختياري ويُستخدم للمسح الضوئي عند الاستلام." data-en="SKU is auto-generated from category — you can override it. Barcode is optional and used for scanning during receiving.">رمز SKU يُنشأ تلقائياً — يمكن تعديله. الباركود للمسح الضوئي.</span>
+          </div>
+          <div class="fg fg-3">
+            <div class="fld"><label data-ar="اسم الصنف *" data-en="Item Name *">اسم الصنف *</label><input type="text" id="fi-name" placeholder="Nescafe Classic 190g" oninput="previewSKU()"></div>
+            <div class="fld">
+              <label data-ar="الفئة *" data-en="Category *">الفئة *</label>
+              <select id="fi-cat" onchange="previewSKU()">
+                <option value="FOOD"  data-ar="مواد غذائية" data-en="Food">مواد غذائية</option>
+                <option value="BEV"   data-ar="مشروبات"     data-en="Beverages">مشروبات</option>
+                <option value="CLN"   data-ar="منظفات"      data-en="Cleaning">منظفات</option>
+                <option value="ELEC"  data-ar="إلكترونيات"  data-en="Electronics">إلكترونيات</option>
+                <option value="CLTH"  data-ar="ملابس"       data-en="Clothing">ملابس</option>
+                <option value="HLTH"  data-ar="صحة وجمال"  data-en="Health & Beauty">صحة وجمال</option>
+                <option value="STAT"  data-ar="قرطاسية"     data-en="Stationery">قرطاسية</option>
+                <option value="BLDG"  data-ar="مواد بناء"   data-en="Building">مواد بناء</option>
+                <option value="ITM"   data-ar="أخرى"        data-en="Other">أخرى</option>
+              </select>
+            </div>
+            <div class="fld">
+              <label data-ar="رمز SKU (تلقائي)" data-en="SKU (auto)">رمز SKU (تلقائي)</label>
+              <div class="sku-auto">
+                <input type="text" id="fi-sku" placeholder="FOOD-0001" style="font-family:'DM Mono',monospace;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()">
+                <span class="sku-auto-badge" id="sku-auto-badge" data-ar="تلقائي" data-en="auto">تلقائي</span>
+              </div>
+            </div>
           </div>
           <div class="fg fg-4">
-            <div class="fld"><label data-ar="اسم الصنف *" data-en="Item Name *">اسم الصنف *</label><input type="text" id="fi-name" placeholder="زيت عباد الشمس 1.5L"></div>
-            <div class="fld"><label data-ar="رمز الصنف (SKU) *" data-en="SKU *">رمز الصنف (SKU) *</label><input type="text" id="fi-sku" placeholder="OIL-001" style="font-family:'DM Mono',monospace;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase()"></div>
-            <div class="fld"><label data-ar="الباركود (اختياري)" data-en="Barcode (optional)">الباركود</label><input type="text" id="fi-barcode" placeholder="6291003080058" style="font-family:'DM Mono',monospace;"></div>
-            <div class="fld"><label data-ar="وحدة القياس" data-en="Unit">وحدة القياس</label>
+            <div class="fld"><label data-ar="الوحدة" data-en="Unit">الوحدة</label>
               <select id="fi-unit">
                 <option value="قطعة"  data-ar="قطعة"  data-en="Piece">قطعة</option>
                 <option value="كيلو"  data-ar="كيلو"  data-en="Kg">كيلو</option>
@@ -245,24 +250,14 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
                 <option value="متر"   data-ar="متر"   data-en="Metre">متر</option>
               </select>
             </div>
+            <div class="fld"><label data-ar="سعر الشراء (SAR) *" data-en="Cost Price *">سعر الشراء *</label><input type="number" id="fi-cost" placeholder="0.00" min="0" step="0.01"></div>
+            <div class="fld"><label data-ar="سعر البيع (SAR) *" data-en="Sale Price *">سعر البيع *</label><input type="number" id="fi-price" placeholder="0.00" min="0" step="0.01"></div>
+            <div class="fld"><label data-ar="الباركود" data-en="Barcode">الباركود</label><input type="text" id="fi-barcode" placeholder="6291003080058" dir="ltr" style="font-family:'DM Mono',monospace;"></div>
           </div>
-          <div class="fg fg-4" style="grid-template-columns:1fr 1fr 1fr 1fr;">
-            <div class="fld"><label data-ar="الفئة" data-en="Category">الفئة</label>
-              <select id="fi-cat">
-                <option value="مواد غذائية" data-ar="مواد غذائية" data-en="Food">مواد غذائية</option>
-                <option value="مشروبات"     data-ar="مشروبات"     data-en="Beverages">مشروبات</option>
-                <option value="منظفات"      data-ar="منظفات"      data-en="Cleaning">منظفات</option>
-                <option value="إلكترونيات"  data-ar="إلكترونيات"  data-en="Electronics">إلكترونيات</option>
-                <option value="ملابس"       data-ar="ملابس"       data-en="Clothing">ملابس</option>
-                <option value="أخرى"        data-ar="أخرى"        data-en="Other">أخرى</option>
-              </select>
-            </div>
-          </div>
-          <div class="fg fg-4">
-            <div class="fld"><label data-ar="سعر الشراء (SAR) *" data-en="Cost Price (SAR) *">سعر الشراء *</label><input type="number" id="fi-cost" placeholder="0.00" min="0" step="0.01"></div>
-            <div class="fld"><label data-ar="سعر البيع (SAR) *"  data-en="Sale Price (SAR) *">سعر البيع *</label><input type="number" id="fi-price" placeholder="0.00" min="0" step="0.01"></div>
+          <div class="fg fg-3">
             <div class="fld"><label data-ar="الكمية الافتتاحية" data-en="Opening Qty">الكمية الافتتاحية</label><input type="number" id="fi-qty" placeholder="0" min="0"></div>
-            <div class="fld"><label data-ar="حد تنبيه النفاد" data-en="Alert Level">حد التنبيه</label><input type="number" id="fi-alert" placeholder="10" min="0"></div>
+            <div class="fld"><label data-ar="حد التنبيه" data-en="Alert Level">حد التنبيه</label><input type="number" id="fi-alert" placeholder="10" min="0"></div>
+            <div class="fld"><label data-ar="الوصف / التعبئة" data-en="Description / Packing">الوصف / التعبئة</label><input type="text" id="fi-desc" placeholder="190g — 24 علبة في الكرتون"></div>
           </div>
           <div class="btn-row">
             <button class="btn-p" onclick="addItem()" data-ar="إضافة للمخزون" data-en="Add to Inventory">إضافة للمخزون</button>
@@ -271,80 +266,84 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
         </div>
       </div>
 
+      <!-- STOCK LIST TABLE -->
       <div class="card">
         <div class="card-hdr">
           <span class="card-ttl" data-ar="كشف المخزون الحالي" data-en="Current Stock List">كشف المخزون الحالي</span>
-          <input type="text" id="stock-search" placeholder="بحث باسم الصنف أو SKU..." style="padding:6px 11px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;width:200px;" oninput="renderStock()">
+          <input type="text" id="stock-search" placeholder="بحث بالاسم أو SKU أو الباركود..." style="padding:6px 11px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;width:220px;" oninput="renderStock()">
         </div>
-        <div style="overflow-x:auto;"><table class="tbl" id="stock-table">
+        <div style="overflow-x:auto;"><table class="tbl">
           <thead><tr>
             <th data-ar="الصنف" data-en="Item">الصنف</th>
-            <th data-ar="SKU"   data-en="SKU">SKU</th>
-            <th data-ar="الفئة" data-en="Category">الفئة</th>
+            <th data-ar="SKU" data-en="SKU">SKU</th>
+            <th data-ar="الباركود" data-en="Barcode">الباركود</th>
             <th data-ar="الوحدة" data-en="Unit">الوحدة</th>
-            <th data-ar="سعر الشراء" data-en="Cost">سعر الشراء</th>
-            <th data-ar="سعر البيع"  data-en="Price">سعر البيع</th>
-            <th data-ar="الكمية"     data-en="Qty">الكمية</th>
-            <th data-ar="القيمة"     data-en="Value">القيمة</th>
-            <th data-ar="الحالة"     data-en="Status">الحالة</th>
-            <th data-ar="إجراء"      data-en="Action">إجراء</th>
+            <th data-ar="سعر الشراء (WAC)" data-en="Cost (WAC)">سعر الشراء</th>
+            <th data-ar="سعر البيع" data-en="Sale Price">سعر البيع</th>
+            <th data-ar="الكمية" data-en="Qty">الكمية</th>
+            <th data-ar="القيمة" data-en="Value">القيمة</th>
+            <th data-ar="الحالة" data-en="Status">الحالة</th>
+            <th data-ar="إجراء" data-en="Action">إجراء</th>
           </tr></thead>
           <tbody id="stock-tbody"><tr><td colspan="10" style="text-align:center;padding:20px;color:var(--muted);">جارٍ التحميل...</td></tr></tbody>
         </table></div>
-        <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;">
-          <button class="btn-s" onclick="goTab('receive')" data-ar="استلام بضاعة جديدة ←" data-en="Receive Stock →">استلام بضاعة جديدة ←</button>
-          <button class="btn-s" onclick="goTab('movements')" data-ar="حركة المخزون ←" data-en="Movements →">حركة المخزون ←</button>
+        <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn-s" onclick="goTab('receive')" data-ar="استلام بضاعة ←" data-en="Receive Stock →">استلام بضاعة ←</button>
+          <button class="btn-s" onclick="goTab('upload')" data-ar="رفع من Excel ←" data-en="Upload from Excel →">رفع من Excel ←</button>
         </div>
       </div>
     </div>
 
-    <!-- TAB: RECEIVE -->
+    <!-- TAB: RECEIVE STOCK -->
     <div class="tc" id="tc-receive">
       <div class="card">
-        <div class="card-hdr">
-          <span class="card-ttl" data-ar="استلام بضاعة من مورد" data-en="Receive Stock from Supplier">استلام بضاعة من مورد</span>
-          <span id="receive-save-status" style="display:none;" class="save-status"></span>
-        </div>
+        <div class="card-hdr"><span class="card-ttl" data-ar="استلام بضاعة من مورد" data-en="Receive Stock from Supplier">استلام بضاعة من مورد</span></div>
         <div class="card-bdy">
-          <div class="note-box blue">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
-            <span data-ar="كل استلام بضاعة يحدّث المخزون تلقائياً ويُسجّل في حركة المخزون وفي دفتر الأستاذ" data-en="Every receipt updates stock, records a movement, and creates a ledger entry">كل استلام يحدّث المخزون ويُسجّل في دفتر الأستاذ تلقائياً</span>
+          <div class="note-box green">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+            <span data-ar="ابحث عن الصنف بالاسم أو SKU أو امسح الباركود مباشرة. سعر التكلفة يُحدَّث بمتوسط مرجّح (WAC) تلقائياً." data-en="Search by name/SKU or scan barcode directly. Cost price auto-updates using Weighted Average Cost (WAC).">ابحث بالاسم أو SKU أو امسح الباركود. السعر يتحدث بمتوسط مرجّح (WAC).</span>
           </div>
 
-          <!-- Supplier selector -->
+          <!-- Supplier -->
           <div style="background:#f0fdf4;border:1px solid #86efac;border-radius:9px;padding:14px;margin-bottom:14px;">
             <div style="font-size:11px;font-weight:700;color:var(--green);text-transform:uppercase;letter-spacing:.05em;margin-bottom:10px;" data-ar="بيانات المورد" data-en="Supplier">بيانات المورد</div>
-            <div class="fg fg-2" style="margin-bottom:10px;">
+            <div class="fg fg-3">
               <div>
-                <label style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:4px;" data-ar="اختر من سجل الموردين" data-en="Select from registry">اختر من سجل الموردين</label>
-                <div style="display:flex;gap:8px;">
-                  <select id="f-sup-sel" onchange="fillSupplier()" style="flex:1;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:13px;">
+                <label style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;display:block;margin-bottom:4px;" data-ar="اختر من السجل" data-en="Select from registry">اختر من السجل</label>
+                <div style="display:flex;gap:6px;">
+                  <select id="f-sup-sel" onchange="fillSupplier()" style="flex:1;padding:7px 9px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;">
                     <option value="" data-ar="— اختر مورداً —" data-en="— Select supplier —">— اختر مورداً —</option>
                   </select>
-                  <button class="btn-s" onclick="goTab('suppliers')" data-ar="إدارة" data-en="Manage">إدارة</button>
+                  <button class="btn-s" onclick="goTab('suppliers')" style="font-size:11px;padding:6px 10px;" data-ar="إدارة" data-en="Manage">إدارة</button>
                 </div>
               </div>
               <div class="fld"><label data-ar="اسم المورد *" data-en="Supplier Name *">اسم المورد *</label><input type="text" id="f-sup-name" placeholder="شركة الأمانة للتوزيع"></div>
+              <div class="fld"><label data-ar="رقم فاتورة الشراء" data-en="PO Number">رقم فاتورة الشراء</label><input type="text" id="f-po-num" placeholder="PO-2026-001" dir="ltr"></div>
             </div>
-            <div class="fg fg-3" style="margin-bottom:0;">
-              <div class="fld"><label data-ar="رقم فاتورة الشراء" data-en="PO Number">رقم فاتورة الشراء</label><input type="text" id="f-po-num" placeholder="PO-2026-001"></div>
-              <div class="fld"><label data-ar="تاريخ الاستلام" data-en="Date">تاريخ الاستلام</label><input type="date" lang="en" id="f-po-date"></div>
+            <div class="fg fg-2" style="margin-top:10px;margin-bottom:0;">
+              <div class="fld"><label data-ar="تاريخ الاستلام" data-en="Date">تاريخ الاستلام</label><input type="date" id="f-po-date" lang="en"></div>
               <div class="fld"><label data-ar="طريقة الدفع" data-en="Payment">طريقة الدفع</label>
                 <select id="f-po-pay">
-                  <option value="credit" data-ar="آجل — ذمم دائنة" data-en="Credit">آجل — ذمم دائنة</option>
+                  <option value="credit" data-ar="آجل — ذمم دائنة" data-en="Credit — Payable">آجل</option>
                   <option value="cash"   data-ar="نقداً"            data-en="Cash">نقداً</option>
-                  <option value="bank"   data-ar="تحويل بنكي"      data-en="Bank Transfer">تحويل بنكي</option>
+                  <option value="bank"   data-ar="تحويل بنكي"       data-en="Bank Transfer">تحويل بنكي</option>
                 </select>
               </div>
             </div>
           </div>
 
           <!-- PO Lines -->
-          <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;" data-ar="الأصناف المستلمة" data-en="Items Received">الأصناف المستلمة</div>
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:8px;">
+            <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;" data-ar="الأصناف المستلمة" data-en="Items Received">الأصناف المستلمة</div>
+            <div style="display:flex;gap:6px;">
+              <button class="btn-s" onclick="addPOLine()" style="font-size:11px;" data-ar="+ إضافة صنف" data-en="+ Add Item">+ إضافة صنف</button>
+              <button class="btn-s" onclick="openCameraForPO()" style="font-size:11px;" data-ar="📷 مسح باركود" data-en="📷 Scan Barcode">📷 مسح باركود</button>
+            </div>
+          </div>
           <div id="po-lines"></div>
-          <button class="btn-s" onclick="addPOLine()" style="width:100%;margin-bottom:14px;" data-ar="+ إضافة صنف" data-en="+ Add Item">+ إضافة صنف</button>
 
-          <div class="cogs-box">
+          <!-- PO Totals -->
+          <div class="cogs-box" style="margin-top:12px;">
             <div class="cogs-row"><span data-ar="إجمالي قبل الضريبة" data-en="Subtotal">إجمالي قبل الضريبة</span><span class="cogs-val" id="po-sub">SAR 0.00</span></div>
             <div class="cogs-row"><span data-ar="ضريبة القيمة المضافة 15%" data-en="VAT 15%">ضريبة 15%</span><span class="cogs-val" id="po-vat">SAR 0.00</span></div>
             <div class="cogs-row tot"><span data-ar="الإجمالي" data-en="Total">الإجمالي</span><span class="cogs-val" id="po-tot">SAR 0.00</span></div>
@@ -352,7 +351,7 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
 
           <div class="btn-row" style="margin-top:14px;">
             <button class="btn-p" onclick="confirmReceipt()" data-ar="تأكيد الاستلام وتحديث المخزون" data-en="Confirm Receipt & Update Stock">تأكيد الاستلام وتحديث المخزون</button>
-            <button class="btn-s" onclick="goTab('stock')" data-ar="كشف المخزون" data-en="Stock List">كشف المخزون</button>
+            <button class="btn-s" onclick="clearPO()" data-ar="مسح" data-en="Clear">مسح</button>
           </div>
         </div>
       </div>
@@ -363,75 +362,51 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
       <div class="card">
         <div class="card-hdr">
           <span class="card-ttl" data-ar="سجل حركة المخزون" data-en="Stock Movement Log">سجل حركة المخزون</span>
-          <span id="mov-count" style="font-size:12px;color:var(--muted);">0</span>
+          <span id="mov-count" style="font-size:12px;color:var(--muted);"></span>
         </div>
         <div style="overflow-x:auto;"><table class="tbl">
           <thead><tr>
-            <th data-ar="التاريخ"    data-en="Date">التاريخ</th>
-            <th data-ar="الصنف"      data-en="Item">الصنف</th>
-            <th data-ar="SKU"        data-en="SKU">SKU</th>
-            <th data-ar="النوع"      data-en="Type">النوع</th>
-            <th data-ar="الكمية"     data-en="Qty">الكمية</th>
-            <th data-ar="الرصيد بعد" data-en="Balance">الرصيد بعد</th>
-            <th data-ar="المرجع"     data-en="Ref">المرجع</th>
-            <th data-ar="ملاحظة"     data-en="Note">ملاحظة</th>
+            <th data-ar="التاريخ" data-en="Date">التاريخ</th>
+            <th data-ar="الصنف" data-en="Item">الصنف</th>
+            <th data-ar="SKU" data-en="SKU">SKU</th>
+            <th data-ar="النوع" data-en="Type">النوع</th>
+            <th data-ar="الكمية" data-en="Qty">الكمية</th>
+            <th data-ar="الرصيد" data-en="Balance">الرصيد</th>
+            <th data-ar="المرجع" data-en="Ref">المرجع</th>
+            <th data-ar="ملاحظة" data-en="Note">ملاحظة</th>
           </tr></thead>
           <tbody id="mov-tbody"><tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted);">جارٍ التحميل...</td></tr></tbody>
         </table></div>
-        <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn-s" onclick="goTab('receive')" data-ar="استلام بضاعة ←" data-en="Receive Stock →">استلام بضاعة ←</button>
-          <button class="btn-s" onclick="goTab('cogs')" data-ar="تكلفة المبيعات ←" data-en="COGS →">تكلفة المبيعات ←</button>
-        </div>
       </div>
     </div>
 
     <!-- TAB: COGS -->
     <div class="tc" id="tc-cogs">
       <div class="card">
-        <div class="card-hdr"><span class="card-ttl" data-ar="تكلفة البضاعة المباعة (COGS)" data-en="Cost of Goods Sold (COGS)">تكلفة البضاعة المباعة</span></div>
+        <div class="card-hdr"><span class="card-ttl" data-ar="تكلفة البضاعة المباعة (COGS) — WAC" data-en="Cost of Goods Sold (COGS) — WAC">تكلفة البضاعة المباعة</span></div>
         <div class="card-bdy">
           <div class="note-box blue">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-            <span data-ar="طريقة الاحتساب: متوسط التكلفة المرجّح (WAC) — معتمدة وفق IFRS وزاتكا للمنشآت الصغيرة والمتوسطة" data-en="Method: Weighted Average Cost (WAC) — approved under IFRS and ZATCA for SMEs">طريقة الاحتساب: متوسط التكلفة المرجّح (WAC)</span>
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+            <span data-ar="طريقة الاحتساب: متوسط التكلفة المرجّح (WAC) — معتمدة وفق IFRS وزاتكا. COGS = مخزون أول المدة + المشتريات − مخزون آخر المدة." data-en="Method: Weighted Average Cost (WAC) — approved by IFRS and ZATCA. COGS = Opening + Purchases − Closing.">WAC معتمدة وفق IFRS وزاتكا</span>
           </div>
           <div class="fg fg-2">
-            <div class="fld"><label data-ar="من تاريخ" data-en="From">من تاريخ</label><input type="date" lang="en" id="cogs-from"></div>
-            <div class="fld"><label data-ar="إلى تاريخ" data-en="To">إلى تاريخ</label><input type="date" lang="en" id="cogs-to"></div>
+            <div class="fld"><label data-ar="من تاريخ" data-en="From">من تاريخ</label><input type="date" id="cogs-from" lang="en"></div>
+            <div class="fld"><label data-ar="إلى تاريخ" data-en="To">إلى تاريخ</label><input type="date" id="cogs-to" lang="en"></div>
           </div>
-          <button class="btn-p" onclick="calcCOGS()" style="margin-bottom:16px;" data-ar="احسب تكلفة المبيعات" data-en="Calculate COGS">احسب تكلفة المبيعات</button>
+          <button class="btn-p" onclick="calcCOGS()" style="margin-bottom:16px;" data-ar="احتساب تكلفة المبيعات" data-en="Calculate COGS">احتساب تكلفة المبيعات</button>
           <div id="cogs-result"></div>
-          <div class="btn-row" style="margin-top:14px;">
-            <a href="statements.html" class="btn-p" style="text-decoration:none;font-size:12px;" data-ar="عرض في القوائم المالية ←" data-en="View in Statements →">عرض في القوائم المالية ←</a>
-            <button class="btn-s" onclick="goTab('movements')" data-ar="حركة المخزون" data-en="Movements">حركة المخزون</button>
-          </div>
-        </div>
-      </div>
-
-      <!-- PERIOD CLOSING -->
-      <div class="card">
-        <div class="card-hdr">
-          <span class="card-ttl" data-ar="إقفال المخزون — تسجيل قيمة نهاية الفترة" data-en="Period Closing — Record End of Period Value">إقفال المخزون</span>
-        </div>
-        <div class="card-bdy">
-          <div class="note-box amber">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            <span data-ar="يُسجّل قيمة المخزون الحالية كرصيد ختامي للفترة — يُستخدم تلقائياً كرصيد افتتاحي للفترة التالية في حساب COGS" data-en="Records current inventory value as period closing — used automatically as opening stock for next period COGS">يُسجّل قيمة المخزون الحالية كرصيد ختامي يُستخدم افتتاحياً للفترة التالية</span>
-          </div>
-
-          <div style="background:var(--tint);border-radius:8px;padding:12px 14px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;">
-            <span style="font-size:13px;color:var(--muted);" data-ar="قيمة المخزون الحالية" data-en="Current stock value">قيمة المخزون الحالية</span>
-            <span class="mono c-navy" style="font-size:18px;font-weight:700;" id="current-stock-val">SAR 0.00</span>
-          </div>
-
-          <div class="fg fg-2">
-            <div class="fld"><label data-ar="تاريخ الإقفال *" data-en="Closing Date *">تاريخ الإقفال *</label><input type="date" lang="en" id="close-date"></div>
-            <div class="fld"><label data-ar="ملاحظات" data-en="Notes">ملاحظات</label><input type="text" id="close-notes" placeholder="مثال: إقفال الربع الأول 2026"></div>
-          </div>
-          <button class="btn-p" onclick="closePeriod()" data-ar="تسجيل إقفال المخزون" data-en="Save Period Closing">تسجيل إقفال المخزون</button>
-
-          <div style="margin-top:16px;">
-            <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;" data-ar="سجل الإقفالات السابقة" data-en="Previous Closings">سجل الإقفالات السابقة</div>
-            <div id="snapshots-list"><div style="font-size:12px;color:var(--muted);">جارٍ التحميل...</div></div>
+          <div style="margin-top:20px;border-top:1px solid var(--border);padding-top:16px;">
+            <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:10px;" data-ar="إقفال المخزون — تسجيل قيمة نهاية الفترة" data-en="Period Closing — Record End of Period Value">إقفال المخزون</div>
+            <div style="background:var(--tint);border-radius:8px;padding:12px 14px;margin-bottom:12px;display:flex;justify-content:space-between;align-items:center;">
+              <span style="font-size:13px;color:var(--muted);" data-ar="قيمة المخزون الحالية (WAC)" data-en="Current stock value (WAC)">قيمة المخزون الحالية</span>
+              <span class="mono c-navy" style="font-size:17px;font-weight:700;" id="current-stock-val">SAR 0.00</span>
+            </div>
+            <div class="fg fg-2">
+              <div class="fld"><label data-ar="تاريخ الإقفال *" data-en="Closing Date *">تاريخ الإقفال *</label><input type="date" id="close-date" lang="en"></div>
+              <div class="fld"><label data-ar="ملاحظات" data-en="Notes">ملاحظات</label><input type="text" id="close-notes" placeholder="إقفال الربع الأول 2026"></div>
+            </div>
+            <button class="btn-p" onclick="closePeriod()" data-ar="تسجيل إقفال المخزون" data-en="Save Period Closing">تسجيل إقفال المخزون</button>
+            <div id="snapshots-list" style="margin-top:14px;"></div>
           </div>
         </div>
       </div>
@@ -444,19 +419,18 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
         <div class="card-bdy">
           <div class="fg fg-3">
             <div class="fld"><label data-ar="اسم المورد *" data-en="Name *">اسم المورد *</label><input type="text" id="ns-name" placeholder="شركة الأمانة للتوزيع"></div>
-            <div class="fld"><label data-ar="رقم الهاتف *" data-en="Phone *">رقم الهاتف *</label><input type="tel" id="ns-phone" placeholder="0500000000"></div>
-            <div class="fld"><label data-ar="الرقم الضريبي (TRN)" data-en="TRN">الرقم الضريبي</label><input type="text" id="ns-trn" placeholder="300000000000003" maxlength="15"></div>
+            <div class="fld"><label data-ar="رقم الهاتف *" data-en="Phone *">رقم الهاتف *</label><input type="tel" id="ns-phone" placeholder="0500000000" dir="ltr"></div>
+            <div class="fld"><label data-ar="الرقم الضريبي TRN" data-en="TRN">الرقم الضريبي</label><input type="text" id="ns-trn" placeholder="300000000000003" maxlength="15" dir="ltr"></div>
           </div>
           <div class="fg fg-3">
-            <div class="fld"><label data-ar="البريد الإلكتروني" data-en="Email">البريد الإلكتروني</label><input type="email" id="ns-email" placeholder="supplier@co.com"></div>
+            <div class="fld"><label data-ar="البريد الإلكتروني" data-en="Email">البريد الإلكتروني</label><input type="email" id="ns-email" placeholder="supplier@co.com" dir="ltr"></div>
             <div class="fld"><label data-ar="المدينة" data-en="City">المدينة</label><input type="text" id="ns-city" placeholder="الرياض"></div>
             <div class="fld"><label data-ar="نوع المورد" data-en="Type">نوع المورد</label>
               <select id="ns-type">
-                <option value="موزع"       data-ar="موزع"       data-en="Distributor">موزع</option>
-                <option value="مصنّع"      data-ar="مصنّع"      data-en="Manufacturer">مصنّع</option>
-                <option value="تاجر جملة"  data-ar="تاجر جملة"  data-en="Wholesaler">تاجر جملة</option>
-                <option value="مستورد"     data-ar="مستورد"     data-en="Importer">مستورد</option>
-                <option value="آخر"        data-ar="آخر"        data-en="Other">آخر</option>
+                <option value="موزع"      data-ar="موزع"      data-en="Distributor">موزع</option>
+                <option value="مصنّع"     data-ar="مصنّع"     data-en="Manufacturer">مصنّع</option>
+                <option value="تاجر جملة" data-ar="تاجر جملة" data-en="Wholesaler">تاجر جملة</option>
+                <option value="مستورد"    data-ar="مستورد"    data-en="Importer">مستورد</option>
               </select>
             </div>
           </div>
@@ -464,9 +438,9 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
             <div class="fld"><label data-ar="شروط الدفع" data-en="Payment Terms">شروط الدفع</label>
               <select id="ns-terms">
                 <option value="نقداً"  data-ar="نقداً عند الاستلام" data-en="Cash on delivery">نقداً عند الاستلام</option>
-                <option value="30 يوم" data-ar="30 يوم"              data-en="Net 30">30 يوم</option>
-                <option value="60 يوم" data-ar="60 يوم"              data-en="Net 60">60 يوم</option>
-                <option value="90 يوم" data-ar="90 يوم"              data-en="Net 90">90 يوم</option>
+                <option value="30 يوم" data-ar="30 يوم" data-en="Net 30">30 يوم</option>
+                <option value="60 يوم" data-ar="60 يوم" data-en="Net 60">60 يوم</option>
+                <option value="90 يوم" data-ar="90 يوم" data-en="Net 90">90 يوم</option>
               </select>
             </div>
             <div class="fld"><label data-ar="ملاحظات" data-en="Notes">ملاحظات</label><input type="text" id="ns-notes" placeholder="اختياري"></div>
@@ -474,355 +448,629 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
           <div class="btn-row" style="margin-top:14px;">
             <button class="btn-p" onclick="saveSupplier()" data-ar="حفظ المورد" data-en="Save Supplier">حفظ المورد</button>
             <button class="btn-s" onclick="clearSupForm()" data-ar="مسح" data-en="Clear">مسح</button>
-            <button class="btn-s" onclick="goTab('receive')" data-ar="استلام بضاعة ←" data-en="Receive Stock →">استلام بضاعة ←</button>
           </div>
-          <div class="msg-inline" id="sup-msg" style="font-size:12px;margin-top:8px;"></div>
         </div>
       </div>
       <div class="card">
         <div class="card-hdr">
           <span class="card-ttl" data-ar="سجل الموردين" data-en="Supplier Registry">سجل الموردين</span>
-          <span id="sup-count" style="font-size:12px;color:var(--muted);">0</span>
+          <span id="sup-count" style="font-size:12px;color:var(--muted);"></span>
         </div>
         <div style="overflow-x:auto;"><table class="tbl">
           <thead><tr>
-            <th data-ar="الاسم"      data-en="Name">الاسم</th>
-            <th data-ar="الهاتف"     data-en="Phone">الهاتف</th>
-            <th data-ar="TRN"        data-en="TRN">TRN</th>
-            <th data-ar="المدينة"    data-en="City">المدينة</th>
-            <th data-ar="النوع"      data-en="Type">النوع</th>
+            <th data-ar="الكود" data-en="Code">الكود</th>
+            <th data-ar="الاسم" data-en="Name">الاسم</th>
+            <th data-ar="الهاتف" data-en="Phone">الهاتف</th>
+            <th data-ar="TRN" data-en="TRN">TRN</th>
+            <th data-ar="المدينة" data-en="City">المدينة</th>
+            <th data-ar="النوع" data-en="Type">النوع</th>
             <th data-ar="شروط الدفع" data-en="Terms">شروط الدفع</th>
-            <th data-ar="إجراء"      data-en="Action">إجراء</th>
+            <th data-ar="إجراء" data-en="Action">إجراء</th>
           </tr></thead>
-          <tbody id="sup-tbody"><tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted);">جارٍ التحميل...</td></tr></tbody>
+          <tbody id="sup-tbody"><tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted);">جارٍ التحميل...</td></tr></tbody>
         </table></div>
+      </div>
+    </div>
+
+    <!-- TAB: EXCEL UPLOAD -->
+    <div class="tc" id="tc-upload">
+      <div class="card">
+        <div class="card-hdr"><span class="card-ttl" data-ar="رفع كتالوج المنتجات من Excel" data-en="Upload Product Catalog from Excel">رفع كتالوج المنتجات من Excel</span></div>
+        <div class="card-bdy">
+          <div class="note-box blue">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+            <span data-ar="ارفع ملف Excel يحتوي على قائمة منتجاتك — النظام يقرأ كل صف ويُنشئ رمز SKU تلقائياً ويضيف الموردين للسجل. إذا كان الصنف موجوداً (بنفس الاسم أو الباركود) يتم تحديثه." data-en="Upload an Excel file with your product list — system reads each row, auto-generates SKU, and adds suppliers to registry. Existing items (same name or barcode) are updated.">ارفع Excel — النظام يقرأ كل صف ويُنشئ SKU تلقائياً</span>
+          </div>
+
+          <!-- Template download -->
+          <div style="background:var(--tint);border-radius:8px;padding:14px;margin-bottom:16px;">
+            <div style="font-size:13px;font-weight:700;color:var(--navy);margin-bottom:8px;" data-ar="تنسيق الملف المطلوب — الأعمدة:" data-en="Required file format — columns:">تنسيق الملف — الأعمدة المطلوبة:</div>
+            <div style="font-family:'DM Mono',monospace;font-size:11px;color:var(--blue);background:#fff;padding:8px 12px;border-radius:6px;overflow-x:auto;white-space:nowrap;">
+              Item Name | Barcode | Category | Unit | Cost Price | Sale Price | Alert Level | Description | Supplier Name | Supplier Phone
+            </div>
+            <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">
+              <button class="btn-s" onclick="downloadTemplate()" style="font-size:12px;" data-ar="📥 تحميل نموذج Excel فارغ" data-en="📥 Download Empty Template">📥 تحميل نموذج Excel فارغ</button>
+              <span style="font-size:11px;color:var(--muted);align-self:center;" data-ar="فئات مقبولة: FOOD, BEV, CLN, ELEC, CLTH, HLTH, STAT, BLDG, ITM" data-en="Valid categories: FOOD, BEV, CLN, ELEC, CLTH, HLTH, STAT, BLDG, ITM">فئات مقبولة: FOOD, BEV, CLN, ELEC, CLTH, HLTH, STAT, BLDG, ITM</span>
+            </div>
+          </div>
+
+          <!-- Upload zone -->
+          <div class="upload-zone" id="upload-zone" onclick="document.getElementById('excel-input').click()">
+            <div class="upload-zone-icon">📊</div>
+            <div style="font-size:14px;font-weight:600;color:var(--navy);margin-bottom:4px;" data-ar="اضغط لاختيار ملف Excel" data-en="Click to select Excel file">اضغط لاختيار ملف Excel</div>
+            <div style="font-size:12px;color:var(--muted);" data-ar=".xlsx أو .xls — الحجم الأقصى 5MB" data-en=".xlsx or .xls — max 5MB">.xlsx أو .xls — الحجم الأقصى 5MB</div>
+            <input type="file" id="excel-input" accept=".xlsx,.xls" style="display:none;" onchange="handleExcelUpload(event)">
+          </div>
+
+          <!-- Progress -->
+          <div id="upload-progress" style="display:none;" class="upload-progress">
+            <div style="display:flex;justify-content:space-between;font-size:12px;">
+              <span id="upload-status" data-ar="جارٍ المعالجة..." data-en="Processing...">جارٍ المعالجة...</span>
+              <span id="upload-pct">0%</span>
+            </div>
+            <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progress-fill" style="width:0%"></div></div>
+            <div id="upload-log" style="font-size:11px;color:var(--muted);margin-top:6px;max-height:120px;overflow-y:auto;"></div>
+          </div>
+
+          <!-- Result -->
+          <div id="upload-result" style="display:none;margin-top:12px;"></div>
+        </div>
       </div>
     </div>
 
   </div>
 </div>
 
-<script>
-const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+<!-- EDIT ITEM MODAL -->
+<div id="edit-modal" style="display:none;" class="modal-overlay" onclick="if(event.target===this)closeEditModal()">
+  <div class="modal">
+    <div class="modal-title" data-ar="تعديل الصنف" data-en="Edit Item">تعديل الصنف</div>
+    <input type="hidden" id="edit-item-id">
+    <div class="fg fg-2">
+      <div class="fld"><label data-ar="اسم الصنف" data-en="Item Name">اسم الصنف</label><input type="text" id="edit-name"></div>
+      <div class="fld"><label data-ar="الوصف / التعبئة" data-en="Description">الوصف</label><input type="text" id="edit-desc"></div>
+    </div>
+    <div class="fg fg-2">
+      <div class="fld"><label data-ar="سعر البيع (SAR)" data-en="Sale Price (SAR)">سعر البيع ← يمكن تغييره</label><input type="number" id="edit-price" min="0" step="0.01"></div>
+      <div class="fld"><label data-ar="حد التنبيه" data-en="Alert Level">حد التنبيه</label><input type="number" id="edit-alert" min="0"></div>
+    </div>
+    <div class="fg fg-2">
+      <div class="fld"><label data-ar="الباركود" data-en="Barcode">الباركود</label><input type="text" id="edit-barcode" dir="ltr" style="font-family:'DM Mono',monospace;"></div>
+      <div class="fld">
+        <label data-ar="سعر الشراء (WAC)" data-en="Cost Price (WAC)">سعر الشراء (WAC)</label>
+        <input type="text" id="edit-cost-display" readonly style="background:var(--tint);color:var(--muted);font-family:'DM Mono',monospace;">
+        <span class="hint" data-ar="يتحدث تلقائياً عند استلام بضاعة جديدة" data-en="Updates automatically when receiving new stock">يتحدث عند استلام بضاعة جديدة</span>
+      </div>
+    </div>
+    <div class="btn-row" style="margin-top:8px;">
+      <button class="btn-p" onclick="saveEditItem()" data-ar="حفظ التعديلات" data-en="Save Changes">حفظ التعديلات</button>
+      <button class="btn-s" onclick="closeEditModal()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+    </div>
+  </div>
+</div>
 
-let currentUser = null;
-let currentBiz  = null;
-let L = 'ar';
-let invItems  = [];
-let movements = [];
-let suppliers = [];
-let poLineCount = 0;
+<!-- CAMERA MODAL -->
+<div id="camera-modal" style="display:none;" class="modal-overlay">
+  <div class="camera-modal">
+    <video id="camera-video" autoplay playsinline></video>
+    <div class="camera-overlay">
+      <div style="color:#fff;font-size:13px;margin-bottom:8px;" data-ar="وجّه الكاميرا نحو الباركود" data-en="Point camera at barcode">وجّه الكاميرا نحو الباركود</div>
+      <div style="display:flex;gap:8px;justify-content:center;">
+        <button class="btn-p" onclick="captureBarcode()" style="font-size:12px;" data-ar="📸 التقاط" data-en="📸 Capture">📸 التقاط</button>
+        <button class="btn-s" onclick="closeCameraModal()" style="font-size:12px;" data-ar="إغلاق" data-en="Close">إغلاق</button>
+      </div>
+      <div id="camera-result" style="color:#fff;font-size:12px;margin-top:8px;"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL='https://ykzivnasjwtuhvjxfxzf.supabase.co';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+let currentUser=null,currentBiz=null,L='ar';
+let invItems=[],movements=[],suppliers=[];
+let poLineCount=0,activePOLineIdx=null;
+let cameraStream=null,cameraTarget='po';
 
 /* ── INIT ── */
-async function init() {
-  const { data: { session } } = await sb.auth.getSession();
-  if (!session) { window.location.href = 'login.html'; return; }
-  currentUser = session.user;
-
-  const { data: biz } = await sb.from('businesses').select('*').eq('user_id', currentUser.id).single();
-  if (biz) {
-    currentBiz = biz;
-    document.getElementById('biz-name').textContent = biz.name;
-
-    // 360° plan gate — Starter cannot access inventory
-    const plan = biz.plan || localStorage.getItem('gl_plan') || 'starter';
-    if (plan === 'starter') {
-      document.querySelector('.layout').innerHTML = `
-        <div style="grid-column:1/-1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;text-align:center;">
-          <div style="font-size:48px;margin-bottom:16px;">🔒</div>
-          <div style="font-family:'Playfair Display',serif;font-size:22px;color:var(--navy);margin-bottom:8px;">${L==='ar'?'المخزون متاح في باقة الأعمال':'Inventory available in Business plan'}</div>
-          <div style="font-size:14px;color:var(--muted);margin-bottom:24px;max-width:400px;line-height:1.6;">${L==='ar'?'ترقّ لباقة الأعمال للحصول على إدارة المخزون الكاملة، الباركود، متوسط التكلفة المرجّح، وسجل الموردين':'Upgrade to Business plan for full inventory management, barcode, WAC costing, and supplier registry'}</div>
-          <a href="https://wa.me/966500000000" style="padding:12px 28px;background:var(--blue);color:#fff;border-radius:9px;text-decoration:none;font-size:14px;font-weight:700;">${L==='ar'?'💬 ترقّ عبر واتساب':'💬 Upgrade via WhatsApp'}</a>
-          <a href="dashboard.html" style="margin-top:12px;font-size:13px;color:var(--muted);">${L==='ar'?'← العودة للرئيسية':'← Back to Dashboard'}</a>
-        </div>`;
+async function init(){
+  const {data:{session}}=await sb.auth.getSession();
+  if(!session){window.location.href='login.html';return;}
+  currentUser=session.user;
+  const {data:biz}=await sb.from('businesses').select('*').eq('user_id',currentUser.id).single();
+  if(biz){
+    currentBiz=biz;
+    document.getElementById('biz-name').textContent=biz.name;
+    const plan=biz.plan||'starter';
+    if(plan==='starter'){
+      document.querySelector('.layout').innerHTML=`<div style="grid-column:1/-1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;text-align:center;">
+        <div style="font-size:48px;margin-bottom:16px;">🔒</div>
+        <div style="font-family:'Playfair Display',serif;font-size:22px;color:var(--navy);margin-bottom:8px;">${L==='ar'?'المخزون متاح في باقة الأعمال':'Inventory available in Business plan'}</div>
+        <div style="font-size:14px;color:var(--muted);margin-bottom:24px;max-width:400px;line-height:1.6;">${L==='ar'?'ترقّ لباقة الأعمال للحصول على إدارة المخزون الكاملة':'Upgrade to Business plan for full inventory management'}</div>
+        <a href="https://wa.me/966500000000" style="padding:12px 28px;background:var(--blue);color:#fff;border-radius:9px;text-decoration:none;font-size:14px;font-weight:700;">${L==='ar'?'💬 ترقّ عبر واتساب':'💬 Upgrade via WhatsApp'}</a>
+        <a href="dashboard.html" style="margin-top:12px;font-size:13px;color:var(--muted);">← ${L==='ar'?'الرئيسية':'Dashboard'}</a>
+      </div>`;
       return;
     }
   }
-
-  document.getElementById('f-po-date').value = today();
-  document.getElementById('cogs-from').value = new Date().getFullYear() + '-01-01';
-  document.getElementById('cogs-to').value   = today();
-
-  await Promise.all([loadItems(), loadMovements(), loadSuppliers()]);
+  document.getElementById('f-po-date').value=today();
+  document.getElementById('cogs-from').value=new Date().getFullYear()+'-01-01';
+  document.getElementById('cogs-to').value=today();
+  await Promise.all([loadItems(),loadMovements(),loadSuppliers()]);
   await loadSnapshots();
-  addPOLine();
   addPOLine();
   setLang('ar');
 }
 
 /* ── LOAD DATA ── */
-async function loadItems() {
-  const { data } = await sb.from('inventory_items').select('*').eq('user_id', currentUser.id).order('name');
-  invItems = data || [];
-  renderStats();
-  renderStock();
-  renderAlerts();
-  refreshSupDropdown();
+async function loadItems(){
+  const {data}=await sb.from('inventory_items').select('*').eq('user_id',currentUser.id).order('name');
+  invItems=data||[];
+  renderStats();renderStock();renderAlerts();refreshSupDropdown();
+}
+async function loadMovements(){
+  const {data}=await sb.from('inventory_movements')
+    .select('*, inventory_items(name,sku)')
+    .eq('business_id',currentBiz?.id)
+    .order('created_at',{ascending:false}).limit(100);
+  movements=data||[];renderMovements();
+}
+async function loadSuppliers(){
+  const {data}=await sb.from('suppliers').select('*').eq('user_id',currentUser.id).order('name');
+  suppliers=data||[];renderSuppliers();refreshSupDropdown();
 }
 
-async function loadMovements() {
-  const { data } = await sb.from('inventory_movements')
-    .select('*, inventory_items(name, sku)')
-    .eq('business_id', currentBiz?.id)
-    .order('created_at', { ascending: false })
-    .limit(100);
-  movements = data || [];
-  renderMovements();
+/* ── AUTO SKU GENERATION ── */
+async function generateSKU(cat){
+  const prefix=cat||'ITM';
+  const existing=invItems.filter(i=>(i.sku||'').startsWith(prefix+'-'));
+  let maxNum=0;
+  existing.forEach(i=>{
+    const match=(i.sku||'').match(/-(\d+)$/);
+    if(match)maxNum=Math.max(maxNum,parseInt(match[1]));
+  });
+  const nextNum=String(maxNum+1).padStart(4,'0');
+  return prefix+'-'+nextNum;
 }
 
-async function loadSuppliers() {
-  const { data } = await sb.from('suppliers').select('*').eq('user_id', currentUser.id).order('name');
-  suppliers = data || [];
-  renderSuppliers();
-  refreshSupDropdown();
+async function previewSKU(){
+  const cat=document.getElementById('fi-cat').value;
+  const sku=await generateSKU(cat);
+  const el=document.getElementById('fi-sku');
+  if(!el.dataset.userEdited)el.value=sku;
+}
+
+/* ── ADD ITEM ── */
+async function addItem(){
+  const name=gval('fi-name');
+  if(!name){notify(L==='ar'?'أدخل اسم الصنف':'Enter item name','r');return;}
+  const cat=document.getElementById('fi-cat').value;
+  let sku=gval('fi-sku');
+  if(!sku)sku=await generateSKU(cat);
+  const existing=invItems.find(i=>i.sku===sku);
+  if(existing){notify(L==='ar'?'رمز SKU مستخدم — سيتم توليد رمز جديد':'SKU exists — generating new one','r');
+    sku=await generateSKU(cat);document.getElementById('fi-sku').value=sku;}
+  const qty=parseFloat(document.getElementById('fi-qty').value)||0;
+  const cost=parseFloat(document.getElementById('fi-cost').value)||0;
+  const newItem={user_id:currentUser.id,business_id:currentBiz?.id,name,sku,
+    barcode:gval('fi-barcode')||null,category:cat,unit:document.getElementById('fi-unit').value,
+    cost_price:cost,sale_price:parseFloat(document.getElementById('fi-price').value)||0,
+    current_qty:qty,alert_level:parseFloat(document.getElementById('fi-alert').value)||10,
+    description:gval('fi-desc')||null};
+  const {data,error}=await sb.from('inventory_items').insert(newItem).select().single();
+  if(error){notify(error.message,'r');return;}
+  if(qty>0){
+    await sb.from('inventory_movements').insert({business_id:currentBiz?.id,item_id:data.id,
+      movement_type:'in',quantity:qty,balance_after:qty,reference:'OPENING',
+      note:L==='ar'?'رصيد افتتاحي':'Opening stock',movement_date:today()});
+  }
+  clearItemForm();await loadItems();await loadMovements();
+  notify((L==='ar'?'تم إضافة الصنف: ':'Item added: ')+name+' — SKU: '+sku,'g');
+}
+
+function clearItemForm(){
+  ['fi-name','fi-sku','fi-barcode','fi-cost','fi-price','fi-qty','fi-alert','fi-desc'].forEach(id=>{
+    const el=document.getElementById(id);if(el){el.value='';delete el.dataset.userEdited;}
+  });
+  previewSKU();
 }
 
 /* ── STATS ── */
-function renderStats() {
-  let val=0, low=0, out=0;
-  invItems.forEach(i => {
-    val += (i.cost_price||0) * (i.current_qty||0);
-    if (i.current_qty === 0) out++;
-    else if (i.current_qty <= (i.alert_level||0)) low++;
+function renderStats(){
+  let val=0,low=0,out=0;
+  invItems.forEach(i=>{
+    val+=(i.cost_price||0)*(i.current_qty||0);
+    if(i.current_qty===0)out++;
+    else if(i.current_qty<=(i.alert_level||0))low++;
   });
-  set('s-skus', invItems.length);
-  set('s-val', 'SAR ' + fmt(val));
-  set('s-low', low);
-  set('s-out', out);
-  // Update COGS tab closing value display
-  const csvEl = document.getElementById('current-stock-val');
-  if (csvEl) csvEl.textContent = 'SAR ' + fmt(val);
-  // Set default close date to today
-  const closeEl = document.getElementById('close-date');
-  if (closeEl && !closeEl.value) closeEl.value = today();
+  set('s-skus',invItems.length);set('s-val','SAR '+fmt(val));
+  set('s-low',low);set('s-out',out);
+  const csvEl=document.getElementById('current-stock-val');
+  if(csvEl)csvEl.textContent='SAR '+fmt(val);
+  const closeEl=document.getElementById('close-date');
+  if(closeEl&&!closeEl.value)closeEl.value=today();
 }
 
 /* ── STOCK LIST ── */
-function renderStock() {
-  const search = (document.getElementById('stock-search')?.value || '').toLowerCase();
-  const items  = invItems.filter(i => !search || i.name.toLowerCase().includes(search) || (i.sku||'').toLowerCase().includes(search));
-  const tb = document.getElementById('stock-tbody');
-  if (!items.length) {
-    tb.innerHTML = `<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا توجد أصناف — أضف صنفاً جديداً':'No items yet — add your first item'}</td></tr>`;
+function renderStock(){
+  const search=(document.getElementById('stock-search')?.value||'').toLowerCase();
+  const items=invItems.filter(i=>!search||
+    i.name.toLowerCase().includes(search)||
+    (i.sku||'').toLowerCase().includes(search)||
+    (i.barcode||'').toLowerCase().includes(search));
+  const tb=document.getElementById('stock-tbody');
+  if(!items.length){
+    tb.innerHTML=`<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا توجد أصناف — أضف صنفاً أو ارفع من Excel':'No items yet — add or upload from Excel'}</td></tr>`;
     return;
   }
-  tb.innerHTML = items.map(item => {
-    const s = item.current_qty === 0 ? ['bdg-out', L==='ar'?'نفد':'Out'] :
-              item.current_qty <= (item.alert_level||0) ? ['bdg-low', L==='ar'?'قارب النفاد':'Low'] :
-              ['bdg-ok', L==='ar'?'متاح':'OK'];
-    const qc = item.current_qty === 0 ? 'c-red' : item.current_qty <= (item.alert_level||0) ? 'c-amber' : 'c-green';
+  tb.innerHTML=items.map(item=>{
+    const s=item.current_qty===0?['bdg-out',L==='ar'?'نفد':'Out']:
+            item.current_qty<=(item.alert_level||0)?['bdg-low',L==='ar'?'قارب النفاد':'Low']:
+            ['bdg-ok',L==='ar'?'متاح':'OK'];
+    const qc=item.current_qty===0?'c-red':item.current_qty<=(item.alert_level||0)?'c-amber':'c-green';
     return `<tr>
-      <td><strong>${item.name}</strong></td>
+      <td><strong style="font-size:12px;">${item.name}</strong>${item.description?`<div style="font-size:10px;color:var(--muted);">${item.description}</div>`:''}${item.sku?`<div style="font-size:10px;color:var(--muted);">SKU: ${item.sku}</div>`:''}</td>
       <td><span class="sku-badge">${item.sku||'—'}</span></td>
-      <td style="font-size:11px;color:var(--muted);">${item.category||'—'}</td>
+      <td class="mono" style="font-size:10px;color:var(--muted);">${item.barcode||'—'}</td>
       <td>${item.unit||'قطعة'}</td>
       <td class="mono">SAR ${fmt(item.cost_price)}</td>
       <td class="mono">SAR ${fmt(item.sale_price)}</td>
       <td class="mono ${qc}" style="font-weight:700;">${item.current_qty||0}</td>
       <td class="mono">SAR ${fmt((item.cost_price||0)*(item.current_qty||0))}</td>
       <td><span class="bdg ${s[0]}">${s[1]}</span></td>
-      <td><button class="btn-d" onclick="deleteItem('${item.id}')">${L==='ar'?'حذف':'Del'}</button></td>
+      <td style="white-space:nowrap;">
+        <button class="btn-e" onclick="openEditModal('${item.id}')" style="margin-left:4px;">${L==='ar'?'تعديل':'Edit'}</button>
+        <button class="btn-d" onclick="deleteItem('${item.id}')">${L==='ar'?'حذف':'Del'}</button>
+      </td>
     </tr>`;
   }).join('');
 }
 
-/* ── ADD ITEM ── */
-async function addItem() {
-  const name = gval('fi-name');
-  const sku  = gval('fi-sku');
-  if (!name) { notify(L==='ar'?'أدخل اسم الصنف':'Enter item name', 'r'); return; }
-  if (!sku)  { notify(L==='ar'?'أدخل رمز الصنف (SKU)':'Enter SKU', 'r'); return; }
+async function deleteItem(id){
+  if(!confirm(L==='ar'?'هل تريد حذف هذا الصنف؟':'Delete this item?'))return;
+  await sb.from('inventory_items').delete().eq('id',id);
+  await loadItems();
+}
 
-  // Check SKU uniqueness
-  const existing = invItems.find(i => i.sku === sku);
-  if (existing) { notify(L==='ar'?'رمز الصنف مستخدم — اختر رمزاً آخر':'SKU already exists', 'r'); return; }
-
-  const qty = parseFloat(document.getElementById('fi-qty').value) || 0;
-  const newItem = {
-    user_id:    currentUser.id,
-    business_id: currentBiz?.id,
-    name,
-    sku,
-    barcode:    gval('fi-barcode') || null,
-    category:   document.getElementById('fi-cat').value,
-    unit:       document.getElementById('fi-unit').value,
-    cost_price: parseFloat(document.getElementById('fi-cost').value) || 0,
-    sale_price: parseFloat(document.getElementById('fi-price').value) || 0,
-    current_qty: qty,
-    alert_level: parseFloat(document.getElementById('fi-alert').value) || 10
+/* ── EDIT MODAL ── */
+function openEditModal(id){
+  const item=invItems.find(i=>i.id===id);if(!item)return;
+  document.getElementById('edit-item-id').value=id;
+  document.getElementById('edit-name').value=item.name||'';
+  document.getElementById('edit-desc').value=item.description||'';
+  document.getElementById('edit-price').value=item.sale_price||'';
+  document.getElementById('edit-alert').value=item.alert_level||'';
+  document.getElementById('edit-barcode').value=item.barcode||'';
+  document.getElementById('edit-cost-display').value='SAR '+fmt(item.cost_price)+'  (WAC)';
+  document.getElementById('edit-modal').style.display='flex';
+}
+function closeEditModal(){document.getElementById('edit-modal').style.display='none';}
+async function saveEditItem(){
+  const id=document.getElementById('edit-item-id').value;
+  const updates={
+    name:document.getElementById('edit-name').value.trim(),
+    description:document.getElementById('edit-desc').value.trim()||null,
+    sale_price:parseFloat(document.getElementById('edit-price').value)||0,
+    alert_level:parseFloat(document.getElementById('edit-alert').value)||0,
+    barcode:document.getElementById('edit-barcode').value.trim()||null,
+    updated_at:new Date().toISOString()
   };
-
-  const { data, error } = await sb.from('inventory_items').insert(newItem).select().single();
-  if (error) { notify(error.message, 'r'); return; }
-
-  // Record opening stock movement
-  if (qty > 0) {
-    await sb.from('inventory_movements').insert({
-      business_id:   currentBiz?.id,
-      item_id:       data.id,
-      movement_type: 'in',
-      quantity:      qty,
-      balance_after: qty,
-      reference:     'OPENING',
-      note:          L==='ar'?'رصيد افتتاحي':'Opening stock',
-      movement_date: today()
-    });
-  }
-
-  clearItemForm();
-  await loadItems();
-  await loadMovements();
-  notify(L==='ar'?'تم إضافة الصنف للمخزون ✓':'Item added to inventory ✓', 'g');
+  const {error}=await sb.from('inventory_items').update(updates).eq('id',id);
+  if(error){notify(error.message,'r');return;}
+  closeEditModal();await loadItems();
+  notify(L==='ar'?'تم تحديث الصنف ✓':'Item updated ✓','g');
 }
 
-async function deleteItem(id) {
-  if (!confirm(L==='ar'?'هل تريد حذف هذا الصنف؟':'Delete this item?')) return;
-  await sb.from('inventory_items').delete().eq('id', id);
-  await loadItems();
-}
-
-function clearItemForm() {
-  ['fi-name','fi-sku','fi-barcode','fi-cost','fi-price','fi-qty','fi-alert'].forEach(id => {
-    const el = document.getElementById(id); if(el) el.value = '';
-  });
-}
-
-/* ── RECEIVE STOCK ── */
-function addPOLine() {
+/* ── SEARCHABLE PO LINE ── */
+function addPOLine(){
   poLineCount++;
-  const id = 'pol-' + poLineCount;
-  const d  = document.createElement('div');
-  d.id = id;
-  d.style.cssText = 'display:grid;grid-template-columns:2fr 70px 90px 80px 28px;gap:6px;margin-bottom:6px;align-items:center;';
-
-  const opts = '<option value="">— ' + (L==='ar'?'اختر صنف':'Select item') + ' —</option>'
-    + invItems.map(i => `<option value="${i.id}" data-cost="${i.cost_price}" data-sku="${i.sku}">${i.name} (${i.sku||'—'})</option>`).join('');
-
-  d.innerHTML = `
-    <select onchange="poAutoFill(this,'${id}')" style="padding:7px 8px;border:1px solid var(--border);border-radius:5px;font-family:'Tajawal',sans-serif;font-size:12px;">${opts}</select>
-    <input type="number" placeholder="${L==='ar'?'كمية':'Qty'}" min="1" step="any" style="padding:7px 8px;border:1px solid var(--border);border-radius:5px;font-family:'Tajawal',sans-serif;font-size:12px;" oninput="calcPOTotals()">
-    <input type="number" placeholder="${L==='ar'?'سعر الوحدة':'Unit cost'}" min="0" step="0.01" style="padding:7px 8px;border:1px solid var(--border);border-radius:5px;font-family:'Tajawal',sans-serif;font-size:12px;" oninput="calcPOTotals()">
-    <input type="text" readonly style="padding:7px 8px;border:1px solid var(--tint);border-radius:5px;font-family:'DM Mono',monospace;font-size:11px;background:var(--tint);color:var(--navy);" value="SAR 0.00">
-    <button onclick="document.getElementById('${id}').remove();calcPOTotals();" style="width:24px;height:24px;border-radius:50%;border:1px solid #fca5a5;background:#fff5f5;color:var(--red);cursor:pointer;font-size:14px;">×</button>`;
+  const lineId='pol-'+poLineCount;
+  const d=document.createElement('div');
+  d.id=lineId;d.className='po-line';
+  d.innerHTML=`
+    <div class="po-line-top">
+      <div class="search-picker-wrap">
+        <input type="text" class="search-picker-input" placeholder="${L==='ar'?'ابحث بالاسم أو SKU أو الباركود...':'Search by name, SKU or barcode...'}"
+          oninput="filterPicker('${lineId}',this.value)"
+          onfocus="showPicker('${lineId}')"
+          onblur="setTimeout(()=>hidePicker('${lineId}'),200)"
+          autocomplete="off">
+        <button class="scan-btn" onclick="openCameraForLine('${lineId}')" title="${L==='ar'?'مسح الباركود':'Scan barcode'}">📷</button>
+        <div class="picker-dropdown" id="picker-${lineId}"></div>
+      </div>
+      <input type="number" placeholder="${L==='ar'?'كمية':'Qty'}" min="1" step="any" oninput="calcPOTotals()" class="po-qty">
+      <input type="number" placeholder="${L==='ar'?'سعر الوحدة':'Unit cost'}" min="0" step="0.01" oninput="calcPOTotals()" class="po-cost">
+      <input type="text" readonly class="po-total" value="SAR 0.00">
+      <button onclick="document.getElementById('${lineId}').remove();calcPOTotals();" style="width:24px;height:24px;border-radius:50%;border:1px solid #fca5a5;background:#fff5f5;color:var(--red);cursor:pointer;font-size:14px;flex-shrink:0;">×</button>
+    </div>
+    <div class="po-line-info" id="info-${lineId}">
+      <span style="color:var(--muted);" data-ar="اختر صنفاً من القائمة أو ابحث عنه" data-en="Select an item or search">اختر صنفاً من القائمة أو ابحث عنه</span>
+    </div>
+    <input type="hidden" class="po-item-id">`;
   document.getElementById('po-lines').appendChild(d);
+  filterPicker(lineId,'');
 }
 
-function poAutoFill(sel, rowId) {
-  const opt  = sel.options[sel.selectedIndex];
-  const cost = opt.getAttribute('data-cost');
-  const row  = document.getElementById(rowId);
-  if (!row) return;
-  const inputs = row.querySelectorAll('input');
-  if (cost) inputs[1].value = cost;
-  calcPOTotals();
+function filterPicker(lineId,search){
+  const dd=document.getElementById('picker-'+lineId);if(!dd)return;
+  const q=search.toLowerCase().trim();
+  const matches=q?invItems.filter(i=>
+    i.name.toLowerCase().includes(q)||
+    (i.sku||'').toLowerCase().includes(q)||
+    (i.barcode||'').toLowerCase().includes(q)
+  ):invItems.slice(0,20);
+
+  if(!matches.length){
+    dd.innerHTML=`<div class="picker-empty">${L==='ar'?'لا نتائج — تحقق من الاسم أو SKU أو أضف الصنف أولاً':'No results — check name/SKU or add item first'}</div>`;
+  }else{
+    dd.innerHTML=matches.map(i=>{
+      const qc=i.current_qty===0?'c-red':i.current_qty<=(i.alert_level||0)?'c-amber':'c-green';
+      return `<div class="picker-item" onmousedown="selectItem('${lineId}','${i.id}','${escQ(i.name)}','${i.cost_price||0}','${i.sku||''}',${i.current_qty||0},'${i.unit||''}')">
+        <div>
+          <div class="picker-item-name">${i.name}</div>
+          <div class="picker-item-meta">${i.sku||'—'} ${i.barcode?'| '+i.barcode:''}</div>
+        </div>
+        <div style="text-align:left;">
+          <div class="picker-item-stock ${qc}">${i.current_qty||0} ${i.unit||''}</div>
+          <div class="picker-item-meta">SAR ${fmt(i.cost_price)}</div>
+        </div>
+      </div>`;
+    }).join('');
+  }
 }
 
-function calcPOTotals() {
-  let sub = 0;
-  document.getElementById('po-lines').querySelectorAll('div[id^="pol-"]').forEach(row => {
-    const ins = row.querySelectorAll('input');
-    const qty = parseFloat(ins[0].value) || 0;
-    const cost= parseFloat(ins[1].value) || 0;
-    const tot = qty * cost; sub += tot;
-    ins[2].value = 'SAR ' + fmt(tot);
+function selectItem(lineId,itemId,name,cost,sku,qty,unit){
+  const d=document.getElementById(lineId);if(!d)return;
+  const inp=d.querySelector('.search-picker-input');
+  const costInp=d.querySelector('.po-cost');
+  const itemInp=d.querySelector('.po-item-id');
+  const info=document.getElementById('info-'+lineId);
+  inp.value=name;
+  if(costInp&&!costInp.value)costInp.value=cost;
+  if(itemInp)itemInp.value=itemId;
+  if(info)info.innerHTML=`<span class="sku-badge">${sku||'—'}</span> <span style="color:var(--muted);">${L==='ar'?'المخزون الحالي:':'Current stock:'} <strong class="${qty===0?'c-red':qty<=5?'c-amber':'c-green'}">${qty} ${unit}</strong></span>`;
+  hidePicker(lineId);calcPOTotals();
+}
+
+function showPicker(lineId){const dd=document.getElementById('picker-'+lineId);if(dd)dd.classList.add('open');}
+function hidePicker(lineId){const dd=document.getElementById('picker-'+lineId);if(dd)dd.classList.remove('open');}
+function escQ(s){return(s||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');}
+
+function calcPOTotals(){
+  let sub=0;
+  document.querySelectorAll('.po-line').forEach(row=>{
+    const qty=parseFloat(row.querySelector('.po-qty')?.value)||0;
+    const cost=parseFloat(row.querySelector('.po-cost')?.value)||0;
+    const tot=qty*cost;sub+=tot;
+    const totEl=row.querySelector('.po-total');
+    if(totEl)totEl.value='SAR '+fmt(tot);
   });
-  const vat = sub * 0.15;
-  set('po-sub', 'SAR ' + fmt(sub));
-  set('po-vat', 'SAR ' + fmt(vat));
-  set('po-tot', 'SAR ' + fmt(sub + vat));
+  const vat=sub*0.15;
+  set('po-sub','SAR '+fmt(sub));set('po-vat','SAR '+fmt(vat));set('po-tot','SAR '+fmt(sub+vat));
 }
 
-async function confirmReceipt() {
-  const supName = gval('f-sup-name');
-  if (!supName) { notify(L==='ar'?'أدخل اسم المورد':'Enter supplier name', 'r'); return; }
-
-  const lines = [];
-  document.getElementById('po-lines').querySelectorAll('div[id^="pol-"]').forEach(row => {
-    const sel  = row.querySelector('select');
-    const ins  = row.querySelectorAll('input');
-    const iid  = sel ? sel.value : '';
-    const qty  = parseFloat(ins[0].value) || 0;
-    const cost = parseFloat(ins[1].value) || 0;
-    if (iid && qty > 0) lines.push({ itemId: iid, qty, cost });
+/* ── CONFIRM RECEIPT ── */
+async function confirmReceipt(){
+  const supName=gval('f-sup-name');
+  if(!supName){notify(L==='ar'?'أدخل اسم المورد':'Enter supplier name','r');return;}
+  const lines=[];
+  document.querySelectorAll('.po-line').forEach(row=>{
+    const itemId=row.querySelector('.po-item-id')?.value;
+    const qty=parseFloat(row.querySelector('.po-qty')?.value)||0;
+    const cost=parseFloat(row.querySelector('.po-cost')?.value)||0;
+    if(itemId&&qty>0)lines.push({itemId,qty,cost});
   });
-
-  if (!lines.length) { notify(L==='ar'?'أضف صنفاً واحداً على الأقل':'Add at least one item', 'r'); return; }
-
-  const poNum = gval('f-po-num') || 'PO-' + Date.now();
-  const date  = gval('f-po-date') || today();
-
-  for (const line of lines) {
-    const item = invItems.find(i => i.id === line.itemId);
-    if (!item) continue;
-
-    const oldQty  = item.current_qty || 0;
-    const oldCost = item.cost_price  || 0;
-    const newQty  = oldQty + line.qty;
-
-    // ── WEIGHTED AVERAGE COST ──
-    // New avg = (old qty × old cost + new qty × new cost) ÷ total qty
-    const wacCost = newQty > 0
-      ? ((oldQty * oldCost) + (line.qty * line.cost)) / newQty
-      : line.cost;
-
-    // Update inventory with WAC
+  if(!lines.length){notify(L==='ar'?'أضف صنفاً على الأقل':'Add at least one item','r');return;}
+  const poNum=gval('f-po-num')||'PO-'+Date.now();
+  const date=gval('f-po-date')||today();
+  for(const line of lines){
+    const item=invItems.find(i=>i.id===line.itemId);if(!item)continue;
+    const oldQty=item.current_qty||0;
+    const oldCost=item.cost_price||0;
+    const newQty=oldQty+line.qty;
+    const wac=newQty>0?((oldQty*oldCost)+(line.qty*line.cost))/newQty:line.cost;
     await sb.from('inventory_items').update({
-      current_qty: newQty,
-      cost_price:  Math.round(wacCost * 100) / 100, // round to 2 decimal places
-      updated_at:  new Date().toISOString()
-    }).eq('id', line.itemId);
-
-    // Record movement with both old cost and new cost for audit trail
+      current_qty:newQty,cost_price:Math.round(wac*100)/100,updated_at:new Date().toISOString()
+    }).eq('id',line.itemId);
     await sb.from('inventory_movements').insert({
-      business_id:   currentBiz?.id,
-      item_id:       line.itemId,
-      movement_type: 'in',
-      quantity:      line.qty,
-      balance_after: newQty,
-      reference:     poNum,
-      note:          (L==='ar'?'استلام من ':'Received from ') + supName +
-                     (L==='ar'?' — متوسط التكلفة المرجّح: SAR ':' — WAC: SAR ') + fmt(wacCost),
-      movement_date: date
+      business_id:currentBiz?.id,item_id:line.itemId,movement_type:'in',
+      quantity:line.qty,balance_after:newQty,unit_cost:line.cost,
+      reference:poNum,
+      note:(L==='ar'?'استلام من ':'Received from ')+supName+' | WAC: SAR '+fmt(wac),
+      movement_date:date
     });
   }
-
-  notify(L==='ar'?'تم الاستلام وتحديث المخزون بمتوسط التكلفة المرجّح ✓':'Stock received & WAC updated ✓', 'g');
-  document.getElementById('po-lines').innerHTML = '';
-  poLineCount = 0;
-  document.getElementById('f-sup-name').value = '';
-  document.getElementById('f-sup-sel').value  = '';
-  await loadItems();
-  await loadMovements();
-  addPOLine(); addPOLine();
+  notify(L==='ar'?'تم الاستلام وتحديث المخزون بمتوسط التكلفة المرجّح ✓':'Stock received & WAC updated ✓','g');
+  clearPO();await loadItems();await loadMovements();
 }
 
-function fillSupplier() {
-  const id = document.getElementById('f-sup-sel').value;
-  const s  = suppliers.find(x => x.id === id);
-  if (s) document.getElementById('f-sup-name').value = s.name;
+function clearPO(){
+  document.getElementById('po-lines').innerHTML='';
+  poLineCount=0;
+  document.getElementById('f-sup-name').value='';
+  document.getElementById('f-sup-sel').value='';
+  document.getElementById('f-po-num').value='';
+  document.getElementById('f-po-date').value=today();
+  addPOLine();
 }
 
-function refreshSupDropdown() {
-  const sel = document.getElementById('f-sup-sel');
-  if (!sel) return;
-  sel.innerHTML = '<option value="">' + (L==='ar'?'— اختر مورداً —':'— Select supplier —') + '</option>'
-    + suppliers.map(s => `<option value="${s.id}">${s.name} — ${s.phone}</option>`).join('');
+/* ── CAMERA BARCODE SCAN ── */
+function openCameraForLine(lineId){
+  activePOLineIdx=lineId;cameraTarget='po';openCamera();
+}
+function openCameraForPO(){
+  activePOLineIdx=null;cameraTarget='po_new';openCamera();
+}
+
+async function openCamera(){
+  const modal=document.getElementById('camera-modal');
+  modal.style.display='flex';
+  document.getElementById('camera-result').textContent='';
+  try{
+    cameraStream=await navigator.mediaDevices.getUserMedia({video:{facingMode:'environment'}});
+    document.getElementById('camera-video').srcObject=cameraStream;
+  }catch(e){
+    document.getElementById('camera-result').textContent=L==='ar'?'تعذّر الوصول للكاميرا — أدخل الباركود يدوياً':'Camera access denied — enter barcode manually';
+  }
+}
+
+function closeCameraModal(){
+  if(cameraStream){cameraStream.getTracks().forEach(t=>t.stop());cameraStream=null;}
+  document.getElementById('camera-modal').style.display='none';
+}
+
+function captureBarcode(){
+  const video=document.getElementById('camera-video');
+  const canvas=document.createElement('canvas');
+  canvas.width=video.videoWidth;canvas.height=video.videoHeight;
+  canvas.getContext('2d').drawImage(video,0,0);
+  const barcode=prompt(L==='ar'?'أدخل رقم الباركود يدوياً (ستتوفر المسح التلقائي قريباً):':'Enter barcode manually (auto-scan coming soon):');
+  if(barcode){
+    processBarcode(barcode.trim());
+    closeCameraModal();
+  }
+}
+
+function processBarcode(barcode){
+  const item=invItems.find(i=>i.barcode===barcode);
+  if(item){
+    if(cameraTarget==='po_new'){
+      addPOLine();
+      const lines=document.querySelectorAll('.po-line');
+      const lastLine=lines[lines.length-1];
+      if(lastLine){
+        const lineId=lastLine.id;
+        selectItem(lineId,item.id,item.name,item.cost_price,item.sku,item.current_qty,item.unit);
+        lastLine.querySelector('.search-picker-input').value=item.name;
+      }
+    }else if(activePOLineIdx){
+      selectItem(activePOLineIdx,item.id,item.name,item.cost_price,item.sku,item.current_qty,item.unit);
+      document.querySelector('#'+activePOLineIdx+' .search-picker-input').value=item.name;
+    }
+    notify((L==='ar'?'تم العثور على الصنف: ':'Item found: ')+item.name,'g');
+  }else{
+    notify((L==='ar'?'الباركود غير موجود: ':'Barcode not found: ')+barcode,'r');
+  }
+}
+
+/* ── EXCEL MASS UPLOAD ── */
+async function handleExcelUpload(e){
+  const file=e.target.files[0];if(!file)return;
+  const progress=document.getElementById('upload-progress');
+  const result=document.getElementById('upload-result');
+  const statusEl=document.getElementById('upload-status');
+  const pctEl=document.getElementById('upload-pct');
+  const fillEl=document.getElementById('progress-fill');
+  const logEl=document.getElementById('upload-log');
+  progress.style.display='block';result.style.display='none';
+  logEl.innerHTML='';
+  statusEl.textContent=L==='ar'?'جارٍ قراءة الملف...':'Reading file...';
+  const reader=new FileReader();
+  reader.onload=async function(ev){
+    const data=new Uint8Array(ev.target.result);
+    const workbook=XLSX.read(data,{type:'array'});
+    const sheet=workbook.Sheets[workbook.SheetNames[0]];
+    const rows=XLSX.utils.sheet_to_json(sheet,{defval:''});
+    if(!rows.length){notify(L==='ar'?'الملف فارغ':'File is empty','r');progress.style.display='none';return;}
+    let created=0,updated=0,errors=0;
+    const total=rows.length;
+    for(let i=0;i<rows.length;i++){
+      const row=rows[i];
+      const name=(row['Item Name']||row['اسم الصنف']||'').toString().trim();
+      if(!name){errors++;logEl.innerHTML+=`<div style="color:var(--red);">Row ${i+2}: ${L==='ar'?'اسم الصنف مفقود':'Missing item name'}</div>`;continue;}
+      const barcode=(row['Barcode']||row['الباركود']||'').toString().trim()||null;
+      const catInput=(row['Category']||row['الفئة']||'ITM').toString().trim().toUpperCase();
+      const validCats=['FOOD','BEV','CLN','ELEC','CLTH','HLTH','STAT','BLDG','ITM'];
+      const cat=validCats.includes(catInput)?catInput:'ITM';
+      const unit=(row['Unit']||row['الوحدة']||'قطعة').toString().trim();
+      const cost=parseFloat(row['Cost Price']||row['سعر الشراء']||0)||0;
+      const price=parseFloat(row['Sale Price']||row['سعر البيع']||0)||0;
+      const alert=parseFloat(row['Alert Level']||row['حد التنبيه']||10)||10;
+      const desc=(row['Description']||row['الوصف']||'').toString().trim()||null;
+      const supName=(row['Supplier Name']||row['اسم المورد']||'').toString().trim();
+      const supPhone=(row['Supplier Phone']||row['هاتف المورد']||'').toString().trim();
+      // Check if item exists by name or barcode
+      const existing=invItems.find(item=>
+        item.name.toLowerCase()===name.toLowerCase()||
+        (barcode&&item.barcode===barcode)
+      );
+      if(existing){
+        await sb.from('inventory_items').update({
+          sale_price:price||existing.sale_price,
+          alert_level:alert,
+          barcode:barcode||existing.barcode,
+          description:desc||existing.description,
+          updated_at:new Date().toISOString()
+        }).eq('id',existing.id);
+        updated++;
+        logEl.innerHTML+=`<div style="color:var(--green);">✓ ${L==='ar'?'تحديث:':'Updated:'} ${name}</div>`;
+      }else{
+        const sku=await generateSKU(cat);
+        const {error}=await sb.from('inventory_items').insert({
+          user_id:currentUser.id,business_id:currentBiz?.id,
+          name,sku,barcode,category:cat,unit,cost_price:cost,sale_price:price,
+          current_qty:0,alert_level:alert,description:desc
+        });
+        if(error){errors++;logEl.innerHTML+=`<div style="color:var(--red);">✗ ${name}: ${error.message}</div>`;}
+        else{
+          created++;
+          logEl.innerHTML+=`<div style="color:var(--blue);">+ ${L==='ar'?'إضافة:':'Added:'} ${name} — SKU: ${sku}</div>`;
+          // Add supplier if provided
+          if(supName&&supPhone){
+            const supExists=suppliers.find(s=>s.name.toLowerCase()===supName.toLowerCase());
+            if(!supExists){
+              await sb.from('suppliers').insert({
+                user_id:currentUser.id,business_id:currentBiz?.id,
+                name:supName,phone:supPhone,supplier_type:'موزع',payment_terms:'نقداً'
+              }).catch(()=>{});
+            }
+          }
+        }
+      }
+      // Update progress
+      const pct=Math.round(((i+1)/total)*100);
+      fillEl.style.width=pct+'%';pctEl.textContent=pct+'%';
+      statusEl.textContent=(L==='ar'?'جارٍ المعالجة: ':'Processing: ')+(i+1)+'/'+total;
+      logEl.scrollTop=logEl.scrollHeight;
+      await new Promise(r=>setTimeout(r,50));
+    }
+    await loadItems();await loadSuppliers();
+    statusEl.textContent=L==='ar'?'اكتملت المعالجة ✓':'Processing complete ✓';
+    fillEl.style.width='100%';pctEl.textContent='100%';
+    result.style.display='block';
+    result.innerHTML=`<div class="note-box green">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+      <span>${L==='ar'?'اكتملت عملية الرفع:':'Upload complete:'} <strong>${created}</strong> ${L==='ar'?'صنف جديد':'new items'} | <strong>${updated}</strong> ${L==='ar'?'تحديث':'updated'} | <strong style="color:var(--red);">${errors}</strong> ${L==='ar'?'خطأ':'errors'}</span>
+    </div>`;
+    e.target.value='';
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function downloadTemplate(){
+  const ws=XLSX.utils.aoa_to_sheet([
+    ['Item Name','Barcode','Category','Unit','Cost Price','Sale Price','Alert Level','Description','Supplier Name','Supplier Phone'],
+    ['Nescafe Classic 190g','6291003080058','BEV','قطعة',25,32,20,'190g jar — 24 per carton','Nestle Distributor','0500000001'],
+    ['Lipton Tea 100 bags','6291004010054','FOOD','علبة',18,25,15,'100 tea bags','Al-Amanah Trading','0500000002'],
+  ]);
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Items');
+  XLSX.writeFile(wb,'GulfLedger_Items_Template.xlsx');
 }
 
 /* ── MOVEMENTS ── */
-function renderMovements() {
-  const tb = document.getElementById('mov-tbody');
-  set('mov-count', movements.length + (L==='ar'?' حركة':' movements'));
-  if (!movements.length) {
-    tb.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا توجد حركات بعد':'No movements yet'}</td></tr>`;
+function renderMovements(){
+  const tb=document.getElementById('mov-tbody');
+  set('mov-count',movements.length+(L==='ar'?' حركة':' movements'));
+  if(!movements.length){
+    tb.innerHTML=`<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا توجد حركات بعد':'No movements yet'}</td></tr>`;
     return;
   }
-  tb.innerHTML = movements.map(m => {
-    const tin = m.movement_type === 'in';
-    const itemName = m.inventory_items?.name || '—';
-    const sku      = m.inventory_items?.sku  || '—';
+  tb.innerHTML=movements.map(m=>{
+    const tin=m.movement_type==='in';
+    const itemName=m.inventory_items?.name||'—';
+    const sku=m.inventory_items?.sku||'—';
     return `<tr>
       <td style="font-size:11px;color:var(--muted);">${m.movement_date}</td>
       <td><strong style="font-size:12px;">${itemName}</strong></td>
@@ -831,128 +1079,72 @@ function renderMovements() {
       <td class="mono ${tin?'c-green':'c-amber'}">${tin?'+':'-'}${m.quantity}</td>
       <td class="mono">${m.balance_after??'—'}</td>
       <td class="mono" style="font-size:11px;color:var(--blue);">${m.reference||'—'}</td>
-      <td style="font-size:11px;color:var(--muted);">${m.note||''}</td>
+      <td style="font-size:11px;color:var(--muted);max-width:160px;overflow:hidden;text-overflow:ellipsis;">${m.note||''}</td>
     </tr>`;
   }).join('');
 }
 
-/* ── COGS with opening snapshot ── */
-async function calcCOGS() {
-  const fromDate = gval('cogs-from');
-  const toDate   = gval('cogs-to');
-  if (!fromDate || !toDate) { notify(L==='ar'?'اختر الفترة أولاً':'Select period first', 'r'); return; }
-
-  // Get opening stock from last snapshot BEFORE the from date
-  const { data: snapshots } = await sb.from('inventory_snapshots')
-    .select('*')
-    .eq('business_id', currentBiz?.id)
-    .lt('snapshot_date', fromDate)
-    .order('snapshot_date', { ascending: false })
-    .limit(1);
-
-  const openingValue = snapshots && snapshots.length > 0 ? snapshots[0].total_value : 0;
-  const openingDate  = snapshots && snapshots.length > 0 ? snapshots[0].snapshot_date : null;
-
-  // Get purchases during period (inbound movements)
-  const { data: movs } = await sb.from('inventory_movements')
-    .select('quantity, inventory_items(cost_price)')
-    .eq('business_id', currentBiz?.id)
-    .eq('movement_type', 'in')
-    .gte('movement_date', fromDate)
-    .lte('movement_date', toDate)
-    .neq('reference', 'OPENING'); // exclude opening stock entries
-
-  let purchases = 0;
-  (movs || []).forEach(m => {
-    purchases += (m.quantity || 0) * (m.inventory_items?.cost_price || 0);
+/* ── COGS ── */
+async function calcCOGS(){
+  const fromDate=gval('cogs-from');const toDate=gval('cogs-to');
+  if(!fromDate||!toDate){notify(L==='ar'?'اختر الفترة أولاً':'Select period first','r');return;}
+  const {data:snaps}=await sb.from('inventory_snapshots').select('*')
+    .eq('business_id',currentBiz?.id).lt('snapshot_date',fromDate)
+    .order('snapshot_date',{ascending:false}).limit(1);
+  const openingValue=snaps&&snaps.length?snaps[0].total_value:0;
+  const openingDate=snaps&&snaps.length?snaps[0].snapshot_date:null;
+  const {data:movs}=await sb.from('inventory_movements').select('quantity,unit_cost,inventory_items(cost_price)')
+    .eq('business_id',currentBiz?.id).eq('movement_type','in')
+    .gte('movement_date',fromDate).lte('movement_date',toDate).neq('reference','OPENING');
+  let purchases=0;
+  (movs||[]).forEach(m=>{
+    const c=m.unit_cost||m.inventory_items?.cost_price||0;
+    purchases+=(m.quantity||0)*c;
   });
-
-  // Closing stock = current inventory value
-  const closing = invItems.reduce((s, i) => s + (i.cost_price||0) * (i.current_qty||0), 0);
-  const cogs    = Math.max(0, openingValue + purchases - closing);
-
-  const openingNote = openingDate
-    ? `<span style="font-size:10px;color:var(--muted);"> (${L==='ar'?'من إقفال':'from closing'} ${openingDate})</span>`
-    : `<span style="font-size:10px;color:var(--amber);"> ⚠ ${L==='ar'?'لا يوجد إقفال سابق':'no prior closing snapshot'}</span>`;
-
-  document.getElementById('cogs-result').innerHTML = `
+  const closing=invItems.reduce((s,i)=>s+(i.cost_price||0)*(i.current_qty||0),0);
+  const cogs=Math.max(0,openingValue+purchases-closing);
+  const openingNote=openingDate
+    ?`<span style="font-size:10px;color:var(--muted);"> (${L==='ar'?'من إقفال':'from closing'} ${openingDate})</span>`
+    :`<span style="font-size:10px;color:var(--amber);"> ⚠ ${L==='ar'?'لا يوجد إقفال سابق':'no prior closing'}</span>`;
+  document.getElementById('cogs-result').innerHTML=`
     <div class="cogs-box">
-      <div class="cogs-row">
-        <span>${L==='ar'?'مخزون أول المدة':'Opening Stock'}${openingNote}</span>
-        <span class="cogs-val" style="${openingValue===0?'color:var(--amber);':''}">SAR ${fmt(openingValue)}</span>
-      </div>
-      <div class="cogs-row">
-        <span>${L==='ar'?'+ المشتريات خلال الفترة':'+ Purchases this period'}</span>
-        <span class="cogs-val" style="color:var(--green);">SAR ${fmt(purchases)}</span>
-      </div>
-      <div class="cogs-row">
-        <span>${L==='ar'?'− مخزون آخر المدة (الحالي)':'− Closing Stock (current)'}</span>
-        <span class="cogs-val" style="color:var(--red);">(SAR ${fmt(closing)})</span>
-      </div>
-      <div class="cogs-row tot">
-        <span>${L==='ar'?'تكلفة البضاعة المباعة (WAC)':'Cost of Goods Sold (WAC)'}</span>
-        <span class="cogs-val" style="color:var(--amber);">SAR ${fmt(cogs)}</span>
-      </div>
-    </div>
-    ${openingValue === 0 ? `
-    <div class="note-box amber" style="margin-top:10px;">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-      <span>${L==='ar'?'مخزون أول المدة صفر — أغلق الفترة السابقة أولاً لتسجيل قيمة المخزون الافتتاحي بدقة':'Opening stock is zero — close the previous period first to record accurate opening value'}</span>
-    </div>` : ''}`;
+      <div class="cogs-row"><span>${L==='ar'?'مخزون أول المدة':'Opening Stock'}${openingNote}</span><span class="cogs-val" style="${openingValue===0?'color:var(--amber);':''}">${openingValue===0?L==='ar'?'SAR 0.00 ⚠':'SAR 0.00 ⚠':'SAR '+fmt(openingValue)}</span></div>
+      <div class="cogs-row"><span>${L==='ar'?'+ المشتريات خلال الفترة':'+ Purchases this period'}</span><span class="cogs-val" style="color:var(--green);">SAR ${fmt(purchases)}</span></div>
+      <div class="cogs-row"><span>${L==='ar'?'− مخزون آخر المدة (الحالي)':'− Closing Stock (current)'}</span><span class="cogs-val" style="color:var(--red);">(SAR ${fmt(closing)})</span></div>
+      <div class="cogs-row tot"><span>${L==='ar'?'تكلفة البضاعة المباعة (WAC)':'Cost of Goods Sold (WAC)'}</span><span class="cogs-val" style="color:var(--amber);">SAR ${fmt(cogs)}</span></div>
+    </div>`;
 }
 
-/* ── PERIOD CLOSING SNAPSHOT ── */
-async function closePeriod() {
-  const date    = gval('close-date');
-  const notes   = gval('close-notes');
-  if (!date) { notify(L==='ar'?'اختر تاريخ الإقفال':'Select closing date', 'r'); return; }
-
-  // Calculate current total inventory value
-  const totalValue = invItems.reduce((s, i) => s + (i.cost_price||0) * (i.current_qty||0), 0);
-  const totalItems = invItems.length;
-
-  const { error } = await sb.from('inventory_snapshots').insert({
-    business_id:   currentBiz?.id,
-    user_id:       currentUser.id,
-    snapshot_date: date,
-    snapshot_type: 'manual',
-    total_value:   totalValue,
-    total_items:   totalItems,
-    notes:         notes || (L==='ar'?'إقفال دوري':'Periodic closing')
+async function closePeriod(){
+  const date=gval('close-date');if(!date){notify(L==='ar'?'اختر تاريخ الإقفال':'Select closing date','r');return;}
+  const totalValue=invItems.reduce((s,i)=>s+(i.cost_price||0)*(i.current_qty||0),0);
+  const {error}=await sb.from('inventory_snapshots').insert({
+    business_id:currentBiz?.id,user_id:currentUser.id,
+    snapshot_date:date,snapshot_type:'manual',total_value:totalValue,
+    total_items:invItems.length,notes:gval('close-notes')||'إقفال دوري'
   });
-
-  if (error) { notify(error.message, 'r'); return; }
-
-  notify(
-    (L==='ar'?'تم تسجيل إقفال المخزون ✓\nقيمة المخزون: SAR ':'Period closed ✓\nStock value: SAR ') + fmt(totalValue),
-    'g'
-  );
-  document.getElementById('close-date').value  = '';
-  document.getElementById('close-notes').value = '';
+  if(error){notify(error.message,'r');return;}
+  notify((L==='ar'?'تم تسجيل الإقفال ✓ قيمة المخزون: SAR ':'Period closed ✓ Stock value: SAR ')+fmt(totalValue),'g');
+  document.getElementById('close-date').value='';document.getElementById('close-notes').value='';
   await loadSnapshots();
 }
 
-async function loadSnapshots() {
-  const { data } = await sb.from('inventory_snapshots')
-    .select('*')
-    .eq('business_id', currentBiz?.id)
-    .order('snapshot_date', { ascending: false })
-    .limit(10);
-
-  const container = document.getElementById('snapshots-list');
-  if (!container) return;
-  if (!data || !data.length) {
-    container.innerHTML = `<div style="font-size:12px;color:var(--muted);padding:8px 0;">${L==='ar'?'لا توجد إقفالات مسجّلة بعد':'No closing snapshots yet'}</div>`;
+async function loadSnapshots(){
+  const {data}=await sb.from('inventory_snapshots').select('*')
+    .eq('business_id',currentBiz?.id).order('snapshot_date',{ascending:false}).limit(10);
+  const container=document.getElementById('snapshots-list');if(!container)return;
+  if(!data||!data.length){
+    container.innerHTML=`<div style="font-size:12px;color:var(--muted);padding:6px 0;">${L==='ar'?'لا توجد إقفالات مسجّلة بعد':'No snapshots yet'}</div>`;
     return;
   }
-  container.innerHTML = `<table class="tbl" style="margin-top:8px;">
+  container.innerHTML=`<table class="tbl" style="margin-top:8px;">
     <thead><tr>
-      <th>${L==='ar'?'تاريخ الإقفال':'Closing Date'}</th>
-      <th>${L==='ar'?'قيمة المخزون':'Stock Value'}</th>
+      <th>${L==='ar'?'تاريخ الإقفال':'Date'}</th>
+      <th>${L==='ar'?'قيمة المخزون':'Value'}</th>
       <th>${L==='ar'?'عدد الأصناف':'SKUs'}</th>
       <th>${L==='ar'?'ملاحظات':'Notes'}</th>
     </tr></thead>
-    <tbody>${data.map(s => `<tr>
+    <tbody>${(data||[]).map(s=>`<tr>
       <td style="font-size:12px;">${s.snapshot_date}</td>
       <td class="mono c-navy" style="font-weight:700;">SAR ${fmt(s.total_value)}</td>
       <td class="mono">${s.total_items}</td>
@@ -963,71 +1155,72 @@ async function loadSnapshots() {
 }
 
 /* ── SUPPLIERS ── */
-async function saveSupplier() {
-  const name  = gval('ns-name');
-  const phone = gval('ns-phone');
-  if (!name || !phone) { notify(L==='ar'?'أدخل الاسم والهاتف':'Enter name and phone', 'r'); return; }
-
-  const { error } = await sb.from('suppliers').insert({
-    user_id:     currentUser.id,
-    business_id: currentBiz?.id,
-    name, phone,
-    trn:           gval('ns-trn'),
-    email:         gval('ns-email'),
-    city:          gval('ns-city'),
-    supplier_type: document.getElementById('ns-type').value,
-    payment_terms: document.getElementById('ns-terms').value,
-    notes:         gval('ns-notes')
+async function saveSupplier(){
+  const name=gval('ns-name');const phone=gval('ns-phone');
+  if(!name||!phone){notify(L==='ar'?'أدخل الاسم والهاتف':'Enter name and phone','r');return;}
+  // Auto-generate supplier code
+  const supCode='SUP-'+String(suppliers.length+1).padStart(4,'0');
+  const {error}=await sb.from('suppliers').insert({
+    user_id:currentUser.id,business_id:currentBiz?.id,
+    name,phone,trn:gval('ns-trn'),email:gval('ns-email'),city:gval('ns-city'),
+    supplier_type:document.getElementById('ns-type').value,
+    payment_terms:document.getElementById('ns-terms').value,
+    notes:gval('ns-notes')||supCode
   });
-
-  if (error) { notify(error.message, 'r'); return; }
-  clearSupForm();
-  await loadSuppliers();
-  notify(L==='ar'?'تم حفظ المورد في السجل ✓':'Supplier saved ✓', 'g');
+  if(error){notify(error.message,'r');return;}
+  clearSupForm();await loadSuppliers();
+  notify(L==='ar'?'تم حفظ المورد في السجل ✓':'Supplier saved ✓','g');
 }
 
-function renderSuppliers() {
-  const tb = document.getElementById('sup-tbody');
-  set('sup-count', suppliers.length + (L==='ar'?' مورد':' suppliers'));
-  if (!suppliers.length) {
-    tb.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا يوجد موردون بعد':'No suppliers yet'}</td></tr>`;
+function renderSuppliers(){
+  const tb=document.getElementById('sup-tbody');
+  set('sup-count',suppliers.length+(L==='ar'?' مورد':' suppliers'));
+  if(!suppliers.length){
+    tb.innerHTML=`<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا يوجد موردون بعد':'No suppliers yet'}</td></tr>`;
     return;
   }
-  tb.innerHTML = suppliers.map(s => `<tr>
-    <td><strong>${s.name}</strong>${s.notes?`<br><span style="font-size:10px;color:var(--muted);">${s.notes}</span>`:''}</td>
+  tb.innerHTML=suppliers.map((s,idx)=>`<tr>
+    <td><span class="sku-badge">SUP-${String(idx+1).padStart(4,'0')}</span></td>
+    <td><strong>${s.name}</strong></td>
     <td class="mono">${s.phone}</td>
     <td class="mono" style="font-size:11px;color:var(--sky);">${s.trn||'—'}</td>
     <td>${s.city||'—'}</td>
     <td><span class="bdg" style="background:rgba(0,0,0,0.06);color:var(--muted);">${s.supplier_type||'—'}</span></td>
     <td><span class="bdg bdg-in">${s.payment_terms||'—'}</span></td>
-    <td>
-      <button class="btn-d" onclick="deleteSupplier('${s.id}')">${L==='ar'?'حذف':'Del'}</button>
-    </td>
+    <td><button class="btn-d" onclick="deleteSupplier('${s.id}')">${L==='ar'?'حذف':'Del'}</button></td>
   </tr>`).join('');
 }
 
-async function deleteSupplier(id) {
-  if (!confirm(L==='ar'?'هل تريد حذف هذا المورد؟':'Delete this supplier?')) return;
-  await sb.from('suppliers').delete().eq('id', id);
-  await loadSuppliers();
+async function deleteSupplier(id){
+  if(!confirm(L==='ar'?'هل تريد حذف هذا المورد؟':'Delete this supplier?'))return;
+  await sb.from('suppliers').delete().eq('id',id);await loadSuppliers();
 }
 
-function clearSupForm() {
-  ['ns-name','ns-phone','ns-trn','ns-email','ns-city','ns-notes'].forEach(id => {
-    const el = document.getElementById(id); if(el) el.value = '';
+function clearSupForm(){
+  ['ns-name','ns-phone','ns-trn','ns-email','ns-city','ns-notes'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value='';
   });
 }
 
+function fillSupplier(){
+  const id=document.getElementById('f-sup-sel').value;
+  const s=suppliers.find(x=>x.id===id);
+  if(s)document.getElementById('f-sup-name').value=s.name;
+}
+
+function refreshSupDropdown(){
+  const sel=document.getElementById('f-sup-sel');if(!sel)return;
+  sel.innerHTML='<option value="">'+(L==='ar'?'— اختر مورداً —':'— Select supplier —')+'</option>'
+    +suppliers.map(s=>`<option value="${s.id}">${s.name} — ${s.phone}</option>`).join('');
+}
+
 /* ── ALERTS ── */
-function renderAlerts() {
-  const alerts = invItems.filter(i => i.current_qty <= (i.alert_level||0));
-  const c = document.getElementById('sb-alerts');
-  if (!alerts.length) {
-    c.innerHTML = `<div style="font-size:11px;color:var(--muted);padding:4px 6px;">${L==='ar'?'لا تنبيهات ✓':'No alerts ✓'}</div>`;
-    return;
-  }
-  c.innerHTML = alerts.map(i => {
-    const cls = i.current_qty === 0 ? 'crit' : 'warn';
+function renderAlerts(){
+  const alerts=invItems.filter(i=>i.current_qty<=(i.alert_level||0));
+  const c=document.getElementById('sb-alerts');
+  if(!alerts.length){c.innerHTML=`<div style="font-size:11px;color:var(--muted);padding:4px 6px;">${L==='ar'?'لا تنبيهات ✓':'No alerts ✓'}</div>`;return;}
+  c.innerHTML=alerts.map(i=>{
+    const cls=i.current_qty===0?'crit':'warn';
     return `<div class="sb-alert" onclick="goTab('stock')">
       <span style="font-size:11px;color:var(--ink);">${i.name.substring(0,18)}${i.name.length>18?'..':''}</span>
       <span class="sb-qty ${cls}">${i.current_qty} ${i.unit||''}</span>
@@ -1036,59 +1229,50 @@ function renderAlerts() {
 }
 
 /* ── NAV ── */
-function goTab(name) {
-  ['stock','receive','movements','cogs','suppliers'].forEach(t => {
-    document.getElementById('tc-'+t).classList.toggle('active', t===name);
-    const sb = document.getElementById('sb-'+t);
-    if (sb) sb.classList.toggle('active', t===name);
+function goTab(name){
+  const tabs=['stock','receive','movements','cogs','suppliers','upload'];
+  tabs.forEach(t=>{
+    document.getElementById('tc-'+t)?.classList.toggle('active',t===name);
+    const sbEl=document.getElementById('sb-'+t);
+    if(sbEl)sbEl.classList.toggle('active',t===name);
   });
+  if(name==='receive'){refreshSupDropdown();}
 }
 
 /* ── LANGUAGE ── */
-function setLang(lang) {
-  L = lang;
-  document.getElementById('btn-ar').classList.toggle('on', lang==='ar');
-  document.getElementById('btn-en').classList.toggle('on', lang==='en');
-  document.documentElement.setAttribute('lang', lang);
-  document.documentElement.setAttribute('dir', lang==='ar'?'rtl':'ltr');
-  document.querySelectorAll('[data-ar][data-en]').forEach(el => el.textContent = el.getAttribute('data-'+lang));
-  document.querySelectorAll('select option[data-ar]').forEach(o => o.text = o.getAttribute('data-'+lang));
-  renderStock(); renderMovements(); renderSuppliers(); renderAlerts();
+function setLang(lang){
+  L=lang;
+  document.getElementById('btn-ar').classList.toggle('on',lang==='ar');
+  document.getElementById('btn-en').classList.toggle('on',lang==='en');
+  document.documentElement.setAttribute('lang',lang);
+  document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
+  document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));
+  document.querySelectorAll('select option[data-ar]').forEach(o=>o.text=o.getAttribute('data-'+lang));
+  renderStock();renderMovements();renderSuppliers();renderAlerts();
 }
 
 /* ── HELPERS ── */
-function gval(id)      { const e=document.getElementById(id); return e?e.value.trim():''; }
-function set(id,v)     { const e=document.getElementById(id); if(e) e.textContent=v; }
-function fmt(n)        { return (n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
-function today()       { return new Date().toISOString().split('T')[0]; }
-async function logout(){ await sb.auth.signOut(); window.location.href='login.html'; }
+function gval(id){const e=document.getElementById(id);return e?e.value.trim():'';}
+function set(id,v){const e=document.getElementById(id);if(e)e.textContent=v;}
+function fmt(n){return(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');}
+function today(){return new Date().toISOString().split('T')[0];}
+async function logout(){await sb.auth.signOut();window.location.href='login.html';}
 
-function notify(msg, type) {
-  const d = document.createElement('div');
-  d.style.cssText = 'position:fixed;top:80px;left:50%;transform:translateX(-50%);background:'+(type==='g'?'var(--green)':'var(--red)')+';color:#fff;padding:10px 24px;border-radius:8px;font-family:Tajawal,sans-serif;font-size:13px;z-index:9999;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,0.2);';
-  d.textContent = msg;
-  document.body.appendChild(d);
-  setTimeout(() => { if(d.parentNode) d.parentNode.removeChild(d); }, type==='g'?4000:3000);
+function notify(msg,type){
+  const d=document.createElement('div');
+  d.style.cssText='position:fixed;top:80px;left:50%;transform:translateX(-50%);background:'+(type==='g'?'var(--green)':'var(--red)')+';color:#fff;padding:10px 24px;border-radius:8px;font-family:Tajawal,sans-serif;font-size:13px;z-index:9999;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,0.2);max-width:90vw;';
+  d.textContent=msg;document.body.appendChild(d);
+  setTimeout(()=>{if(d.parentNode)d.parentNode.removeChild(d);},type==='g'?4000:3000);
 }
 
-init();
-
-// Force Gregorian dates — prevents Hijri calendar on Arabic devices
+// Force Gregorian dates
 (function(){
-  function fixDates(){
-    document.querySelectorAll('input[type="date"]').forEach(function(el){
-      if(!el.getAttribute('data-gregorian-fixed')){
-        el.setAttribute('lang','en-SA-u-ca-gregory');
-        el.setAttribute('data-gregorian-fixed','1');
-      }
-    });
-  }
+  function fixDates(){document.querySelectorAll('input[type="date"]').forEach(function(el){if(!el.dataset.gf){el.setAttribute('lang','en-SA-u-ca-gregory');el.dataset.gf='1';}});}
   fixDates();
-  // Also fix any dynamically added date inputs
-  var obs = new MutationObserver(fixDates);
-  obs.observe(document.body, {childList:true, subtree:true});
+  new MutationObserver(fixDates).observe(document.body,{childList:true,subtree:true});
 })();
 
+init();
 </script>
 </body>
 </html>
