@@ -463,7 +463,7 @@ async function init() {
   renderItems();
   render();
   loadInvoices();
-  setLang('ar');
+  const storedL=getStoredLang(); L=storedL; setLang(storedL);
 }
 
 async function setNextInvNumber() {
@@ -606,7 +606,7 @@ async function openInvPicker(idx) {
             <td style="padding:8px;font-family:'DM Mono',monospace;font-size:11px;color:var(--blue);">${it.sku||'—'}</td>
             <td style="padding:8px;font-family:'DM Mono',monospace;">SAR ${(it.sale_price||0).toFixed(2)}</td>
             <td style="padding:8px;color:${it.current_qty<=0?'var(--red)':'var(--green)'};">${it.current_qty||0} ${it.unit||''}</td>
-            <td style="padding:8px;"><button onclick="pickItem('${it.name}','${it.sale_price||0}')" style="padding:4px 12px;background:var(--blue);color:#fff;border:none;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;">${currentLang==='ar'?'اختر':'Pick'}</button></td>
+            <td style="padding:8px;"><button onclick="pickItem('${it.name}','${it.sale_price||0}','${it.id}')" style="padding:4px 12px;background:var(--blue);color:#fff;border:none;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;">${currentLang==='ar'?'اختر':'Pick'}</button></td>
           </tr>`).join('')}
         </tbody>
       </table>
@@ -624,9 +624,10 @@ function filterPicker(search) {
   });
 }
 
-function pickItem(name, price) {
-  items[pickerIdx].desc  = name;
-  items[pickerIdx].price = parseFloat(price) || 0;
+function pickItem(name, price, itemId) {
+  items[pickerIdx].desc   = name;
+  items[pickerIdx].price  = parseFloat(price) || 0;
+  items[pickerIdx].itemId = itemId || null;
   renderItems();
   render();
   const modal = document.getElementById('inv-picker-modal');
@@ -796,7 +797,35 @@ async function saveInvoice() {
   }));
   await sb.from('invoice_items').insert(itemRows);
 
-  // AUTO-POST TO LEDGER
+  // DEDUCT STOCK for items picked from inventory
+  if (currentBiz?.id) {
+    for (const it of items) {
+      if (!it.itemId || !it.qty) continue;
+      // Get current qty
+      const { data: invItem } = await sb.from('inventory_items')
+        .select('current_qty, cost_price, name, sku')
+        .eq('id', it.itemId).single();
+      if (!invItem) continue;
+      const newQty = Math.max(0, (invItem.current_qty||0) - it.qty);
+      // Update stock
+      await sb.from('inventory_items').update({
+        current_qty: newQty,
+        updated_at:  new Date().toISOString()
+      }).eq('id', it.itemId);
+      // Record outgoing movement
+      await sb.from('inventory_movements').insert({
+        business_id:   currentBiz.id,
+        item_id:       it.itemId,
+        movement_type: 'out',
+        quantity:      it.qty,
+        balance_after: newQty,
+        unit_cost:     invItem.cost_price || 0,
+        reference:     invoiceData.invoice_number,
+        note:          (currentLang==='ar'?'بيع — فاتورة ':'Sale — Invoice ') + invoiceData.invoice_number,
+        movement_date: invoiceData.issue_date || today()
+      });
+    }
+  }
   await autoPostInvoice({
     id:             invoiceId,
     invoice_number: invoiceData.invoice_number,
@@ -890,17 +919,7 @@ async function newInvoice() {
 }
 
 /* ── LANGUAGE ── */
-function setLang(lang) {
-  currentLang = lang;
-  document.documentElement.setAttribute('lang', lang);
-  document.documentElement.setAttribute('dir', lang==='ar'?'rtl':'ltr');
-  document.getElementById('btn-ar').classList.toggle('on', lang==='ar');
-  document.getElementById('btn-en').classList.toggle('on', lang==='en');
-  document.querySelectorAll('[data-ar][data-en]').forEach(el => el.textContent = el.getAttribute('data-'+lang));
-  renderItems();
-  render();
-  loadInvoices();
-}
+function setLang(lang){ L=lang; applyLang(lang); if(typeof onBusinessTypeChange==='function')onBusinessTypeChange(); if(typeof renderStock==='function')renderStock(); if(typeof renderSuppliers==='function')renderSuppliers(); if(typeof renderPartners==='function')renderPartners(); }
 
 /* ── HELPERS ── */
 function v(id)         { const el=document.getElementById(id); return el?el.value.trim():''; }
@@ -993,6 +1012,19 @@ init();
   var obs = new MutationObserver(fixDates);
   obs.observe(document.body, {childList:true, subtree:true});
 })();
+
+
+/* ── PERSISTENT LANGUAGE ── */
+function getStoredLang(){return localStorage.getItem('gl_lang')||'ar';}
+function applyLang(lang){
+  localStorage.setItem('gl_lang',lang);
+  document.getElementById('btn-ar')?.classList.toggle('on',lang==='ar');
+  document.getElementById('btn-en')?.classList.toggle('on',lang==='en');
+  document.documentElement.setAttribute('lang',lang);
+  document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
+  document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));
+  document.querySelectorAll('select option[data-ar]').forEach(o=>o.text=o.getAttribute('data-'+lang)||o.text);
+}
 
 </script>
 </body>

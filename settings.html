@@ -79,6 +79,10 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
 .rates-table td{padding:8px 12px;border-bottom:1px solid var(--tint);}
 .rate-val{font-family:'DM Mono',monospace;font-weight:700;color:var(--blue);}
 @media(max-width:600px){.fg-2,.fg-3,.fg-4{grid-template-columns:1fr;}.radio-group{flex-direction:column;}.section-tabs{gap:3px;}.stab{padding:6px 9px;font-size:11px;}}
+
+/* Force Gregorian calendar on all devices — prevents Hijri on Arabic locale */
+input[type="date"]::-webkit-calendar-picker-indicator { filter: none; }
+input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family: 'DM Mono', monospace; }
 </style>
 </head>
 <body>
@@ -197,7 +201,7 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
         </div>
         <div class="fld">
           <label data-ar="تاريخ التأسيس" data-en="Establishment Date">تاريخ التأسيس</label>
-          <input type="date" id="s-founded" dir="ltr">
+          <input type="date" lang="en" id="s-founded" dir="ltr">
         </div>
       </div>
     </div>
@@ -389,7 +393,7 @@ async function init(){
   if(rates){rates.forEach(r=>taxRates[r.rate_key]=parseFloat(r.rate_value));renderTaxRates(rates);}
   setOwnershipType(biz?.ownership_type||'saudi',true);
   if(biz?.logo_base64){logoBase64=biz.logo_base64;showLogoPreview(biz.logo_base64);}
-  setLang('ar');
+  const storedL=getStoredLang(); L=storedL; setLang(storedL);
 }
 
 function populateForm(biz){
@@ -607,16 +611,7 @@ function goSection(name){
   if(name==='identity')onBusinessTypeChange();
 }
 
-function setLang(lang){
-  L=lang;
-  document.getElementById('btn-ar').classList.toggle('on',lang==='ar');
-  document.getElementById('btn-en').classList.toggle('on',lang==='en');
-  document.documentElement.setAttribute('lang',lang);
-  document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
-  document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));
-  document.querySelectorAll('select option[data-ar]').forEach(o=>o.text=o.getAttribute('data-'+lang));
-  onBusinessTypeChange();renderPartners();
-}
+function setLang(lang){ L=lang; applyLang(lang); if(typeof onBusinessTypeChange==='function')onBusinessTypeChange(); if(typeof renderStock==='function')renderStock(); if(typeof renderSuppliers==='function')renderSuppliers(); if(typeof renderPartners==='function')renderPartners(); }
 
 function gval(id){const e=document.getElementById(id);return e?e.value.trim():'';}
 function setVal(id,v){const e=document.getElementById(id);if(e)e.value=v;}
@@ -630,6 +625,36 @@ function notify(msg,type){
 }
 
 init();
+
+// Force Gregorian dates — prevents Hijri calendar on Arabic devices
+(function(){
+  function fixDates(){
+    document.querySelectorAll('input[type="date"]').forEach(function(el){
+      if(!el.getAttribute('data-gregorian-fixed')){
+        el.setAttribute('lang','en-SA-u-ca-gregory');
+        el.setAttribute('data-gregorian-fixed','1');
+      }
+    });
+  }
+  fixDates();
+  // Also fix any dynamically added date inputs
+  var obs = new MutationObserver(fixDates);
+  obs.observe(document.body, {childList:true, subtree:true});
+})();
+
+
+/* ── PERSISTENT LANGUAGE ── */
+function getStoredLang(){return localStorage.getItem('gl_lang')||'ar';}
+function applyLang(lang){
+  localStorage.setItem('gl_lang',lang);
+  document.getElementById('btn-ar')?.classList.toggle('on',lang==='ar');
+  document.getElementById('btn-en')?.classList.toggle('on',lang==='en');
+  document.documentElement.setAttribute('lang',lang);
+  document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
+  document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));
+  document.querySelectorAll('select option[data-ar]').forEach(o=>o.text=o.getAttribute('data-'+lang)||o.text);
+}
+
 </script>
 </body>
 </html>

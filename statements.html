@@ -347,7 +347,7 @@ async function init() {
   }
 
   setFiscalYear();
-  setLang('ar');
+  setLang(getStoredLang());
 }
 
 function setFiscalYear() {
@@ -386,23 +386,56 @@ async function generateStatements() {
     .lt('snapshot_date', from)
     .order('snapshot_date', { ascending: false }).limit(1);
 
+  // Load inventory movements for COGS (outgoing stock)
+  const { data: outMovements } = await sb.from('inventory_movements')
+    .select('quantity, unit_cost, inventory_items(cost_price)')
+    .eq('business_id', currentBiz?.id)
+    .eq('movement_type', 'out')
+    .gte('movement_date', from)
+    .lte('movement_date', to);
+
+  // Load purchase movements for COGS formula
+  const { data: inMovements } = await sb.from('inventory_movements')
+    .select('quantity, unit_cost')
+    .eq('business_id', currentBiz?.id)
+    .eq('movement_type', 'in')
+    .gte('movement_date', from)
+    .lte('movement_date', to)
+    .neq('reference', 'OPENING');
+
   /* ── REVENUE ── */
   const revenue     = (invoices||[]).reduce((s,i) => s + (i.subtotal||0), 0);
   const vatOutput   = (invoices||[]).reduce((s,i) => s + (i.vat_amount||0), 0);
   const invCount    = (invoices||[]).length;
 
-  /* ── COGS from ledger entries (account 5100) ── */
-  let cogs = 0, salaries = 0, rent = 0, utilities = 0, marketing = 0, depreciation = 0, bankCharges = 0, misc = 0, zakat = 0;
-  let cash = 0, receivables = 0, prepaid = 0, fixedAssets = 0, accumDeprec = 0;
-  let payables = 0, vatPayable = 0, loans = 0;
-  let capital = 0, retained = 0;
+  /* ── COGS — from inventory out movements ── */
+  let cogs = (outMovements||[]).reduce((s,m) => {
+    const cost = m.unit_cost || m.inventory_items?.cost_price || 0;
+    return s + (m.quantity||0) * cost;
+  }, 0);
+
+  /* ── If no out movements, use formula: Opening + Purchases - Closing ── */
+  if (cogs === 0) {
+    const { data: snapshots } = await sb.from('inventory_snapshots')
+      .select('*').eq('business_id', currentBiz?.id)
+      .lt('snapshot_date', from)
+      .order('snapshot_date', { ascending: false }).limit(1);
+    const openingVal  = snapshots && snapshots.length ? snapshots[0].total_value : 0;
+    const purchases   = (inMovements||[]).reduce((s,m) => s + (m.quantity||0)*(m.unit_cost||0), 0);
+    const closingVal  = (invItems||[]).reduce((s,i) => s + (i.cost_price||0)*(i.current_qty||0), 0);
+    cogs = Math.max(0, openingVal + purchases - closingVal);
+  }
+
+  /* ── EXPENSES from ledger entries ── */
+  let salaries=0, rent=0, utilities=0, marketing=0, depreciation=0, bankCharges=0, misc=0, zakatExp=0;
+  let cash=0, receivables=0, prepaid=0, fixedAssets=0, accumDeprec=0;
+  let payables=0, vatPayable=0, loans=0, capital=0, retained=0;
 
   (entries||[]).forEach(e => {
     (e.journal_lines||[]).forEach(l => {
       const dr = l.debit  || 0;
       const cr = l.credit || 0;
       switch(l.account_code) {
-        case '5100': cogs        += dr; break;
         case '5200': salaries    += dr; break;
         case '5300': rent        += dr; break;
         case '5400': utilities   += dr; break;
@@ -410,7 +443,7 @@ async function generateStatements() {
         case '5600': depreciation+= dr; break;
         case '5700': bankCharges += dr; break;
         case '5800': misc        += dr; break;
-        case '5900': zakat       += dr; break;
+        case '5900': zakatExp    += dr; break;
         case '1100': cash        += dr - cr; break;
         case '1200': receivables += dr - cr; break;
         case '1400': prepaid     += dr - cr; break;
@@ -425,28 +458,25 @@ async function generateStatements() {
     });
   });
 
-  // If no COGS from ledger, calculate from inventory
-  if (cogs === 0 && invItems && invItems.length) {
-    const openingVal = snapshots && snapshots.length ? snapshots[0].total_value : 0;
-    const closingVal = (invItems||[]).reduce((s,i) => s + (i.cost_price||0)*(i.current_qty||0), 0);
-    const purchases  = 0; // would need to sum PO receipts
-    cogs = Math.max(0, openingVal + purchases - closingVal);
-  }
-
-  // Inventory asset value
+  // Inventory asset value from current stock
   const inventoryVal = (invItems||[]).reduce((s,i) => s + (i.cost_price||0)*(i.current_qty||0), 0);
 
-  // Cash from invoices (simplified)
-  if (cash === 0) cash = revenue;
-  if (receivables === 0) receivables = 0;
+  // Receivables from invoices if not in ledger
+  if (receivables === 0) {
+    receivables = (invoices||[]).reduce((s,i) => s + (i.total||0), 0);
+  }
+  // Payables from purchase movements if not in ledger
+  if (payables === 0) {
+    payables = (inMovements||[]).reduce((s,m) => s + (m.quantity||0)*(m.unit_cost||0), 0);
+  }
 
   const grossProfit  = revenue - cogs;
   const totalExpenses= salaries + rent + utilities + marketing + depreciation + bankCharges + misc;
   const ebitda       = grossProfit - totalExpenses;
-  const netProfit    = ebitda - zakat;
+  const netProfit    = ebitda - zakatExp;
 
   stmtData = { revenue, cogs, grossProfit, totalExpenses, salaries, rent, utilities, marketing,
-    depreciation, bankCharges, misc, zakat, ebitda, netProfit, vatOutput,
+    depreciation, bankCharges, misc, zakat:zakatExp, ebitda, netProfit, vatOutput,
     cash, receivables, inventoryVal, prepaid, fixedAssets, accumDeprec,
     payables, vatPayable, loans, capital, retained, invCount, periodLabel, bizName, from, to };
 
@@ -653,20 +683,7 @@ function goTab(name) {
 }
 
 /* ── LANGUAGE ── */
-function setLang(lang) {
-  L = lang;
-  document.getElementById('btn-ar').classList.toggle('on', lang==='ar');
-  document.getElementById('btn-en').classList.toggle('on', lang==='en');
-  document.documentElement.setAttribute('lang', lang);
-  document.documentElement.setAttribute('dir', lang==='ar'?'rtl':'ltr');
-  document.querySelectorAll('[data-ar][data-en]').forEach(el => el.textContent = el.getAttribute('data-'+lang));
-  if (stmtData.revenue !== undefined) {
-    renderIncomeStatement();
-    renderBalanceSheet();
-    renderZakat();
-    renderQawaemSummary();
-  }
-}
+/* setLang defined below with statements-specific re-render */
 
 /* ── HELPERS ── */
 function fmt(n)        { return (n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
@@ -698,6 +715,29 @@ init();
   var obs = new MutationObserver(fixDates);
   obs.observe(document.body, {childList:true, subtree:true});
 })();
+
+
+/* ── PERSISTENT LANGUAGE ── */
+function getStoredLang(){return localStorage.getItem('gl_lang')||'ar';}
+function applyLang(lang){
+  localStorage.setItem('gl_lang',lang);
+  document.getElementById('btn-ar')?.classList.toggle('on',lang==='ar');
+  document.getElementById('btn-en')?.classList.toggle('on',lang==='en');
+  document.documentElement.setAttribute('lang',lang);
+  document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
+  document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));
+  document.querySelectorAll('select option[data-ar]').forEach(o=>o.text=o.getAttribute('data-'+lang)||o.text);
+}
+function setLang(lang){
+  L=lang;
+  applyLang(lang);
+  if(stmtData.revenue!==undefined){
+    renderIncomeStatement();
+    renderBalanceSheet();
+    renderZakat();
+    renderQawaemSummary();
+  }
+}
 
 </script>
 </body>
