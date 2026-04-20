@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<script>
+(function(){
+  var lang=localStorage.getItem('gl_lang')||'ar';
+  document.documentElement.setAttribute('lang',lang);
+  document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GulfLedger — انضم لفريقك</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&family=Playfair+Display:wght@700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#C62828;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--border:#d4e6f7;--bg:#f7fafd;--white:#ffffff;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;display:flex;flex-direction:column;}
+.topbar{background:var(--navy);padding:14px 24px;display:flex;align-items:center;gap:10px;}
+.nav-bars{display:flex;gap:3px;height:22px;}
+.nav-bar{width:3px;border-radius:2px;}
+.logo-text{font-family:'Playfair Display',serif;font-size:18px;color:#fff;}
+.container{flex:1;display:flex;align-items:center;justify-content:center;padding:32px 20px;}
+.card{background:var(--white);border:1px solid var(--border);border-radius:16px;padding:36px;width:100%;max-width:440px;box-shadow:0 8px 32px rgba(12,68,124,0.08);}
+.invite-header{text-align:center;margin-bottom:28px;}
+.invite-icon{font-size:48px;margin-bottom:12px;}
+.invite-title{font-family:'Playfair Display',serif;font-size:22px;color:var(--navy);margin-bottom:6px;}
+.invite-sub{font-size:13px;color:var(--muted);line-height:1.6;}
+.invite-biz{display:inline-flex;align-items:center;gap:8px;background:var(--tint);border:1px solid var(--light);border-radius:10px;padding:8px 16px;margin-top:12px;}
+.invite-biz-name{font-size:14px;font-weight:700;color:var(--navy);}
+.role-badge{font-size:11px;font-weight:700;padding:3px 10px;border-radius:8px;}
+.role-owner{background:#fef3c7;color:#92400e;}
+.role-accountant{background:#dbeafe;color:#1e40af;}
+.role-sales{background:#dcfce7;color:#166534;}
+.role-warehouse{background:#f3e8ff;color:#6d28d9;}
+.fld{display:flex;flex-direction:column;gap:5px;margin-bottom:14px;}
+.fld label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+.fld input{padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-family:'Tajawal',sans-serif;font-size:14px;color:var(--ink);background:var(--white);width:100%;}
+.fld input:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(55,138,221,0.1);}
+.fld .hint{font-size:10px;color:var(--muted);}
+.btn-join{width:100%;padding:13px;background:var(--blue);color:#fff;border:none;border-radius:9px;font-family:'Tajawal',sans-serif;font-size:15px;font-weight:700;cursor:pointer;margin-top:6px;}
+.btn-join:hover{background:var(--navy);}
+.btn-join:disabled{opacity:0.6;cursor:not-allowed;}
+.error-box{background:#fff1f2;border:1px solid #fca5a5;border-radius:9px;padding:14px;text-align:center;color:var(--red);font-size:13px;margin-bottom:16px;}
+.success-box{background:#f0fdf4;border:1px solid #86efac;border-radius:9px;padding:20px;text-align:center;}
+.divider{border:none;border-top:1px solid var(--tint);margin:20px 0;}
+.already-link{text-align:center;font-size:12px;color:var(--muted);margin-top:14px;}
+.already-link a{color:var(--blue);text-decoration:none;}
+#loading-state{text-align:center;padding:40px 20px;color:var(--muted);}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="nav-bars">
+    <div class="nav-bar" style="background:#fff;"></div>
+    <div class="nav-bar" style="background:rgba(255,255,255,0.45);"></div>
+  </div>
+  <span class="logo-text">Gulf<span style="color:var(--light);">Ledger</span></span>
+</div>
+
+<div class="container">
+  <div class="card">
+
+    <!-- Loading state -->
+    <div id="loading-state">
+      <div style="font-size:28px;margin-bottom:10px;">⏳</div>
+      <div data-ar="جارٍ التحقق من الدعوة..." data-en="Verifying invite...">جارٍ التحقق من الدعوة...</div>
+    </div>
+
+    <!-- Error state -->
+    <div id="error-state" style="display:none;">
+      <div class="invite-header">
+        <div class="invite-icon">❌</div>
+        <div class="invite-title" data-ar="رابط غير صالح" data-en="Invalid Link">رابط غير صالح</div>
+        <div class="invite-sub" id="error-message" data-ar="هذا الرابط منتهي الصلاحية أو غير صحيح. اطلب من صاحب المنشأة إرسال دعوة جديدة." data-en="This invite link has expired or is invalid. Ask the business owner to send a new invite.">هذا الرابط منتهي الصلاحية أو غير صحيح.</div>
+      </div>
+      <a href="login.html" style="display:block;text-align:center;color:var(--blue);font-size:13px;margin-top:16px;" data-ar="→ تسجيل الدخول" data-en="→ Sign In">→ تسجيل الدخول</a>
+    </div>
+
+    <!-- Join form -->
+    <div id="join-form" style="display:none;">
+      <div class="invite-header">
+        <div class="invite-icon">🤝</div>
+        <div class="invite-title" data-ar="دعوة للانضمام" data-en="You're Invited">دعوة للانضمام</div>
+        <div class="invite-sub" data-ar="تمت دعوتك للانضمام إلى فريق:" data-en="You've been invited to join:">تمت دعوتك للانضمام إلى فريق:</div>
+        <div class="invite-biz">
+          <span class="invite-biz-name" id="invite-biz-name">—</span>
+          <span class="role-badge" id="invite-role-badge">—</span>
+        </div>
+      </div>
+
+      <hr class="divider">
+
+      <div id="already-member" style="display:none;" class="error-box" data-ar="أنت عضو بالفعل في هذه المنشأة." data-en="You are already a member of this business.">أنت عضو بالفعل في هذه المنشأة.</div>
+
+      <div id="signup-section">
+        <div class="fld">
+          <label data-ar="الاسم الكامل *" data-en="Full Name *">الاسم الكامل *</label>
+          <input type="text" id="j-name" placeholder="محمد العبدالله" autocomplete="name">
+        </div>
+        <div class="fld">
+          <label data-ar="البريد الإلكتروني *" data-en="Email *">البريد الإلكتروني *</label>
+          <input type="email" id="j-email" dir="ltr" autocomplete="email">
+          <span class="hint" data-ar="يجب أن يتطابق مع عنوان الدعوة" data-en="Must match the invited email">يجب أن يتطابق مع عنوان الدعوة</span>
+        </div>
+        <div class="fld">
+          <label data-ar="كلمة المرور *" data-en="Password *">كلمة المرور *</label>
+          <input type="password" id="j-password" placeholder="8 أحرف على الأقل" autocomplete="new-password">
+          <span class="hint" data-ar="8 أحرف — حرف كبير ورقم ورمز" data-en="8+ chars — uppercase, number, symbol">8 أحرف — حرف كبير ورقم ورمز</span>
+        </div>
+        <div class="fld">
+          <label data-ar="تأكيد كلمة المرور *" data-en="Confirm Password *">تأكيد كلمة المرور *</label>
+          <input type="password" id="j-password2" placeholder="أعد كتابة كلمة المرور" autocomplete="new-password">
+        </div>
+        <button class="btn-join" onclick="joinBusiness()" id="join-btn" data-ar="✅ إنشاء الحساب والانضمام" data-en="✅ Create Account & Join">✅ إنشاء الحساب والانضمام</button>
+      </div>
+
+      <div class="already-link">
+        <span data-ar="لديك حساب بالفعل؟" data-en="Already have an account?">لديك حساب بالفعل؟</span>
+        <a href="#" onclick="joinExisting()" data-ar="انضم بحسابك الحالي" data-en="Join with existing account">انضم بحسابك الحالي</a>
+      </div>
+    </div>
+
+    <!-- Success state -->
+    <div id="success-state" style="display:none;">
+      <div class="success-box">
+        <div style="font-size:48px;margin-bottom:12px;">🎉</div>
+        <div style="font-size:18px;font-weight:700;color:var(--green);margin-bottom:8px;" data-ar="مرحباً بك في الفريق!" data-en="Welcome to the team!">مرحباً بك في الفريق!</div>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:20px;" id="success-msg"></div>
+        <a href="dashboard.html" style="display:inline-block;padding:11px 28px;background:var(--blue);color:#fff;border-radius:8px;text-decoration:none;font-size:14px;font-weight:700;" data-ar="→ الذهاب للوحة التحكم" data-en="→ Go to Dashboard">→ الذهاب للوحة التحكم</a>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL='https://ykzivnasjwtuhvjxfxzf.supabase.co';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+let L=localStorage.getItem('gl_lang')||'ar';
+let inviteData=null;
+
+const ROLE_LABELS={
+  ar:{owner:'مالك',accountant:'محاسب',sales:'مبيعات',warehouse:'مستودع'},
+  en:{owner:'Owner',accountant:'Accountant',sales:'Sales',warehouse:'Warehouse'}
+};
+const ROLE_CLASSES={owner:'role-owner',accountant:'role-accountant',sales:'role-sales',warehouse:'role-warehouse'};
+
+async function init(){
+  applyLang(L);
+  // Get token from URL
+  const params=new URLSearchParams(window.location.search);
+  const token=params.get('invite');
+  if(!token){showError(L==='ar'?'لا يوجد رابط دعوة صالح.':'No valid invite link.');return;}
+
+  // Load invite
+  const {data:invite,error}=await sb.from('team_invites')
+    .select('*')
+    .eq('token',token)
+    .eq('status','pending')
+    .single();
+
+  if(error||!invite){showError(L==='ar'?'رابط الدعوة غير صالح أو منتهي الصلاحية.':'Invalid or expired invite link.');return;}
+
+  // Check expiry
+  if(new Date(invite.expires_at)<new Date()){
+    await sb.from('team_invites').update({status:'expired'}).eq('id',invite.id);
+    showError(L==='ar'?'انتهت صلاحية هذه الدعوة. اطلب دعوة جديدة.':'This invite has expired. Request a new one.');
+    return;
+  }
+
+  // Load business name
+  const {data:biz}=await sb.from('businesses').select('name,name_ar').eq('id',invite.business_id).single();
+  inviteData={...invite, bizName: biz?.name_ar||biz?.name||'—'};
+
+  // Prefill email
+  document.getElementById('j-email').value=invite.email;
+
+  // Show business name and role
+  document.getElementById('invite-biz-name').textContent=inviteData.bizName;
+  const roleBadge=document.getElementById('invite-role-badge');
+  roleBadge.textContent=ROLE_LABELS[L][invite.role]||invite.role;
+  roleBadge.className='role-badge '+(ROLE_CLASSES[invite.role]||'role-sales');
+
+  // Check if already logged in
+  const {data:{session}}=await sb.auth.getSession();
+  if(session){
+    // Already logged in — check if already member
+    const {data:existing}=await sb.from('business_users')
+      .select('id').eq('user_id',session.user.id).eq('business_id',invite.business_id).single();
+    if(existing){
+      document.getElementById('already-member').style.display='block';
+      document.getElementById('signup-section').style.display='none';
+    }
+  }
+
+  showState('join-form');
+}
+
+async function joinBusiness(){
+  if(!inviteData)return;
+  const name    =document.getElementById('j-name').value.trim();
+  const email   =document.getElementById('j-email').value.trim();
+  const password=document.getElementById('j-password').value;
+  const password2=document.getElementById('j-password2').value;
+
+  if(!name){notify(L==='ar'?'أدخل اسمك الكامل':'Enter your full name','r');return;}
+  if(!email||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){notify(L==='ar'?'البريد الإلكتروني غير صحيح':'Invalid email','r');return;}
+  if(email.toLowerCase()!==inviteData.email.toLowerCase()){notify(L==='ar'?'البريد الإلكتروني لا يطابق الدعوة':'Email does not match the invite','r');return;}
+  if(password.length<8){notify(L==='ar'?'كلمة المرور يجب أن تكون 8 أحرف على الأقل':'Password must be 8+ characters','r');return;}
+  if(password!==password2){notify(L==='ar'?'كلمة المرور غير متطابقة':'Passwords do not match','r');return;}
+
+  const btn=document.getElementById('join-btn');
+  btn.disabled=true;
+  btn.textContent=L==='ar'?'جارٍ الإنشاء...':'Creating account...';
+
+  try {
+    // Sign up
+    const {data,error}=await sb.auth.signUp({
+      email,password,
+      options:{
+        data:{full_name:name},
+        emailRedirectTo:'https://gulfledger.net/dashboard.html'
+      }
+    });
+    if(error)throw error;
+    const userId=data.user?.id;
+    if(!userId)throw new Error(L==='ar'?'فشل إنشاء الحساب':'Account creation failed');
+
+    await completeJoin(userId);
+  } catch(e){
+    notify(e.message||'Error','r');
+    btn.disabled=false;
+    btn.textContent=L==='ar'?'✅ إنشاء الحساب والانضمام':'✅ Create Account & Join';
+  }
+}
+
+async function joinExisting(){
+  if(!inviteData)return;
+  const {data:{session}}=await sb.auth.getSession();
+  if(!session){window.location.href='login.html?redirect='+encodeURIComponent(window.location.href);return;}
+  const email=session.user.email;
+  if(email.toLowerCase()!==inviteData.email.toLowerCase()){
+    notify(L==='ar'?'الحساب المسجّل الدخول ('+email+') لا يطابق الدعوة':'Logged in account ('+email+') does not match invite','r');
+    return;
+  }
+  await completeJoin(session.user.id);
+}
+
+async function completeJoin(userId){
+  // Add to business_users
+  await sb.from('business_users').upsert({
+    business_id: inviteData.business_id,
+    user_id:     userId,
+    role:        inviteData.role,
+    status:      'active',
+    invited_by:  inviteData.invited_by
+  },{onConflict:'business_id,user_id'});
+
+  // Mark invite as accepted
+  await sb.from('team_invites').update({status:'accepted'}).eq('id',inviteData.id);
+
+  // Show success
+  const roleLabel=ROLE_LABELS[L][inviteData.role]||inviteData.role;
+  document.getElementById('success-msg').textContent=
+    (L==='ar'
+      ?`انضممت إلى ${inviteData.bizName} بصفة ${roleLabel}. يمكنك الآن تسجيل الدخول.`
+      :`You've joined ${inviteData.bizName} as ${roleLabel}. You can now sign in.`);
+  showState('success-state');
+}
+
+function showError(msg){
+  document.getElementById('error-message').textContent=msg;
+  showState('error-state');
+}
+
+function showState(state){
+  ['loading-state','error-state','join-form','success-state'].forEach(s=>{
+    document.getElementById(s).style.display=s===state?'block':'none';
+  });
+}
+
+function notify(msg,type){
+  const d=document.createElement('div');
+  d.style.cssText='position:fixed;top:80px;left:50%;transform:translateX(-50%);background:'+(type==='g'?'var(--green)':'var(--red)')+';color:#fff;padding:10px 24px;border-radius:8px;font-family:Tajawal,sans-serif;font-size:13px;z-index:9999;text-align:center;';
+  d.textContent=msg;document.body.appendChild(d);
+  setTimeout(()=>d.remove(),3000);
+}
+
+function applyLang(lang){
+  localStorage.setItem('gl_lang',lang);
+  document.documentElement.setAttribute('lang',lang);
+  document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
+  document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));
+}
+
+init();
+</script>
+</body>
+</html>

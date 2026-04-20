@@ -1101,6 +1101,63 @@ function setLang(lang){L=lang;applyLang(lang);renderPOList();}
   new MutationObserver(fixDates).observe(document.body,{childList:true,subtree:true});
 })();
 
+
+/* ── ROLE-BASED ACCESS ── */
+async function checkRoleAccess(){
+  if(!currentUser)return;
+  // Check if user is a team member (not owner)
+  const {data:membership}=await sb.from('business_users')
+    .select('role,business_id,status')
+    .eq('user_id',currentUser.id)
+    .eq('status','active')
+    .single();
+
+  if(!membership)return; // owner — no restriction
+
+  const role=membership.role;
+  const ROLE_NAV={
+    owner:      ['dashboard','invoices','inventory','ledger','purchasing','vat','statements','settings'],
+    accountant: ['dashboard','ledger','vat','statements'],
+    sales:      ['dashboard','invoices'],
+    warehouse:  ['dashboard','inventory'],
+  };
+  const allowed=ROLE_NAV[role]||ROLE_NAV.owner;
+  const currentPage=window.location.pathname.split('/').pop().replace('.html','');
+
+  // Redirect if page not allowed
+  if(currentPage&&currentPage!=='dashboard'&&!allowed.includes(currentPage)){
+    window.location.href='dashboard.html';
+    return;
+  }
+
+  // Hide nav links not allowed
+  document.querySelectorAll('.app-nav-link').forEach(link=>{
+    const href=(link.getAttribute('href')||'').replace('.html','');
+    if(href&&!allowed.includes(href)){
+      link.style.display='none';
+    }
+  });
+
+  // Show role badge in nav
+  const ROLE_LABELS={owner:'مالك',accountant:'محاسب',sales:'مبيعات',warehouse:'مستودع'};
+  const bizNameEl=document.getElementById('biz-name');
+  if(bizNameEl&&role!=='owner'){
+    const badge=document.createElement('span');
+    badge.style.cssText='font-size:9px;font-weight:700;padding:2px 6px;border-radius:5px;margin-right:6px;background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9);';
+    badge.textContent=ROLE_LABELS[role]||role;
+    bizNameEl.after(badge);
+  }
+
+  // Load the correct business for team members
+  if(membership.business_id&&(!currentBiz||currentBiz.id!==membership.business_id)){
+    const {data:biz}=await sb.from('businesses').select('*').eq('id',membership.business_id).single();
+    if(biz){
+      currentBiz=biz;
+      if(bizNameEl)bizNameEl.textContent=biz.name_ar||biz.name||'';
+    }
+  }
+}
+
 init();
 </script>
 </body>
