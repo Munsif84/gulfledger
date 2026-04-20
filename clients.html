@@ -1,0 +1,390 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<script>
+(function(){
+  var lang=localStorage.getItem('gl_lang')||'ar';
+  document.documentElement.setAttribute('lang',lang);
+  document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GulfLedger — إدارة العملاء</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&family=Playfair+Display:wght@700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+:root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#C62828;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--border:#d4e6f7;--bg:#f7fafd;--white:#ffffff;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);}
+.topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;}
+.nav-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
+.nav-bars{display:flex;gap:3px;height:22px;}
+.nav-bar{width:3px;border-radius:2px;}
+.nav-name{font-family:'Playfair Display',serif;font-size:16px;color:#fff;}
+.nav-right{display:flex;align-items:center;gap:10px;}
+.lang-switch{display:flex;border:1px solid rgba(255,255,255,0.2);border-radius:6px;overflow:hidden;}
+.lang-btn{padding:4px 10px;font-size:11px;cursor:pointer;border:none;background:transparent;color:rgba(255,255,255,0.6);font-family:'Tajawal',sans-serif;font-weight:500;}
+.lang-btn.on{background:var(--sky);color:#fff;}
+.btn-logout{padding:5px 14px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
+.page{max-width:900px;margin:0 auto;padding:28px 20px;}
+.page-title{font-family:'Playfair Display',serif;font-size:22px;color:var(--navy);margin-bottom:4px;}
+.page-sub{font-size:13px;color:var(--muted);margin-bottom:24px;}
+/* CARD */
+.card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:20px;}
+.card-hdr{padding:14px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;}
+.card-ttl{font-size:14px;font-weight:700;color:var(--navy);}
+.card-bdy{padding:20px;}
+/* FORM */
+.fg{display:grid;gap:12px;margin-bottom:14px;}
+.fg-2{grid-template-columns:1fr 1fr;}
+.fg-3{grid-template-columns:1fr 1fr 1fr;}
+.fld{display:flex;flex-direction:column;gap:4px;}
+.fld label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+.fld input,.fld select{padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:13px;color:var(--ink);background:var(--white);width:100%;}
+.fld input:focus,.fld select:focus{outline:none;border-color:var(--sky);}
+.fld .hint{font-size:10px;color:var(--muted);margin-top:2px;}
+/* NOTE */
+.note-box{display:flex;align-items:flex-start;gap:8px;padding:10px 13px;border-radius:8px;margin-bottom:14px;font-size:12px;line-height:1.6;}
+.note-box.blue{background:var(--tint);border:1px solid var(--light);color:var(--navy);}
+.note-box.green{background:#f0fdf4;border:1px solid #86efac;color:#085041;}
+.note-box.amber{background:#fffbeb;border:1px solid #fde68a;color:var(--amber);}
+/* BUTTONS */
+.btn-p{padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;}
+.btn-p:hover{background:var(--navy);}
+.btn-s{padding:7px 14px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;}
+/* TABLE */
+.tbl{width:100%;border-collapse:collapse;font-size:12px;}
+.tbl th{padding:9px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-align:right;white-space:nowrap;}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--tint);vertical-align:middle;}
+.tbl tr:last-child td{border-bottom:none;}
+.tbl tr:hover td{background:#fafcff;}
+.mono{font-family:'DM Mono',monospace;font-size:12px;}
+.bdg{font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;display:inline-block;}
+.bdg-starter{background:#f0fdf4;color:var(--green);}
+.bdg-business{background:var(--tint);color:var(--blue);}
+.bdg-pro{background:#f5f3ff;color:#6d28d9;}
+/* PASSWORD DISPLAY */
+.pwd-box{background:#1a1a2e;border-radius:8px;padding:14px 16px;margin-top:14px;display:none;}
+.pwd-box-title{font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:.08em;margin-bottom:8px;}
+.pwd-line{display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;}
+.pwd-label{font-size:12px;color:rgba(255,255,255,0.7);}
+.pwd-val{font-family:'DM Mono',monospace;font-size:14px;color:#7dd3fc;font-weight:700;}
+.pwd-note{font-size:11px;color:rgba(255,255,255,0.4);margin-top:8px;line-height:1.5;}
+.btn-copy{padding:4px 10px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:5px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;}
+@media(max-width:768px){.fg-2,.fg-3{grid-template-columns:1fr;}}
+</style>
+</head>
+<body>
+
+<div class="topnav">
+  <a href="dashboard.html" class="nav-logo">
+    <div class="nav-bars">
+      <div class="nav-bar" style="background:#fff;"></div>
+      <div class="nav-bar" style="background:rgba(255,255,255,0.45);"></div>
+    </div>
+    <span class="nav-name">Gulf<span style="color:var(--light);">Ledger</span></span>
+  </a>
+  <div class="nav-right">
+    <div class="lang-switch">
+      <button class="lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button>
+      <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
+    </div>
+    <span style="font-size:11px;color:var(--light);background:rgba(255,255,255,0.1);padding:3px 10px;border-radius:6px;" data-ar="🔒 لوحة الإدارة" data-en="🔒 Admin Panel">🔒 لوحة الإدارة</span>
+    <button class="btn-logout" onclick="logout()" data-ar="خروج" data-en="Sign Out">خروج</button>
+  </div>
+</div>
+
+<div class="page">
+  <div class="page-title" data-ar="إدارة العملاء" data-en="Client Management">إدارة العملاء</div>
+  <p class="page-sub" data-ar="أنشئ حسابات عملاء جديدة — يتلقى العميل بريداً إلكترونياً بمعلومات الدخول تلقائياً." data-en="Create new client accounts — client receives login credentials by email automatically.">أنشئ حسابات عملاء جديدة — يتلقى العميل بريداً إلكترونياً تلقائياً.</p>
+
+  <!-- CREATE CLIENT FORM -->
+  <div class="card">
+    <div class="card-hdr">
+      <span class="card-ttl" data-ar="إنشاء حساب عميل جديد" data-en="Create New Client Account">إنشاء حساب عميل جديد</span>
+    </div>
+    <div class="card-bdy">
+
+      <div class="note-box blue">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+        <span data-ar="سيُرسَل للعميل بريد إلكتروني يحتوي على رابط تأكيد وكلمة المرور المؤقتة. يمكنه تغييرها من الإعدادات بعد الدخول." data-en="Client will receive an email with a confirmation link and temporary password. They can change it from Settings after login.">سيُرسَل للعميل بريد إلكتروني بمعلومات الدخول تلقائياً.</span>
+      </div>
+
+      <div class="fg fg-2">
+        <div class="fld">
+          <label data-ar="اسم المنشأة *" data-en="Business Name *">اسم المنشأة *</label>
+          <input type="text" id="c-bizname" placeholder="شركة النور للتجارة">
+        </div>
+        <div class="fld">
+          <label data-ar="البريد الإلكتروني *" data-en="Email *">البريد الإلكتروني *</label>
+          <input type="email" id="c-email" placeholder="client@business.com" dir="ltr">
+        </div>
+      </div>
+      <div class="fg fg-3">
+        <div class="fld">
+          <label data-ar="الباقة" data-en="Plan">الباقة</label>
+          <select id="c-plan">
+            <option value="starter"  data-ar="Starter — 199 SAR/شهر"  data-en="Starter — SAR 199/mo">Starter — 199 SAR/شهر</option>
+            <option value="business" data-ar="Business — 399 SAR/شهر" data-en="Business — SAR 399/mo">Business — 399 SAR/شهر</option>
+            <option value="pro"      data-ar="Pro — 799 SAR/شهر"      data-en="Pro — SAR 799/mo">Pro — 799 SAR/شهر</option>
+          </select>
+        </div>
+        <div class="fld">
+          <label data-ar="كلمة المرور المؤقتة" data-en="Temporary Password">كلمة المرور المؤقتة</label>
+          <div style="display:flex;gap:6px;">
+            <input type="text" id="c-password" placeholder="Gulf@2026" dir="ltr" style="font-family:'DM Mono',monospace;flex:1;">
+            <button class="btn-s" onclick="genPassword()" style="white-space:nowrap;font-size:11px;" data-ar="توليد" data-en="Generate">توليد</button>
+          </div>
+          <span class="hint" data-ar="8 أحرف على الأقل — حرف كبير ورقم ورمز" data-en="8+ chars — uppercase, number, symbol">8 أحرف على الأقل</span>
+        </div>
+        <div class="fld">
+          <label data-ar="ملاحظات داخلية" data-en="Internal Notes">ملاحظات داخلية</label>
+          <input type="text" id="c-notes" placeholder="اختياري — للرجوع الداخلي">
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn-p" onclick="createClient()" id="create-btn" data-ar="✉️ إنشاء الحساب وإرسال البريد" data-en="✉️ Create Account & Send Email">✉️ إنشاء الحساب وإرسال البريد</button>
+        <button class="btn-s" onclick="clearForm()" data-ar="مسح" data-en="Clear">مسح</button>
+      </div>
+
+      <!-- Credentials display after creation -->
+      <div class="pwd-box" id="pwd-box">
+        <div class="pwd-box-title" data-ar="✅ تم إنشاء الحساب — احتفظ بهذه المعلومات" data-en="✅ Account created — save these credentials">✅ تم إنشاء الحساب</div>
+        <div class="pwd-line">
+          <span class="pwd-label" data-ar="البريد الإلكتروني:" data-en="Email:">البريد الإلكتروني:</span>
+          <span class="pwd-val" id="pwd-email">—</span>
+        </div>
+        <div class="pwd-line">
+          <span class="pwd-label" data-ar="كلمة المرور المؤقتة:" data-en="Temporary Password:">كلمة المرور المؤقتة:</span>
+          <span class="pwd-val" id="pwd-password">—</span>
+        </div>
+        <div class="pwd-line">
+          <span class="pwd-label" data-ar="الباقة:" data-en="Plan:">الباقة:</span>
+          <span class="pwd-val" id="pwd-plan">—</span>
+        </div>
+        <div class="pwd-note" data-ar="📧 تم إرسال بريد إلكتروني للعميل تلقائياً. يُنصح بإرسال واتساب أيضاً للتأكيد. العميل يغير كلمة المرور من الإعدادات." data-en="📧 Email sent to client automatically. Recommend also sending WhatsApp for confirmation. Client changes password from Settings.">📧 تم إرسال البريد تلقائياً. أرسل واتساب للتأكيد.</div>
+        <div style="margin-top:10px;display:flex;gap:8px;">
+          <button class="btn-copy" onclick="copyCredentials()" data-ar="📋 نسخ للواتساب" data-en="📋 Copy for WhatsApp">📋 نسخ للواتساب</button>
+          <button class="btn-copy" onclick="document.getElementById('pwd-box').style.display='none'" data-ar="إغلاق" data-en="Close">إغلاق</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- CLIENTS LIST -->
+  <div class="card">
+    <div class="card-hdr">
+      <span class="card-ttl" data-ar="قائمة العملاء" data-en="Client List">قائمة العملاء</span>
+      <span id="clients-count" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="tbl">
+        <thead><tr>
+          <th data-ar="المنشأة" data-en="Business">المنشأة</th>
+          <th data-ar="البريد الإلكتروني" data-en="Email">البريد الإلكتروني</th>
+          <th data-ar="الباقة" data-en="Plan">الباقة</th>
+          <th data-ar="الرقم الضريبي" data-en="TRN">الرقم الضريبي</th>
+          <th data-ar="تاريخ الإنشاء" data-en="Created">تاريخ الإنشاء</th>
+          <th data-ar="الحالة" data-en="Status">الحالة</th>
+        </tr></thead>
+        <tbody id="clients-tbody">
+          <tr><td colspan="6" style="text-align:center;padding:20px;color:var(--muted);" data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const SUPABASE_URL='https://ykzivnasjwtuhvjxfxzf.supabase.co';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+let L=localStorage.getItem('gl_lang')||'ar';
+let lastCreated={};
+
+/* ── INIT ── */
+async function init(){
+  const {data:{session}}=await sb.auth.getSession();
+  if(!session){window.location.href='login.html';return;}
+  genPassword();
+  loadClients();
+  setLang(L);
+}
+
+/* ── CREATE CLIENT ── */
+async function createClient(){
+  const email   = document.getElementById('c-email').value.trim();
+  const bizName = document.getElementById('c-bizname').value.trim();
+  const password= document.getElementById('c-password').value.trim();
+  const plan    = document.getElementById('c-plan').value;
+
+  if(!email||!bizName){notify(L==='ar'?'أدخل الاسم والبريد الإلكتروني':'Enter name and email','r');return;}
+  if(!password||password.length<8){notify(L==='ar'?'كلمة المرور يجب أن تكون 8 أحرف على الأقل':'Password must be at least 8 characters','r');return;}
+  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){notify(L==='ar'?'البريد الإلكتروني غير صحيح':'Invalid email','r');return;}
+
+  const btn=document.getElementById('create-btn');
+  btn.disabled=true;
+  btn.textContent=L==='ar'?'جارٍ الإنشاء...':'Creating...';
+
+  try {
+    // Sign up the user with email confirmation
+    const {data, error}=await sb.auth.signUp({
+      email,
+      password,
+      options:{
+        emailRedirectTo: 'https://gulfledger.net/login.html',
+        data:{ business_name: bizName }
+      }
+    });
+
+    if(error){notify(error.message,'r');return;}
+
+    const userId=data.user?.id;
+    if(!userId){notify(L==='ar'?'تعذّر إنشاء الحساب — حاول مرة أخرى':'Could not create account — try again','r');return;}
+
+    // Create business record
+    await sb.from('businesses').insert({
+      user_id:      userId,
+      name:         bizName,
+      plan:         plan,
+      plan_status:  'active',
+      language:     'ar'
+    });
+
+    // Store for display
+    lastCreated={email, password, plan, bizName};
+
+    // Show credentials box
+    document.getElementById('pwd-email').textContent    = email;
+    document.getElementById('pwd-password').textContent = password;
+    document.getElementById('pwd-plan').textContent     = plan.charAt(0).toUpperCase()+plan.slice(1);
+    document.getElementById('pwd-box').style.display    = 'block';
+
+    notify((L==='ar'?'✅ تم إنشاء الحساب لـ ':'✅ Account created for ')+bizName,'g');
+    clearForm(false);
+    loadClients();
+
+  } catch(e) {
+    notify(e.message||'Error','r');
+  } finally {
+    btn.disabled=false;
+    btn.textContent=L==='ar'?'✉️ إنشاء الحساب وإرسال البريد':'✉️ Create Account & Send Email';
+  }
+}
+
+/* ── LOAD CLIENTS ── */
+async function loadClients(){
+  const {data,error}=await sb.from('businesses')
+    .select('id,name,trn,plan,plan_status,created_at,user_id')
+    .order('created_at',{ascending:false});
+
+  const tb=document.getElementById('clients-tbody');
+  const {data:{session}}=await sb.auth.getSession();
+  const myId=session?.user?.id;
+
+  if(error||!data||!data.length){
+    tb.innerHTML=`<tr><td colspan="6" style="text-align:center;padding:20px;color:var(--muted);">${L==='ar'?'لا يوجد عملاء بعد':'No clients yet'}</td></tr>`;
+    document.getElementById('clients-count').textContent='';
+    return;
+  }
+
+  document.getElementById('clients-count').textContent=data.length+(L==='ar'?' عميل':' clients');
+
+  tb.innerHTML=data.map(b=>{
+    const planBadge=b.plan==='pro'?'bdg-pro':b.plan==='business'?'bdg-business':'bdg-starter';
+    const isMe=b.user_id===myId;
+    return `<tr style="${isMe?'background:#fffbeb;':''}">
+      <td><strong>${b.name||'—'}</strong>${isMe?` <span style="font-size:9px;color:var(--amber);font-weight:700;">(أنت)</span>`:''}</td>
+      <td class="mono" style="font-size:11px;color:var(--muted);">—</td>
+      <td><span class="bdg ${planBadge}">${b.plan||'—'}</span></td>
+      <td class="mono" style="font-size:11px;">${b.trn||'—'}</td>
+      <td style="font-size:11px;color:var(--muted);">${b.created_at?.substring(0,10)||'—'}</td>
+      <td><span class="bdg" style="background:#f0fdf4;color:var(--green);">${L==='ar'?'نشط':'Active'}</span></td>
+    </tr>`;
+  }).join('');
+}
+
+/* ── HELPERS ── */
+function genPassword(){
+  const chars='ABCDEFGHJKLMNPQRSTUVWXYZabcdefghjkmnpqrstuvwxyz23456789@#!';
+  let pwd='';
+  // Ensure one uppercase, one number, one symbol
+  pwd += 'ABCDEFGHJKLMNPQRSTUVWXYZ'[Math.floor(Math.random()*24)];
+  pwd += '23456789'[Math.floor(Math.random()*8)];
+  pwd += '@#!'[Math.floor(Math.random()*3)];
+  for(let i=0;i<7;i++) pwd+=chars[Math.floor(Math.random()*chars.length)];
+  // Shuffle
+  pwd=pwd.split('').sort(()=>Math.random()-0.5).join('');
+  document.getElementById('c-password').value=pwd;
+}
+
+function clearForm(hidePwd=true){
+  ['c-bizname','c-email','c-notes'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value='';
+  });
+  document.getElementById('c-plan').value='starter';
+  genPassword();
+  if(hidePwd)document.getElementById('pwd-box').style.display='none';
+}
+
+function copyCredentials(){
+  if(!lastCreated.email)return;
+  const planNames={starter:'Starter (199 SAR/شهر)',business:'Business (399 SAR/شهر)',pro:'Pro (799 SAR/شهر)'};
+  const msg=
+`مرحباً ${lastCreated.bizName} 👋
+
+تم إنشاء حسابك في GulfLedger ✅
+
+🌐 الرابط: https://gulfledger.net/login.html
+📧 البريد الإلكتروني: ${lastCreated.email}
+🔑 كلمة المرور المؤقتة: ${lastCreated.password}
+📦 الباقة: ${planNames[lastCreated.plan]||lastCreated.plan}
+
+⚠️ الرجاء تغيير كلمة المرور من الإعدادات بعد أول دخول.
+
+للمساعدة تواصل معنا عبر واتساب 🙂`;
+
+  navigator.clipboard.writeText(msg).then(()=>{
+    notify(L==='ar'?'تم نسخ رسالة الواتساب ✓':'WhatsApp message copied ✓','g');
+  }).catch(()=>{
+    // Fallback
+    const ta=document.createElement('textarea');
+    ta.value=msg;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    document.body.removeChild(ta);
+    notify(L==='ar'?'تم النسخ ✓':'Copied ✓','g');
+  });
+}
+
+/* ── LANGUAGE ── */
+function getStoredLang(){return localStorage.getItem('gl_lang')||'ar';}
+function applyLang(lang){
+  localStorage.setItem('gl_lang',lang);
+  document.getElementById('btn-ar')?.classList.toggle('on',lang==='ar');
+  document.getElementById('btn-en')?.classList.toggle('on',lang==='en');
+  document.documentElement.setAttribute('lang',lang);
+  document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
+  document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));
+  document.querySelectorAll('select option[data-ar]').forEach(o=>o.text=o.getAttribute('data-'+lang)||o.text);
+}
+function setLang(lang){L=lang;applyLang(lang);}
+async function logout(){await sb.auth.signOut();window.location.href='login.html';}
+
+function notify(msg,type){
+  const d=document.createElement('div');
+  d.style.cssText='position:fixed;top:80px;left:50%;transform:translateX(-50%);background:'+(type==='g'?'var(--green)':'var(--red)')+';color:#fff;padding:10px 24px;border-radius:8px;font-family:Tajawal,sans-serif;font-size:13px;z-index:9999;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,0.2);max-width:90vw;';
+  d.textContent=msg;document.body.appendChild(d);
+  setTimeout(()=>{if(d.parentNode)d.parentNode.removeChild(d);},4000);
+}
+
+init();
+</script>
+</body>
+</html>
