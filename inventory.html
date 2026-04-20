@@ -874,39 +874,82 @@ function calcPOTotals(){
 async function confirmReceipt(){
   const supName=gval('f-sup-name');
   if(!supName){notify(L==='ar'?'أدخل اسم المورد':'Enter supplier name','r');return;}
+
   const lines=[];
+  const unregistered=[];
+
   document.querySelectorAll('.po-line').forEach(row=>{
-    const itemId=row.querySelector('.po-item-id')?.value;
+    const itemId=row.querySelector('.po-item-id')?.value||'';
     const searchText=(row.querySelector('.search-picker-input')?.value||'').trim();
     const qty=parseFloat(row.querySelector('.po-qty')?.value)||0;
     const cost=parseFloat(row.querySelector('.po-cost')?.value)||0;
-    if(qty<=0)return; // skip empty lines
+    if(qty<=0)return; // skip lines with no quantity
 
     if(itemId){
-      // Item selected from picker
-      lines.push({itemId,qty,cost});
+      // Item properly selected from picker
+      lines.push({itemId,qty,cost,name:searchText});
     } else if(searchText){
-      // Try to find by name or SKU from text typed
+      // Try to match by name, SKU, or barcode
       const found=invItems.find(i=>
         i.name.toLowerCase()===searchText.toLowerCase()||
         (i.sku||'').toLowerCase()===searchText.toLowerCase()||
         (i.barcode||'')===searchText
       );
-      if(found){lines.push({itemId:found.id,qty,cost});}
-      else{notify((L==='ar'?'الصنف غير موجود: ':'Item not found: ')+searchText,'r');}
+      if(found){
+        lines.push({itemId:found.id,qty,cost,name:found.name});
+      } else {
+        // Not in system — allow as unregistered line (manual receipt)
+        unregistered.push({name:searchText,qty,cost});
+      }
     }
   });
-  if(!lines.length){notify(L==='ar'?'أضف صنفاً واحداً على الأقل مع الكمية':'Add at least one item with quantity','r');return;}
+
+  const total=lines.length+unregistered.length;
+  if(total===0){
+    notify(L==='ar'?'أدخل الكمية في سطر واحد على الأقل':'Enter quantity on at least one line','r');
+    return;
+  }
+
+  // Warn about unregistered items but don't block
+  if(unregistered.length>0){
+    const names=unregistered.map(u=>u.name).join('، ');
+    const proceed=confirm(
+      (L==='ar'
+        ?`الأصناف التالية غير مسجّلة في المخزون:\n${names}\n\nهل تريد المتابعة وتسجيلها كأصناف جديدة تلقائياً؟`
+        :`These items are not in your inventory:\n${names}\n\nProceed and register them as new items automatically?`)
+    );
+    if(!proceed)return;
+    // Auto-register unregistered items
+    for(const u of unregistered){
+      const cat='ITM';
+      const sku=await generateSKU(cat);
+      const {data:newItem,error}=await sb.from('inventory_items').insert({
+        user_id:currentUser.id,business_id:currentBiz?.id,
+        name:u.name,sku,category:cat,unit:'قطعة',
+        cost_price:u.cost,sale_price:u.cost*1.2,
+        current_qty:0,alert_level:10
+      }).select().single();
+      if(!error&&newItem){
+        lines.push({itemId:newItem.id,qty:u.qty,cost:u.cost,name:u.name});
+        notify((L==='ar'?'تم تسجيل صنف جديد: ':'New item registered: ')+u.name+' — SKU: '+sku,'g');
+      }
+    }
+    await loadItems(); // reload so WAC calc has the new items
+  }
+
   const poNum=gval('f-po-num')||'PO-'+Date.now();
   const date=gval('f-po-date')||today();
+
   for(const line of lines){
-    const item=invItems.find(i=>i.id===line.itemId);if(!item)continue;
+    const item=invItems.find(i=>i.id===line.itemId);
+    if(!item)continue;
     const oldQty=item.current_qty||0;
     const oldCost=item.cost_price||0;
     const newQty=oldQty+line.qty;
     const wac=newQty>0?((oldQty*oldCost)+(line.qty*line.cost))/newQty:line.cost;
     await sb.from('inventory_items').update({
-      current_qty:newQty,cost_price:Math.round(wac*100)/100,updated_at:new Date().toISOString()
+      current_qty:newQty,cost_price:Math.round(wac*100)/100,
+      updated_at:new Date().toISOString()
     }).eq('id',line.itemId);
     await sb.from('inventory_movements').insert({
       business_id:currentBiz?.id,item_id:line.itemId,movement_type:'in',
@@ -916,7 +959,11 @@ async function confirmReceipt(){
       movement_date:date
     });
   }
-  notify(L==='ar'?'تم الاستلام وتحديث المخزون بمتوسط التكلفة المرجّح ✓':'Stock received & WAC updated ✓','g');
+
+  notify(
+    (L==='ar'?'تم الاستلام: ':'Received: ')+lines.length+(L==='ar'?' صنف — المخزون محدَّث بمتوسط التكلفة المرجّح ✓':' items — stock updated with WAC ✓'),
+    'g'
+  );
   clearPO();await loadItems();await loadMovements();
 }
 
