@@ -775,7 +775,6 @@ function addPOLine(){
         <input type="text" class="search-picker-input" placeholder="${L==='ar'?'ابحث بالاسم أو SKU أو الباركود...':'Search by name, SKU or barcode...'}"
           oninput="filterPicker('${lineId}',this.value)"
           onfocus="showPicker('${lineId}')"
-          onblur="setTimeout(()=>hidePicker('${lineId}'),300)"
           autocomplete="off">
         <button class="scan-btn" onclick="openCameraForLine('${lineId}')" title="${L==='ar'?'مسح الباركود':'Scan barcode'}">📷</button>
         <div class="picker-dropdown" id="picker-${lineId}"></div>
@@ -807,7 +806,7 @@ function filterPicker(lineId,search){
   }else{
     dd.innerHTML=matches.map(i=>{
       const qc=i.current_qty===0?'c-red':i.current_qty<=(i.alert_level||0)?'c-amber':'c-green';
-      return `<div class="picker-item" onmousedown="selectItem('${lineId}','${i.id}','${escQ(i.name)}','${i.cost_price||0}','${i.sku||''}',${i.current_qty||0},'${i.unit||''}')">
+      return `<div class="picker-item" onclick="selectItem('${lineId}','${i.id}','${escQ(i.name)}','${i.cost_price||0}','${i.sku||''}',${i.current_qty||0},'${i.unit||''}')">
         <div>
           <div class="picker-item-name">${i.name}</div>
           <div class="picker-item-meta">${i.sku||'—'} ${i.barcode?'| '+i.barcode:''}</div>
@@ -839,8 +838,23 @@ function selectItem(lineId,itemId,name,cost,sku,qty,unit){
   setTimeout(()=>{const qtyEl=d.querySelector('.po-qty');if(qtyEl)qtyEl.focus();},50);
 }
 
-function showPicker(lineId){const dd=document.getElementById('picker-'+lineId);if(dd)dd.classList.add('open');}
-function hidePicker(lineId){const dd=document.getElementById('picker-'+lineId);if(dd)dd.classList.remove('open');}
+function showPicker(lineId){
+  // Hide all other pickers first
+  document.querySelectorAll('.picker-dropdown').forEach(d=>d.classList.remove('open'));
+  const dd=document.getElementById('picker-'+lineId);
+  if(dd)dd.classList.add('open');
+}
+function hidePicker(lineId){
+  const dd=document.getElementById('picker-'+lineId);
+  if(dd)dd.classList.remove('open');
+}
+function hideAllPickers(){
+  document.querySelectorAll('.picker-dropdown').forEach(d=>d.classList.remove('open'));
+}
+// Close pickers when clicking outside
+document.addEventListener('click',function(e){
+  if(!e.target.closest('.search-picker-wrap'))hideAllPickers();
+});
 function escQ(s){return(s||'').replace(/'/g,"\\'").replace(/"/g,'&quot;');}
 
 function calcPOTotals(){
