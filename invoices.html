@@ -848,6 +848,22 @@ function printInvoice(){
     line.match(/inv-|party-|\.badge|\.mono|@font|disc-tag|mock/)
   ).join('\n');
 
+  // Explicitly get logo base64 (outerHTML may not capture it reliably)
+  const logoBase64 = localStorage.getItem('gl_logo_base64') || 
+                     document.getElementById('p-logo')?.src || '';
+  const logoVisible = document.getElementById('p-logo-wrap')?.style.display !== 'none' && logoBase64;
+
+  // Clone invoice and fix logo
+  const invoiceClone = invoice.cloneNode(true);
+  if(logoVisible){
+    const cloneLogo = invoiceClone.querySelector('#p-logo');
+    const cloneLogoWrap = invoiceClone.querySelector('#p-logo-wrap');
+    if(cloneLogo) cloneLogo.src = logoBase64;
+    if(cloneLogoWrap) cloneLogoWrap.style.display = 'block';
+  }
+
+  const invoiceHTML = invoiceClone.outerHTML;
+
   const brandColor = getComputedStyle(document.documentElement).getPropertyValue('--brand').trim() || '#0C447C';
 
   const html = `<!DOCTYPE html>
@@ -858,7 +874,7 @@ function printInvoice(){
 <style>
 :root{--brand:${brandColor};--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--ink:#0d1a2a;--muted:#5a7a99;--white:#fff;--border:#d4e6f7;--amber:#B45309;}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{background:#fff;font-family:'Tajawal',sans-serif;color:#0d1a2a;}
+body{background:#fff;font-family:'Tajawal',sans-serif;color:#0d1a2a;width:100%;}
 @page{size:A4 portrait;margin:12mm;@bottom-right{content:"Page " counter(page) " / " counter(pages);font-family:'DM Mono',monospace;font-size:9px;color:#aaa;}}
 @media print{*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}}
 .mono{font-family:'DM Mono',monospace;}
@@ -921,7 +937,7 @@ body{background:#fff;font-family:'Tajawal',sans-serif;color:#0d1a2a;}
 </style>
 </head>
 <body>
-${invoice.outerHTML}
+${invoiceHTML}
 <script>
 window.onload=function(){
   window.print();
