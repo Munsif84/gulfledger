@@ -1,7 +1,15 @@
 <!DOCTYPE html>
-<html lang="ar" dir="rtl">
+<html>
 <head>
 <meta charset="UTF-8">
+<script>
+/* Language flash prevention — runs before render */
+(function(){
+  var l=localStorage.getItem('gl_lang')||'ar';
+  document.documentElement.setAttribute('lang',l);
+  document.documentElement.setAttribute('dir',l==='ar'?'rtl':'ltr');
+})();
+</script>
 <script>
 /* Apply language before render to prevent flash */
 (function(){
@@ -265,22 +273,6 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
 
   <!-- IDENTITY -->
   <div class="section active" id="sec-identity">
-    <div class="card">
-      <div class="card-title" data-ar="لغة الموقع (Site Language)" data-en="Site Language">لغة الموقع (Site Language)</div>
-      <p style="font-size:13px;color:var(--muted);margin-bottom:14px;line-height:1.6;" data-ar="اختر اللغة الافتراضية للنظام — تُطبَّق على جميع الصفحات. يمكن التغيير في أي وقت من زر اللغة أعلى الصفحة." data-en="Choose the default system language — applies across all pages. Can be changed anytime from the language toggle at the top.">اختر لغة الموقع الافتراضية — تُطبَّق على جميع الصفحات.</p>
-      <div class="radio-group">
-        <label class="radio-opt" id="lang-opt-ar" onclick="setLang('ar')" style="cursor:pointer;">
-          <span style="font-size:18px;">🇸🇦</span>
-          <span data-ar="العربية (الافتراضي)" data-en="Arabic (default)">العربية</span>
-        </label>
-        <label class="radio-opt" id="lang-opt-en" onclick="setLang('en')" style="cursor:pointer;">
-          <span style="font-size:18px;">🇬🇧</span>
-          <span data-ar="الإنجليزية" data-en="English">الإنجليزية</span>
-        </label>
-      </div>
-      <p style="font-size:11px;color:var(--muted);margin-top:10px;" data-ar="يمكن التغيير في أي وقت من زر اللغة في أعلى كل صفحة." data-en="Can be changed anytime from the language toggle at the top of any page.">يمكن التغيير من زر اللغة في أعلى كل صفحة.</p>
-    </div>
-
     <div class="card">
       <div class="card-title" data-ar="الاسم التجاري" data-en="Business Name">الاسم التجاري</div>
       <div class="fg fg-2">
@@ -785,7 +777,7 @@ async function saveSettings(){
     invoice_footer:gval('s-invoice-footer'),
     brand_color:selectedColor||'#0C447C',
     invoice_layout:selectedLayout||'classic',
-    logo_base64:logoBase64||null,language:L,updated_at:new Date().toISOString()
+    logo_base64:logoBase64||null,updated_at:new Date().toISOString()
   };
   const {error}=await sb.from('businesses').update(updates).eq('id',currentBizId);
   const activeSection=document.querySelector('.section.active')?.id?.replace('sec-','')||'identity';
@@ -1235,10 +1227,7 @@ function setLang(lang){
     const rates=Object.keys(taxRates).map(k=>({rate_key:k,rate_value:taxRates[k]}));
     renderTaxRates(rates);
   }
-  // Save language preference to DB if business loaded
-  if(currentBizId){
-    sb.from('businesses').update({language:lang}).eq('id',currentBizId).then(()=>{});
-  }
+  // Language stored in localStorage only — nav toggle is the single source of truth
 }
 
 function gval(id){const e=document.getElementById(id);return e?e.value.trim():'';}
@@ -1314,9 +1303,7 @@ function applyLang(lang){
   localStorage.setItem('gl_lang',lang);
   document.getElementById('btn-ar')?.classList.toggle('on',lang==='ar');
   document.getElementById('btn-en')?.classList.toggle('on',lang==='en');
-  // Highlight language radio buttons in settings
-  document.getElementById('lang-opt-ar')?.classList.toggle('selected',lang==='ar');
-  document.getElementById('lang-opt-en')?.classList.toggle('selected',lang==='en');
+  // Language applied — no settings language card to update
   document.documentElement.setAttribute('lang',lang);
   document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
   document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));
