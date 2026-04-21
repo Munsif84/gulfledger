@@ -667,7 +667,7 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
 </div>
 
 <!-- PAYMENT MODAL -->
-<div id="payment-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:600;display:none;align-items:center;justify-content:center;padding:20px;">
+<div id="payment-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:600;align-items:center;justify-content:center;padding:20px;">
   <div style="background:#fff;border-radius:14px;padding:24px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
     <div style="font-size:15px;font-weight:700;color:var(--navy);margin-bottom:4px;" id="pay-modal-title">تسجيل دفعة</div>
     <div style="font-size:12px;color:var(--muted);margin-bottom:18px;" id="pay-modal-sub"></div>
@@ -835,7 +835,6 @@ function printInvoice(){
   const invoice = document.getElementById('invoice-preview');
   if(!invoice){ window.print(); return; }
 
-  // Collect all stylesheets from current page
   const styles = Array.from(document.querySelectorAll('style'))
     .map(s => s.innerHTML).join('\n');
 
@@ -843,38 +842,49 @@ function printInvoice(){
 <html lang="en" dir="ltr">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Tajawal:wght@400;700&family=DM+Mono&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
 *{box-sizing:border-box;margin:0;padding:0;}
 body{background:#fff;font-family:'Tajawal',sans-serif;}
-@page{size:A4 portrait;margin:12mm;}
+@page{
+  size:A4 portrait;
+  margin:12mm;
+  @bottom-right{
+    content:"Page " counter(page) " of " counter(pages);
+    font-family:'DM Mono',monospace;
+    font-size:9px;
+    color:#888;
+  }
+}
 @media print{
   *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  body{counter-reset:page;}
+  .page-num::after{content:counter(page);}
 }
 ${styles}
 /* Print overrides */
 .invoice-doc{
-  box-shadow:none!important;
-  border-radius:0!important;
-  width:100%!important;
-  margin:0!important;
-  min-height:0!important;
-  display:flex!important;
-  flex-direction:column!important;
+  box-shadow:none!important;border-radius:0!important;
+  width:100%!important;margin:0!important;min-height:0!important;
+  display:block!important;  /* block — footer flows naturally after content */
 }
 .inv-body{
   padding:14px 20px!important;
-  flex:1!important;
-  display:flex!important;
-  flex-direction:column!important;
+  display:block!important;  /* block — no flex tricks */
 }
 .inv-footer{
-  margin-top:auto!important;
+  margin-top:16px!important;  /* simple gap — no auto */
+  padding-top:10px!important;
+  border-top:1.5px solid #d4e6f7!important;
   page-break-inside:avoid;
+  display:block!important;
 }
-.inv-items{width:100%!important;}
+.inv-footer-top{display:flex!important;justify-content:flex-end!important;margin-bottom:12px!important;}
+.inv-qr-section{display:flex!important;align-items:center!important;}
+.inv-qr-box img,.inv-qr-box canvas{display:block!important;width:76px!important;height:76px!important;}
+.inv-items{width:100%!important;page-break-inside:auto;}
 .inv-items thead{display:table-header-group!important;}
+.inv-items tbody tr{page-break-inside:avoid;}
 .inv-parties{display:grid!important;grid-template-columns:1fr 1fr!important;border:1px solid #d4e6f7!important;}
 .inv-parties>div:first-child{border-right:1px solid #d4e6f7!important;border-bottom:none!important;}
 </style>
@@ -882,7 +892,10 @@ ${styles}
 <body>
 ${invoice.outerHTML}
 <script>
-window.onload = function(){ window.print(); window.onafterprint = function(){ window.close(); }; }
+window.onload=function(){
+  window.print();
+  window.onafterprint=function(){ window.close(); };
+}
 <\/script>
 </body>
 </html>`;
