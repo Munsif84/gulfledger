@@ -124,9 +124,10 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
 /* ── BRAND THEMING ── */
 function applyBranding(biz){
   if(!biz) return;
-  const color  = biz.brand_color    || '#0C447C';
-  const layout = biz.invoice_layout || 'classic';
-  const footer = biz.invoice_footer || biz.logo_url || '';
+  // localStorage has the freshest values (updated immediately when settings saved)
+  const color  = localStorage.getItem('gl_brand_color')   || biz.brand_color    || '#0C447C';
+  const layout = localStorage.getItem('gl_invoice_layout') || biz.invoice_layout || 'classic';
+  const footer = localStorage.getItem('gl_invoice_footer') || biz.invoice_footer || biz.logo_url || '';
 
   // Set CSS variable for layout styles to use
   document.documentElement.style.setProperty('--brand', color);
@@ -542,7 +543,7 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
       </div>
       <div class="field">
         <label data-en="Date" data-ar="التاريخ">Date</label>
-        <input type="date" lang="en" id="f-date" oninput="render()">
+        <input type="date" lang="en" id="f-date" oninput="render()" style="font-family:'DM Mono',monospace;">
       </div>
     </div>
     <div class="field-row double">
@@ -798,7 +799,7 @@ async function btnAction(btn, asyncFn, successMsg) {
   const originalBg = btn.style.background;
   btn.disabled = true;
   btn.classList.add('btn-loading');
-  btn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 0.8s linear infinite;"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>' + (currentLang==='ar'?'جارٍ...':'Loading...')+  '</span>';
+  btn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 0.8s linear infinite;"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>' + (currentLang==='ar'?'جارٍ...':'Loading...')+'</span>';
   try {
     await asyncFn();
     btn.classList.remove('btn-loading');
@@ -812,14 +813,20 @@ async function btnAction(btn, asyncFn, successMsg) {
     }, 2500);
   } catch(e) {
     btn.classList.remove('btn-loading');
-    btn.classList.add('btn-error');
-    btn.innerHTML = '❌ ' + (currentLang==='ar'?'حدث خطأ':'Error');
     btn.disabled = false;
-    setTimeout(() => {
-      btn.classList.remove('btn-error');
+    // Only show red error for real errors, not user cancellation
+    if(e.message === 'cancelled' || e.message === 'no invoice number') {
       btn.innerHTML = original;
       btn.style.background = originalBg;
-    }, 2500);
+    } else {
+      btn.classList.add('btn-error');
+      btn.innerHTML = '❌ ' + (currentLang==='ar'?'حدث خطأ':'Error');
+      setTimeout(() => {
+        btn.classList.remove('btn-error');
+        btn.innerHTML = original;
+        btn.style.background = originalBg;
+      }, 2500);
+    }
   }
 }
 
@@ -854,6 +861,10 @@ async function init() {
     if (biz.tagline) document.getElementById('p-tagline').textContent = biz.tagline;
     // Apply invoice customization
     applyBranding(biz);
+    // Sync branding to localStorage for immediate use
+    if(biz.brand_color)   localStorage.setItem('gl_brand_color',   biz.brand_color);
+    if(biz.invoice_layout)localStorage.setItem('gl_invoice_layout',biz.invoice_layout);
+    if(biz.invoice_footer)localStorage.setItem('gl_invoice_footer',biz.invoice_footer);
     // Seller preview box
     const sellerName = biz.name_ar || biz.name || '—';
     const sellerAddr = [biz.building_number, biz.address, biz.district, biz.city, biz.postal_code].filter(Boolean).join('، ');
@@ -1312,7 +1323,10 @@ function render() {
   setText('p-date', date ? new Date(date).toLocaleDateString('en-SA', {year:'numeric',month:'long',day:'numeric',calendar:'gregory'}) : '—');
 
   document.getElementById('b2c-notice').style.display  = isB2B ? 'none' : 'block';
-  document.getElementById('buyer-fields').style.display = isB2B ? 'block' : 'block';
+  document.getElementById('buyer-fields').style.display = 'block';
+  // Hide TRN field for B2C — not required
+  const trnField = document.getElementById('f-buyer-trn')?.closest('.field');
+  if(trnField) trnField.style.display = isB2B ? '' : 'none';
 
   const notes = v('f-notes');
   const notesEl = document.getElementById('p-notes');
@@ -1496,6 +1510,25 @@ async function saveInvoice() {
     try {
     let totalCOGS = 0;
     const useFIFO = (currentBiz.costing_method || 'wac') === 'fifo';
+
+    // Check stock levels first — warn if insufficient
+    const stockWarnings = [];
+    for (const it of items) {
+      if (!it.itemId || !it.qty) continue;
+      const { data: invItem } = await sb.from('inventory_items')
+        .select('current_qty, cost_price, name, sku')
+        .eq('id', it.itemId).single();
+      if (!invItem) continue;
+      if ((invItem.current_qty||0) < it.qty) {
+        stockWarnings.push(`${invItem.name}: ${currentLang==='ar'?'متوفر':'available'} ${invItem.current_qty||0}, ${currentLang==='ar'?'مطلوب':'needed'} ${it.qty}`);
+      }
+    }
+    if (stockWarnings.length > 0) {
+      const msg = (currentLang==='ar'
+        ? `المخزون غير كافٍ:\n${stockWarnings.join('\n')}\n\nهل تريد الحفظ على أي حال؟`
+        : `Insufficient stock:\n${stockWarnings.join('\n')}\n\nSave anyway?`);
+      if (!confirm(msg)) throw new Error('cancelled');
+    }
 
     for (const it of items) {
       if (!it.itemId || !it.qty) continue;
