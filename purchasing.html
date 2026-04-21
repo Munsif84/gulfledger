@@ -135,6 +135,11 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);}
   .fg-2,.fg-3,.fg-4{grid-template-columns:1fr 1fr;}
   .po-line-grid{grid-template-columns:1fr 60px 70px 70px 24px;}
 }
+
+/* ── STICKY NAV ── */
+.topnav{position:sticky;top:0;z-index:300;box-shadow:0 2px 8px rgba(0,0,0,0.15);}
+.app-nav{position:sticky;top:44px;z-index:299;box-shadow:0 2px 6px rgba(0,0,0,0.1);}
+
 </style>
 </head>
 <body>
@@ -418,6 +423,48 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);}
   </div>
 </div>
 
+<!-- SUPPLIER PAYMENT MODAL -->
+<div id="sup-payment-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:600;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#fff;border-radius:14px;padding:24px;width:100%;max-width:420px;box-shadow:0 20px 60px rgba(0,0,0,0.2);">
+    <div style="font-size:15px;font-weight:700;color:var(--navy);margin-bottom:4px;" id="sup-pay-title">تسجيل دفعة للمورد</div>
+    <div style="font-size:12px;color:var(--muted);margin-bottom:18px;" id="sup-pay-sub"></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+      <div style="display:flex;flex-direction:column;gap:4px;">
+        <label style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;">المبلغ *</label>
+        <input type="number" id="sup-pay-amount" step="0.01" min="0" style="padding:8px 10px;border:1.5px solid var(--border);border-radius:7px;font-family:'DM Mono',monospace;font-size:13px;width:100%;">
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;">
+        <label style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;">تاريخ الدفع *</label>
+        <input type="date" id="sup-pay-date" lang="en" style="padding:8px 10px;border:1.5px solid var(--border);border-radius:7px;font-family:'DM Mono',monospace;font-size:13px;width:100%;">
+      </div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+      <div style="display:flex;flex-direction:column;gap:4px;">
+        <label style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;">طريقة الدفع</label>
+        <select id="sup-pay-method" style="padding:8px 10px;border:1.5px solid var(--border);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;width:100%;">
+          <option value="bank">تحويل بنكي</option>
+          <option value="cash">نقداً</option>
+          <option value="cheque">شيك</option>
+        </select>
+      </div>
+      <div style="display:flex;flex-direction:column;gap:4px;">
+        <label style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;">مرجع العملية</label>
+        <input type="text" id="sup-pay-ref" placeholder="اختياري" style="padding:8px 10px;border:1.5px solid var(--border);border-radius:7px;font-family:'DM Mono',monospace;font-size:13px;width:100%;">
+      </div>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button id="sup-pay-btn" onclick="confirmSupplierPayment()"
+        style="flex:1;padding:10px;background:var(--green);color:#fff;border:none;border-radius:8px;font-family:'Tajawal',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">
+        💰 تأكيد الدفعة
+      </button>
+      <button onclick="closeSupPaymentModal()"
+        style="padding:10px 18px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:8px;font-family:'Tajawal',sans-serif;font-size:13px;cursor:pointer;">
+        إلغاء
+      </button>
+    </div>
+  </div>
+</div>
+
 <script>
 const SUPABASE_URL='https://ykzivnasjwtuhvjxfxzf.supabase.co';
 const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
@@ -428,6 +475,70 @@ let poLineCount=0;
 let currentSIId=null,currentSIPOId=null;
 
 /* ── INIT ── */
+/* ── SUPPLIER PAYMENT ── */
+let supPayInvoiceId=null, supPayTotal=0;
+
+function openSupPaymentModal(invId, invNum, total, supName){
+  supPayInvoiceId = invId;
+  supPayTotal     = total;
+  document.getElementById('sup-pay-title').textContent = (L==='ar'?'دفعة للمورد — ':'Pay Supplier — ') + invNum;
+  document.getElementById('sup-pay-sub').textContent   = (L==='ar'?'المورد: ':'Supplier: ') + supName + '  |  SAR ' + fmt(total);
+  document.getElementById('sup-pay-amount').value = fmt(total).replace(/,/g,'');
+  document.getElementById('sup-pay-date').value   = today();
+  document.getElementById('sup-pay-method').value = 'bank';
+  document.getElementById('sup-pay-ref').value    = '';
+  const modal=document.getElementById('sup-payment-modal');
+  modal.style.display='flex';
+}
+
+function closeSupPaymentModal(){
+  document.getElementById('sup-payment-modal').style.display='none';
+  supPayInvoiceId=null;
+}
+
+async function confirmSupplierPayment(){
+  if(!supPayInvoiceId)return;
+  const amount=parseFloat(document.getElementById('sup-pay-amount').value)||0;
+  const date  =document.getElementById('sup-pay-date').value;
+  const method=document.getElementById('sup-pay-method').value;
+  const ref   =document.getElementById('sup-pay-ref').value.trim();
+  if(!amount||!date){notify(L==='ar'?'أدخل المبلغ والتاريخ':'Enter amount and date','r');return;}
+
+  const btn=document.getElementById('sup-pay-btn');
+  btn.disabled=true;btn.textContent=L==='ar'?'جارٍ...':'Processing...';
+
+  // Update supplier invoice status to paid
+  await sb.from('supplier_invoices').update({
+    status:'paid', payment_date:date, payment_method:method,
+    payment_ref:ref||null, updated_at:new Date().toISOString()
+  }).eq('id',supPayInvoiceId);
+
+  // Post journal: Dr Payables | Cr Cash/Bank
+  const crCode = (method==='bank'||method==='cheque') ? '1101' : '1100';
+  const crName = (method==='bank'||method==='cheque')
+    ? (L==='ar'?'البنك':'Bank')
+    : (L==='ar'?'النقد وما في حكمه':'Cash');
+
+  const {data:entry}=await sb.from('journal_entries').insert({
+    user_id:currentUser.id, business_id:currentBiz?.id,
+    entry_date:date, reference:ref||'PMT-SUP-'+Date.now(),
+    description:(L==='ar'?'دفع لمورد — ':'Supplier payment — ')+document.getElementById('sup-pay-title').textContent.split('—')[1]?.trim(),
+    source:'supplier_payment', status:'posted', is_balanced:true
+  }).select().single();
+
+  if(entry){
+    await sb.from('journal_lines').insert([
+      {entry_id:entry.id,user_id:currentUser.id,account_code:'2100',account_name:L==='ar'?'ذمم دائنة تجارية':'Trade Payables',debit:amount,credit:0,description:L==='ar'?'سداد مورد':'Supplier payment'},
+      {entry_id:entry.id,user_id:currentUser.id,account_code:crCode,account_name:crName,debit:0,credit:amount,description:L==='ar'?'دفع نقدي/بنكي':'Cash/Bank payment'}
+    ]);
+  }
+
+  notify(L==='ar'?`✅ تم تسجيل الدفعة — SAR ${fmt(amount)}`:`✅ Payment recorded — SAR ${fmt(amount)}`,'g');
+  closeSupPaymentModal();
+  await loadSupplierInvoices();
+  btn.disabled=false;btn.textContent=L==='ar'?'💰 تأكيد الدفعة':'💰 Confirm Payment';
+}
+
 async function init(){
   const {data:{session}}=await sb.auth.getSession();
   if(!session){window.location.href='login.html';return;}
@@ -544,6 +655,8 @@ function renderSupplierInvoiceList(invoices){
     <td style="white-space:nowrap;display:flex;gap:4px;">
       ${inv.status==='matched'?`<button class="btn-g" style="font-size:10px;padding:4px 8px;" onclick="postSupplierInvoice('${inv.id}')">${L==='ar'?'ترحيل':'Post'}</button>`:''}
       ${inv.status==='pending'?`<button class="btn-s" style="font-size:10px;padding:4px 8px;" onclick="editSI('${inv.id}')">${L==='ar'?'تعديل':'Edit'}</button>`:''}
+      ${inv.status==='approved'?`<button style="font-size:10px;padding:4px 8px;background:var(--green);color:#fff;border:none;border-radius:5px;cursor:pointer;font-family:'Tajawal',sans-serif;" onclick="openSupPaymentModal('${inv.id}','${inv.invoice_number}',${inv.total},'${inv.supplier_name||''}')">${L==='ar'?'💰 دفع':'💰 Pay'}</button>`:''}
+      ${inv.status==='paid'?`<span style="font-size:10px;color:var(--green);font-weight:700;">✅ ${L==='ar'?'مدفوع':'Paid'}</span>`:''}
     </td>
   </tr>`).join('');
 }
