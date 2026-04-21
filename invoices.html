@@ -307,10 +307,12 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
   .app-nav-link{padding:4px 8px;font-size:11px;}
   .item-row{grid-template-columns:20px 1fr 45px 65px 65px 24px;}
 }
+/* Mobile: invoice panels stack below 768px only */
 @media(max-width:768px){
   .app{grid-template-columns:1fr;}
+  .form-panel{border-left:none;border-bottom:1px solid var(--border);}
   .preview-panel{display:block;}
-  .invoice-doc{margin-top:16px;}
+  .invoice-doc{margin-top:12px;}
 }
 
 /* Force Gregorian calendar on all devices — prevents Hijri on Arabic locale */
@@ -342,8 +344,7 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
   /* MODULE CARDS */
   .modules{grid-template-columns:1fr !important;}
 
-  /* INVOICE — stack panels */
-  .app{grid-template-columns:1fr !important;}
+  /* INVOICE — panels already handled in dedicated 768px block above */
   .form-panel{border-left:none;border-bottom:1px solid var(--border);}
   .invoice-doc{margin-top:12px;}
 
@@ -1521,13 +1522,6 @@ async function saveInvoice() {
 
   // Update customer invoice stats
   if(selectedCustomerId) {
-    await sb.from('customers').update({
-      total_invoiced: sb.rpc ? undefined : undefined, // handled below
-      invoice_count: undefined,
-      last_invoice_date: invoiceData.issue_date,
-      updated_at: new Date().toISOString()
-    }).eq('id', selectedCustomerId);
-    // Simple increment
     const cust = customers.find(c => c.id === selectedCustomerId);
     if(cust) {
       await sb.from('customers').update({
@@ -1539,6 +1533,27 @@ async function saveInvoice() {
   }
 
   loadInvoices();
+
+  // Auto-clear form for next invoice — keep share bar visible
+  const savedNum = invoiceData.invoice_number;
+  const savedMobile = invoiceData.buyer_mobile;
+  currentInvoiceId = null;
+  selectedCustomerId = null;
+  ['f-buyer-name','f-buyer-trn','f-buyer-mobile','f-buyer-address','f-buyer-city'].forEach(id=>{
+    const el=document.getElementById(id);if(el)el.value='';
+  });
+  document.getElementById('f-notes').value='';
+  document.getElementById('customer-search').value='';
+  document.getElementById('selected-customer-tag').style.display='none';
+  document.getElementById('f-type').value='b2b';
+  document.getElementById('f-date').value=today();
+  items=[{desc:'',qty:1,price:0,disc:0,itemId:null}];
+  await setNextInvNumber();
+  renderItems();
+  render();
+  // Restore share bar (was cleared by render)
+  showShareBar(savedNum);
+  if(savedMobile) document.getElementById('btn-whatsapp').style.display='flex';
 }
 
 function showSaveStatus(type, msg) {
