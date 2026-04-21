@@ -121,8 +121,60 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
   .del-btn{grid-column:2;justify-self:end;}
 }
 
-/* BUTTONS */
-.btn-primary{padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;}
+/* ── BRAND THEMING ── */
+function applyBranding(biz){
+  if(!biz) return;
+  const color  = biz.brand_color    || '#0C447C';
+  const layout = biz.invoice_layout || 'classic';
+  const footer = biz.invoice_footer || biz.logo_url || '';
+
+  // Set CSS variable for layout styles to use
+  document.documentElement.style.setProperty('--brand', color);
+
+  // Apply brand color directly to invoice elements
+  document.querySelectorAll('.inv-header').forEach(el=>el.style.background=color);
+  document.querySelectorAll('.inv-items th').forEach(el=>el.style.background=color);
+  document.querySelectorAll('.inv-total-row.grand').forEach(el=>el.style.color=color);
+  const qr=document.querySelector('.inv-qr-section');
+  if(qr){qr.style.borderColor=color+'55';qr.style.background=color+'0D';}
+
+  // Layout class
+  const doc=document.getElementById('invoice-preview');
+  if(doc){
+    doc.classList.remove('layout-classic','layout-modern','layout-minimal');
+    doc.classList.add('layout-'+layout);
+    // Re-apply header style for modern/minimal (overrides color)
+    const header=doc.querySelector('.inv-header');
+    if(header){
+      if(layout==='modern'){header.style.background='#fff';header.style.borderBottom='3px solid '+color;}
+      else if(layout==='minimal'){header.style.background='#fff';header.style.borderTop='4px solid '+color;header.style.borderBottom='1px solid #d4e6f7';}
+      else{header.style.background=color;header.style.borderBottom='';header.style.borderTop='';}
+    }
+  }
+
+  // Custom footer
+  const footerEl=document.getElementById('p-custom-footer');
+  if(footerEl){footerEl.textContent=footer;footerEl.style.display=footer?'block':'none';}
+}
+
+/* ── LAYOUT STYLES ── */
+/* Modern layout — light header, colored accent */
+.layout-modern .inv-header{background:#fff!important;border-bottom:3px solid var(--brand,#0C447C);padding-bottom:12px;}
+.layout-modern .inv-brand-name{color:var(--brand,#0C447C)!important;}
+.layout-modern .inv-brand-sub{color:var(--muted)!important;}
+.layout-modern .inv-num{color:var(--brand,#0C447C)!important;}
+.layout-modern .inv-type-badge{background:var(--tint)!important;color:var(--brand,#0C447C)!important;}
+/* Minimal layout — white header, thin color bar */
+.layout-minimal .inv-header{background:#fff!important;border-top:4px solid var(--brand,#0C447C);border-bottom:1px solid var(--border);padding:16px 24px;}
+.layout-minimal .inv-brand-name{color:var(--ink)!important;}
+.layout-minimal .inv-brand-sub{color:var(--muted)!important;}
+.layout-minimal .inv-num{color:var(--ink)!important;}
+.layout-minimal .inv-type-badge{background:var(--tint)!important;color:var(--ink)!important;}
+.layout-minimal .inv-items th{background:var(--tint)!important;color:var(--navy)!important;}
+.layout-minimal .inv-qr-section{background:#fff!important;border:1px solid var(--border)!important;}
+/* Custom footer text */
+.inv-custom-footer{text-align:center;font-size:11px;color:var(--muted);padding:10px 0 4px;border-top:1px solid var(--tint);margin-top:8px;display:none;}
+padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;}
 .btn-primary:hover{background:var(--navy);}
 .btn-secondary{padding:8px 14px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
 .btn-secondary:hover{border-color:var(--blue);}
@@ -708,6 +760,7 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
               <div class="inv-qr-label" data-en="Scan to verify invoice authenticity via ZATCA app" data-ar="امسح للتحقق من صحة الفاتورة عبر تطبيق زاتكا">امسح للتحقق من صحة الفاتورة عبر تطبيق زاتكا</div>
             </div>
           </div>
+          <div class="inv-custom-footer" id="p-custom-footer"></div>
         </div>
       </div>
     </div>
@@ -799,6 +852,8 @@ async function init() {
     document.getElementById('f-seller-postal').value   = biz.postal_code || '';
     document.getElementById('p-biz-name').textContent  = biz.name_ar || biz.name || 'GulfLedger';
     if (biz.tagline) document.getElementById('p-tagline').textContent = biz.tagline;
+    // Apply invoice customization
+    applyBranding(biz);
     // Seller preview box
     const sellerName = biz.name_ar || biz.name || '—';
     const sellerAddr = [biz.building_number, biz.address, biz.district, biz.city, biz.postal_code].filter(Boolean).join('، ');
@@ -1291,6 +1346,7 @@ function render() {
 
   updateTotals();
   generateQR();
+  if(currentBiz) applyBranding(currentBiz);
 }
 
 /* ── QR ── */
