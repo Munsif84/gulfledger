@@ -679,6 +679,12 @@ const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSI
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
 let currentUser=null,currentBizId=null,L=localStorage.getItem('gl_lang')||'ar',ownershipType='saudi',partners=[],logoBase64=null,taxRates={};
 
+// Apply language immediately — don't wait for init/Supabase
+document.addEventListener('DOMContentLoaded', function(){
+  L = localStorage.getItem('gl_lang') || 'ar';
+  applyLang(L);
+});
+
 async function init(){
   const {data:{session}}=await sb.auth.getSession();
   if(!session){window.location.href='login.html';return;}
@@ -694,7 +700,8 @@ async function init(){
   if(rates){rates.forEach(r=>taxRates[r.rate_key]=parseFloat(r.rate_value));renderTaxRates(rates);}
   setOwnershipType(biz?.ownership_type||'saudi',true);
   if(biz?.logo_base64){logoBase64=biz.logo_base64;showLogoPreview(biz.logo_base64);}
-  const storedL=getStoredLang(); L=storedL; setLang(storedL);
+  // Re-apply language after async data load to ensure toggle state is correct
+  applyLang(L);
 }
 
 function populateForm(biz){
