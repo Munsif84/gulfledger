@@ -483,7 +483,7 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
 
     <!-- Invoice Info -->
     <div class="section-title" data-en="Invoice Details" data-ar="بيانات الفاتورة">Invoice Details</div>
-    <div class="field-row triple">
+    <div class="field-row double">
       <div class="field">
         <label data-en="Invoice No." data-ar="رقم الفاتورة">Invoice No.</label>
         <input type="text" id="f-invnum" value="INV-2026-001" oninput="render()">
@@ -492,12 +492,18 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
         <label data-en="Date" data-ar="التاريخ">Date</label>
         <input type="date" lang="en" id="f-date" oninput="render()">
       </div>
+    </div>
+    <div class="field-row double">
       <div class="field">
         <label data-en="Type" data-ar="النوع">Type</label>
         <select id="f-type" onchange="render()">
           <option value="b2b">B2B — Tax</option>
           <option value="b2c">B2C — Simplified</option>
         </select>
+      </div>
+      <div class="field">
+        <label data-en="PO No. (optional)" data-ar="رقم أمر الشراء (اختياري)">رقم أمر الشراء (اختياري)</label>
+        <input type="text" id="f-po-num" placeholder="PO-2026-001" dir="ltr" oninput="render()">
       </div>
     </div>
 
@@ -656,6 +662,10 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
             <span class="inv-date-label" data-en="Invoice No." data-ar="رقم الفاتورة">Invoice No.</span>
             <span class="inv-date-val mono" id="p-invnum2">—</span>
           </div>
+          <div class="inv-date-item" id="p-po-row" style="display:none;">
+            <span class="inv-date-label" data-en="PO No." data-ar="رقم أمر الشراء">PO No.</span>
+            <span class="inv-date-val mono" id="p-po-num">—</span>
+          </div>
         </div>
 
         <table class="inv-items">
@@ -690,6 +700,7 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
               </div>
             </div>
           </div>
+          <div id="p-notes" style="display:none;margin-bottom:10px;font-size:11px;color:var(--muted);border-top:1px solid var(--tint);padding-top:8px;"></div>
           <div class="inv-qr-section">
             <div class="inv-qr-box" id="qr-container"></div>
             <div>
@@ -698,8 +709,6 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
             </div>
           </div>
         </div>
-
-        <div id="p-notes" style="margin-top:12px;font-size:11px;color:var(--muted);border-top:1px solid var(--tint);padding-top:8px;"></div>
       </div>
     </div>
 
@@ -1222,6 +1231,14 @@ function render() {
   });
 
   setText('p-invnum', invNum); setText('p-invnum2', invNum);
+
+  // PO Number — show/hide in preview
+  const poNum = v('f-po-num');
+  const poRow = document.getElementById('p-po-row');
+  if(poRow) {
+    poRow.style.display = poNum ? 'flex' : 'none';
+    setText('p-po-num', poNum || '—');
+  }
   setText('p-type-badge', isB2B ? 'B2B TAX INVOICE — فاتورة ضريبية' : 'B2C SIMPLIFIED — فاتورة مبسطة');
   setText('p-seller-name', v('f-seller-name') || '—');
   // Full national address
@@ -1267,7 +1284,7 @@ function render() {
         <td style="text-align:center;">${discDisplay}</td>
         <td class="num">${fmt(netSub)}</td>
         <td class="num">${fmt(vat)}</td>
-        <td class="num" style="font-weight:600;">${fmt(netSub+vat)}</td>
+        <td class="num" style="font-weight:600;">SAR ${fmt(netSub+vat)}</td>
       </tr>`;
     }).join('');
   }
@@ -1376,6 +1393,7 @@ async function saveInvoice() {
     buyer_city:     v('f-buyer-city'),
     buyer_mobile:   mobile,
     customer_id:    selectedCustomerId || null,
+    po_number:      v('f-po-num') || null,
     subtotal:       sub,
     vat_amount:     vat,
     total:          total,
@@ -1548,7 +1566,7 @@ async function saveInvoice() {
   const savedMobile = invoiceData.buyer_mobile;
   currentInvoiceId = null;
   selectedCustomerId = null;
-  ['f-buyer-name','f-buyer-trn','f-buyer-mobile','f-buyer-address','f-buyer-city'].forEach(id=>{
+  ['f-buyer-name','f-buyer-trn','f-buyer-mobile','f-buyer-address','f-buyer-city','f-po-num'].forEach(id=>{
     const el=document.getElementById(id);if(el)el.value='';
   });
   document.getElementById('f-notes').value='';
