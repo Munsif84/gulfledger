@@ -41,13 +41,35 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
 .app-nav-link:hover{background:rgba(255,255,255,0.12);color:#fff;}
 .app-nav-link.active{background:rgba(255,255,255,0.18);color:#fff;}
 
-/* LAYOUT */
-.app{display:grid;grid-template-columns:420px 1fr;min-height:calc(100vh - 88px);}
+/* LAYOUT — 45% form / 55% preview */
+.app{display:grid;grid-template-columns:45% 55%;min-height:calc(100vh - 88px);}
 .form-panel{padding:18px;overflow-y:auto;border-left:1px solid var(--border);background:var(--white);}
 .preview-panel{padding:20px;background:var(--bg);overflow-y:auto;}
 
-/* FORM */
-.section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin:14px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--tint);}
+/* CUSTOMER LOOKUP */
+.customer-lookup{position:relative;margin-bottom:10px;}
+.customer-lookup-input{width:100%;padding:10px 12px 10px 36px;border:2px solid var(--sky);border-radius:8px;font-family:'Tajawal',sans-serif;font-size:13px;color:var(--ink);background:var(--white);}
+.customer-lookup-input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(55,138,221,0.15);}
+.customer-lookup-icon{position:absolute;top:50%;transform:translateY(-50%);right:11px;color:var(--muted);pointer-events:none;font-size:14px;}
+.customer-dropdown{position:absolute;top:calc(100% + 4px);right:0;left:0;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.12);z-index:200;max-height:260px;overflow-y:auto;display:none;}
+.customer-dropdown.open{display:block;}
+.cust-item{padding:10px 14px;cursor:pointer;border-bottom:1px solid var(--tint);display:flex;align-items:center;gap:10px;}
+.cust-item:last-child{border-bottom:none;}
+.cust-item:hover{background:var(--tint);}
+.cust-avatar{width:32px;height:32px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700;flex-shrink:0;}
+.cust-name{font-size:13px;font-weight:600;color:var(--ink);}
+.cust-meta{font-size:11px;color:var(--muted);}
+.cust-new-row{padding:10px 14px;cursor:pointer;display:flex;align-items:center;gap:8px;color:var(--blue);font-size:12px;font-weight:600;border-top:1px solid var(--tint);}
+.cust-new-row:hover{background:var(--tint);}
+.customer-tag{display:inline-flex;align-items:center;gap:6px;background:var(--tint);border:1px solid var(--light);border-radius:20px;padding:4px 10px;font-size:12px;color:var(--navy);margin-bottom:8px;}
+.customer-tag button{background:none;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0;line-height:1;}
+/* BUTTON LOADING STATES */
+.btn-loading{opacity:0.7;cursor:not-allowed!important;pointer-events:none;}
+.btn-success{background:var(--green)!important;border-color:var(--green)!important;}
+.btn-error{background:var(--red)!important;border-color:var(--red)!important;}
+/* WHATSAPP BUTTON */
+.btn-whatsapp{padding:9px 16px;background:#25D366;color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;}
+.btn-whatsapp:hover{background:#128C7E;}
 .field-row{display:grid;gap:8px;margin-bottom:8px;}
 .field-row.single{grid-template-columns:1fr;}
 .field-row.double{grid-template-columns:1fr 1fr;}
@@ -319,6 +341,11 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
   .f201-stats{grid-template-columns:1fr !important;}
 }
 
+
+/* ── STICKY NAV ── */
+.topnav{position:sticky;top:0;z-index:300;box-shadow:0 2px 8px rgba(0,0,0,0.15);}
+.app-nav{position:sticky;top:44px;z-index:299;box-shadow:0 2px 6px rgba(0,0,0,0.1);}
+
 </style>
 </head>
 <body>
@@ -346,6 +373,7 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
 <div class="app-nav">
   <a href="dashboard.html" class="app-nav-link" data-ar="الرئيسية" data-en="Dashboard">الرئيسية</a>
   <a href="invoices.html" class="app-nav-link active" data-ar="الفواتير" data-en="Invoices">الفواتير</a>
+  <a href="customers.html" class="app-nav-link" data-ar="العملاء" data-en="Customers">العملاء</a>
   <a href="inventory.html" class="app-nav-link" data-ar="المخزون" data-en="Inventory">المخزون</a>
   <a href="ledger.html" class="app-nav-link" data-ar="دفتر الأستاذ" data-en="Ledger">دفتر الأستاذ</a>
   <a href="vat.html" class="app-nav-link" data-ar="إقرار VAT" data-en="VAT Return">إقرار VAT</a>
@@ -419,27 +447,54 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
     <input type="hidden" id="f-seller-postal">
 
     <!-- Buyer -->
-    <div class="section-title" data-en="Buyer" data-ar="المشتري">Buyer</div>
-    <div id="b2c-notice" class="inv-b2c-notice" style="display:none;" data-en="B2C — Simplified invoice. Buyer details optional." data-ar="فاتورة مبسطة B2C — بيانات المشتري اختيارية.">B2C — Simplified invoice. Buyer details optional.</div>
+    <div class="section-title" data-en="Buyer" data-ar="المشتري">المشتري</div>
+    <div id="b2c-notice" class="inv-b2c-notice" style="display:none;" data-en="B2C — Simplified invoice. Buyer details optional." data-ar="فاتورة مبسطة B2C — بيانات المشتري اختيارية.">فاتورة مبسطة B2C — بيانات المشتري اختيارية.</div>
+
+    <!-- Customer smart search -->
+    <div class="customer-lookup" id="customer-lookup-wrap">
+      <span class="customer-lookup-icon">🔍</span>
+      <input type="text" class="customer-lookup-input" id="customer-search"
+        placeholder="ابحث بالاسم أو الجوال أو الشركة..."
+        oninput="searchCustomers(this.value)"
+        onfocus="searchCustomers(this.value)"
+        autocomplete="off">
+      <div class="customer-dropdown" id="customer-dropdown"></div>
+    </div>
+
+    <!-- Selected customer tag -->
+    <div id="selected-customer-tag" style="display:none;">
+      <div class="customer-tag">
+        <span id="selected-customer-name"></span>
+        <button onclick="clearCustomer()" title="إزالة">×</button>
+      </div>
+    </div>
+
     <div id="buyer-fields">
+      <!-- Phone -->
       <div class="field-row double">
         <div class="field">
-          <label data-en="Buyer Name *" data-ar="اسم المشتري *">Buyer Name *</label>
-          <input type="text" id="f-buyer-name" placeholder="Client / Company name" oninput="render()">
+          <label data-en="Mobile / WhatsApp *" data-ar="الجوال / واتساب *">الجوال / واتساب *</label>
+          <input type="tel" id="f-buyer-mobile" placeholder="05XXXXXXXX" dir="ltr" style="font-family:'DM Mono',monospace;" oninput="render()">
         </div>
         <div class="field">
-          <label data-en="Buyer TRN" data-ar="الرقم الضريبي للمشتري">Buyer TRN</label>
-          <input type="text" id="f-buyer-trn" placeholder="300000000000003" maxlength="15" oninput="render()">
+          <label data-en="Buyer Name *" data-ar="اسم المشتري *">اسم المشتري *</label>
+          <input type="text" id="f-buyer-name" placeholder="اسم العميل أو الشركة" oninput="render()">
         </div>
       </div>
       <div class="field-row double">
         <div class="field">
-          <label data-en="Buyer Street / District" data-ar="شارع / حي المشتري">Street / District</label>
-          <input type="text" id="f-buyer-address" placeholder="King Fahad Road, Al-Olaya" oninput="render()">
+          <label data-en="Buyer TRN" data-ar="الرقم الضريبي للمشتري">الرقم الضريبي (B2B)</label>
+          <input type="text" id="f-buyer-trn" placeholder="300000000000003" maxlength="15" oninput="render()">
         </div>
         <div class="field">
-          <label data-en="Buyer City" data-ar="مدينة المشتري">City</label>
-          <input type="text" id="f-buyer-city" placeholder="Riyadh" oninput="render()">
+          <label data-en="Buyer City" data-ar="مدينة المشتري">المدينة</label>
+          <input type="text" id="f-buyer-city" placeholder="الرياض" oninput="render()">
+        </div>
+      </div>
+      <div class="field-row single">
+        <div class="field">
+          <label data-en="Buyer Street / District" data-ar="شارع / حي المشتري">الشارع / الحي</label>
+          <input type="text" id="f-buyer-address" placeholder="شارع الملك فهد، حي العليا" oninput="render()">
         </div>
       </div>
     </div>
@@ -465,9 +520,17 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
     </div>
 
     <div class="actions">
-      <button class="btn-primary" onclick="saveInvoice()" data-en="💾 Save Invoice" data-ar="💾 حفظ الفاتورة">💾 Save Invoice</button>
-      <button class="btn-secondary" onclick="window.print()" data-en="🖨 Print / PDF" data-ar="🖨 طباعة">🖨 Print / PDF</button>
-      <button class="btn-secondary" onclick="newInvoice()" data-en="+ New" data-ar="+ جديد">+ New</button>
+      <button class="btn-primary" id="btn-save-invoice" onclick="btnAction(this, saveInvoice, currentLang==='ar'?'تم الحفظ':'Saved')" data-en="💾 Save Invoice" data-ar="💾 حفظ الفاتورة">💾 حفظ الفاتورة</button>
+      <button class="btn-whatsapp" id="btn-whatsapp" onclick="sendWhatsApp()" style="display:none;" data-en="💬 WhatsApp" data-ar="💬 واتساب">💬 واتساب</button>
+      <button class="btn-secondary" onclick="window.print()" data-en="🖨 Print" data-ar="🖨 طباعة">🖨 طباعة</button>
+      <button class="btn-secondary" onclick="newInvoice()" data-en="+ New" data-ar="+ جديد">+ جديد</button>
+    </div>
+    <!-- Share link bar — shown after save -->
+    <div id="share-bar" style="display:none;margin-top:10px;background:var(--tint);border-radius:8px;padding:10px 12px;align-items:center;gap:8px;flex-wrap:wrap;">
+      <span style="font-size:11px;color:var(--navy);font-weight:600;" data-ar="رابط الفاتورة:" data-en="Invoice link:">رابط الفاتورة:</span>
+      <span id="share-link-text" style="font-size:11px;font-family:'DM Mono',monospace;color:var(--blue);flex:1;word-break:break-all;"></span>
+      <button onclick="copyShareLink()" style="padding:4px 10px;background:var(--blue);color:#fff;border:none;border-radius:5px;font-size:11px;cursor:pointer;white-space:nowrap;" data-ar="نسخ" data-en="Copy">نسخ</button>
+    </div>
     </div>
 
   </div>
@@ -596,6 +659,47 @@ let currentUser = null;
 let currentBiz  = null;
 let currentLang = 'ar';
 let items = [{ desc:'', qty:1, price:0 }];
+let selectedCustomerId = null;
+let lastSavedInvoiceNum = null;
+let customers = [];
+
+/* ── GLOBAL BUTTON LOADING UTILITY ── */
+async function btnAction(btn, asyncFn, successMsg) {
+  const original = btn.innerHTML;
+  const originalBg = btn.style.background;
+  btn.disabled = true;
+  btn.classList.add('btn-loading');
+  btn.innerHTML = '<span style="display:inline-flex;align-items:center;gap:6px;"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 0.8s linear infinite;"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg>' + (currentLang==='ar'?'جارٍ...':'Loading...')+  '</span>';
+  try {
+    await asyncFn();
+    btn.classList.remove('btn-loading');
+    btn.classList.add('btn-success');
+    btn.innerHTML = '✅ ' + successMsg;
+    btn.disabled = false;
+    setTimeout(() => {
+      btn.classList.remove('btn-success');
+      btn.innerHTML = original;
+      btn.style.background = originalBg;
+    }, 2500);
+  } catch(e) {
+    btn.classList.remove('btn-loading');
+    btn.classList.add('btn-error');
+    btn.innerHTML = '❌ ' + (currentLang==='ar'?'حدث خطأ':'Error');
+    btn.disabled = false;
+    setTimeout(() => {
+      btn.classList.remove('btn-error');
+      btn.innerHTML = original;
+      btn.style.background = originalBg;
+    }, 2500);
+  }
+}
+
+/* Add spin animation */
+(function(){
+  const s=document.createElement('style');
+  s.textContent='@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}';
+  document.head.appendChild(s);
+})();
 let currentInvoiceId = null;
 
 /* ── INIT ── */
@@ -635,6 +739,10 @@ async function init() {
   renderItems();
   render();
   loadInvoices();
+  loadCustomers(); // load customer database for auto-fill
+  // Check if redirected from customers page with prefill
+  const prefillId=sessionStorage.getItem('prefill_customer');
+  if(prefillId){sessionStorage.removeItem('prefill_customer');setTimeout(()=>selectCustomer(prefillId),500);}
   const storedL=getStoredLang(); L=storedL; setLang(storedL);
 }
 
@@ -653,6 +761,183 @@ async function setNextInvNumber() {
 }
 
 /* ── MODE ── */
+/* ── CUSTOMER LOOKUP ── */
+async function loadCustomers() {
+  if(!currentUser) return;
+  const {data} = await sb.from('customers')
+    .select('id,name,company_name,mobile,trn,address,city,customer_type')
+    .eq('user_id', currentUser.id)
+    .eq('is_active', true)
+    .order('name');
+  customers = data || [];
+}
+
+function searchCustomers(q) {
+  const dd = document.getElementById('customer-dropdown');
+  dd.classList.add('open');
+  const query = (q||'').toLowerCase().trim();
+
+  const matches = query
+    ? customers.filter(c =>
+        c.name?.toLowerCase().includes(query) ||
+        c.company_name?.toLowerCase().includes(query) ||
+        c.mobile?.includes(query) ||
+        c.trn?.includes(query)
+      ).slice(0, 8)
+    : customers.slice(0, 8);
+
+  let html = matches.map(c => {
+    const initial = (c.name||c.company_name||'?')[0].toUpperCase();
+    const sub = [c.mobile, c.company_name].filter(Boolean).join(' · ');
+    return `<div class="cust-item" onclick="selectCustomer('${c.id}')">
+      <div class="cust-avatar">${initial}</div>
+      <div>
+        <div class="cust-name">${c.name||c.company_name||'—'}</div>
+        <div class="cust-meta">${sub}</div>
+      </div>
+    </div>`;
+  }).join('');
+
+  html += `<div class="cust-new-row" onclick="saveNewCustomerFromForm()">
+    ➕ ${currentLang==='ar'?'حفظ كعميل جديد':'Save as new customer'}
+  </div>`;
+
+  dd.innerHTML = html;
+}
+
+function selectCustomer(id) {
+  const c = customers.find(x => x.id === id);
+  if(!c) return;
+  selectedCustomerId = id;
+
+  // Fill buyer fields
+  setVal('f-buyer-name',    c.name || c.company_name || '');
+  setVal('f-buyer-mobile',  c.mobile || '');
+  setVal('f-buyer-trn',     c.trn || '');
+  setVal('f-buyer-city',    c.city || '');
+  setVal('f-buyer-address', c.address || '');
+
+  // Show tag
+  document.getElementById('selected-customer-name').textContent = c.name || c.company_name;
+  document.getElementById('selected-customer-tag').style.display = 'block';
+  document.getElementById('customer-search').value = '';
+  document.getElementById('customer-dropdown').classList.remove('open');
+
+  // Show WhatsApp button if mobile exists
+  if(c.mobile) {
+    document.getElementById('btn-whatsapp').style.display = 'flex';
+  }
+  render();
+}
+
+function clearCustomer() {
+  selectedCustomerId = null;
+  ['f-buyer-name','f-buyer-mobile','f-buyer-trn','f-buyer-city','f-buyer-address'].forEach(id => setVal(id,''));
+  document.getElementById('selected-customer-tag').style.display = 'none';
+  document.getElementById('customer-search').value = '';
+  document.getElementById('btn-whatsapp').style.display = 'none';
+  render();
+}
+
+function setVal(id, val) {
+  const el = document.getElementById(id);
+  if(el) { el.value = val; }
+}
+
+async function saveNewCustomerFromForm() {
+  if(!currentUser || !currentBiz) return;
+  const name   = v('f-buyer-name');
+  const mobile = v('f-buyer-mobile');
+  if(!name && !mobile) {
+    notify(currentLang==='ar'?'أدخل الاسم أو الجوال أولاً':'Enter name or mobile first', 'r');
+    return;
+  }
+  const {data:existing} = await sb.from('customers')
+    .select('id').eq('business_id', currentBiz.id).eq('mobile', mobile).single();
+  if(existing) {
+    selectCustomer(existing.id);
+    document.getElementById('customer-dropdown').classList.remove('open');
+    notify(currentLang==='ar'?'تم تحميل بيانات العميل الموجود':'Existing customer loaded', 'g');
+    return;
+  }
+  const {data:newC, error} = await sb.from('customers').insert({
+    user_id: currentUser.id, business_id: currentBiz.id,
+    name: name || mobile, mobile: mobile || name,
+    company_name: v('f-buyer-name'),
+    trn: v('f-buyer-trn'), city: v('f-buyer-city'),
+    address: v('f-buyer-address'),
+    customer_type: v('f-type') === 'b2b' ? 'b2b' : 'b2c'
+  }).select().single();
+  if(error) { notify(error.message, 'r'); return; }
+  customers.push(newC);
+  selectedCustomerId = newC.id;
+  document.getElementById('selected-customer-name').textContent = name || mobile;
+  document.getElementById('selected-customer-tag').style.display = 'block';
+  document.getElementById('customer-dropdown').classList.remove('open');
+  if(mobile) document.getElementById('btn-whatsapp').style.display = 'flex';
+  notify(currentLang==='ar'?'✅ تم حفظ العميل الجديد':'✅ New customer saved', 'g');
+}
+
+// Close dropdown on outside click
+document.addEventListener('click', e => {
+  if(!e.target.closest('.customer-lookup')) {
+    document.getElementById('customer-dropdown')?.classList.remove('open');
+  }
+});
+
+/* ── WHATSAPP DELIVERY ── */
+function sendWhatsApp() {
+  const mobile = v('f-buyer-mobile').replace(/\D/g,'');
+  const invNum = v('f-invnum');
+  const buyerName = v('f-buyer-name');
+  if(!mobile) { notify(currentLang==='ar'?'أدخل رقم الجوال':'Enter mobile number','r'); return; }
+  if(!lastSavedInvoiceNum) { notify(currentLang==='ar'?'احفظ الفاتورة أولاً':'Save invoice first','r'); return; }
+
+  // Build public invoice URL
+  const invoiceUrl = `https://gulfledger.net/invoice-view.html?inv=${encodeURIComponent(invNum)}`;
+
+  // Calculate totals
+  let sub = 0;
+  items.forEach(it => {
+    const raw = it.qty * it.price;
+    sub += raw - raw * ((it.disc||0)/100);
+  });
+  const total = sub * 1.15;
+
+  const sellerName = v('f-seller-name') || currentBiz?.name || 'GulfLedger';
+  const greeting = buyerName ? `مرحباً ${buyerName} 👋` : 'مرحباً 👋';
+
+  const msg = currentLang === 'ar'
+    ? `${greeting}\n\nنرفق لكم فاتورتكم رقم *${invNum}* من ${sellerName}\n\n💰 الإجمالي: *SAR ${fmt(total)}*\n\n📄 عرض الفاتورة:\n${invoiceUrl}\n\nشكراً لتعاملكم معنا 🙏`
+    : `${greeting}\n\nPlease find your invoice *${invNum}* from ${sellerName}\n\n💰 Total: *SAR ${fmt(total)}*\n\n📄 View Invoice:\n${invoiceUrl}\n\nThank you for your business 🙏`;
+
+  // Format Saudi number
+  let waNum = mobile;
+  if(waNum.startsWith('05')) waNum = '966' + waNum.slice(1);
+  if(waNum.startsWith('5') && waNum.length === 9) waNum = '966' + waNum;
+
+  window.open(`https://wa.me/${waNum}?text=${encodeURIComponent(msg)}`, '_blank');
+}
+
+function copyShareLink() {
+  const link = document.getElementById('share-link-text').textContent;
+  navigator.clipboard?.writeText(link).then(() =>
+    notify(currentLang==='ar'?'تم نسخ الرابط ✓':'Link copied ✓','g')
+  );
+}
+
+function showShareBar(invNum) {
+  const url = `https://gulfledger.net/invoice-view.html?inv=${encodeURIComponent(invNum)}`;
+  document.getElementById('share-link-text').textContent = url;
+  const bar = document.getElementById('share-bar');
+  bar.style.display = 'flex';
+  lastSavedInvoiceNum = invNum;
+  // Show WhatsApp button
+  if(v('f-buyer-mobile')) {
+    document.getElementById('btn-whatsapp').style.display = 'flex';
+  }
+}
+
 function setMode(mode) {
   const isAI = mode === 'ai';
   document.getElementById('ai-panel').style.display = isAI ? 'block' : 'none';
@@ -953,10 +1238,9 @@ function buildTLV(name, trn, date, total, vat) {
 /* ── SAVE TO SUPABASE ── */
 async function saveInvoice() {
   if (!currentUser) return;
-  const status = document.getElementById('save-status');
-  status.className = 'save-status saving';
-  status.textContent = currentLang==='ar'?'جارٍ الحفظ...':'Saving...';
-  status.style.display = 'inline-block';
+
+  // Validate
+  if(!v('f-invnum')) { notify(currentLang==='ar'?'أدخل رقم الفاتورة':'Enter invoice number','r'); throw new Error('no invoice number'); }
 
   // Calculate totals with discount
   let sub = 0;
@@ -969,16 +1253,41 @@ async function saveInvoice() {
   const total = Math.round((sub + vat) * 100) / 100;
   sub = Math.round(sub * 100) / 100;
 
+  // Auto-save new customer if mobile entered but no customer selected
+  const mobile = v('f-buyer-mobile');
+  const buyerName = v('f-buyer-name');
+  if(mobile && !selectedCustomerId && currentBiz?.id) {
+    const {data:existing} = await sb.from('customers')
+      .select('id').eq('business_id', currentBiz.id).eq('mobile', mobile).maybeSingle();
+    if(existing) {
+      selectedCustomerId = existing.id;
+    } else if(buyerName) {
+      const {data:newC} = await sb.from('customers').insert({
+        user_id: currentUser.id, business_id: currentBiz.id,
+        name: buyerName, mobile,
+        trn: v('f-buyer-trn'), city: v('f-buyer-city'),
+        address: v('f-buyer-address'),
+        customer_type: v('f-type') === 'b2b' ? 'b2b' : 'b2c'
+      }).select().single();
+      if(newC) {
+        selectedCustomerId = newC.id;
+        customers.push(newC);
+      }
+    }
+  }
+
   const invoiceData = {
     user_id:        currentUser.id,
     business_id:    currentBiz?.id,
     invoice_number: v('f-invnum'),
     invoice_type:   v('f-type'),
     issue_date:     v('f-date') || today(),
-    buyer_name:     v('f-buyer-name'),
+    buyer_name:     buyerName,
     buyer_trn:      v('f-buyer-trn'),
     buyer_address:  v('f-buyer-address'),
     buyer_city:     v('f-buyer-city'),
+    buyer_mobile:   mobile,
+    customer_id:    selectedCustomerId || null,
     subtotal:       sub,
     vat_amount:     vat,
     total:          total,
@@ -1128,6 +1437,29 @@ async function saveInvoice() {
   });
 
   showSaveStatus('saved', '✓ ' + (currentLang==='ar'?'تم الحفظ والترحيل للدفتر':'Saved & posted to ledger'));
+
+  // Show public share bar and WhatsApp button
+  showShareBar(invoiceData.invoice_number);
+
+  // Update customer invoice stats
+  if(selectedCustomerId) {
+    await sb.from('customers').update({
+      total_invoiced: sb.rpc ? undefined : undefined, // handled below
+      invoice_count: undefined,
+      last_invoice_date: invoiceData.issue_date,
+      updated_at: new Date().toISOString()
+    }).eq('id', selectedCustomerId);
+    // Simple increment
+    const cust = customers.find(c => c.id === selectedCustomerId);
+    if(cust) {
+      await sb.from('customers').update({
+        invoice_count: (cust.invoice_count||0) + 1,
+        total_invoiced: Math.round(((cust.total_invoiced||0) + total)*100)/100,
+        last_invoice_date: invoiceData.issue_date
+      }).eq('id', selectedCustomerId);
+    }
+  }
+
   loadInvoices();
 }
 
@@ -1181,15 +1513,23 @@ async function loadInvoice(id) {
   if (!inv) return;
 
   currentInvoiceId = id;
-  document.getElementById('f-invnum').value    = inv.invoice_number || '';
-  document.getElementById('f-date').value      = inv.issue_date || '';
-  document.getElementById('f-type').value      = inv.invoice_type || 'b2b';
+  document.getElementById('f-invnum').value     = inv.invoice_number || '';
+  document.getElementById('f-date').value       = inv.issue_date || '';
+  document.getElementById('f-type').value       = inv.invoice_type || 'b2b';
   document.getElementById('f-buyer-name').value = inv.buyer_name || '';
   document.getElementById('f-buyer-trn').value  = inv.buyer_trn  || '';
+  document.getElementById('f-buyer-mobile').value = inv.buyer_mobile || '';
+  document.getElementById('f-buyer-address').value = inv.buyer_address || '';
+  document.getElementById('f-buyer-city').value    = inv.buyer_city || '';
   document.getElementById('f-notes').value      = inv.notes      || '';
+  selectedCustomerId = inv.customer_id || null;
 
-  items = (invItems || []).map(it => ({ desc: it.description, qty: it.quantity, price: it.unit_price }));
-  if (!items.length) items = [{ desc:'', qty:1, price:0 }];
+  // Show WhatsApp + share bar for loaded invoice
+  if(inv.invoice_number) showShareBar(inv.invoice_number);
+  if(inv.buyer_mobile) document.getElementById('btn-whatsapp').style.display = 'flex';
+
+  items = (invItems || []).map(it => ({ desc: it.description, qty: it.quantity, price: it.unit_price, disc: it.discount_pct||0, itemId: null }));
+  if (!items.length) items = [{ desc:'', qty:1, price:0, disc:0, itemId:null }];
   renderItems();
   render();
   window.scrollTo(0, 0);
@@ -1198,15 +1538,26 @@ async function loadInvoice(id) {
 /* ── NEW INVOICE ── */
 async function newInvoice() {
   currentInvoiceId = null;
-  document.getElementById('f-buyer-name').value = '';
-  document.getElementById('f-buyer-trn').value  = '';
+  selectedCustomerId = null;
+  lastSavedInvoiceNum = null;
+
+  // Clear all buyer fields
+  ['f-buyer-name','f-buyer-trn','f-buyer-mobile','f-buyer-address','f-buyer-city'].forEach(id => {
+    const el=document.getElementById(id); if(el) el.value='';
+  });
   document.getElementById('f-notes').value = '';
   document.getElementById('f-type').value = 'b2b';
   document.getElementById('f-date').value = today();
-  items = [{ desc:'', qty:1, price:0 }];
+  document.getElementById('customer-search').value = '';
+  document.getElementById('selected-customer-tag').style.display = 'none';
+  document.getElementById('share-bar').style.display = 'none';
+  document.getElementById('btn-whatsapp').style.display = 'none';
+
+  items = [{ desc:'', qty:1, price:0, disc:0, itemId:null }];
   await setNextInvNumber();
   renderItems();
   render();
+  window.scrollTo(0,0);
 }
 
 /* ── LANGUAGE ── */

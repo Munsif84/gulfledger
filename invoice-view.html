@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>فاتورة — GulfLedger</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&family=Playfair+Display:wght@700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+:root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#C62828;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--border:#d4e6f7;--bg:#f0f4f8;--white:#ffffff;--brand:#0C447C;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;}
+
+/* TOPBAR */
+.topbar{background:var(--brand);padding:12px 20px;display:flex;align-items:center;justify-content:space-between;}
+.topbar-logo{font-family:'Playfair Display',serif;font-size:16px;color:#fff;display:flex;align-items:center;gap:8px;}
+.tl-bars{display:flex;gap:3px;height:18px;}
+.tl-bar{width:3px;border-radius:2px;background:#fff;}
+.tl-bar.dim{background:rgba(255,255,255,0.45);}
+.topbar-btns{display:flex;gap:8px;}
+.btn-dl{padding:8px 18px;background:#fff;color:var(--brand);border:none;border-radius:8px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;}
+.btn-dl:hover{background:var(--tint);}
+
+/* PAGE */
+.page{max-width:680px;margin:0 auto;padding:20px 16px 60px;}
+.inv-meta-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;}
+.inv-num-tag{font-family:'DM Mono',monospace;font-size:13px;color:var(--muted);background:var(--white);padding:5px 12px;border-radius:8px;border:1px solid var(--border);}
+.zatca-tag{display:flex;align-items:center;gap:5px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:5px 10px;font-size:11px;font-weight:700;color:#166534;}
+
+/* INVOICE CARD */
+.inv-card{background:var(--white);border-radius:16px;overflow:hidden;box-shadow:0 4px 32px rgba(12,68,124,0.1);}
+
+/* HEADER */
+.inv-head{background:var(--brand);padding:24px;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+.inv-head-inner{display:flex;align-items:center;justify-content:space-between;}
+.inv-biz-logo{width:52px;height:52px;background:rgba(255,255,255,0.15);border-radius:12px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-left:12px;}
+.inv-biz-logo img{width:100%;height:100%;object-fit:contain;}
+.inv-biz-name{font-family:'Playfair Display',serif;font-size:20px;color:#fff;}
+.inv-biz-sub{font-size:10px;color:rgba(255,255,255,0.65);letter-spacing:.12em;margin-top:2px;}
+.inv-head-right{text-align:left;}
+.inv-head-num{font-family:'DM Mono',monospace;font-size:15px;color:#fff;font-weight:700;}
+.inv-head-type{font-size:9px;font-weight:700;padding:3px 9px;border-radius:6px;background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.85);display:inline-block;margin-top:5px;letter-spacing:.06em;}
+
+/* BODY */
+.inv-body{padding:20px 24px;}
+
+/* PARTIES */
+.inv-parties{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:18px;}
+.party-box{padding:14px 16px;text-align:center;}
+.party-box:first-child{border-left:1px solid var(--border);}
+.party-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px;}
+.party-name{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:3px;}
+.party-detail{font-size:10px;color:var(--muted);line-height:1.6;}
+.party-trn{font-family:'DM Mono',monospace;font-size:10px;color:var(--sky);margin-top:2px;}
+
+/* DATE ROW */
+.inv-date-row{display:flex;gap:20px;background:var(--tint);border-radius:8px;padding:10px 14px;margin-bottom:18px;}
+.inv-date-item{display:flex;flex-direction:column;gap:2px;}
+.inv-date-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);}
+.inv-date-val{font-size:12px;color:var(--navy);font-weight:600;}
+
+/* TABLE */
+.inv-tbl{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:11px;direction:ltr;}
+.inv-tbl th{padding:7px 8px;background:var(--navy);color:#fff;font-size:9px;font-weight:700;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+.inv-tbl th:first-child{text-align:left;}
+.inv-tbl td{padding:7px 8px;border-bottom:1px solid var(--tint);vertical-align:top;}
+.inv-tbl td:first-child{text-align:left;}
+.inv-tbl td:not(:first-child){text-align:right;font-family:'DM Mono',monospace;}
+.inv-tbl tr:last-child td{border-bottom:none;}
+
+/* FOOTER */
+.inv-footer{display:flex;justify-content:flex-end;margin-bottom:16px;}
+.inv-totals{min-width:220px;}
+.tot-row{display:flex;justify-content:space-between;padding:4px 0;font-size:11px;color:var(--muted);}
+.tot-row.grand{border-top:1.5px solid var(--navy);margin-top:6px;padding-top:8px;font-size:15px;font-weight:700;color:var(--navy);}
+.tot-val{font-family:'DM Mono',monospace;font-weight:600;}
+
+/* QR STRIP */
+.inv-qr-strip{display:flex;align-items:center;gap:14px;padding:12px 16px;background:var(--tint);border-radius:8px;border:1px solid var(--light);-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+.inv-qr-box{width:80px;height:80px;background:#fff;display:flex;align-items:center;justify-content:center;border-radius:6px;border:1px solid var(--border);flex-shrink:0;}
+.inv-qr-info{flex:1;}
+.inv-qr-title{font-size:10px;font-weight:700;color:var(--blue);letter-spacing:.05em;margin-bottom:4px;}
+.inv-qr-sub{font-size:10px;color:var(--muted);line-height:1.6;}
+
+/* NOTES */
+.inv-notes{margin-top:14px;padding:10px 14px;background:var(--tint);border-radius:8px;font-size:12px;color:var(--muted);border-right:3px solid var(--light);}
+
+/* LOADING / ERROR */
+.loading-state{text-align:center;padding:80px 20px;color:var(--muted);}
+.loading-spinner{font-size:36px;margin-bottom:12px;animation:pulse 1.5s ease-in-out infinite;}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.error-state{text-align:center;padding:60px 20px;}
+.error-icon{font-size:48px;margin-bottom:16px;}
+
+/* POWERED BY */
+.powered-by{text-align:center;margin-top:24px;font-size:11px;color:var(--muted);}
+.powered-by a{color:var(--blue);text-decoration:none;font-weight:600;}
+
+/* PRINT */
+@media print{
+  body{background:#fff!important;}
+  .topbar,.topbar-btns,.powered-by{display:none!important;}
+  .page{padding:0!important;max-width:100%!important;}
+  .inv-card{box-shadow:none!important;border-radius:0!important;}
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+  .inv-head{background:var(--brand)!important;}
+  .inv-tbl th{background:var(--navy)!important;}
+}
+
+/* MOBILE */
+@media(max-width:600px){
+  .page{padding:12px 10px 40px;}
+  .inv-body{padding:14px 14px;}
+  .inv-parties{grid-template-columns:1fr;}
+  .party-box:first-child{border-left:none;border-bottom:1px solid var(--border);}
+  .inv-tbl{font-size:10px;}
+}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="topbar-logo">
+    <div class="tl-bars">
+      <div class="tl-bar"></div>
+      <div class="tl-bar dim"></div>
+    </div>
+    GulfLedger
+  </div>
+  <div class="topbar-btns">
+    <button class="btn-dl" onclick="window.print()">🖨 طباعة / PDF</button>
+  </div>
+</div>
+
+<div class="page">
+
+  <!-- Loading -->
+  <div class="loading-state" id="loading-state">
+    <div class="loading-spinner">📄</div>
+    <div>جارٍ تحميل الفاتورة...</div>
+  </div>
+
+  <!-- Error -->
+  <div class="error-state" id="error-state" style="display:none;">
+    <div class="error-icon">❌</div>
+    <div style="font-size:18px;font-weight:700;color:var(--navy);margin-bottom:8px;">لم يتم العثور على الفاتورة</div>
+    <div style="font-size:13px;color:var(--muted);">تحقق من الرابط أو تواصل مع المُصدِر.</div>
+  </div>
+
+  <!-- Invoice -->
+  <div id="inv-content" style="display:none;">
+
+    <div class="inv-meta-bar">
+      <span class="inv-num-tag" id="view-inv-num">—</span>
+      <span class="zatca-tag">✅ فاتورة زاتكا متوافقة</span>
+    </div>
+
+    <div class="inv-card">
+
+      <!-- Header -->
+      <div class="inv-head">
+        <div class="inv-head-inner">
+          <div style="display:flex;align-items:center;">
+            <div class="inv-biz-logo" id="view-logo-box">
+              <div style="font-family:'Playfair Display',serif;font-size:18px;color:#fff;" id="view-logo-initial">G</div>
+            </div>
+            <div>
+              <div class="inv-biz-name" id="view-biz-name">GulfLedger</div>
+              <div class="inv-biz-sub">INVOICE · فاتورة</div>
+            </div>
+          </div>
+          <div class="inv-head-right">
+            <div class="inv-head-num" id="view-inv-num2">—</div>
+            <div class="inv-head-type" id="view-inv-type">TAX INVOICE</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Body -->
+      <div class="inv-body">
+
+        <!-- Parties -->
+        <div class="inv-parties">
+          <div class="party-box">
+            <div class="party-lbl">البائع · Seller</div>
+            <div class="party-name" id="view-seller-name">—</div>
+            <div class="party-detail" id="view-seller-addr"></div>
+            <div class="party-trn" id="view-seller-trn"></div>
+            <div class="party-detail" id="view-seller-cr"></div>
+          </div>
+          <div class="party-box">
+            <div class="party-lbl">المشتري · Buyer</div>
+            <div class="party-name" id="view-buyer-name">—</div>
+            <div class="party-trn" id="view-buyer-trn"></div>
+            <div class="party-detail" id="view-buyer-addr"></div>
+          </div>
+        </div>
+
+        <!-- Dates -->
+        <div class="inv-date-row">
+          <div class="inv-date-item">
+            <span class="inv-date-lbl">تاريخ الإصدار · Issue Date</span>
+            <span class="inv-date-val" id="view-date">—</span>
+          </div>
+          <div class="inv-date-item">
+            <span class="inv-date-lbl">رقم الفاتورة · Invoice No.</span>
+            <span class="inv-date-val" style="font-family:'DM Mono',monospace;" id="view-inv-num3">—</span>
+          </div>
+        </div>
+
+        <!-- Items Table -->
+        <table class="inv-tbl">
+          <thead>
+            <tr>
+              <th style="width:35%;">Description / الوصف</th>
+              <th>Qty</th>
+              <th>Unit Price</th>
+              <th>Disc%</th>
+              <th>Subtotal</th>
+              <th>VAT 15%</th>
+              <th>Total</th>
+            </tr>
+          </thead>
+          <tbody id="view-items"></tbody>
+        </table>
+
+        <!-- Totals -->
+        <div class="inv-footer">
+          <div class="inv-totals">
+            <div class="tot-row">
+              <span>Subtotal / الإجمالي قبل الضريبة</span>
+              <span class="tot-val" id="view-sub">SAR 0.00</span>
+            </div>
+            <div class="tot-row">
+              <span>VAT 15% / ضريبة القيمة المضافة</span>
+              <span class="tot-val" id="view-vat">SAR 0.00</span>
+            </div>
+            <div class="tot-row grand">
+              <span>Total / الإجمالي شامل الضريبة</span>
+              <span class="tot-val" id="view-total">SAR 0.00</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- QR Strip -->
+        <div class="inv-qr-strip">
+          <div class="inv-qr-box" id="view-qr"></div>
+          <div class="inv-qr-info">
+            <div class="inv-qr-title">ZATCA Phase 2 · فاتورة إلكترونية</div>
+            <div class="inv-qr-sub">امسح رمز QR للتحقق من صحة الفاتورة عبر تطبيق زاتكا<br>Scan QR to verify via ZATCA app</div>
+          </div>
+        </div>
+
+        <!-- Notes -->
+        <div id="view-notes" style="display:none;" class="inv-notes"></div>
+
+      </div>
+    </div>
+
+    <div class="powered-by">
+      مدعوم بـ <a href="https://gulfledger.net">GulfLedger</a> · منصة المحاسبة السعودية
+    </div>
+
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL='https://ykzivnasjwtuhvjxfxzf.supabase.co';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+
+function fmt(n){return(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');}
+function set(id,v){const e=document.getElementById(id);if(e)e.textContent=v;}
+
+async function init(){
+  const params=new URLSearchParams(window.location.search);
+  const invNum=params.get('inv');
+  if(!invNum){showError();return;}
+
+  // Load invoice
+  const {data:inv,error}=await sb.from('invoices')
+    .select('*').eq('invoice_number',invNum).single();
+  if(error||!inv){showError();return;}
+
+  // Load invoice items
+  const {data:invItems}=await sb.from('invoice_items')
+    .select('*').eq('invoice_id',inv.id).order('sort_order');
+
+  // Load business
+  const {data:biz}=await sb.from('businesses')
+    .select('name,name_ar,trn,cr_number,building_number,address,district,city,postal_code,logo_base64')
+    .eq('id',inv.business_id).single();
+
+  renderInvoice(inv, invItems||[], biz);
+}
+
+function renderInvoice(inv, items, biz){
+  // Business
+  const bizName=biz?.name_ar||biz?.name||'GulfLedger';
+  set('view-biz-name', bizName);
+  set('view-logo-initial', bizName[0]||'G');
+  if(biz?.logo_base64){
+    const box=document.getElementById('view-logo-box');
+    box.innerHTML=`<img src="${biz.logo_base64}" alt="logo">`;
+  }
+
+  // Apply brand color if stored
+  if(inv.brand_color){
+    document.documentElement.style.setProperty('--brand', inv.brand_color);
+    document.documentElement.style.setProperty('--navy', inv.brand_color);
+  }
+
+  // Invoice numbers
+  ['view-inv-num','view-inv-num2','view-inv-num3'].forEach(id=>set(id,inv.invoice_number));
+  set('view-inv-type', inv.invoice_type==='b2b'?'B2B TAX INVOICE · فاتورة ضريبية':'B2C SIMPLIFIED · فاتورة مبسطة');
+
+  // Seller
+  set('view-seller-name', bizName);
+  const addr=[biz?.building_number,biz?.address,biz?.district,biz?.city,biz?.postal_code].filter(Boolean).join('، ');
+  set('view-seller-addr', addr);
+  set('view-seller-trn',  biz?.trn  ? 'TRN: '+biz.trn  : '');
+  set('view-seller-cr',   biz?.cr_number ? 'CR: '+biz.cr_number : '');
+
+  // Buyer
+  set('view-buyer-name', inv.buyer_name||'—');
+  set('view-buyer-trn',  inv.buyer_trn ? 'TRN: '+inv.buyer_trn : '');
+  set('view-buyer-addr', [inv.buyer_address, inv.buyer_city].filter(Boolean).join('، '));
+
+  // Date
+  set('view-date', inv.issue_date||'—');
+
+  // Items
+  const tb=document.getElementById('view-items');
+  tb.innerHTML=(items||[]).map(it=>{
+    const disc=it.discount_pct||0;
+    const discAmt=it.subtotal*(disc/100)||it.discount_amt||0;
+    const netSub=it.subtotal||0;
+    const vat=it.vat_amount||0;
+    const tot=it.total||0;
+    return `<tr>
+      <td>${it.description||'—'}${disc>0?`<div style="font-size:9px;color:var(--amber);">خصم ${disc}% = SAR ${fmt(discAmt)}</div>`:''}</td>
+      <td>${it.quantity||0}</td>
+      <td>SAR ${fmt(it.unit_price)}</td>
+      <td>${disc>0?disc+'%':'—'}</td>
+      <td>SAR ${fmt(netSub)}</td>
+      <td>SAR ${fmt(vat)}</td>
+      <td style="font-weight:700;">SAR ${fmt(tot)}</td>
+    </tr>`;
+  }).join('');
+
+  // Totals
+  set('view-sub',   'SAR '+fmt(inv.subtotal));
+  set('view-vat',   'SAR '+fmt(inv.vat_amount));
+  set('view-total', 'SAR '+fmt(inv.total));
+
+  // Notes
+  if(inv.notes){
+    const n=document.getElementById('view-notes');
+    n.style.display='block';
+    n.textContent=inv.notes;
+  }
+
+  // QR Code
+  generateQR(bizName, biz?.trn, inv.issue_date, inv.total, inv.vat_amount);
+
+  // Show
+  document.getElementById('loading-state').style.display='none';
+  document.getElementById('inv-content').style.display='block';
+
+  // Page title
+  document.title=`فاتورة ${inv.invoice_number} — ${bizName}`;
+}
+
+function generateQR(name, trn, date, total, vat){
+  const container=document.getElementById('view-qr');
+  container.innerHTML='';
+  if(!name&&!trn)return;
+
+  function tlvEncode(tag,value){
+    const v=new TextEncoder().encode(value);
+    return new Uint8Array([tag,v.length,...v]);
+  }
+  function buildTLV(name,trn,date,total,vat){
+    const parts=[
+      tlvEncode(1,name),tlvEncode(2,trn||''),
+      tlvEncode(3,date+'T00:00:00Z'),
+      tlvEncode(4,(total||0).toFixed(2)),
+      tlvEncode(5,(vat||0).toFixed(2))
+    ];
+    const len=parts.reduce((s,p)=>s+p.length,0);
+    const result=new Uint8Array(len);
+    let offset=0;
+    parts.forEach(p=>{result.set(p,offset);offset+=p.length;});
+    return result;
+  }
+  try{
+    const tlv=buildTLV(name,trn||'',date||'',total||0,vat||0);
+    const b64=btoa(String.fromCharCode(...tlv));
+    new QRCode(container,{text:b64,width:76,height:76,colorDark:'#000',colorLight:'#fff',correctLevel:QRCode.CorrectLevel.M});
+  }catch(e){container.innerHTML='<div style="font-size:9px;color:var(--muted);text-align:center;">QR</div>';}
+}
+
+function showError(){
+  document.getElementById('loading-state').style.display='none';
+  document.getElementById('error-state').style.display='block';
+}
+
+init();
+</script>
+</body>
+</html>
