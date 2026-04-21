@@ -826,15 +826,17 @@ let currentBiz  = null;
 let paymentInvoiceId = null;
 let paymentInvoiceTotal = 0;
 
-function openPaymentModal(invoiceId, invoiceNum, total, buyerName){
+function openPaymentModal(invoiceId, invoiceNum, total, buyerName, amountPaid){
   paymentInvoiceId    = invoiceId;
   paymentInvoiceTotal = total;
+  const paid    = parseFloat(amountPaid)||0;
+  const remaining = Math.max(0, total - paid);
   document.getElementById('pay-modal-title').textContent =
     (currentLang==='ar' ? 'تسجيل دفعة — ' : 'Record Payment — ') + invoiceNum;
   document.getElementById('pay-modal-sub').textContent =
     (currentLang==='ar' ? 'المشتري: ' : 'Buyer: ') + (buyerName||'—') +
-    '  |  ' + (currentLang==='ar' ? 'الإجمالي: ' : 'Total: ') + 'SAR ' + fmt(total);
-  document.getElementById('pay-amount').value = fmt(total).replace(/,/g,'');
+    '  |  ' + (currentLang==='ar' ? 'المتبقي: ' : 'Remaining: ') + 'SAR ' + fmt(remaining);
+  document.getElementById('pay-amount').value = fmt(remaining).replace(/,/g,'');
   document.getElementById('pay-date').value   = today();
   document.getElementById('pay-method').value = 'cash';
   document.getElementById('pay-ref').value    = '';
@@ -863,7 +865,12 @@ async function confirmPayment(){
     throw new Error('no date');
   }
 
-  const status = amount >= paymentInvoiceTotal ? 'paid' : 'partial';
+  // Fetch current amount_paid to calculate cumulative
+  const {data:invData} = await sb.from('invoices').select('amount_paid,total').eq('id',paymentInvoiceId).single();
+  const alreadyPaid = parseFloat(invData?.amount_paid)||0;
+  const invoiceTotal = parseFloat(invData?.total)||paymentInvoiceTotal;
+  const cumulativePaid = alreadyPaid + amount;
+  const status = cumulativePaid >= invoiceTotal ? 'paid' : 'partial';
 
   // Update invoice payment status — include user_id for RLS
   const {error: updateErr} = await sb.from('invoices').update({
@@ -871,7 +878,7 @@ async function confirmPayment(){
     payment_date:   date,
     payment_method: method,
     payment_ref:    ref || null,
-    amount_paid:    amount,
+    amount_paid:    cumulativePaid,
     updated_at:     new Date().toISOString()
   }).eq('id', paymentInvoiceId).eq('user_id', currentUser.id);
 
@@ -2045,7 +2052,7 @@ async function loadInvoices() {
         ? `<span class="badge" style="background:#fef3c7;color:#92400e;">⚡ ${currentLang==='ar'?'جزئي':'Partial'}</span>`
         : `<span class="badge" style="background:#fff1f2;color:#be123c;">⏳ ${currentLang==='ar'?'غير مدفوع':'Unpaid'}</span>`;
       const actionBtn = paid ? '—' :
-        `<button onclick="event.stopPropagation();openPaymentModal('${inv.id}','${inv.invoice_number}',${inv.total},'${inv.buyer_name||''}')"
+        `<button onclick="event.stopPropagation();openPaymentModal('${inv.id}','${inv.invoice_number}',${inv.total},'${inv.buyer_name||''}',${inv.amount_paid||0})"
           style="padding:3px 9px;background:var(--green);color:#fff;border:none;border-radius:5px;font-size:10px;font-family:'Tajawal',sans-serif;cursor:pointer;white-space:nowrap;">
           💰 ${currentLang==='ar'?'تسجيل دفعة':'Record Payment'}
         </button>`;
@@ -2375,6 +2382,9 @@ setTimeout(enforceLayout, 0);
 setTimeout(enforceLayout, 500);
 window.addEventListener('resize',enforceLayout);
 
+window.addEventListener('unhandledrejection', e => {
+  console.error('UNHANDLED REJECTION:', e.reason);
+});
 init();
 
 // Force Gregorian dates — prevents Hijri calendar on Arabic devices
