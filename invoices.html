@@ -784,39 +784,43 @@ async function confirmPayment(){
     updated_at:     new Date().toISOString()
   }).eq('id', paymentInvoiceId);
 
-  // Post journal entry: Dr Cash/Bank | Cr Receivables
-  const accountCode = (method==='bank'||method==='card') ? '1101' : '1100';
-  const accountName = (method==='bank'||method==='card')
-    ? (currentLang==='ar'?'البنك':'Bank')
-    : (currentLang==='ar'?'النقد وما في حكمه':'Cash');
+  // Post journal entry — non-fatal if it fails
+  try {
+    const accountCode = (method==='bank'||method==='card') ? '1101' : '1100';
+    const accountName = (method==='bank'||method==='card')
+      ? (currentLang==='ar'?'البنك':'Bank')
+      : (currentLang==='ar'?'النقد وما في حكمه':'Cash');
 
-  const {data:entry} = await sb.from('journal_entries').insert({
-    user_id:     currentUser.id,
-    business_id: currentBiz?.id,
-    entry_date:  date,
-    reference:   ref || 'PMT-' + Date.now(),
-    description: (currentLang==='ar'?'استلام دفعة — ':'Payment received — ') +
-                 document.getElementById('pay-modal-title').textContent.split('—')[1]?.trim(),
-    source:      'payment',
-    status:      'posted',
-    is_balanced: true
-  }).select().single();
+    const {data:entry} = await sb.from('journal_entries').insert({
+      user_id:     currentUser.id,
+      business_id: currentBiz?.id,
+      entry_date:  date,
+      reference:   ref || 'PMT-' + Date.now(),
+      description: (currentLang==='ar'?'استلام دفعة — ':'Payment received — ') +
+                   document.getElementById('pay-modal-title').textContent.split('—')[1]?.trim(),
+      source:      'payment',
+      status:      'posted',
+      is_balanced: true
+    }).select().single();
 
-  if(entry){
-    await sb.from('journal_lines').insert([
-      {
-        entry_id:    entry.id, user_id: currentUser.id,
-        account_code: accountCode, account_name: accountName,
-        debit: amount, credit: 0,
-        description: (currentLang==='ar'?'استلام من عميل':'Received from customer')
-      },
-      {
-        entry_id:    entry.id, user_id: currentUser.id,
-        account_code: '1200', account_name: currentLang==='ar'?'ذمم مدينة تجارية':'Trade Receivables',
-        debit: 0, credit: amount,
-        description: (currentLang==='ar'?'إقفال ذمة مدينة':'Clear receivable')
-      }
-    ]);
+    if(entry){
+      await sb.from('journal_lines').insert([
+        {
+          entry_id:    entry.id, user_id: currentUser.id,
+          account_code: accountCode, account_name: accountName,
+          debit: amount, credit: 0,
+          description: (currentLang==='ar'?'استلام من عميل':'Received from customer')
+        },
+        {
+          entry_id:    entry.id, user_id: currentUser.id,
+          account_code: '1200', account_name: currentLang==='ar'?'ذمم مدينة تجارية':'Trade Receivables',
+          debit: 0, credit: amount,
+          description: (currentLang==='ar'?'إقفال ذمة مدينة':'Clear receivable')
+        }
+      ]);
+    }
+  } catch(journalErr){
+    console.warn('Journal entry skipped:', journalErr.message);
   }
 
   notify(
@@ -835,8 +839,16 @@ function printInvoice(){
   const invoice = document.getElementById('invoice-preview');
   if(!invoice){ window.print(); return; }
 
-  const styles = Array.from(document.querySelectorAll('style'))
+  // Only grab invoice-specific styles (not nav/form/modal styles)
+  const allStyles = Array.from(document.querySelectorAll('style'))
     .map(s => s.innerHTML).join('\n');
+
+  // Extract only inv-* and party-* and relevant rules
+  const invoiceStyleRules = allStyles.split('\n').filter(line =>
+    line.match(/inv-|party-|\.badge|\.mono|@font|disc-tag|mock/)
+  ).join('\n');
+
+  const brandColor = getComputedStyle(document.documentElement).getPropertyValue('--brand').trim() || '#0C447C';
 
   const html = `<!DOCTYPE html>
 <html lang="en" dir="ltr">
@@ -844,49 +856,68 @@ function printInvoice(){
 <meta charset="UTF-8">
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Tajawal:wght@400;700&family=DM+Mono&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
 <style>
+:root{--brand:${brandColor};--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--ink:#0d1a2a;--muted:#5a7a99;--white:#fff;--border:#d4e6f7;--amber:#B45309;}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{background:#fff;font-family:'Tajawal',sans-serif;}
-@page{
-  size:A4 portrait;
-  margin:12mm;
-  @bottom-right{
-    content:"Page " counter(page) " of " counter(pages);
-    font-family:'DM Mono',monospace;
-    font-size:9px;
-    color:#888;
-  }
-}
-@media print{
-  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
-  body{counter-reset:page;}
-  .page-num::after{content:counter(page);}
-}
-${styles}
-/* Print overrides */
-.invoice-doc{
-  box-shadow:none!important;border-radius:0!important;
-  width:100%!important;margin:0!important;min-height:0!important;
-  display:block!important;  /* block — footer flows naturally after content */
-}
-.inv-body{
-  padding:14px 20px!important;
-  display:block!important;  /* block — no flex tricks */
-}
-.inv-footer{
-  margin-top:16px!important;  /* simple gap — no auto */
-  padding-top:10px!important;
-  border-top:1.5px solid #d4e6f7!important;
-  page-break-inside:avoid;
-  display:block!important;
-}
-.inv-footer-top{display:flex!important;justify-content:flex-end!important;margin-bottom:12px!important;}
-.inv-qr-section{display:flex!important;align-items:center!important;}
-.inv-qr-box img,.inv-qr-box canvas{display:block!important;width:76px!important;height:76px!important;}
-.inv-items{width:100%!important;page-break-inside:auto;}
-.inv-items thead{display:table-header-group!important;}
-.inv-items tbody tr{page-break-inside:avoid;}
-.inv-parties{display:grid!important;grid-template-columns:1fr 1fr!important;border:1px solid #d4e6f7!important;}
-.inv-parties>div:first-child{border-right:1px solid #d4e6f7!important;border-bottom:none!important;}
+body{background:#fff;font-family:'Tajawal',sans-serif;color:#0d1a2a;}
+@page{size:A4 portrait;margin:12mm;@bottom-right{content:"Page " counter(page) " / " counter(pages);font-family:'DM Mono',monospace;font-size:9px;color:#aaa;}}
+@media print{*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}}
+.mono{font-family:'DM Mono',monospace;}
+.badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;display:inline-block;}
+/* Invoice layout */
+.invoice-doc{background:#fff;width:100%;display:block;}
+/* Header */
+.inv-header{background:var(--brand);padding:20px 24px;display:flex;align-items:center;justify-content:space-between;}
+.inv-brand{display:flex;align-items:center;gap:10px;}
+.inv-bars{display:flex;gap:3px;height:28px;}
+.inv-bar{width:4px;border-radius:2px;}
+.inv-brand-name{font-family:'Playfair Display',serif;font-size:18px;color:#fff;}
+.inv-brand-sub{font-size:9px;letter-spacing:3px;color:var(--light);display:block;}
+.inv-meta{text-align:right;}
+.inv-num{font-family:'DM Mono',monospace;font-size:14px;color:#fff;font-weight:700;}
+.inv-type-badge{font-size:9px;font-weight:700;padding:2px 8px;border-radius:6px;background:rgba(255,255,255,0.15);color:var(--light);display:inline-block;margin-top:4px;}
+/* Body */
+.inv-body{padding:16px 20px;display:block;}
+/* Parties */
+.inv-parties{display:grid;grid-template-columns:1fr 1fr;gap:0;margin-bottom:16px;border:1px solid var(--border);border-radius:8px;overflow:hidden;}
+.inv-parties>div{padding:12px 16px;text-align:center;}
+.inv-parties>div:first-child{border-right:1px solid var(--border);}
+.party-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:5px;}
+.party-name{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:3px;}
+.party-detail{font-size:10px;color:var(--muted);line-height:1.5;}
+.party-trn{font-family:'DM Mono',monospace;font-size:10px;color:var(--ink);margin-top:3px;}
+/* Date row */
+.inv-date-row{display:flex;gap:20px;margin-bottom:16px;padding:10px 14px;background:var(--tint);border-radius:7px;}
+.inv-date-item{display:flex;flex-direction:column;gap:3px;}
+.inv-date-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);}
+.inv-date-val{font-size:12px;font-weight:700;color:var(--ink);}
+/* Items table */
+.inv-items{width:100%;border-collapse:collapse;margin-bottom:0;font-size:11px;}
+.inv-items thead{display:table-header-group;}
+.inv-items th{background:var(--brand);color:#fff;padding:7px 10px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;}
+.inv-items td{padding:8px 10px;border-bottom:1px solid var(--tint);}
+.inv-items tbody tr:last-child td{border-bottom:none;}
+.disc-tag{font-size:9px;color:var(--amber);background:#fffbeb;border:1px solid #fde68a;border-radius:4px;padding:1px 5px;display:inline-block;margin-top:3px;}
+/* Footer — flows right after table */
+.inv-footer{margin-top:16px;padding-top:10px;border-top:1.5px solid var(--border);display:block;page-break-inside:avoid;}
+.inv-footer-top{display:flex;justify-content:flex-end;margin-bottom:14px;}
+.inv-totals{min-width:220px;}
+.inv-total-row{display:flex;justify-content:space-between;padding:3px 0;font-size:11px;color:var(--muted);}
+.inv-total-row.grand{font-size:14px;font-weight:700;color:var(--navy);border-top:1.5px solid var(--navy);margin-top:4px;padding-top:6px;}
+.inv-total-val{font-family:'DM Mono',monospace;font-weight:600;}
+/* QR */
+.inv-qr-section{display:flex;align-items:center;gap:14px;padding:10px 12px;background:var(--tint);border-radius:8px;border:1px solid var(--border);}
+.inv-qr-box{width:76px;height:76px;background:#fff;display:flex;align-items:center;justify-content:center;border-radius:5px;border:1px solid var(--border);flex-shrink:0;}
+.inv-qr-box img,.inv-qr-box canvas{width:76px!important;height:76px!important;display:block!important;}
+.inv-qr-zatca{font-size:9px;font-weight:700;color:var(--navy);letter-spacing:.05em;margin-bottom:3px;}
+.inv-qr-label{font-size:9px;color:var(--muted);line-height:1.6;}
+/* Notes / custom footer */
+#p-notes{font-size:11px;color:var(--muted);border-top:1px solid var(--tint);padding-top:8px;margin-bottom:10px;}
+.inv-custom-footer{text-align:center;font-size:11px;color:var(--muted);padding:10px 0 4px;border-top:1px solid var(--tint);margin-top:8px;}
+/* Logo */
+#p-logo-wrap{width:44px;height:44px;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.15);flex-shrink:0;margin-left:10px;}
+#p-logo{width:100%;height:100%;object-fit:cover;}
+/* B2C notice */
+.inv-b2c-notice{background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:7px 11px;font-size:10px;color:#085041;margin-bottom:12px;}
 </style>
 </head>
 <body>
@@ -981,7 +1012,7 @@ async function btnAction(btn, asyncFn, successMsg) {
     btn.classList.remove('btn-loading');
     btn.disabled = false;
     // Only show red error for real errors, not user cancellation
-    if(e.message === 'cancelled' || e.message === 'no invoice number') {
+    if(e.message === 'cancelled' || e.message === 'no invoice number' || e.message === 'no amount' || e.message === 'no date' || e.message === 'no invoice') {
       btn.innerHTML = original;
       btn.style.background = originalBg;
     } else {
