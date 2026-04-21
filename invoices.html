@@ -865,7 +865,7 @@ async function confirmPayment(){
 
   const status = amount >= paymentInvoiceTotal ? 'paid' : 'partial';
 
-  // Try full update first
+  // Update invoice payment status — include user_id for RLS
   const {error: updateErr} = await sb.from('invoices').update({
     payment_status: status,
     payment_date:   date,
@@ -873,19 +873,17 @@ async function confirmPayment(){
     payment_ref:    ref || null,
     amount_paid:    amount,
     updated_at:     new Date().toISOString()
-  }).eq('id', paymentInvoiceId);
+  }).eq('id', paymentInvoiceId).eq('user_id', currentUser.id);
 
   if(updateErr){
-    console.error('Payment update error:', updateErr.message, updateErr.code);
-    // If columns missing — run schema-payments.sql
+    console.error('Payment update error:', updateErr);
     if(updateErr.message?.includes('column') || updateErr.code === '42703'){
       notify(currentLang==='ar'
         ?'⚠ يرجى تشغيل schema-payments.sql في Supabase أولاً'
         :'⚠ Please run schema-payments.sql in Supabase first','r');
-      throw new Error('schema missing');
+    } else {
+      notify('خطأ: ' + (updateErr.message||updateErr.code||'unknown error'), 'r');
     }
-    // Other DB error
-    notify(currentLang==='ar'?'خطأ في تحديث الفاتورة: '+updateErr.message:'Error updating invoice: '+updateErr.message,'r');
     throw new Error('update failed');
   }
 
