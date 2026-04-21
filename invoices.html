@@ -1491,8 +1491,9 @@ async function saveInvoice() {
   });
   await sb.from('invoice_items').insert(itemRows);
 
-  // DEDUCT STOCK + POST COGS for items picked from inventory
+  // DEDUCT STOCK + POST COGS — wrapped in try/catch so stock errors don't fail the save
   if (currentBiz?.id) {
+    try {
     let totalCOGS = 0;
     const useFIFO = (currentBiz.costing_method || 'wac') === 'fifo';
 
@@ -1586,6 +1587,10 @@ async function saveInvoice() {
           }
         ]);
       }
+    }
+    } catch(stockErr) {
+      console.warn('Stock deduction skipped:', stockErr.message);
+      // Invoice is already saved — stock error is non-fatal
     }
   }
   await autoPostInvoice({
