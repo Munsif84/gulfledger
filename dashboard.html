@@ -663,41 +663,49 @@ Make insights specific with real numbers. Be direct and practical.`;
 }
 
 function buildFallbackInsights(){
-  // Rule-based fallback when API unavailable
-  const insights = [];
   const now = new Date();
   const q = Math.floor(now.getMonth()/3);
   const vatDueDate = new Date(now.getFullYear(), q*3+3, 30);
   const daysToVat = Math.round((vatDueDate-now)/(1000*60*60*24));
-
-  const unpaidText = document.getElementById('s-invoiced')?.textContent||'SAR 0';
-
-  if(daysToVat<=30){
-    insights.push({type:'warning',icon:'📅',
+  const vatAmt  = document.getElementById('s-vat')?.textContent||'SAR 0';
+  const revenue = document.getElementById('s-invoiced')?.textContent||'SAR 0';
+  const expenses= document.getElementById('s-expenses')?.textContent||'SAR 0';
+  return [
+    {
+      type: daysToVat<=30?'warning':'info', icon:'📅',
       title: L==='ar'?`VAT مستحق خلال ${daysToVat} يوم`:`VAT due in ${daysToVat} days`,
-      body:  L==='ar'?'تأكد من مراجعة إقرار ضريبة القيمة المضافة وتسديده في الموعد المحدد.':'Review and submit your VAT return before the deadline.',
-      action_label: L==='ar'?'عرض إقرار VAT →':'View VAT Return →', action_url:'vat.html'});
-  }
-
-  insights.push({type:'info',icon:'📊',
-    title: L==='ar'?'مبيعات هذا الشهر':'This Month Sales',
-    body:  L==='ar'?`مبيعاتك هذا الشهر: ${unpaidText}. راجع القوائم المالية للتفاصيل.`:`Your sales this month: ${unpaidText}. Review statements for details.`,
-    action_label: L==='ar'?'القوائم المالية →':'Statements →', action_url:'statements.html'});
-
-  insights.push({type:'action',icon:'💡',
-    title: L==='ar'?'تتبع مدفوعاتك':'Track Your Payments',
-    body:  L==='ar'?'راجع الفواتير غير المدفوعة وتابع مع عملائك لتحسين التدفق النقدي.':'Review unpaid invoices and follow up with customers to improve cash flow.',
-    action_label: L==='ar'?'الفواتير →':'Invoices →', action_url:'invoices.html'});
-
-  return insights.slice(0,3);
+      body:  L==='ar'
+        ?`الضريبة المستحقة ${vatAmt}. تأكد من تقديم الإقرار قبل الموعد النهائي لتجنب الغرامات.`
+        :`Estimated VAT ${vatAmt}. Submit your return before the deadline to avoid penalties.`,
+      action_label: L==='ar'?'تقديم إقرار VAT →':'Submit VAT Return →', action_url:'vat.html'
+    },
+    {
+      type:'info', icon:'📊',
+      title: L==='ar'?'أداء هذا الشهر':'This Month Performance',
+      body:  L==='ar'
+        ?`المبيعات ${revenue} والمصاريف ${expenses}. راجع القوائم المالية للتفاصيل الكاملة.`
+        :`Revenue ${revenue}, Expenses ${expenses}. Review financial statements for full details.`,
+      action_label: L==='ar'?'القوائم المالية →':'Statements →', action_url:'statements.html'
+    },
+    {
+      type:'action', icon:'💰',
+      title: L==='ar'?'تابع مدفوعاتك':'Track Your Payments',
+      body:  L==='ar'
+        ?'راجع الفواتير غير المدفوعة وتابع مع عملائك لتحسين التدفق النقدي وتقليل الذمم المدينة.'
+        :'Review unpaid invoices and follow up with customers to improve cash flow.',
+      action_label: L==='ar'?'الفواتير →':'Invoices →', action_url:'invoices.html'
+    }
+  ];
 }
 
 function renderInsights(insights){
   const container = document.getElementById('insights-container');
   if(!insights||!insights.length){
-    container.innerHTML=`<div style="grid-column:1/-1;text-align:center;color:var(--muted);padding:20px;font-size:12px;">${L==='ar'?'لا توجد تحليلات متاحة':'No insights available'}</div>`;
-    return;
+    insights = buildFallbackInsights();
   }
+  // Always show exactly 3
+  while(insights.length < 3) insights.push(...buildFallbackInsights().slice(0, 3-insights.length));
+  insights = insights.slice(0,3);
   container.innerHTML = insights.map(ins=>`
     <div class="insight-card type-${ins.type||'info'}">
       <div class="insight-icon">${ins.icon||'💡'}</div>
