@@ -601,11 +601,18 @@ function clearExpFilters(){
 }
 
 async function reverseExpense(id){
+  // Local in-memory guard — prevent double reversal even if DB status fails
+  const localExp = expenses.find(e=>e.id===id);
+  if(localExp?.status==='reversed'){
+    notify(L==='ar'?'هذا المصروف مُعكَس مسبقاً':'Already reversed','r');
+    return;
+  }
+
   if(!confirm(L==='ar'?'هل تريد عكس هذا المصروف؟ سيتم إنشاء قيد عكسي في الدفتر.':'Reverse this expense? A reversing journal entry will be posted.'))return;
 
-  // Get expense details
-  const {data:exp}=await sb.from('expenses').select('*').eq('id',id).single();
-  if(!exp){notify(L==='ar'?'لم يتم العثور على المصروف':'Expense not found','r');return;}
+  // Get fresh expense from DB
+  const {data:exp, error:fetchErr}=await sb.from('expenses').select('*').eq('id',id).single();
+  if(fetchErr||!exp){notify(L==='ar'?'لم يتم العثور على المصروف':'Expense not found','r');return;}
   if(exp.status==='reversed'){notify(L==='ar'?'هذا المصروف مُعكَس مسبقاً':'Already reversed','r');return;}
 
   try{
@@ -618,7 +625,7 @@ async function reverseExpense(id){
       const originalLines=original.journal_lines||[];
 
       // Post reversing entry — flip all debits/credits
-      const {data:revEntry}=await sb.from('journal_entries').insert({
+      const {data:revEntry, error:revErr}=await sb.from('journal_entries').insert({
         user_id:currentUser.id,business_id:currentBiz?.id,
         entry_date:today(),
         reference:'REV-'+(exp.reference||id.slice(0,8)),
@@ -627,37 +634,35 @@ async function reverseExpense(id){
         status:'posted',is_balanced:true
       }).select().single();
 
-      if(revEntry){
-        const revLines=originalLines.map(l=>({
-          entry_id:revEntry.id,
-          user_id:currentUser.id,
-          account_code:l.account_code,
-          account_name:l.account_name,
-          debit:l.credit,   // flip
-          credit:l.debit,   // flip
+      if(revErr) throw new Error('Journal reversal failed: '+revErr.message);
+
+      if(revEntry&&originalLines.length){
+        await sb.from('journal_lines').insert(originalLines.map(l=>({
+          entry_id:revEntry.id, user_id:currentUser.id,
+          account_code:l.account_code, account_name:l.account_name,
+          debit:l.credit, credit:l.debit,
           description:(L==='ar'?'عكس: ':'Reversal: ')+l.description
-        }));
-        await sb.from('journal_lines').insert(revLines);
+        })));
       }
 
-      // Mark original entry as reversed
-      await sb.from('journal_entries').update({
-        status:'reversed',
-        updated_at:new Date().toISOString()
-      }).eq('id',original.id);
+      // Mark original journal entry as reversed (no updated_at)
+      await sb.from('journal_entries').update({status:'reversed'}).eq('id',original.id);
     }
 
-    // Mark expense as reversed — do NOT delete
-    await sb.from('expenses').update({
-      status:'reversed',
-      updated_at:new Date().toISOString()
-    }).eq('id',id);
+    // Mark expense as reversed — only status column, no updated_at
+    const {error:updateErr}=await sb.from('expenses').update({status:'reversed'}).eq('id',id);
+    if(updateErr) throw new Error('Status update failed: '+updateErr.message);
+
+    // Update local array immediately so UI reflects change
+    if(localExp) localExp.status='reversed';
 
     notify(L==='ar'?'✅ تم عكس المصروف — القيد العكسي مُرحَّل في الدفتر':'✅ Expense reversed — reversal entry posted to ledger','g');
+    renderExpenses(); // Re-render immediately from local data
+    await loadExpenses(); // Then refresh from DB
+
   }catch(e){
-    notify((L==='ar'?'خطأ: ':'Error: ')+e.message,'r');
+    notify((L==='ar'?'خطأ في العكس: ':'Reversal error: ')+e.message,'r');
   }
-  await loadExpenses();
 }
 
 /* ── STATS ── */
