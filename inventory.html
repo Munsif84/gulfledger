@@ -626,6 +626,11 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
       </div>
     </div>
 
+    <!-- TAB: PROCUREMENT (iframe) -->
+    <div class="tc" id="tc-procurement" style="padding:0;margin:0;">
+      <iframe id="procurement-iframe" src="" style="width:100%;height:calc(100vh - 88px);border:none;display:block;" allowfullscreen></iframe>
+    </div>
+
     <!-- TAB: FIFO BATCH LEDGER -->
     <div class="tc" id="tc-fifo">
       <div class="card">
@@ -1032,28 +1037,47 @@ function goTab(name){
   if(name==='adjust')loadAdjItems();
 }
 
-/* ── PRO NAVIGATION — check plan then navigate ── */
+/* ── PRO NAVIGATION — iframe embed with pro lock ── */
 function goPro(url){
   const plan=currentBiz?.plan||'starter';
-  if(plan==='pro'){
-    window.location.href=url;
+  if(plan!=='pro'){
+    // Not Pro — show lock overlay
+    const overlay=document.createElement('div');
+    overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    overlay.innerHTML=`
+      <div style="background:#fff;border-radius:14px;padding:32px;max-width:400px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
+        <div style="font-size:48px;margin-bottom:12px;">🔐</div>
+        <div style="font-family:'Playfair Display',serif;font-size:20px;color:var(--navy);margin-bottom:10px;">${L==='ar'?'ميزة Pro':'Pro Feature'}</div>
+        <div style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:20px;">${L==='ar'?'أوامر الشراء، فواتير الموردين، والمطابقة الثلاثية متاحة في <strong>باقة Pro</strong> فقط.':'Purchase Orders, Supplier Invoices, and 3-Way Matching are available in the <strong>Pro plan</strong> only.'}</div>
+        <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
+          <a href="https://wa.me/966500000000" style="padding:10px 22px;background:var(--blue);color:#fff;border-radius:8px;text-decoration:none;font-size:13px;font-weight:700;">${L==='ar'?'💬 ترقّ الآن':'💬 Upgrade Now'}</a>
+          <button onclick="this.closest('div[style]').remove()" style="padding:10px 22px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:8px;font-family:'Tajawal',sans-serif;font-size:13px;cursor:pointer;">${L==='ar'?'إغلاق':'Close'}</button>
+        </div>
+      </div>`;
+    overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
+    document.body.appendChild(overlay);
     return;
   }
-  // Not Pro — show lock overlay
-  const overlay=document.createElement('div');
-  overlay.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
-  overlay.innerHTML=`
-    <div style="background:#fff;border-radius:14px;padding:32px;max-width:400px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.3);">
-      <div style="font-size:48px;margin-bottom:12px;">🔐</div>
-      <div style="font-family:'Playfair Display',serif;font-size:20px;color:var(--navy);margin-bottom:10px;">${L==='ar'?'ميزة Pro':'Pro Feature'}</div>
-      <div style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:20px;">${L==='ar'?'أوامر الشراء، فواتير الموردين، والمطابقة الثلاثية متاحة في <strong>باقة Pro</strong> فقط.':'Purchase Orders, Supplier Invoices, and 3-Way Matching are available in the <strong>Pro plan</strong> only.'}</div>
-      <div style="display:flex;gap:10px;justify-content:center;flex-wrap:wrap;">
-        <a href="https://wa.me/966500000000" style="padding:10px 22px;background:var(--blue);color:#fff;border-radius:8px;text-decoration:none;font-size:13px;font-weight:700;">${L==='ar'?'💬 ترقّ الآن':'💬 Upgrade Now'}</a>
-        <button onclick="this.closest('[style]').remove()" style="padding:10px 22px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:8px;font-family:'Tajawal',sans-serif;font-size:13px;cursor:pointer;">${L==='ar'?'إغلاق':'Close'}</button>
-      </div>
-    </div>`;
-  overlay.addEventListener('click',e=>{if(e.target===overlay)overlay.remove();});
-  document.body.appendChild(overlay);
+  // Pro — show iframe tab
+  const tabs=['stock','registry','receive','movements','adjust','cogs','suppliers','upload','fifo'];
+  tabs.forEach(t=>{
+    document.getElementById('tc-'+t)?.classList.remove('active');
+    document.getElementById('sb-'+t)?.classList.remove('active');
+  });
+  // Mark correct sidebar item active
+  ['sb-po','sb-sup-inv','sb-matching'].forEach(id=>document.getElementById(id)?.classList.remove('active'));
+  const hash=url.split('#')[1]||'';
+  if(url.includes('sup-inv')&&hash==='sup-inv') document.getElementById('sb-sup-inv')?.classList.add('active');
+  else if(url.includes('matching')) document.getElementById('sb-matching')?.classList.add('active');
+  else document.getElementById('sb-po')?.classList.add('active');
+
+  // Show iframe tab
+  const tc=document.getElementById('tc-procurement');
+  tc.classList.add('active');
+  // Set iframe src — add ?embed=1 so purchasing.html can hide its own nav
+  const iframe=document.getElementById('procurement-iframe');
+  const separator=url.includes('?')?'&':'?';
+  iframe.src=url+separator+'embed=1';
 }
 
 /* ── ADJUST STOCK ── */
