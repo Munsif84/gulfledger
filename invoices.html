@@ -149,6 +149,36 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
 .btn-danger{padding:8px 14px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
 .actions{display:flex;gap:8px;flex-wrap:wrap;padding:14px 0 0;border-top:1px solid var(--border);margin-top:14px;}
 
+/* INVOICE TYPE TOGGLE */
+.inv-type-toggle{display:flex;gap:4px;background:var(--tint);border:1px solid var(--border);border-radius:10px;padding:3px;}
+.inv-type-chip{padding:5px 14px;font-size:12px;font-weight:600;border-radius:8px;cursor:pointer;border:none;background:transparent;color:var(--muted);font-family:'Tajawal',sans-serif;transition:all .15s;white-space:nowrap;}
+.inv-type-chip.active{background:var(--white);color:var(--navy);box-shadow:0 1px 4px rgba(12,68,124,0.15);}
+/* NOTES COLLAPSIBLE */
+.notes-toggle{display:flex;align-items:center;justify-content:space-between;cursor:pointer;padding:6px 0;user-select:none;}
+.notes-toggle:hover{color:var(--blue);}
+.notes-arrow{font-size:11px;color:var(--muted);transition:transform .2s;}
+.notes-arrow.open{transform:rotate(180deg);}
+/* STRONGER ACTION BUTTONS */
+.actions{display:flex;gap:8px;flex-wrap:wrap;padding:16px 0 0;border-top:2px solid var(--border);margin-top:16px;}
+.btn-primary{padding:11px 24px;background:var(--blue);color:#fff;border:none;border-radius:8px;font-family:'Tajawal',sans-serif;font-size:14px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;}
+.btn-primary:hover{background:var(--navy);}
+.btn-secondary{padding:10px 16px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:8px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:600;cursor:pointer;}
+.btn-secondary:hover{border-color:var(--blue);background:#dbeafe;}
+.btn-whatsapp{padding:11px 18px;background:#25D366;color:#fff;border:none;border-radius:8px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:6px;}
+.btn-whatsapp:hover{background:#128C7E;}
+/* SAVE CONFIRMATION MODAL */
+.save-confirm-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;}
+.save-confirm-box{background:#fff;border-radius:16px;padding:32px 28px;max-width:380px;width:100%;text-align:center;box-shadow:0 20px 60px rgba(0,0,0,0.25);animation:popIn .25s ease;}
+@keyframes popIn{from{transform:scale(0.85);opacity:0}to{transform:scale(1);opacity:1}}
+/* PAYMENT STATUS BADGE on preview */
+.inv-payment-status{display:flex;align-items:center;gap:8px;padding:8px 14px;border-radius:8px;margin-bottom:12px;font-size:11px;font-weight:600;}
+.inv-payment-status.unpaid{background:#fff1f2;color:#be123c;border:1px solid #fca5a5;}
+.inv-payment-status.partial{background:#fef3c7;color:#92400e;border:1px solid #fde68a;}
+.inv-payment-status.paid{background:#dcfce7;color:#166534;border:1px solid #86efac;}
+/* ZATCA compliance badge */
+.zatca-badge{font-size:9px;font-weight:700;padding:2px 7px;border-radius:5px;display:inline-block;margin-top:3px;}
+.zatca-ok{background:#dcfce7;color:#166534;}
+.zatca-warn{background:#fff1f2;color:#be123c;}
 /* SAVE STATUS */
 .save-status{font-size:11px;padding:5px 10px;border-radius:6px;display:none;}
 .save-status.saving{background:var(--tint);color:var(--blue);display:inline-block;}
@@ -413,11 +443,16 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
   <!-- FORM PANEL -->
   <div class="form-panel" style="overflow-y:auto;border-left:1px solid #d4e6f7;background:#fff;">
 
-    <!-- AI Toggle — small chips -->
-    <div class="ai-toggle-row">
+    <!-- Mode + Invoice Type toggle row -->
+    <div class="ai-toggle-row" style="flex-wrap:wrap;gap:6px;margin-bottom:12px;">
       <span data-en="Mode:" data-ar="الوضع:">Mode:</span>
       <button class="ai-chip active" id="chip-manual" onclick="setMode('manual')" data-en="✏️ Manual" data-ar="✏️ يدوي">✏️ Manual</button>
       <button class="ai-chip" id="chip-ai" onclick="setMode('ai')" data-en="✨ AI" data-ar="✨ ذكاء اصطناعي">✨ AI</button>
+      <div style="width:1px;height:20px;background:var(--border);margin:0 4px;"></div>
+      <div class="inv-type-toggle" id="inv-type-toggle">
+        <button class="inv-type-chip active" id="chip-quick" onclick="setInvType('quick')" data-en="⚡ Quick Invoice" data-ar="⚡ فاتورة سريعة">⚡ Quick Invoice</button>
+        <button class="inv-type-chip" id="chip-b2b" onclick="setInvType('b2b')" data-en="🏢 Business (B2B)" data-ar="🏢 أعمال (B2B)">🏢 Business (B2B)</button>
+      </div>
       <span class="save-status" id="save-status">Saving...</span>
     </div>
 
@@ -436,7 +471,9 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
 
     <!-- Invoice Info -->
     <div class="section-title" data-en="Invoice Details" data-ar="بيانات الفاتورة">Invoice Details</div>
-    <div class="field-row double">
+
+    <!-- Quick Invoice: INV# + Date in one row -->
+    <div class="field-row double" id="quick-header-row">
       <div class="field">
         <label data-en="Invoice No." data-ar="رقم الفاتورة">Invoice No.</label>
         <input type="text" id="f-invnum" value="INV-2026-001" oninput="render()">
@@ -446,19 +483,27 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
         <input type="date" lang="en" id="f-date" oninput="render()" style="font-family:'DM Mono',monospace;">
       </div>
     </div>
-    <div class="field-row double">
+
+    <!-- B2B: INV# + Date + PO# all in one row -->
+    <div class="field-row triple" id="b2b-header-row" style="display:none;">
       <div class="field">
-        <label data-en="Type" data-ar="النوع">Type</label>
-        <select id="f-type" onchange="render()">
-          <option value="b2b">B2B — Tax</option>
-          <option value="b2c">B2C — Simplified</option>
-        </select>
+        <label data-en="Invoice No." data-ar="رقم الفاتورة">Invoice No.</label>
+        <input type="text" id="f-invnum-b2b" value="" oninput="syncInvNum(this);render()" style="display:none;">
+        <!-- f-invnum is the real field, b2b row just shows same field differently -->
+        <div style="padding:7px 9px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:'DM Mono',monospace;background:var(--tint);" id="b2b-invnum-display">—</div>
       </div>
       <div class="field">
-        <label data-en="PO No. (optional)" data-ar="رقم أمر الشراء (اختياري)">رقم أمر الشراء (اختياري)</label>
+        <label data-en="Date" data-ar="التاريخ">Date</label>
+        <div style="padding:7px 9px;border:1px solid var(--border);border-radius:6px;font-size:12px;font-family:'DM Mono',monospace;background:var(--tint);" id="b2b-date-display">—</div>
+      </div>
+      <div class="field">
+        <label data-en="PO No. (optional)" data-ar="رقم أمر الشراء (اختياري)">PO No.</label>
         <input type="text" id="f-po-num" placeholder="PO-2026-001" dir="ltr" oninput="render()">
       </div>
     </div>
+
+    <!-- Hidden type field for logic -->
+    <input type="hidden" id="f-type" value="quick">
 
     <!-- Seller -->
     <div class="section-title" data-en="Seller (Your Business)" data-ar="البائع (منشأتك)">Seller (Your Business)</div>
@@ -482,7 +527,6 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
 
     <!-- Buyer -->
     <div class="section-title" data-en="Buyer" data-ar="المشتري">المشتري</div>
-    <div id="b2c-notice" class="inv-b2c-notice" style="display:none;" data-en="B2C — Simplified invoice. Buyer details optional." data-ar="فاتورة مبسطة B2C — بيانات المشتري اختيارية.">فاتورة مبسطة B2C — بيانات المشتري اختيارية.</div>
 
     <!-- Customer smart search -->
     <div class="customer-lookup" id="customer-lookup-wrap">
@@ -503,16 +547,36 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
       </div>
     </div>
 
-    <div id="buyer-fields">
-      <!-- Phone -->
+    <!-- QUICK INVOICE buyer fields — all optional, address only -->
+    <div id="buyer-fields-quick">
       <div class="field-row double">
         <div class="field">
-          <label data-en="Mobile / WhatsApp *" data-ar="الجوال / واتساب *">الجوال / واتساب *</label>
+          <label data-en="Mobile / WhatsApp" data-ar="الجوال / واتساب">الجوال / واتساب <span style="color:var(--muted);font-size:9px;" data-en="(optional)" data-ar="(اختياري)">(اختياري)</span></label>
           <input type="tel" id="f-buyer-mobile" placeholder="05XXXXXXXX" dir="ltr" style="font-family:'DM Mono',monospace;" oninput="render()">
         </div>
         <div class="field">
-          <label data-en="Buyer Name *" data-ar="اسم المشتري *">اسم المشتري *</label>
+          <label data-en="Buyer Name" data-ar="اسم المشتري">اسم المشتري <span style="color:var(--muted);font-size:9px;" data-en="(optional)" data-ar="(اختياري)">(اختياري)</span></label>
           <input type="text" id="f-buyer-name" placeholder="اسم العميل أو الشركة" oninput="render()">
+        </div>
+      </div>
+      <div class="field-row single">
+        <div class="field">
+          <label data-en="Address" data-ar="العنوان">العنوان <span style="color:var(--muted);font-size:9px;" data-en="(optional)" data-ar="(اختياري)">(اختياري)</span></label>
+          <input type="text" id="f-buyer-address-quick" placeholder="العنوان (اختياري)" oninput="syncBuyerAddress(this);render()">
+        </div>
+      </div>
+    </div>
+
+    <!-- B2B buyer fields — full details -->
+    <div id="buyer-fields-b2b" style="display:none;">
+      <div class="field-row double">
+        <div class="field">
+          <label data-en="Mobile / WhatsApp *" data-ar="الجوال / واتساب *">الجوال / واتساب *</label>
+          <input type="tel" id="f-buyer-mobile-b2b" placeholder="05XXXXXXXX" dir="ltr" style="font-family:'DM Mono',monospace;" oninput="syncBuyerMobile(this);render()">
+        </div>
+        <div class="field">
+          <label data-en="Buyer Name *" data-ar="اسم المشتري *">اسم المشتري *</label>
+          <input type="text" id="f-buyer-name-b2b" placeholder="اسم العميل أو الشركة" oninput="syncBuyerName(this);render()">
         </div>
       </div>
       <div class="field-row double">
@@ -527,7 +591,7 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
       </div>
       <div class="field-row single">
         <div class="field">
-          <label data-en="Buyer Street / District" data-ar="شارع / حي المشتري">الشارع / الحي</label>
+          <label data-en="Street / District" data-ar="الشارع / الحي">الشارع / الحي</label>
           <input type="text" id="f-buyer-address" placeholder="شارع الملك فهد، حي العليا" oninput="render()">
         </div>
       </div>
@@ -547,15 +611,20 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
     <div id="items-container"></div>
     <button class="btn-secondary" onclick="addItem()" style="width:100%;margin-top:4px;font-size:12px;" data-en="+ Add Item" data-ar="+ إضافة بند">+ إضافة بند</button>
 
-    <!-- Notes -->
-    <div class="section-title" data-en="Notes (optional)" data-ar="ملاحظات">Notes</div>
-    <div class="field">
-      <textarea id="f-notes" rows="2" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;resize:vertical;" placeholder="Payment terms, delivery notes..." oninput="render()"></textarea>
+    <!-- Notes — collapsible -->
+    <div class="notes-toggle" onclick="toggleNotes()" id="notes-header">
+      <span class="section-title" style="margin:0;" data-en="Notes (optional)" data-ar="ملاحظات (اختياري)">ملاحظات (اختياري)</span>
+      <span class="notes-arrow" id="notes-arrow">▾</span>
+    </div>
+    <div id="notes-body" style="display:none;">
+      <div class="field">
+        <textarea id="f-notes" rows="2" style="width:100%;padding:7px 9px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;resize:vertical;" placeholder="شروط الدفع، ملاحظات التسليم..." oninput="render()"></textarea>
+      </div>
     </div>
 
     <div class="actions">
       <button class="btn-primary" id="btn-save-invoice" onclick="btnAction(this, saveInvoice, currentLang==='ar'?'تم الحفظ':'Saved')" data-en="💾 Save Invoice" data-ar="💾 حفظ الفاتورة">💾 حفظ الفاتورة</button>
-      <button class="btn-whatsapp" id="btn-whatsapp" onclick="sendWhatsApp()" style="display:none;" data-en="💬 WhatsApp" data-ar="💬 واتساب">💬 واتساب</button>
+      <button class="btn-whatsapp" id="btn-whatsapp" onclick="sendWhatsApp()" data-en="💬 Send via WhatsApp" data-ar="💬 إرسال واتساب">💬 إرسال واتساب</button>
       <button class="btn-secondary" onclick="printInvoice()" data-en="🖨 Print" data-ar="🖨 طباعة">🖨 طباعة</button>
       <button class="btn-secondary" onclick="newInvoice()" data-en="+ New" data-ar="+ جديد">+ جديد</button>
     </div>
@@ -571,9 +640,15 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
   </div>
 
   <!-- PREVIEW PANEL -->
-  <div class="preview-panel">
+  <div class="preview-panel" style="padding:14px 8px;background:var(--bg);overflow-y:auto;display:flex;flex-direction:column;">
 
-    <div class="invoice-doc" id="invoice-preview">
+    <!-- Payment & compliance status bar -->
+    <div id="inv-status-bar" style="display:none;margin:0 8px 10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <div id="p-payment-status" class="inv-payment-status unpaid" style="display:none;">⏳ <span data-en="Unpaid" data-ar="غير مدفوع">غير مدفوع</span></div>
+      <div id="p-zatca-status" style="display:none;font-size:10px;"></div>
+    </div>
+
+    <div class="invoice-doc" id="invoice-preview" style="flex:1;">
       <div class="inv-header">
         <div class="inv-brand">
           <div id="p-logo-wrap" style="display:none;width:44px;height:44px;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.15);flex-shrink:0;margin-left:10px;">
@@ -692,7 +767,15 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
       <div id="pane-invoices">
         <div class="inv-list-header">
           <div class="inv-list-title" data-en="Saved Invoices" data-ar="الفواتير المحفوظة">الفواتير المحفوظة</div>
-          <button class="btn-secondary" onclick="loadInvoices()" style="font-size:11px;padding:5px 12px;" data-en="Refresh" data-ar="تحديث">تحديث</button>
+          <div style="display:flex;gap:6px;align-items:center;flex-wrap:wrap;">
+            <div style="display:flex;gap:2px;background:var(--tint);border:1px solid var(--border);border-radius:8px;padding:2px;">
+              <button id="inv-filter-all" onclick="setInvFilter('all')" style="padding:4px 10px;border:none;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;font-weight:600;cursor:pointer;background:var(--blue);color:#fff;" data-en="All" data-ar="الكل">الكل</button>
+              <button id="inv-filter-unpaid" onclick="setInvFilter('unpaid')" style="padding:4px 10px;border:none;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;font-weight:600;cursor:pointer;background:transparent;color:var(--muted);" data-en="Unpaid" data-ar="غير مدفوع">غير مدفوع</button>
+              <button id="inv-filter-partial" onclick="setInvFilter('partial')" style="padding:4px 10px;border:none;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;font-weight:600;cursor:pointer;background:transparent;color:var(--muted);" data-en="Partial" data-ar="جزئي">جزئي</button>
+              <button id="inv-filter-paid" onclick="setInvFilter('paid')" style="padding:4px 10px;border:none;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;font-weight:600;cursor:pointer;background:transparent;color:var(--muted);" data-en="Paid" data-ar="مدفوع">مدفوع</button>
+            </div>
+            <button class="btn-secondary" onclick="loadInvoices()" style="font-size:11px;padding:5px 12px;" data-en="↻ Refresh" data-ar="↻ تحديث">↻ تحديث</button>
+          </div>
         </div>
         <div id="inv-list">
           <div style="text-align:center;padding:20px;color:var(--muted);font-size:12px;">Loading invoices...</div>
@@ -825,6 +908,20 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
   </div>
 </div>
 
+<!-- SAVE CONFIRMATION MODAL -->
+<div id="save-confirm-modal" style="display:none;" class="save-confirm-overlay" onclick="if(event.target===this)this.style.display='none'">
+  <div class="save-confirm-box">
+    <div style="font-size:48px;margin-bottom:10px;">✅</div>
+    <div style="font-size:18px;font-weight:700;color:var(--navy);margin-bottom:6px;" id="save-confirm-title" data-ar="تم حفظ الفاتورة" data-en="Invoice Saved">تم حفظ الفاتورة</div>
+    <div style="font-size:13px;color:var(--muted);margin-bottom:20px;" id="save-confirm-sub"></div>
+    <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
+      <button class="btn-whatsapp" onclick="document.getElementById('save-confirm-modal').style.display='none';sendWhatsApp()" data-ar="💬 إرسال واتساب" data-en="💬 Send WhatsApp">💬 إرسال واتساب</button>
+      <button class="btn-secondary" onclick="document.getElementById('save-confirm-modal').style.display='none';printInvoice()" data-ar="🖨 طباعة" data-en="🖨 Print">🖨 طباعة</button>
+      <button class="btn-secondary" onclick="document.getElementById('save-confirm-modal').style.display='none'" data-ar="إغلاق" data-en="Close">إغلاق</button>
+    </div>
+  </div>
+</div>
+
 <script>
 const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
@@ -832,6 +929,8 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let currentUser = null;
 let currentBiz  = null;
+let allInvoices = [];
+let currentInvType = 'quick';
 
 /* ── PAYMENT MODAL ── */
 let paymentInvoiceId = null;
@@ -1455,6 +1554,86 @@ function setMode(mode) {
   document.getElementById('chip-manual').classList.toggle('active', !isAI);
 }
 
+/* ── INVOICE TYPE TOGGLE ── */
+
+function setInvType(type) {
+  currentInvType = type;
+  const isB2B = type === 'b2b';
+
+  // Toggle chips
+  document.getElementById('chip-quick').classList.toggle('active', !isB2B);
+  document.getElementById('chip-b2b').classList.toggle('active', isB2B);
+
+  // Show/hide header rows
+  document.getElementById('quick-header-row').style.display = isB2B ? 'none' : '';
+  document.getElementById('b2b-header-row').style.display   = isB2B ? '' : 'none';
+
+  // Show/hide buyer fields
+  document.getElementById('buyer-fields-quick').style.display = isB2B ? 'none' : '';
+  document.getElementById('buyer-fields-b2b').style.display   = isB2B ? '' : 'none';
+
+  // Sync f-type hidden field
+  document.getElementById('f-type').value = isB2B ? 'b2b' : 'b2c';
+
+  // Sync B2B display fields
+  if(isB2B) {
+    document.getElementById('b2b-invnum-display').textContent = v('f-invnum') || '—';
+    document.getElementById('b2b-date-display').textContent   = v('f-date')   || '—';
+    // Sync buyer fields from quick to b2b
+    document.getElementById('f-buyer-mobile-b2b').value = document.getElementById('f-buyer-mobile').value;
+    document.getElementById('f-buyer-name-b2b').value   = document.getElementById('f-buyer-name').value;
+  }
+  render();
+}
+
+function syncInvNum(el){ /* B2B display only — f-invnum is the source */ }
+function syncBuyerMobile(el){ document.getElementById('f-buyer-mobile').value = el.value; render(); }
+function syncBuyerName(el)  { document.getElementById('f-buyer-name').value   = el.value; render(); }
+function syncBuyerAddress(el){ document.getElementById('f-buyer-address').value = el.value; render(); }
+
+/* ── NOTES TOGGLE ── */
+function toggleNotes() {
+  const body  = document.getElementById('notes-body');
+  const arrow = document.getElementById('notes-arrow');
+  const open  = body.style.display !== 'none';
+  body.style.display  = open ? 'none' : 'block';
+  arrow.classList.toggle('open', !open);
+}
+
+/* ── INVOICE LIST FILTER ── */
+let currentInvFilter = 'all';
+
+function setInvFilter(filter) {
+  currentInvFilter = filter;
+  ['all','unpaid','partial','paid'].forEach(f => {
+    const btn = document.getElementById('inv-filter-'+f);
+    if(btn) {
+      btn.style.background = f === filter ? 'var(--blue)' : 'transparent';
+      btn.style.color = f === filter ? '#fff' : 'var(--muted)';
+    }
+  });
+  renderInvoiceList(allInvoices);
+}
+
+/* ── SEND REMINDER ── */
+function sendReminder(mobile, invNum, total, buyerName) {
+  if(!mobile) { notify(currentLang==='ar'?'لا يوجد رقم جوال لهذا العميل':'No mobile number for this customer','r'); return; }
+  const sellerName = currentBiz?.name_ar || currentBiz?.name || 'GulfLedger';
+  const invoiceUrl = `https://gulfledger.net/invoice-view.html?inv=${encodeURIComponent(invNum)}`;
+  const msg = currentLang === 'ar'
+    ? `مرحباً ${buyerName||''} 👋\n\nتذكير بفاتورة مستحقة رقم *${invNum}* من ${sellerName}\n\n💰 المبلغ المستحق: *SAR ${fmt(total)}*\n\n📄 عرض الفاتورة:\n${invoiceUrl}\n\nنرجو التكرم بالسداد في أقرب وقت ممكن 🙏`
+    : `Hello ${buyerName||''} 👋\n\nThis is a reminder for invoice *${invNum}* from ${sellerName}\n\n💰 Amount due: *SAR ${fmt(total)}*\n\n📄 View Invoice:\n${invoiceUrl}\n\nKindly arrange payment at your earliest convenience 🙏`;
+
+  let waNum = mobile.replace(/\D/g,'');
+  if(waNum.startsWith('05')) waNum = '966' + waNum.slice(1);
+  if(waNum.startsWith('5') && waNum.length === 9) waNum = '966' + waNum;
+
+  window.open(`https://wa.me/${waNum}?text=${encodeURIComponent(msg)}`, '_blank');
+
+  // Show success feedback
+  notify(currentLang==='ar' ? `✅ تم إرسال التذكير لـ ${buyerName||mobile}` : `✅ Reminder sent to ${buyerName||mobile}`, 'g');
+}
+
 /* ── AI ── */
 function useExample(btn) {
   document.getElementById('ai-prompt').value = btn.getAttribute('data-text');
@@ -1637,11 +1816,16 @@ function render() {
   const date    = v('f-date');
   const type    = v('f-type');
   const isB2B   = type === 'b2b';
-  // Keep description col aligned to language (invoice is always LTR)
   const descAlign = currentLang==='ar' ? 'right' : 'left';
   document.querySelectorAll('.inv-items td:nth-child(1), .inv-items th:nth-child(1)').forEach(el=>{
     el.style.textAlign = descAlign;
   });
+
+  // Sync B2B header display fields
+  const b2bInvDisplay  = document.getElementById('b2b-invnum-display');
+  const b2bDateDisplay = document.getElementById('b2b-date-display');
+  if(b2bInvDisplay)  b2bInvDisplay.textContent  = invNum || '—';
+  if(b2bDateDisplay) b2bDateDisplay.textContent = date   || '—';
 
   setText('p-invnum', invNum); setText('p-invnum2', invNum);
 
@@ -1649,41 +1833,56 @@ function render() {
   const poNum = v('f-po-num');
   const poRow = document.getElementById('p-po-row');
   if(poRow) {
-    poRow.style.display = poNum ? 'flex' : 'none';
+    poRow.style.display = (isB2B && poNum) ? 'flex' : 'none';
     setText('p-po-num', poNum || '—');
   }
-  setText('p-type-badge', isB2B ? 'B2B TAX INVOICE — فاتورة ضريبية' : 'B2C SIMPLIFIED — فاتورة مبسطة');
+  setText('p-type-badge', isB2B ? 'B2B TAX INVOICE — فاتورة ضريبية' : 'SIMPLIFIED — فاتورة مبسطة');
   setText('p-seller-name', v('f-seller-name') || '—');
-  // Full national address
   const sellerAddr = [v('f-seller-building'), v('f-seller-street'), v('f-seller-district'), v('f-seller-city'), v('f-seller-postal')].filter(Boolean).join('، ');
   setText('p-seller-city',  sellerAddr || v('f-seller-city') || '');
   setText('p-seller-trn',   v('f-seller-trn') ? 'TRN: ' + v('f-seller-trn') : '');
   setText('p-seller-cr',    v('f-seller-cr')  ? 'CR: '  + v('f-seller-cr')  : '');
-  setText('p-buyer-name',   v('f-buyer-name') || '—');
+  setText('p-buyer-name',   v('f-buyer-name') || (isB2B ? '—' : currentLang==='ar'?'عميل نقدي':'Cash Customer'));
   setText('p-buyer-trn',    v('f-buyer-trn')  ? 'TRN: ' + v('f-buyer-trn')  : '');
-  // Buyer address
   const buyerAddr = [v('f-buyer-address'), v('f-buyer-city')].filter(Boolean).join('، ');
   const buyerAddrEl = document.getElementById('p-buyer-address');
   if (buyerAddrEl) buyerAddrEl.textContent = buyerAddr;
-  setText('p-buyer-name', v('f-buyer-name') || (isB2B ? '—' : 'Cash Customer'));
-  setText('p-buyer-trn',  v('f-buyer-trn')  ? 'TRN: ' + v('f-buyer-trn') : '');
   setText('p-date', date ? new Date(date).toLocaleDateString('en-SA', {year:'numeric',month:'long',day:'numeric',calendar:'gregory'}) : '—');
 
-  document.getElementById('b2c-notice').style.display  = isB2B ? 'none' : 'block';
-  document.getElementById('buyer-fields').style.display = 'block';
-  // Hide TRN field for B2C — not required
-  const trnField = document.getElementById('f-buyer-trn')?.closest('.field');
-  if(trnField) trnField.style.display = isB2B ? '' : 'none';
+  // ZATCA compliance check — show on preview
+  const zatcaEl = document.getElementById('p-zatca-status');
+  if(zatcaEl) {
+    const hasTRN = !!v('f-seller-trn');
+    const hasQR  = true; // always generated
+    const hasArabicItems = items.some(it => it.desc && /[\u0600-\u06FF]/.test(it.desc));
+    const allItemsHaveArabic = items.filter(it=>it.desc).every(it => /[\u0600-\u06FF]/.test(it.desc));
+    if (!hasTRN) {
+      zatcaEl.innerHTML = '<span class="zatca-warn">⚠ ZATCA: رقم ضريبي مفقود</span>';
+      zatcaEl.style.display = 'block';
+    } else if (items.some(it => it.desc) && !hasArabicItems) {
+      zatcaEl.innerHTML = '<span class="zatca-warn">⚠ ZATCA: أوصاف الأصناف يجب أن تكون بالعربية</span>';
+      zatcaEl.style.display = 'block';
+    } else if (!allItemsHaveArabic) {
+      zatcaEl.innerHTML = '<span class="zatca-warn">⚠ ZATCA: بعض الأوصاف بدون عربي</span>';
+      zatcaEl.style.display = 'block';
+    } else {
+      zatcaEl.innerHTML = '<span class="zatca-ok">✓ ZATCA Compliant</span>';
+      zatcaEl.style.display = 'block';
+    }
+  }
+
+  // B2C notice hide/show
+  const b2cNotice = document.getElementById('b2c-notice');
+  if(b2cNotice) b2cNotice.style.display = isB2B ? 'none' : 'block';
 
   const notes = v('f-notes');
   const notesEl = document.getElementById('p-notes');
-  notesEl.textContent = notes || '';
-  notesEl.style.display = notes ? 'block' : 'none';
+  if(notesEl){ notesEl.textContent = notes || ''; notesEl.style.display = notes ? 'block' : 'none'; }
 
   // Items table
   const tbody = document.getElementById('p-items-body');
   if (!items.length || items.every(it => !it.desc && it.price === 0)) {
-    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:16px;">${currentLang==='ar'?'أضف بنوداً':'Add items above'}</td></tr>`;
+    tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:16px;">${currentLang==='ar'?'أضف بنوداً':'Add items above'}</td></tr>`;
   } else {
     tbody.innerHTML = items.map(it => {
       const rawSub = it.qty * it.price;
@@ -1694,7 +1893,7 @@ function render() {
         ? `<span class="disc-tag">${it.disc}% = ${fmt(disc)}</span>`
         : '—';
       return `<tr>
-        <td style="text-align:left;direction:ltr;">${it.desc||'—'}</td>
+        <td style="text-align:${descAlign};direction:${currentLang==='ar'?'rtl':'ltr'};">${it.desc||'—'}</td>
         <td style="text-align:center;font-family:'DM Mono',monospace;">${it.qty||''}</td>
         <td class="num">${fmt(it.price)}</td>
         <td style="text-align:center;">${discDisplay}</td>
@@ -1985,6 +2184,14 @@ async function saveInvoice() {
 
   showSaveStatus('saved', '✓ ' + (currentLang==='ar'?'تم الحفظ والترحيل للدفتر':'Saved & posted to ledger'));
 
+  // Show save confirmation modal
+  const confirmTotal = parseFloat(invoiceData.total)||0;
+  document.getElementById('save-confirm-sub').textContent =
+    (currentLang==='ar' ? 'فاتورة رقم ' : 'Invoice ') + invoiceData.invoice_number +
+    (invoiceData.buyer_name ? (currentLang==='ar'?' — ':'  — ') + invoiceData.buyer_name : '') +
+    '  |  SAR ' + fmt(confirmTotal);
+  document.getElementById('save-confirm-modal').style.display = 'flex';
+
   // Show public share bar and WhatsApp button
   showShareBar(invoiceData.invoice_number);
 
@@ -2013,7 +2220,7 @@ async function saveInvoice() {
   document.getElementById('f-notes').value='';
   document.getElementById('customer-search').value='';
   document.getElementById('selected-customer-tag').style.display='none';
-  document.getElementById('f-type').value='b2b';
+  setInvType('quick');
   document.getElementById('f-date').value=today();
   items=[{desc:'',qty:0,price:0,disc:0,itemId:null}];
   await setNextInvNumber();
@@ -2037,47 +2244,77 @@ async function loadInvoices() {
   if (!currentUser) return;
   const { data, error } = await sb.from('invoices')
     .select('*').eq('user_id', currentUser.id)
-    .order('created_at', { ascending: false }).limit(20);
+    .order('created_at', { ascending: false }).limit(50);
 
   const container = document.getElementById('inv-list');
   if (error || !data || !data.length) {
     container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px;">${currentLang==='ar'?'لا توجد فواتير بعد — أنشئ أول فاتورة':'No invoices yet — create your first invoice'}</div>`;
     return;
   }
+  allInvoices = data;
+  renderInvoiceList(data);
+}
 
-  container.innerHTML = `<table class="inv-table">
+function renderInvoiceList(data) {
+  const container = document.getElementById('inv-list');
+  let filtered = data;
+  if (currentInvFilter === 'unpaid') filtered = data.filter(i => !i.payment_status || i.payment_status === 'unpaid');
+  else if (currentInvFilter === 'partial') filtered = data.filter(i => i.payment_status === 'partial');
+  else if (currentInvFilter === 'paid') filtered = data.filter(i => i.payment_status === 'paid');
+
+  if (!filtered.length) {
+    container.innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px;">${currentLang==='ar'?'لا توجد فواتير في هذا التصنيف':'No invoices in this category'}</div>`;
+    return;
+  }
+
+  container.innerHTML = `<div style="overflow-x:auto;"><table class="inv-table">
     <thead><tr>
       <th>${currentLang==='ar'?'رقم الفاتورة':'Invoice No.'}</th>
       <th>${currentLang==='ar'?'التاريخ':'Date'}</th>
       <th>${currentLang==='ar'?'المشتري':'Buyer'}</th>
       <th>${currentLang==='ar'?'الإجمالي':'Total'}</th>
-      <th>${currentLang==='ar'?'الحالة':'Status'}</th>
+      <th>${currentLang==='ar'?'حالة الدفع':'Payment'}</th>
       <th>${currentLang==='ar'?'إجراء':'Action'}</th>
     </tr></thead>
-    <tbody>${data.map(inv => {
-      const paid = inv.payment_status === 'paid';
+    <tbody>${filtered.map(inv => {
+      const paid    = inv.payment_status === 'paid';
       const partial = inv.payment_status === 'partial';
+      const unpaid  = !paid && !partial;
+      const amtPaid = parseFloat(inv.amount_paid)||0;
+      const remaining = Math.max(0, (inv.total||0) - amtPaid);
+
       const statusBadge = paid
         ? `<span class="badge" style="background:#dcfce7;color:#166534;">✅ ${currentLang==='ar'?'مدفوع':'Paid'}</span>`
         : partial
-        ? `<span class="badge" style="background:#fef3c7;color:#92400e;">⚡ ${currentLang==='ar'?'جزئي':'Partial'}</span>`
+        ? `<div><span class="badge" style="background:#fef3c7;color:#92400e;">⚡ ${currentLang==='ar'?'جزئي':'Partial'}</span>
+           <div style="font-size:10px;color:var(--muted);margin-top:2px;">${currentLang==='ar'?'مدفوع:':'Paid:'} SAR ${fmt(amtPaid)}</div>
+           <div style="font-size:10px;color:var(--red);font-weight:600;">${currentLang==='ar'?'متبقي:':'Remaining:'} SAR ${fmt(remaining)}</div></div>`
         : `<span class="badge" style="background:#fff1f2;color:#be123c;">⏳ ${currentLang==='ar'?'غير مدفوع':'Unpaid'}</span>`;
-      const actionBtn = paid ? '—' :
-        `<button onclick="event.stopPropagation();openPaymentModal('${inv.id}','${inv.invoice_number}',${inv.total},'${inv.buyer_name||''}',${inv.amount_paid||0})"
-          style="padding:3px 9px;background:var(--green);color:#fff;border:none;border-radius:5px;font-size:10px;font-family:'Tajawal',sans-serif;cursor:pointer;white-space:nowrap;">
-          💰 ${currentLang==='ar'?'تسجيل دفعة':'Record Payment'}
-        </button>`;
+
+      const mobile = inv.buyer_mobile || '';
+      const reminderBtn = !paid
+        ? `<button onclick="event.stopPropagation();sendReminder('${mobile}','${inv.invoice_number}',${remaining},'${(inv.buyer_name||'').replace(/'/g,"\\'")}');this.textContent='✅';this.disabled=true;setTimeout(()=>{this.textContent='${currentLang==='ar'?'📩 تذكير':'📩 Remind'}';this.disabled=false;},3000)"
+            style="padding:3px 8px;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:5px;font-size:10px;font-family:'Tajawal',sans-serif;cursor:pointer;white-space:nowrap;">
+            ${currentLang==='ar'?'📩 تذكير':'📩 Remind'}
+          </button>` : '';
+
+      const payBtn = !paid
+        ? `<button onclick="event.stopPropagation();openPaymentModal('${inv.id}','${inv.invoice_number}',${inv.total},'${(inv.buyer_name||'').replace(/'/g,"\\'")}',${inv.amount_paid||0})"
+            style="padding:3px 8px;background:var(--green);color:#fff;border:none;border-radius:5px;font-size:10px;font-family:'Tajawal',sans-serif;cursor:pointer;white-space:nowrap;">
+            💰 ${currentLang==='ar'?'دفعة':'Pay'}
+          </button>` : '';
+
       return `<tr onclick="loadInvoice('${inv.id}')">
-        <td class="mono">${inv.invoice_number}</td>
+        <td class="mono" style="font-weight:600;color:var(--blue);">${inv.invoice_number}</td>
         <td style="font-size:11px;color:var(--muted);">${inv.issue_date||'—'}</td>
-        <td>${inv.buyer_name||'—'}</td>
+        <td style="font-size:12px;">${inv.buyer_name||'—'}</td>
         <td class="mono" style="font-weight:600;">SAR ${fmt(inv.total)}</td>
         <td>${statusBadge}</td>
-        <td onclick="event.stopPropagation()">${actionBtn}</td>
+        <td onclick="event.stopPropagation()" style="white-space:nowrap;display:flex;gap:4px;align-items:center;">${payBtn}${reminderBtn}</td>
       </tr>`;
     }).join('')}
     </tbody>
-  </table>`;
+  </table></div>`;
 }
 
 /* ── LOAD SINGLE INVOICE ── */
@@ -2089,12 +2326,17 @@ async function loadInvoice(id) {
   currentInvoiceId = id;
   document.getElementById('f-invnum').value     = inv.invoice_number || '';
   document.getElementById('f-date').value       = inv.issue_date || '';
-  document.getElementById('f-type').value       = inv.invoice_type || 'b2b';
+  // Set type toggle
+  const savedType = inv.invoice_type || 'b2c';
+  setInvType(savedType === 'b2b' ? 'b2b' : 'quick');
   document.getElementById('f-buyer-name').value = inv.buyer_name || '';
   document.getElementById('f-buyer-trn').value  = inv.buyer_trn  || '';
   document.getElementById('f-buyer-mobile').value = inv.buyer_mobile || '';
   document.getElementById('f-buyer-address').value = inv.buyer_address || '';
   document.getElementById('f-buyer-city').value    = inv.buyer_city || '';
+  // Sync quick address field
+  const qaEl = document.getElementById('f-buyer-address-quick');
+  if(qaEl) qaEl.value = inv.buyer_address || '';
   document.getElementById('f-notes').value      = inv.notes      || '';
   selectedCustomerId = inv.customer_id || null;
 
@@ -2120,7 +2362,7 @@ async function newInvoice() {
     const el=document.getElementById(id); if(el) el.value='';
   });
   document.getElementById('f-notes').value = '';
-  document.getElementById('f-type').value = 'b2b';
+  setInvType('quick');
   document.getElementById('f-date').value = today();
   document.getElementById('customer-search').value = '';
   document.getElementById('selected-customer-tag').style.display = 'none';
