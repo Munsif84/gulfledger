@@ -242,13 +242,13 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
     <!-- PROCUREMENT — PRO -->
     <div class="sb-sec">
       <span class="sb-lbl">🔐 <span data-ar="المشتريات — Pro" data-en="Procurement — Pro">المشتريات — Pro</span></span>
-      <div class="sb-item" id="sb-po" onclick="window.location.href='purchasing.html'">
+      <div class="sb-item" id="sb-po" onclick="goTab('po')">
         <span data-ar="أوامر الشراء" data-en="Purchase Orders">أوامر الشراء</span>
       </div>
-      <div class="sb-item" id="sb-sup-inv" onclick="window.location.href='purchasing.html#sup-inv'">
+      <div class="sb-item" id="sb-sup-inv" onclick="goTab('sup-inv')">
         <span data-ar="فواتير الموردين" data-en="Supplier Invoices">فواتير الموردين</span>
       </div>
-      <div class="sb-item" id="sb-matching" onclick="window.location.href='purchasing.html#matching'">
+      <div class="sb-item" id="sb-matching" onclick="goTab('matching')">
         <span data-ar="المطابقة الثلاثية" data-en="3-Way Matching">المطابقة الثلاثية</span>
       </div>
     </div>
@@ -625,6 +625,15 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
         </table></div>
       </div>
     </div>
+
+    <!-- TAB: PURCHASE ORDERS (PRO) -->
+    <div class="tc" id="tc-po"></div>
+
+    <!-- TAB: SUPPLIER INVOICES (PRO) -->
+    <div class="tc" id="tc-sup-inv"></div>
+
+    <!-- TAB: 3-WAY MATCHING (PRO) -->
+    <div class="tc" id="tc-matching"></div>
 
     <!-- TAB: FIFO BATCH LEDGER -->
     <div class="tc" id="tc-fifo">
@@ -1020,12 +1029,77 @@ function refreshSupDropdown(){const sel=document.getElementById('f-sup-sel');if(
 
 
 function goTab(name){
-  const tabs=['stock','registry','receive','movements','adjust','cogs','suppliers','upload','fifo'];
-  tabs.forEach(t=>{document.getElementById('tc-'+t)?.classList.toggle('active',t===name);const sbEl=document.getElementById('sb-'+t);if(sbEl)sbEl.classList.toggle('active',t===name);});
+  const tabs=['stock','registry','receive','movements','adjust','cogs','suppliers','upload','fifo','po','sup-inv','matching'];
+  tabs.forEach(t=>{
+    document.getElementById('tc-'+t)?.classList.toggle('active',t===name);
+    const sbEl=document.getElementById('sb-'+t);
+    if(sbEl)sbEl.classList.toggle('active',t===name);
+  });
   if(name==='receive')refreshSupDropdown();
   if(name==='registry'){refreshSupDropdown();renderSuppliers();}
   if(name==='fifo')loadFIFOBatches();
   if(name==='adjust')loadAdjItems();
+  if(name==='po')renderProTab('po');
+  if(name==='sup-inv')renderProTab('sup-inv');
+  if(name==='matching')renderProTab('matching');
+}
+
+/* ── PRO TAB RENDERER ── */
+function renderProTab(tabName){
+  const isPro=(currentBiz?.plan||'starter')==='pro';
+  const el=document.getElementById('tc-'+tabName);
+  if(!el)return;
+
+  const titles={
+    'po':       {ar:'أوامر الشراء',           en:'Purchase Orders'},
+    'sup-inv':  {ar:'فواتير الموردين',         en:'Supplier Invoices'},
+    'matching': {ar:'المطابقة الثلاثية',       en:'3-Way Matching'}
+  };
+  const descs={
+    'po':       {ar:'إنشاء وتتبع أوامر الشراء المرسلة للموردين مع حالة كل أمر.',
+                 en:'Create and track purchase orders sent to suppliers with full status tracking.'},
+    'sup-inv':  {ar:'تسجيل فواتير الموردين وربطها بأوامر الشراء.',
+                 en:'Record supplier invoices and link them to purchase orders.'},
+    'matching': {ar:'مطابقة ثلاثية بين أمر الشراء، الاستلام الفعلي، والفاتورة — لضمان الدفع الصحيح فقط.',
+                 en:'3-way match between Purchase Order, Goods Received, and Invoice — ensuring you only pay what was ordered and received.'}
+  };
+
+  const t=titles[tabName];const d=descs[tabName];
+
+  if(!isPro){
+    el.innerHTML=`
+      <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;padding:60px 20px;text-align:center;">
+        <div style="font-size:48px;margin-bottom:16px;">🔐</div>
+        <div style="font-family:'Playfair Display',serif;font-size:20px;color:var(--navy);margin-bottom:8px;">${L==='ar'?t.ar:t.en}</div>
+        <div style="font-size:13px;color:var(--muted);max-width:380px;line-height:1.7;margin-bottom:6px;">${L==='ar'?d.ar:d.en}</div>
+        <div style="margin:16px 0;background:var(--tint);border:1px solid var(--light);border-radius:10px;padding:14px 24px;font-size:12px;color:var(--muted);max-width:380px;line-height:1.8;">
+          ${L==='ar'?'هذه الميزة متاحة في <strong style="color:var(--navy);">باقة Pro</strong> فقط.<br>ترقّ للحصول على أوامر الشراء، فواتير الموردين، والمطابقة الثلاثية.':'This feature is available in the <strong style="color:var(--navy);">Pro plan</strong> only.<br>Upgrade to access Purchase Orders, Supplier Invoices, and 3-Way Matching.'}
+        </div>
+        <a href="https://wa.me/966500000000" style="padding:11px 28px;background:var(--blue);color:#fff;border-radius:9px;text-decoration:none;font-size:13px;font-weight:700;">
+          ${L==='ar'?'💬 تواصل معنا للترقية':'💬 Contact us to upgrade'}
+        </a>
+      </div>`;
+  } else {
+    // Pro user — show coming soon placeholder (real content to be built)
+    el.innerHTML=`
+      <div class="card">
+        <div class="card-hdr">
+          <span class="card-ttl">${L==='ar'?t.ar:t.en}</span>
+          <span style="background:#f0f9ff;border:1px solid #bae6fd;color:#0369a1;font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;">Pro ✓</span>
+        </div>
+        <div class="card-bdy">
+          <div class="note-box blue">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+            <span>${L==='ar'?d.ar:d.en}</span>
+          </div>
+          <div style="text-align:center;padding:40px 20px;color:var(--muted);">
+            <div style="font-size:32px;margin-bottom:12px;">🚧</div>
+            <div style="font-size:14px;font-weight:600;color:var(--navy);margin-bottom:6px;" data-ar="قيد التطوير" data-en="Coming Soon">قيد التطوير</div>
+            <div style="font-size:12px;">${L==='ar'?'سيتوفر هذا القسم في التحديث القادم.':'This section will be available in the next update.'}</div>
+          </div>
+        </div>
+      </div>`;
+  }
 }
 
 /* ── ADJUST STOCK ── */
