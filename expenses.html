@@ -573,11 +573,13 @@ function renderExpenses(){
 
   tb.innerHTML=page.map(e=>{
     const isReversed=e.status==='reversed';
-    const methodBadge=(m)=>({cash:`<span class="bdg bdg-cash">${L==='ar'?'نقداً':'Cash'}</span>`,bank:`<span class="bdg bdg-bank">${L==='ar'?'بنك':'Bank'}</span>`,card:`<span class="bdg bdg-card">${L==='ar'?'بطاقة':'Card'}</span>`,credit:`<span class="bdg bdg-credit">${L==='ar'?'آجل':'Credit'}</span>`})[m]||`<span class="bdg">${m}</span>`;
+    // Resolve category display name in current language
+    const cat=categories.find(c=>c.name_ar===e.category_name);
+    const catDisplay=L==='ar'?(e.category_name||'—'):(cat?.name_en||e.category_name||'—');
     return `<tr style="${isReversed?'opacity:.5;text-decoration:line-through;':''}">
     <td style="font-size:11px;color:var(--muted);white-space:nowrap;">${e.expense_date||'—'}</td>
     <td><strong style="font-size:12px;">${e.description||'—'}</strong>${isReversed?` <span class="bdg" style="background:#fff1f2;color:var(--red);text-decoration:none;">${L==='ar'?'مُعكَس':'Reversed'}</span>`:''} ${e.notes?`<div style="font-size:10px;color:var(--muted);">${e.notes}</div>`:''}</td>
-    <td style="font-size:12px;">${e.category_name||'—'}</td>
+    <td style="font-size:12px;">${catDisplay}</td>
     <td style="font-size:11px;color:var(--muted);">${e.vendor||'—'}</td>
     <td class="mono" style="font-weight:700;">SAR ${fmt(e.total)}</td>
     <td>${e.has_vat?`<span class="bdg bdg-vat">SAR ${fmt(e.vat_recoverable||0)}</span>`:`<span class="bdg bdg-novat">${L==='ar'?'بدون':'No VAT'}</span>`}</td>
@@ -585,10 +587,12 @@ function renderExpenses(){
     <td>${isReversed?`<span style="font-size:10px;color:var(--muted);">—</span>`:`<button class="btn-d" onclick="reverseExpense('${e.id}')" style="font-size:10px;padding:3px 8px;">${L==='ar'?'عكس':'Reverse'}</button>`}</td>
   </tr>`}).join('');
 
-  const totalAmt=filtered.reduce((s,e)=>s+(e.total||0),0);
-  const totalVAT=filtered.reduce((s,e)=>s+(e.vat_recoverable||0),0);
+  // Exclude reversed from totals
+  const activeFiltered=filtered.filter(e=>e.status!=='reversed');
+  const totalAmt=activeFiltered.reduce((s,e)=>s+(e.total||0),0);
+  const totalVAT=activeFiltered.reduce((s,e)=>s+(e.vat_recoverable||0),0);
   const tf=document.getElementById('exp-tfoot');
-  if(tf)tf.innerHTML=`<tr style="background:var(--navy);color:#fff;"><td colspan="4" style="padding:10px 12px;font-weight:700;font-size:12px;">${total} ${L==='ar'?'مصروف':'expenses'}</td><td class="mono" style="padding:10px 12px;font-weight:700;font-size:14px;">SAR ${fmt(totalAmt)}</td><td class="mono" style="padding:10px 12px;color:#86efac;">SAR ${fmt(totalVAT)}</td><td colspan="2" style="padding:10px 12px;font-size:11px;color:var(--light);">${L==='ar'?'الإجمالي':'Total'}</td></tr>`;
+  if(tf)tf.innerHTML=`<tr style="background:var(--navy);color:#fff;"><td colspan="4" style="padding:10px 12px;font-weight:700;font-size:12px;">${activeFiltered.length} ${L==='ar'?'مصروف':'expenses'}</td><td class="mono" style="padding:10px 12px;font-weight:700;font-size:14px;">SAR ${fmt(totalAmt)}</td><td class="mono" style="padding:10px 12px;color:#86efac;">SAR ${fmt(totalVAT)}</td><td colspan="2" style="padding:10px 12px;font-size:11px;color:var(--light);">${L==='ar'?'الإجمالي':'Total'}</td></tr>`;
 }
 
 function expPage(dir){expCurrentPage+=dir;if(expCurrentPage<0)expCurrentPage=0;renderExpenses();}
@@ -669,7 +673,7 @@ async function reverseExpense(id){
 function renderStats(){
   const now=new Date();
   const monthStart=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
-  const monthExp=expenses.filter(e=>e.expense_date>=monthStart);
+  const monthExp=expenses.filter(e=>e.expense_date>=monthStart&&e.status!=='reversed');
   const monthTotal=monthExp.reduce((s,e)=>s+(e.total||0),0);
   const monthVAT=monthExp.reduce((s,e)=>s+(e.vat_recoverable||0),0);
   const monthCount=monthExp.length;
@@ -678,9 +682,15 @@ function renderStats(){
   set('s-month-count',monthCount+(L==='ar'?' مصروف':' expenses'));
   set('s-vat','SAR '+fmt(monthVAT));
 
-  // Top category
+  // Top category — use language-aware name
   const catTotals={};
-  monthExp.forEach(e=>{if(e.category_name)catTotals[e.category_name]=(catTotals[e.category_name]||0)+(e.total||0);});
+  monthExp.forEach(e=>{
+    if(e.category_name){
+      const cat=categories.find(c=>c.name_ar===e.category_name);
+      const displayName=L==='ar'?e.category_name:(cat?.name_en||e.category_name);
+      catTotals[displayName]=(catTotals[displayName]||0)+(e.total||0);
+    }
+  });
   const topCat=Object.entries(catTotals).sort((a,b)=>b[1]-a[1])[0];
   if(topCat){set('s-top-cat',topCat[0]);set('s-top-cat-amt','SAR '+fmt(topCat[1]));}
   else{set('s-top-cat','—');set('s-top-cat-amt','');}
@@ -689,7 +699,7 @@ function renderStats(){
 function updateSidebarStats(){
   const now=new Date();
   const monthStart=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
-  const monthExp=expenses.filter(e=>e.expense_date>=monthStart);
+  const monthExp=expenses.filter(e=>e.expense_date>=monthStart&&e.status!=='reversed');
   const monthTotal=monthExp.reduce((s,e)=>s+(e.total||0),0);
   const monthVAT=monthExp.reduce((s,e)=>s+(e.vat_recoverable||0),0);
   set('sb-month-total','SAR '+fmt(monthTotal));
@@ -700,7 +710,13 @@ function renderCatBreakdown(){
   const el=document.getElementById('cat-breakdown');
   if(!el)return;
   const catTotals={};
-  expenses.forEach(e=>{if(e.category_name)catTotals[e.category_name]=(catTotals[e.category_name]||0)+(e.total||0);});
+  expenses.filter(e=>e.status!=='reversed').forEach(e=>{
+    if(e.category_name){
+      const cat=categories.find(c=>c.name_ar===e.category_name);
+      const displayName=L==='ar'?e.category_name:(cat?.name_en||e.category_name);
+      catTotals[displayName]=(catTotals[displayName]||0)+(e.total||0);
+    }
+  });
   const sorted=Object.entries(catTotals).sort((a,b)=>b[1]-a[1]).slice(0,8);
   if(!sorted.length){el.innerHTML=`<div style="text-align:center;color:var(--muted);padding:20px;font-size:12px;">${L==='ar'?'لا توجد بيانات بعد':'No data yet'}</div>`;return;}
   const max=sorted[0][1];
