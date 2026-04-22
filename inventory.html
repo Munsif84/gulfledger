@@ -497,7 +497,23 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
     <!-- TAB: MOVEMENTS -->
     <div class="tc" id="tc-movements">
       <div class="card">
-        <div class="card-hdr"><span class="card-ttl" data-ar="سجل حركة المخزون" data-en="Stock Movement Log">سجل حركة المخزون</span><span id="mov-count" style="font-size:12px;color:var(--muted);"></span></div>
+        <div class="card-hdr">
+          <span class="card-ttl" data-ar="سجل حركة المخزون" data-en="Stock Movement Log">سجل حركة المخزون</span>
+          <span id="mov-count" style="font-size:12px;color:var(--muted);"></span>
+        </div>
+        <!-- Filters bar -->
+        <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <input type="text" id="mov-search" placeholder="بحث بالاسم أو SKU أو المرجع..." oninput="renderMovements()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;width:200px;">
+          <select id="mov-filter-type" onchange="renderMovements()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;">
+            <option value="" data-ar="كل الأنواع" data-en="All Types">كل الأنواع</option>
+            <option value="in" data-ar="وارد" data-en="In">وارد</option>
+            <option value="out" data-ar="صادر" data-en="Out">صادر</option>
+          </select>
+          <input type="date" id="mov-from" onchange="renderMovements()" lang="en" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'DM Mono',monospace;font-size:12px;">
+          <input type="date" id="mov-to" onchange="renderMovements()" lang="en" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'DM Mono',monospace;font-size:12px;">
+          <button class="btn-s" onclick="clearMovFilters()" style="font-size:11px;" data-ar="مسح الفلاتر" data-en="Clear">مسح الفلاتر</button>
+          <button class="btn-s" onclick="goTab('adjust')" style="font-size:11px;margin-right:auto;" data-ar="🔧 تسوية مخزون" data-en="🔧 Adjust Stock">🔧 تسوية مخزون</button>
+        </div>
         <div style="overflow-x:auto;"><table class="tbl">
           <thead><tr>
             <th data-ar="التاريخ" data-en="Date">التاريخ</th>
@@ -508,9 +524,18 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
             <th data-ar="الرصيد" data-en="Balance">الرصيد</th>
             <th data-ar="المرجع" data-en="Ref">المرجع</th>
             <th data-ar="ملاحظة" data-en="Note">ملاحظة</th>
+            <th data-ar="إجراء" data-en="Action">إجراء</th>
           </tr></thead>
-          <tbody id="mov-tbody"><tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted);">جارٍ التحميل...</td></tr></tbody>
+          <tbody id="mov-tbody"><tr><td colspan="9" style="text-align:center;padding:20px;color:var(--muted);">جارٍ التحميل...</td></tr></tbody>
         </table></div>
+        <!-- Pagination -->
+        <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <span id="mov-page-info" style="font-size:12px;color:var(--muted);"></span>
+          <div style="display:flex;gap:6px;">
+            <button class="btn-s" id="mov-prev" onclick="movPage(-1)" style="font-size:11px;padding:5px 12px;">← السابق</button>
+            <button class="btn-s" id="mov-next" onclick="movPage(1)"  style="font-size:11px;padding:5px 12px;">التالي →</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -971,6 +996,11 @@ async function init(){
   await Promise.all([loadItems(),loadMovements(),loadSuppliers()]);
   await loadSnapshots();
   addPOLine();
+  // Show procurement summary section if Pro
+  if((currentBiz?.plan||'starter')==='pro'){
+    const summaryEl=document.getElementById('sb-purch-summary');
+    if(summaryEl)summaryEl.style.display='block';
+  }
   const storedL=getStoredLang();L=storedL;setLang(storedL);
 }
 
@@ -1189,10 +1219,82 @@ function downloadTemplate(){
   notify(L==='ar'?'تم تحميل النموذج':'Template downloaded','g');
 }
 
+let movCurrentPage=0;
+const MOV_PAGE_SIZE=20;
+
+function clearMovFilters(){
+  const ids=['mov-search','mov-from','mov-to'];
+  ids.forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  const tf=document.getElementById('mov-filter-type');if(tf)tf.value='';
+  movCurrentPage=0;renderMovements();
+}
+
+function movPage(dir){
+  movCurrentPage+=dir;
+  if(movCurrentPage<0)movCurrentPage=0;
+  renderMovements();
+}
+
 function renderMovements(){
-  const tb=document.getElementById('mov-tbody');set('mov-count',movements.length+(L==='ar'?' حركة':' movements'));
-  if(!movements.length){tb.innerHTML=`<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا توجد حركات بعد':'No movements yet'}</td></tr>`;return;}
-  tb.innerHTML=movements.map(m=>{const tin=m.movement_type==='in';return `<tr><td style="font-size:11px;color:var(--muted);">${m.movement_date}</td><td><strong style="font-size:12px;">${m.inventory_items?.name||'—'}</strong></td><td><span class="sku-badge">${m.inventory_items?.sku||'—'}</span></td><td><span class="bdg ${tin?'bdg-in':'bdg-out2'}">${tin?(L==='ar'?'وارد':'In'):(L==='ar'?'صادر':'Out')}</span></td><td class="mono ${tin?'c-green':'c-amber'}">${tin?'+':'-'}${m.quantity}</td><td class="mono">${m.balance_after??'—'}</td><td class="mono" style="font-size:11px;color:var(--blue);">${m.reference||'—'}</td><td style="font-size:11px;color:var(--muted);">${m.note||''}</td></tr>`;}).join('');
+  const search=(document.getElementById('mov-search')?.value||'').toLowerCase();
+  const typeFilter=document.getElementById('mov-filter-type')?.value||'';
+  const fromDate=document.getElementById('mov-from')?.value||'';
+  const toDate=document.getElementById('mov-to')?.value||'';
+
+  let filtered=movements.filter(m=>{
+    const itemName=(m.inventory_items?.name||'').toLowerCase();
+    const sku=(m.inventory_items?.sku||'').toLowerCase();
+    const ref=(m.reference||'').toLowerCase();
+    const matchSearch=!search||itemName.includes(search)||sku.includes(search)||ref.includes(search);
+    const matchType=!typeFilter||m.movement_type===typeFilter;
+    const matchFrom=!fromDate||m.movement_date>=fromDate;
+    const matchTo=!toDate||m.movement_date<=toDate;
+    return matchSearch&&matchType&&matchFrom&&matchTo;
+  });
+
+  const total=filtered.length;
+  const totalPages=Math.ceil(total/MOV_PAGE_SIZE)||1;
+  if(movCurrentPage>=totalPages)movCurrentPage=totalPages-1;
+  const page=filtered.slice(movCurrentPage*MOV_PAGE_SIZE,(movCurrentPage+1)*MOV_PAGE_SIZE);
+
+  set('mov-count',total+(L==='ar'?' حركة':' movements'));
+  const info=document.getElementById('mov-page-info');
+  if(info)info.textContent=`${L==='ar'?'صفحة':'Page'} ${movCurrentPage+1} ${L==='ar'?'من':'of'} ${totalPages} — ${total} ${L==='ar'?'نتيجة':'results'}`;
+  const prevBtn=document.getElementById('mov-prev');const nextBtn=document.getElementById('mov-next');
+  if(prevBtn)prevBtn.disabled=movCurrentPage===0;
+  if(nextBtn)nextBtn.disabled=movCurrentPage>=totalPages-1;
+
+  const tb=document.getElementById('mov-tbody');
+  if(!page.length){
+    tb.innerHTML=`<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا توجد حركات':'No movements found'}</td></tr>`;
+    return;
+  }
+  tb.innerHTML=page.map(m=>{
+    const tin=m.movement_type==='in';
+    const itemId=m.item_id||m.inventory_items?.id||'';
+    return `<tr>
+      <td style="font-size:11px;color:var(--muted);white-space:nowrap;">${m.movement_date||'—'}</td>
+      <td><strong style="font-size:12px;">${m.inventory_items?.name||'—'}</strong></td>
+      <td><span class="sku-badge">${m.inventory_items?.sku||'—'}</span></td>
+      <td><span class="bdg ${tin?'bdg-in':'bdg-out2'}">${tin?(L==='ar'?'وارد':'In'):(L==='ar'?'صادر':'Out')}</span></td>
+      <td class="mono ${tin?'c-green':'c-amber'}" style="font-weight:700;">${tin?'+':'-'}${m.quantity}</td>
+      <td class="mono">${m.balance_after??'—'}</td>
+      <td class="mono" style="font-size:11px;color:var(--blue);">${m.reference||'—'}</td>
+      <td style="font-size:11px;color:var(--muted);max-width:140px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${m.note||''}</td>
+      <td style="white-space:nowrap;">
+        ${itemId?`<button class="btn-e" style="font-size:10px;padding:3px 8px;" onclick="quickAdjust('${itemId}')">${L==='ar'?'تسوية':'Adjust'}</button>`:''}
+        ${itemId?`<button class="btn-s" style="font-size:10px;padding:3px 8px;margin-right:2px;" onclick="goTab('stock');setTimeout(()=>{const s=document.getElementById('stock-search');if(s){s.value='${(m.inventory_items?.sku||'')}';renderStock();}},100)">${L==='ar'?'عرض':'View'}</button>`:''}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function quickAdjust(itemId){
+  goTab('adjust');
+  setTimeout(()=>{
+    const sel=document.getElementById('adj-item');
+    if(sel){sel.value=itemId;fillAdjItem();}
+  },100);
 }
 
 async function calcCOGS(){
@@ -1280,6 +1382,7 @@ function goTab(name){
   });
   if(name==='receive')refreshSupDropdown();
   if(name==='registry'){refreshSupDropdown();renderSuppliers();}
+  if(name==='suppliers')renderSuppliers();
   if(name==='fifo')loadFIFOBatches();
   if(name==='adjust')loadAdjItems();
 }
