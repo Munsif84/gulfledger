@@ -1,0 +1,774 @@
+<!DOCTYPE html><html>
+<head>
+<meta charset="UTF-8">
+<script>(function(){var l=localStorage.getItem('gl_lang')||'ar';document.documentElement.setAttribute('lang',l);document.documentElement.setAttribute('dir',l==='ar'?'rtl':'ltr');})();</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GulfLedger — المصاريف</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&family=Playfair+Display:wght@700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+<style>
+:root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#C62828;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--border:#d4e6f7;--bg:#f7fafd;--white:#ffffff;--purple:#6d28d9;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);}
+.topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:300;box-shadow:0 2px 8px rgba(0,0,0,0.15);}
+.nav-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
+.nav-bars{display:flex;gap:3px;height:22px;}
+.nav-bar{width:3px;border-radius:2px;}
+.nav-name{font-family:'Playfair Display',serif;font-size:16px;color:#fff;}
+.nav-right{display:flex;align-items:center;gap:8px;}
+.nav-divider{width:1px;height:20px;background:rgba(255,255,255,0.2);}
+.nav-biz{font-size:12px;color:var(--light);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 10px;background:rgba(255,255,255,0.08);border-radius:6px;border:1px solid rgba(255,255,255,0.15);}
+.btn-logout{padding:5px 14px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
+.nav-settings-btn{display:flex;align-items:center;justify-content:center;width:32px;height:32px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:#fff;text-decoration:none;font-size:15px;}
+.lang-switch{display:flex;border:1px solid rgba(255,255,255,0.2);border-radius:6px;overflow:hidden;}
+.lang-btn{padding:4px 10px;font-size:11px;cursor:pointer;border:none;background:transparent;color:rgba(255,255,255,0.6);font-family:'Tajawal',sans-serif;font-weight:500;}
+.lang-btn.on{background:var(--sky);color:#fff;}
+.app-nav{background:var(--blue);padding:8px 20px;display:flex;gap:4px;align-items:center;overflow-x:auto;position:sticky;top:44px;z-index:299;box-shadow:0 2px 6px rgba(0,0,0,0.1);}
+.app-nav-link{padding:5px 14px;font-size:12px;font-weight:500;color:rgba(255,255,255,0.7);text-decoration:none;border-radius:6px;white-space:nowrap;}
+.app-nav-link:hover{background:rgba(255,255,255,0.12);color:#fff;}
+.app-nav-link.active{background:rgba(255,255,255,0.18);color:#fff;}
+/* LAYOUT */
+.layout{display:grid;grid-template-columns:210px 1fr;min-height:calc(100vh - 88px);}
+.sidebar{background:var(--white);border-left:1px solid var(--border);padding:14px 0;overflow-y:auto;}
+.sb-sec{padding:0 12px;margin-bottom:8px;}
+.sb-lbl{font-size:13px;font-weight:700;color:var(--navy);padding:12px 6px 6px;display:block;letter-spacing:.01em;}
+.sb-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px;color:var(--ink);margin-bottom:2px;user-select:none;transition:background .15s;}
+.sb-item:hover{background:var(--tint);color:var(--blue);}
+.sb-item.active{background:var(--tint);color:var(--blue);font-weight:600;border-right:3px solid var(--blue);}
+.sb-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.sb-stat{font-size:11px;color:var(--muted);padding:4px 10px;display:flex;justify-content:space-between;}
+.sb-stat-val{font-family:'DM Mono',monospace;font-weight:700;}
+/* MAIN */
+.main{padding:20px;overflow-y:auto;}
+/* STATS */
+.stats{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;}
+.stat{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
+.stat-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px;}
+.stat-num{font-family:'DM Mono',monospace;font-size:22px;font-weight:700;color:var(--navy);}
+.stat-sub{font-size:10px;color:var(--muted);margin-top:3px;}
+.stat.s-green{border-color:#86efac;background:#f0fdf4;}
+.stat.s-amber{border-color:#fde68a;background:#fffbeb;}
+.c-green{color:var(--green)!important;}
+.c-amber{color:var(--amber)!important;}
+.c-red{color:var(--red)!important;}
+/* CARDS */
+.card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px;}
+.card-hdr{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;}
+.card-ttl{font-size:14px;font-weight:700;color:var(--navy);}
+.card-bdy{padding:18px;}
+/* FORM */
+.fg{display:grid;gap:12px;margin-bottom:14px;}
+.fg-2{grid-template-columns:1fr 1fr;}
+.fg-3{grid-template-columns:1fr 1fr 1fr;}
+.fld{display:flex;flex-direction:column;gap:4px;}
+.fld label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+.fld input,.fld select,.fld textarea{padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:13px;color:var(--ink);background:var(--white);width:100%;}
+.fld input:focus,.fld select:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(55,138,221,0.1);}
+.hint{font-size:10px;color:var(--muted);margin-top:2px;}
+/* BUTTONS */
+.btn-p{padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;}
+.btn-p:hover{background:var(--navy);}
+.btn-s{padding:7px 14px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
+.btn-s:hover{border-color:var(--blue);}
+.btn-d{padding:5px 10px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;}
+/* TABLE */
+.tbl{width:100%;border-collapse:collapse;font-size:12px;}
+.tbl th{padding:9px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-align:right;white-space:nowrap;}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--tint);vertical-align:middle;text-align:right;}
+[dir="ltr"] .tbl th,[dir="ltr"] .tbl td{text-align:left;}
+.tbl tr:last-child td{border-bottom:none;}
+.tbl tr:hover td{background:#fafcff;}
+.mono{font-family:'DM Mono',monospace;font-size:12px;}
+/* BADGES */
+.bdg{font-size:10px;font-weight:700;padding:2px 9px;border-radius:8px;display:inline-block;}
+.bdg-cash{background:#f0fdf4;color:var(--green);}
+.bdg-bank{background:var(--tint);color:var(--blue);}
+.bdg-card{background:#f5f3ff;color:var(--purple);}
+.bdg-credit{background:#fffbeb;color:var(--amber);}
+.bdg-vat{background:#dcfce7;color:#166534;}
+.bdg-novat{background:#f1f5f9;color:#64748b;}
+/* NOTE BOX */
+.note-box{display:flex;align-items:flex-start;gap:8px;padding:10px 13px;border-radius:8px;margin-bottom:13px;font-size:12px;line-height:1.6;}
+.note-box.blue{background:var(--tint);border:1px solid var(--light);color:var(--navy);}
+.note-box.amber{background:#fffbeb;border:1px solid #fde68a;color:var(--amber);}
+/* TABS */
+.tc{display:none;}.tc.active{display:block;}
+/* VAT TOGGLE */
+.vat-toggle{display:flex;gap:0;border:1.5px solid var(--border);border-radius:8px;overflow:hidden;width:fit-content;}
+.vat-chip{padding:6px 16px;font-size:12px;font-weight:600;cursor:pointer;border:none;background:transparent;color:var(--muted);font-family:'Tajawal',sans-serif;transition:all .15s;}
+.vat-chip.active{background:var(--blue);color:#fff;}
+/* PROGRESS BAR */
+.cat-bar-wrap{margin-bottom:10px;}
+.cat-bar-label{display:flex;justify-content:space-between;font-size:11px;margin-bottom:3px;}
+.cat-bar{height:6px;background:var(--tint);border-radius:3px;overflow:hidden;}
+.cat-bar-fill{height:100%;background:var(--blue);border-radius:3px;transition:width .4s ease;}
+/* MOBILE */
+@media(max-width:768px){
+  .layout{grid-template-columns:1fr;}
+  .sidebar{display:none;}
+  .stats{grid-template-columns:1fr 1fr;}
+  .fg-2,.fg-3{grid-template-columns:1fr 1fr;}
+}
+input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
+</style>
+</head>
+<body>
+
+<div class="topnav">
+  <a href="dashboard.html" class="nav-logo">
+    <div class="nav-bars"><div class="nav-bar" style="background:#fff;"></div><div class="nav-bar" style="background:rgba(255,255,255,0.45);"></div></div>
+    <span class="nav-name">Gulf<span style="color:var(--light);">Ledger</span></span>
+  </a>
+  <div class="nav-right">
+    <a href="settings.html" class="nav-settings-btn" title="الإعدادات">⚙️</a>
+    <div class="lang-switch">
+      <button class="lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button>
+      <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
+    </div>
+    <div class="nav-divider"></div>
+    <span class="nav-biz" id="biz-name">...</span>
+    <button class="btn-logout" onclick="logout()" data-ar="خروج" data-en="Sign Out">خروج</button>
+  </div>
+</div>
+
+<div class="app-nav" id="app-nav">
+  <a href="dashboard.html"  class="app-nav-link" data-ar="الرئيسية"            data-en="Dashboard">الرئيسية</a>
+  <a href="inventory.html"  class="app-nav-link" data-ar="المنتجات والمخزون"   data-en="Products & Stock">المنتجات والمخزون</a>
+  <a href="invoices.html"   class="app-nav-link" data-ar="المبيعات والفواتير"  data-en="Sales & Invoices">المبيعات والفواتير</a>
+  <a href="expenses.html"   class="app-nav-link active" data-ar="المصاريف"     data-en="Expenses">المصاريف</a>
+  <a href="vat.html"        class="app-nav-link" data-ar="ضريبة القيمة المضافة" data-en="VAT">ضريبة القيمة المضافة</a>
+  <a href="reports.html"    class="app-nav-link" data-ar="التقارير"            data-en="Reports">التقارير</a>
+  <a href="accounting.html" class="app-nav-link" id="nav-accounting" data-ar="المحاسبة" data-en="Accounting" style="display:none;">المحاسبة</a>
+</div>
+<script>(function(){var mode=localStorage.getItem('gl_accountant_mode');if(mode==='true'){var el=document.getElementById('nav-accounting');if(el)el.style.display='inline-block';}})();</script>
+
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sb-sec">
+      <span class="sb-lbl">📝 <span data-ar="المصاريف" data-en="Expenses">المصاريف</span></span>
+      <div class="sb-item active" id="sb-add"  onclick="goTab('add')"><div class="sb-dot" style="background:var(--green);"></div><span data-ar="تسجيل مصروف" data-en="Record Expense">تسجيل مصروف</span></div>
+      <div class="sb-item"        id="sb-list" onclick="goTab('list')"><div class="sb-dot" style="background:var(--blue);"></div><span data-ar="قائمة المصاريف" data-en="Expenses List">قائمة المصاريف</span></div>
+    </div>
+    <div class="sb-sec">
+      <span class="sb-lbl">📂 <span data-ar="الفئات" data-en="Categories">الفئات</span></span>
+      <div class="sb-item" id="sb-cats" onclick="goTab('cats')"><div class="sb-dot" style="background:var(--amber);"></div><span data-ar="إدارة الفئات" data-en="Manage Categories">إدارة الفئات</span></div>
+    </div>
+    <div class="sb-sec">
+      <span class="sb-lbl">📊 <span data-ar="ملخص" data-en="Summary">ملخص</span></span>
+      <div class="sb-stat"><span data-ar="هذا الشهر" data-en="This Month">هذا الشهر</span><span class="sb-stat-val" id="sb-month-total">SAR 0</span></div>
+      <div class="sb-stat"><span data-ar="ضريبة قابلة للاسترداد" data-en="VAT Recoverable">ضريبة قابلة للاسترداد</span><span class="sb-stat-val c-green" id="sb-vat-rec">SAR 0</span></div>
+    </div>
+  </div>
+
+  <div class="main">
+
+    <!-- STATS -->
+    <div class="stats">
+      <div class="stat"><div class="stat-lbl" data-ar="إجمالي هذا الشهر" data-en="This Month Total">إجمالي هذا الشهر</div><div class="stat-num" id="s-month">SAR 0</div><div class="stat-sub" id="s-month-count">0 مصروف</div></div>
+      <div class="stat s-green"><div class="stat-lbl" data-ar="ضريبة قابلة للاسترداد" data-en="VAT Recoverable">ضريبة قابلة للاسترداد</div><div class="stat-num c-green" id="s-vat">SAR 0</div><div class="stat-sub" data-ar="من مصاريف هذا الشهر" data-en="from this month">من مصاريف هذا الشهر</div></div>
+      <div class="stat s-amber"><div class="stat-lbl" data-ar="أعلى فئة" data-en="Top Category">أعلى فئة</div><div class="stat-num c-amber" style="font-size:14px;margin-top:4px;" id="s-top-cat">—</div><div class="stat-sub" id="s-top-cat-amt"></div></div>
+    </div>
+
+    <!-- TAB: ADD EXPENSE -->
+    <div class="tc active" id="tc-add">
+      <div class="card">
+        <div class="card-hdr">
+          <span class="card-ttl" data-ar="تسجيل مصروف جديد" data-en="Record New Expense">تسجيل مصروف جديد</span>
+        </div>
+        <div class="card-bdy">
+
+          <div class="fg fg-3">
+            <div class="fld">
+              <label data-ar="التاريخ *" data-en="Date *">التاريخ *</label>
+              <input type="date" id="exp-date" lang="en">
+            </div>
+            <div class="fld">
+              <label data-ar="الفئة *" data-en="Category *">الفئة *</label>
+              <select id="exp-cat">
+                <option value="">— اختر فئة —</option>
+              </select>
+            </div>
+            <div class="fld">
+              <label data-ar="طريقة الدفع *" data-en="Payment Method *">طريقة الدفع *</label>
+              <select id="exp-method">
+                <option value="cash"   data-ar="نقداً"         data-en="Cash">نقداً</option>
+                <option value="bank"   data-ar="تحويل بنكي"   data-en="Bank Transfer">تحويل بنكي</option>
+                <option value="card"   data-ar="بطاقة"         data-en="Card">بطاقة</option>
+                <option value="credit" data-ar="آجل / دين"    data-en="Credit">آجل / دين</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="fg fg-2">
+            <div class="fld">
+              <label data-ar="الوصف *" data-en="Description *">الوصف *</label>
+              <input type="text" id="exp-desc" placeholder="وصف المصروف...">
+            </div>
+            <div class="fld">
+              <label data-ar="المورد / الجهة" data-en="Supplier / Vendor">المورد / الجهة</label>
+              <input type="text" id="exp-vendor" placeholder="اسم المورد أو الجهة (اختياري)">
+            </div>
+          </div>
+
+          <div class="fg fg-3">
+            <div class="fld">
+              <label data-ar="المبلغ قبل الضريبة (SAR) *" data-en="Amount before VAT (SAR) *">المبلغ قبل الضريبة *</label>
+              <input type="number" id="exp-amount" placeholder="0.00" min="0" step="0.01" oninput="calcExpVAT()">
+            </div>
+            <div class="fld">
+              <label data-ar="نوع الضريبة" data-en="VAT Type">نوع الضريبة</label>
+              <div class="vat-toggle">
+                <button class="vat-chip active" id="vat-yes" onclick="setVATType('yes')" data-ar="خاضع 15%" data-en="Taxed 15%">خاضع 15%</button>
+                <button class="vat-chip" id="vat-no"  onclick="setVATType('no')"  data-ar="بدون ضريبة" data-en="No VAT">بدون ضريبة</button>
+              </div>
+            </div>
+            <div class="fld">
+              <label data-ar="الإجمالي شامل الضريبة" data-en="Total incl. VAT">الإجمالي شامل الضريبة</label>
+              <input type="text" id="exp-total-display" readonly style="background:var(--tint);font-family:'DM Mono',monospace;font-weight:700;color:var(--navy);">
+            </div>
+          </div>
+
+          <div class="fg fg-2">
+            <div class="fld">
+              <label data-ar="قابلية استرداد الضريبة" data-en="VAT Deductibility">قابلية استرداد الضريبة</label>
+              <select id="exp-vat-type">
+                <option value="deductible"     data-ar="قابل للاسترداد (مصروف تشغيلي)" data-en="Deductible (Business expense)">قابل للاسترداد</option>
+                <option value="non_deductible" data-ar="غير قابل للاسترداد (شخصي/ترفيه)" data-en="Non-deductible (Personal/Entertainment)">غير قابل للاسترداد</option>
+                <option value="partial"        data-ar="جزئي (50%)" data-en="Partial (50%)">جزئي (50%)</option>
+              </select>
+            </div>
+            <div class="fld">
+              <label data-ar="رقم المرجع / الفاتورة" data-en="Reference / Invoice No.">رقم المرجع / الفاتورة</label>
+              <input type="text" id="exp-ref" placeholder="EXP-001 أو رقم فاتورة المورد" dir="ltr" style="font-family:'DM Mono',monospace;">
+            </div>
+          </div>
+
+          <div class="fld" style="margin-bottom:14px;">
+            <label data-ar="ملاحظات" data-en="Notes">ملاحظات</label>
+            <input type="text" id="exp-notes" placeholder="تفاصيل إضافية (اختياري)">
+          </div>
+
+          <!-- VAT Preview -->
+          <div id="exp-vat-preview" style="background:var(--tint);border:1px solid var(--light);border-radius:8px;padding:11px 14px;margin-bottom:14px;display:none;">
+            <div style="font-size:11px;font-weight:700;color:var(--navy);margin-bottom:6px;" data-ar="ملخص الضريبة" data-en="VAT Summary">ملخص الضريبة</div>
+            <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:3px;">
+              <span data-ar="ضريبة القيمة المضافة 15%" data-en="VAT 15%">ضريبة القيمة المضافة 15%</span>
+              <span class="mono" id="exp-vat-amt">SAR 0.00</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--green);font-weight:700;">
+              <span data-ar="المبلغ القابل للاسترداد" data-en="Recoverable Amount">المبلغ القابل للاسترداد</span>
+              <span class="mono" id="exp-vat-rec-amt">SAR 0.00</span>
+            </div>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn-p" onclick="saveExpense()" data-ar="💾 حفظ المصروف" data-en="💾 Save Expense">💾 حفظ المصروف</button>
+            <button class="btn-s" onclick="clearExpForm()" data-ar="مسح" data-en="Clear">مسح</button>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAB: EXPENSES LIST -->
+    <div class="tc" id="tc-list">
+      <div class="card">
+        <div class="card-hdr">
+          <span class="card-ttl" data-ar="قائمة المصاريف" data-en="Expenses List">قائمة المصاريف</span>
+          <button class="btn-s" onclick="exportExpenses()" style="font-size:11px;" data-ar="📥 تصدير Excel" data-en="📥 Export Excel">📥 تصدير Excel</button>
+        </div>
+        <!-- Filters -->
+        <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <input type="text" id="exp-search" placeholder="بحث بالوصف أو المورد..." oninput="renderExpenses()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;width:180px;">
+          <select id="exp-filter-cat" onchange="renderExpenses()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;">
+            <option value="" data-ar="كل الفئات" data-en="All Categories">كل الفئات</option>
+          </select>
+          <select id="exp-filter-method" onchange="renderExpenses()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;">
+            <option value=""      data-ar="كل طرق الدفع" data-en="All Methods">كل طرق الدفع</option>
+            <option value="cash"  data-ar="نقداً"        data-en="Cash">نقداً</option>
+            <option value="bank"  data-ar="تحويل بنكي"  data-en="Bank">تحويل بنكي</option>
+            <option value="card"  data-ar="بطاقة"        data-en="Card">بطاقة</option>
+            <option value="credit" data-ar="آجل"         data-en="Credit">آجل</option>
+          </select>
+          <input type="date" id="exp-filter-from" onchange="renderExpenses()" lang="en" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'DM Mono',monospace;font-size:12px;">
+          <input type="date" id="exp-filter-to"   onchange="renderExpenses()" lang="en" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'DM Mono',monospace;font-size:12px;">
+          <button class="btn-s" onclick="clearExpFilters()" style="font-size:11px;" data-ar="مسح الفلاتر" data-en="Clear">مسح الفلاتر</button>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="tbl">
+            <thead><tr>
+              <th data-ar="التاريخ"     data-en="Date">التاريخ</th>
+              <th data-ar="الوصف"       data-en="Description">الوصف</th>
+              <th data-ar="الفئة"       data-en="Category">الفئة</th>
+              <th data-ar="المورد"      data-en="Vendor">المورد</th>
+              <th data-ar="المبلغ"      data-en="Amount">المبلغ</th>
+              <th data-ar="ضريبة"       data-en="VAT">ضريبة</th>
+              <th data-ar="طريقة الدفع" data-en="Method">طريقة الدفع</th>
+              <th data-ar="إجراء"       data-en="Action">إجراء</th>
+            </tr></thead>
+            <tbody id="exp-tbody"><tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted);">جارٍ التحميل...</td></tr></tbody>
+            <tfoot id="exp-tfoot"></tfoot>
+          </table>
+        </div>
+        <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <span id="exp-page-info" style="font-size:12px;color:var(--muted);"></span>
+          <div style="display:flex;gap:6px;">
+            <button class="btn-s" id="exp-prev" onclick="expPage(-1)" style="font-size:11px;padding:5px 12px;" data-ar="← السابق" data-en="← Prev">← السابق</button>
+            <button class="btn-s" id="exp-next" onclick="expPage(1)"  style="font-size:11px;padding:5px 12px;" data-ar="التالي →" data-en="Next →">التالي →</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- Category breakdown chart -->
+      <div class="card">
+        <div class="card-hdr"><span class="card-ttl" data-ar="توزيع المصاريف بالفئة" data-en="Expenses by Category">توزيع المصاريف بالفئة</span></div>
+        <div class="card-bdy" id="cat-breakdown"></div>
+      </div>
+    </div>
+
+    <!-- TAB: CATEGORIES -->
+    <div class="tc" id="tc-cats">
+      <div class="card">
+        <div class="card-hdr">
+          <span class="card-ttl" data-ar="إدارة فئات المصاريف" data-en="Expense Categories">إدارة فئات المصاريف</span>
+        </div>
+        <div class="card-bdy">
+          <div class="note-box blue">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+            <span data-ar="الفئات الافتراضية مُضافة تلقائياً. يمكنك إضافة فئات مخصصة تناسب نشاطك." data-en="Default categories are added automatically. Add custom categories to match your business.">الفئات الافتراضية مُضافة تلقائياً. يمكنك إضافة فئات مخصصة.</span>
+          </div>
+          <div class="fg fg-2" style="margin-bottom:10px;">
+            <div class="fld">
+              <label data-ar="اسم الفئة (عربي) *" data-en="Category Name (Arabic) *">اسم الفئة (عربي) *</label>
+              <input type="text" id="cat-name-ar" placeholder="مثال: مصاريف التسويق">
+            </div>
+            <div class="fld">
+              <label data-ar="اسم الفئة (إنجليزي)" data-en="Category Name (English)">اسم الفئة (إنجليزي)</label>
+              <input type="text" id="cat-name-en" placeholder="e.g. Marketing Expenses">
+            </div>
+          </div>
+          <div class="fg fg-2" style="margin-bottom:14px;">
+            <div class="fld">
+              <label data-ar="كود الحساب (للدفتر)" data-en="Account Code (Ledger)">كود الحساب</label>
+              <input type="text" id="cat-account" placeholder="6100" dir="ltr" style="font-family:'DM Mono',monospace;">
+              <span class="hint" data-ar="اتركه فارغاً للقيمة الافتراضية 6000" data-en="Leave blank for default 6000">اتركه فارغاً للقيمة الافتراضية 6000</span>
+            </div>
+            <div class="fld">
+              <label data-ar="الأيقونة" data-en="Icon">الأيقونة</label>
+              <input type="text" id="cat-icon" placeholder="🏠" maxlength="4">
+            </div>
+          </div>
+          <div class="btn-row" style="margin-bottom:20px;">
+            <button class="btn-p" onclick="saveCategory()" data-ar="+ إضافة فئة" data-en="+ Add Category">+ إضافة فئة</button>
+          </div>
+          <div id="cats-list"></div>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL='https://ykzivnasjwtuhvjxfxzf.supabase.co';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+let currentUser=null,currentBiz=null,L=localStorage.getItem('gl_lang')||'ar';
+let expenses=[],categories=[];
+let expCurrentPage=0;
+const EXP_PAGE_SIZE=20;
+let vatType='yes'; // 'yes' or 'no'
+
+/* ── DEFAULT CATEGORIES ── */
+const DEFAULT_CATS=[
+  {name_ar:'إيجار',         name_en:'Rent',              account:'6100',icon:'🏠'},
+  {name_ar:'رواتب وأجور',   name_en:'Salaries & Wages',  account:'6200',icon:'👥'},
+  {name_ar:'مرافق (كهرباء/ماء)',name_en:'Utilities',      account:'6300',icon:'💡'},
+  {name_ar:'مواصلات ووقود', name_en:'Transport & Fuel',   account:'6400',icon:'🚗'},
+  {name_ar:'تسويق وإعلان',  name_en:'Marketing & Ads',    account:'6500',icon:'📢'},
+  {name_ar:'قرطاسية ومستلزمات',name_en:'Stationery & Supplies',account:'6600',icon:'📎'},
+  {name_ar:'صيانة وإصلاح',  name_en:'Maintenance & Repair',account:'6700',icon:'🔧'},
+  {name_ar:'اتصالات وإنترنت',name_en:'Telecom & Internet', account:'6800',icon:'📱'},
+  {name_ar:'تأمين',          name_en:'Insurance',          account:'6900',icon:'🛡'},
+  {name_ar:'رسوم مهنية',     name_en:'Professional Fees',  account:'7000',icon:'⚖️'},
+  {name_ar:'ضيافة وترفيه',   name_en:'Entertainment',      account:'7100',icon:'☕'},
+  {name_ar:'مصاريف أخرى',   name_en:'Other Expenses',     account:'7900',icon:'📦'},
+];
+
+/* ── INIT ── */
+async function init(){
+  const {data:{session}}=await sb.auth.getSession();
+  if(!session){window.location.href='login.html';return;}
+  currentUser=session.user;
+  const {data:biz}=await sb.from('businesses').select('*').eq('user_id',currentUser.id).single();
+  if(biz){currentBiz=biz;document.getElementById('biz-name').textContent=biz.name_ar||biz.name||'';}
+  document.getElementById('exp-date').value=today();
+  await loadCategories();
+  await loadExpenses();
+  setLang(getStoredLang());
+}
+
+/* ── CATEGORIES ── */
+async function loadCategories(){
+  const {data}=await sb.from('expense_categories').select('*').eq('user_id',currentUser.id).order('name_ar');
+  if(!data||!data.length){
+    // Seed defaults
+    await sb.from('expense_categories').insert(DEFAULT_CATS.map(c=>({...c,user_id:currentUser.id,business_id:currentBiz?.id,is_default:true})));
+    const {data:seeded}=await sb.from('expense_categories').select('*').eq('user_id',currentUser.id).order('name_ar');
+    categories=seeded||[];
+  } else {
+    categories=data;
+  }
+  populateCatDropdowns();
+  renderCatsList();
+}
+
+function populateCatDropdowns(){
+  ['exp-cat','exp-filter-cat'].forEach(id=>{
+    const sel=document.getElementById(id);
+    if(!sel)return;
+    const current=sel.value;
+    const first=id==='exp-filter-cat'?`<option value="">${L==='ar'?'كل الفئات':'All Categories'}</option>`:`<option value="">${L==='ar'?'— اختر فئة —':'— Select category —'}</option>`;
+    sel.innerHTML=first+categories.map(c=>`<option value="${c.id}">${c.icon||''} ${L==='ar'?c.name_ar:c.name_en||c.name_ar}</option>`).join('');
+    sel.value=current;
+  });
+}
+
+function renderCatsList(){
+  const el=document.getElementById('cats-list');
+  if(!categories.length){el.innerHTML=`<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px;">${L==='ar'?'لا توجد فئات بعد':'No categories yet'}</div>`;return;}
+  el.innerHTML=`<table class="tbl"><thead><tr>
+    <th data-ar="الأيقونة" data-en="Icon">الأيقونة</th>
+    <th data-ar="الاسم عربي" data-en="Arabic Name">عربي</th>
+    <th data-ar="الاسم إنجليزي" data-en="English Name">إنجليزي</th>
+    <th data-ar="كود الحساب" data-en="Account">الحساب</th>
+    <th data-ar="إجراء" data-en="Action">إجراء</th>
+  </tr></thead><tbody>${categories.map(c=>`<tr>
+    <td style="font-size:18px;">${c.icon||'📦'}</td>
+    <td style="font-weight:600;">${c.name_ar}</td>
+    <td style="color:var(--muted);">${c.name_en||'—'}</td>
+    <td class="mono">${c.account||'6000'}</td>
+    <td>${c.is_default?`<span style="font-size:10px;color:var(--muted);">${L==='ar'?'افتراضي':'Default'}</span>`:`<button class="btn-d" onclick="deleteCat('${c.id}')">${L==='ar'?'حذف':'Del'}</button>`}</td>
+  </tr>`).join('')}</tbody></table>`;
+}
+
+async function saveCategory(){
+  const nameAr=document.getElementById('cat-name-ar').value.trim();
+  if(!nameAr){notify(L==='ar'?'أدخل اسم الفئة بالعربية':'Enter Arabic category name','r');return;}
+  const {error}=await sb.from('expense_categories').insert({
+    user_id:currentUser.id,business_id:currentBiz?.id,
+    name_ar:nameAr,
+    name_en:document.getElementById('cat-name-en').value.trim()||null,
+    account:document.getElementById('cat-account').value.trim()||'6000',
+    icon:document.getElementById('cat-icon').value.trim()||'📦',
+    is_default:false
+  });
+  if(error){notify(error.message,'r');return;}
+  document.getElementById('cat-name-ar').value='';
+  document.getElementById('cat-name-en').value='';
+  document.getElementById('cat-account').value='';
+  document.getElementById('cat-icon').value='';
+  notify(L==='ar'?'تم إضافة الفئة ✓':'Category added ✓','g');
+  await loadCategories();
+}
+
+async function deleteCat(id){
+  if(!confirm(L==='ar'?'هل تريد حذف هذه الفئة؟':'Delete this category?'))return;
+  await sb.from('expense_categories').delete().eq('id',id);
+  await loadCategories();
+}
+
+/* ── VAT CALC ── */
+function setVATType(type){
+  vatType=type;
+  document.getElementById('vat-yes').classList.toggle('active',type==='yes');
+  document.getElementById('vat-no').classList.toggle('active',type==='no');
+  calcExpVAT();
+}
+
+function calcExpVAT(){
+  const amount=parseFloat(document.getElementById('exp-amount').value)||0;
+  const hasVAT=vatType==='yes';
+  const vatAmt=hasVAT?Math.round(amount*0.15*100)/100:0;
+  const total=amount+vatAmt;
+  const deductType=document.getElementById('exp-vat-type').value;
+  const recAmt=deductType==='deductible'?vatAmt:deductType==='partial'?Math.round(vatAmt*0.5*100)/100:0;
+
+  document.getElementById('exp-total-display').value='SAR '+fmt(total);
+
+  const preview=document.getElementById('exp-vat-preview');
+  if(amount>0&&hasVAT){
+    preview.style.display='block';
+    document.getElementById('exp-vat-amt').textContent='SAR '+fmt(vatAmt);
+    document.getElementById('exp-vat-rec-amt').textContent='SAR '+fmt(recAmt);
+  } else {
+    preview.style.display='none';
+  }
+}
+
+/* ── SAVE EXPENSE ── */
+async function saveExpense(){
+  const date=document.getElementById('exp-date').value;
+  const catId=document.getElementById('exp-cat').value;
+  const desc=document.getElementById('exp-desc').value.trim();
+  const amount=parseFloat(document.getElementById('exp-amount').value)||0;
+  if(!date){notify(L==='ar'?'أدخل التاريخ':'Enter date','r');return;}
+  if(!catId){notify(L==='ar'?'اختر الفئة':'Select category','r');return;}
+  if(!desc){notify(L==='ar'?'أدخل الوصف':'Enter description','r');return;}
+  if(!amount){notify(L==='ar'?'أدخل المبلغ':'Enter amount','r');return;}
+
+  const hasVAT=vatType==='yes';
+  const vatAmt=hasVAT?Math.round(amount*0.15*100)/100:0;
+  const total=Math.round((amount+vatAmt)*100)/100;
+  const deductType=document.getElementById('exp-vat-type').value;
+  const recVAT=deductType==='deductible'?vatAmt:deductType==='partial'?Math.round(vatAmt*0.5*100)/100:0;
+  const method=document.getElementById('exp-method').value;
+  const ref=document.getElementById('exp-ref').value.trim();
+  const cat=categories.find(c=>c.id===catId);
+
+  const {data:exp,error}=await sb.from('expenses').insert({
+    user_id:currentUser.id,business_id:currentBiz?.id,
+    expense_date:date,
+    category_id:catId,category_name:cat?cat.name_ar:'',
+    description:desc,
+    vendor:document.getElementById('exp-vendor').value.trim()||null,
+    amount,vat_amount:vatAmt,total,
+    vat_deductible:deductType,vat_recoverable:recVAT,
+    payment_method:method,
+    reference:ref||null,
+    notes:document.getElementById('exp-notes').value.trim()||null,
+    has_vat:hasVAT
+  }).select().single();
+
+  if(error){notify(error.message,'r');return;}
+
+  // Auto-post to journal
+  await postExpenseJournal(exp,cat,amount,vatAmt,recVAT,total,method);
+
+  notify(L==='ar'?`✅ تم حفظ المصروف — SAR ${fmt(total)}`:`✅ Expense saved — SAR ${fmt(total)}`,'g');
+  clearExpForm();
+  await loadExpenses();
+}
+
+async function postExpenseJournal(exp,cat,amount,vatAmt,recVAT,total,method){
+  try{
+    const accountCode=cat?.account||'6000';
+    const accountName=cat?cat.name_ar:'مصاريف عامة';
+    const crCode=method==='bank'||method==='card'?'1101':'1100';
+    const crName=method==='bank'||method==='card'?(L==='ar'?'البنك':'Bank'):(L==='ar'?'النقد وما في حكمه':'Cash');
+
+    const {data:entry}=await sb.from('journal_entries').insert({
+      user_id:currentUser.id,business_id:currentBiz?.id,
+      entry_date:exp.expense_date,
+      reference:exp.reference||'EXP-'+Date.now(),
+      description:(L==='ar'?'مصروف — ':'Expense — ')+exp.description,
+      source:'expense',source_id:exp.id,
+      status:'posted',is_balanced:true
+    }).select().single();
+
+    if(!entry)return;
+    const lines=[
+      {entry_id:entry.id,user_id:currentUser.id,account_code:accountCode,account_name:accountName,debit:amount,credit:0,description:exp.description},
+      {entry_id:entry.id,user_id:currentUser.id,account_code:crCode,account_name:crName,debit:0,credit:total,description:L==='ar'?'دفع مصروف':'Expense payment'}
+    ];
+    if(vatAmt>0){
+      lines.push({entry_id:entry.id,user_id:currentUser.id,account_code:'2210',account_name:'ضريبة القيمة المضافة — مدخلات',debit:recVAT,credit:0,description:'VAT مدخلات 15%'});
+      if(vatAmt>recVAT){
+        lines.push({entry_id:entry.id,user_id:currentUser.id,account_code:accountCode,account_name:accountName,debit:vatAmt-recVAT,credit:0,description:'VAT غير قابل للاسترداد'});
+      }
+      // Adjust credit to balance
+      lines[1].credit=amount+(vatAmt-recVAT);
+    }
+    await sb.from('journal_lines').insert(lines);
+  }catch(e){console.warn('Journal post skipped:',e.message);}
+}
+
+/* ── LOAD & RENDER EXPENSES ── */
+async function loadExpenses(){
+  const {data}=await sb.from('expenses').select('*').eq('user_id',currentUser.id).order('expense_date',{ascending:false}).limit(500);
+  expenses=data||[];
+  renderExpenses();
+  renderStats();
+  renderCatBreakdown();
+  updateSidebarStats();
+}
+
+function renderExpenses(){
+  const search=(document.getElementById('exp-search')?.value||'').toLowerCase();
+  const catFilter=document.getElementById('exp-filter-cat')?.value||'';
+  const methodFilter=document.getElementById('exp-filter-method')?.value||'';
+  const fromDate=document.getElementById('exp-filter-from')?.value||'';
+  const toDate=document.getElementById('exp-filter-to')?.value||'';
+
+  let filtered=expenses.filter(e=>{
+    const ms=!search||(e.description||'').toLowerCase().includes(search)||(e.vendor||'').toLowerCase().includes(search)||(e.category_name||'').toLowerCase().includes(search);
+    const mc=!catFilter||e.category_id===catFilter;
+    const mm=!methodFilter||e.payment_method===methodFilter;
+    const mf=!fromDate||e.expense_date>=fromDate;
+    const mt=!toDate||e.expense_date<=toDate;
+    return ms&&mc&&mm&&mf&&mt;
+  });
+
+  const total=filtered.length;
+  const totalPages=Math.ceil(total/EXP_PAGE_SIZE)||1;
+  if(expCurrentPage>=totalPages)expCurrentPage=totalPages-1;
+  const page=filtered.slice(expCurrentPage*EXP_PAGE_SIZE,(expCurrentPage+1)*EXP_PAGE_SIZE);
+
+  const info=document.getElementById('exp-page-info');
+  if(info)info.textContent=`${L==='ar'?'صفحة':'Page'} ${expCurrentPage+1} ${L==='ar'?'من':'of'} ${totalPages} — ${total} ${L==='ar'?'نتيجة':'results'}`;
+  const prevBtn=document.getElementById('exp-prev');const nextBtn=document.getElementById('exp-next');
+  if(prevBtn)prevBtn.disabled=expCurrentPage===0;
+  if(nextBtn)nextBtn.disabled=expCurrentPage>=totalPages-1;
+
+  const tb=document.getElementById('exp-tbody');
+  if(!page.length){tb.innerHTML=`<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا توجد مصاريف':'No expenses found'}</td></tr>`;const tf=document.getElementById('exp-tfoot');if(tf)tf.innerHTML='';return;}
+
+  const methodBadge=(m)=>({cash:`<span class="bdg bdg-cash">${L==='ar'?'نقداً':'Cash'}</span>`,bank:`<span class="bdg bdg-bank">${L==='ar'?'بنك':'Bank'}</span>`,card:`<span class="bdg bdg-card">${L==='ar'?'بطاقة':'Card'}</span>`,credit:`<span class="bdg bdg-credit">${L==='ar'?'آجل':'Credit'}</span>`})[m]||`<span class="bdg">${m}</span>`;
+
+  tb.innerHTML=page.map(e=>`<tr>
+    <td style="font-size:11px;color:var(--muted);white-space:nowrap;">${e.expense_date||'—'}</td>
+    <td><strong style="font-size:12px;">${e.description||'—'}</strong>${e.notes?`<div style="font-size:10px;color:var(--muted);">${e.notes}</div>`:''}</td>
+    <td style="font-size:12px;">${e.category_name||'—'}</td>
+    <td style="font-size:11px;color:var(--muted);">${e.vendor||'—'}</td>
+    <td class="mono" style="font-weight:700;">SAR ${fmt(e.total)}</td>
+    <td>${e.has_vat?`<span class="bdg bdg-vat">SAR ${fmt(e.vat_recoverable||0)}</span>`:`<span class="bdg bdg-novat">${L==='ar'?'بدون':'No VAT'}</span>`}</td>
+    <td>${methodBadge(e.payment_method)}</td>
+    <td><button class="btn-d" onclick="deleteExpense('${e.id}')" style="font-size:10px;padding:3px 8px;">${L==='ar'?'حذف':'Del'}</button></td>
+  </tr>`).join('');
+
+  const totalAmt=filtered.reduce((s,e)=>s+(e.total||0),0);
+  const totalVAT=filtered.reduce((s,e)=>s+(e.vat_recoverable||0),0);
+  const tf=document.getElementById('exp-tfoot');
+  if(tf)tf.innerHTML=`<tr style="background:var(--navy);color:#fff;"><td colspan="4" style="padding:10px 12px;font-weight:700;font-size:12px;">${total} ${L==='ar'?'مصروف':'expenses'}</td><td class="mono" style="padding:10px 12px;font-weight:700;font-size:14px;">SAR ${fmt(totalAmt)}</td><td class="mono" style="padding:10px 12px;color:#86efac;">SAR ${fmt(totalVAT)}</td><td colspan="2" style="padding:10px 12px;font-size:11px;color:var(--light);">${L==='ar'?'الإجمالي':'Total'}</td></tr>`;
+}
+
+function expPage(dir){expCurrentPage+=dir;if(expCurrentPage<0)expCurrentPage=0;renderExpenses();}
+
+function clearExpFilters(){
+  ['exp-search','exp-filter-from','exp-filter-to'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('exp-filter-cat').value='';
+  document.getElementById('exp-filter-method').value='';
+  expCurrentPage=0;renderExpenses();
+}
+
+async function deleteExpense(id){
+  if(!confirm(L==='ar'?'هل تريد حذف هذا المصروف؟':'Delete this expense?'))return;
+  await sb.from('expenses').delete().eq('id',id);
+  await loadExpenses();
+}
+
+/* ── STATS ── */
+function renderStats(){
+  const now=new Date();
+  const monthStart=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+  const monthExp=expenses.filter(e=>e.expense_date>=monthStart);
+  const monthTotal=monthExp.reduce((s,e)=>s+(e.total||0),0);
+  const monthVAT=monthExp.reduce((s,e)=>s+(e.vat_recoverable||0),0);
+  const monthCount=monthExp.length;
+
+  set('s-month','SAR '+fmt(monthTotal));
+  set('s-month-count',monthCount+(L==='ar'?' مصروف':' expenses'));
+  set('s-vat','SAR '+fmt(monthVAT));
+
+  // Top category
+  const catTotals={};
+  monthExp.forEach(e=>{if(e.category_name)catTotals[e.category_name]=(catTotals[e.category_name]||0)+(e.total||0);});
+  const topCat=Object.entries(catTotals).sort((a,b)=>b[1]-a[1])[0];
+  if(topCat){set('s-top-cat',topCat[0]);set('s-top-cat-amt','SAR '+fmt(topCat[1]));}
+  else{set('s-top-cat','—');set('s-top-cat-amt','');}
+}
+
+function updateSidebarStats(){
+  const now=new Date();
+  const monthStart=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
+  const monthExp=expenses.filter(e=>e.expense_date>=monthStart);
+  const monthTotal=monthExp.reduce((s,e)=>s+(e.total||0),0);
+  const monthVAT=monthExp.reduce((s,e)=>s+(e.vat_recoverable||0),0);
+  set('sb-month-total','SAR '+fmt(monthTotal));
+  set('sb-vat-rec','SAR '+fmt(monthVAT));
+}
+
+function renderCatBreakdown(){
+  const el=document.getElementById('cat-breakdown');
+  if(!el)return;
+  const catTotals={};
+  expenses.forEach(e=>{if(e.category_name)catTotals[e.category_name]=(catTotals[e.category_name]||0)+(e.total||0);});
+  const sorted=Object.entries(catTotals).sort((a,b)=>b[1]-a[1]).slice(0,8);
+  if(!sorted.length){el.innerHTML=`<div style="text-align:center;color:var(--muted);padding:20px;font-size:12px;">${L==='ar'?'لا توجد بيانات بعد':'No data yet'}</div>`;return;}
+  const max=sorted[0][1];
+  el.innerHTML=sorted.map(([cat,total])=>`
+    <div class="cat-bar-wrap">
+      <div class="cat-bar-label"><span style="font-size:12px;">${cat}</span><span class="mono" style="font-size:11px;font-weight:700;">SAR ${fmt(total)}</span></div>
+      <div class="cat-bar"><div class="cat-bar-fill" style="width:${Math.round(total/max*100)}%;"></div></div>
+    </div>`).join('');
+}
+
+/* ── EXPORT ── */
+function exportExpenses(){
+  const rows=[['تاريخ','الوصف','الفئة','المورد','المبلغ قبل الضريبة','ضريبة القيمة المضافة','قابل للاسترداد','الإجمالي','طريقة الدفع','المرجع','ملاحظات'],
+    ...expenses.map(e=>[e.expense_date||'',e.description||'',e.category_name||'',e.vendor||'',e.amount||0,e.vat_amount||0,e.vat_recoverable||0,e.total||0,e.payment_method||'',e.reference||'',e.notes||''])];
+  const ws=XLSX.utils.aoa_to_sheet(rows);
+  ws['!cols']=[{wch:12},{wch:30},{wch:20},{wch:20},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14},{wch:14},{wch:20}];
+  const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Expenses');
+  XLSX.writeFile(wb,`GulfLedger_Expenses_${today()}.xlsx`);
+  notify(L==='ar'?`تم تصدير ${expenses.length} مصروف`:`Exported ${expenses.length} expenses`,'g');
+}
+
+/* ── FORM HELPERS ── */
+function clearExpForm(){
+  ['exp-desc','exp-vendor','exp-amount','exp-ref','exp-notes'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('exp-date').value=today();
+  document.getElementById('exp-cat').value='';
+  document.getElementById('exp-method').value='cash';
+  document.getElementById('exp-vat-type').value='deductible';
+  document.getElementById('exp-total-display').value='';
+  document.getElementById('exp-vat-preview').style.display='none';
+  setVATType('yes');
+}
+
+/* ── TAB NAV ── */
+function goTab(name){
+  ['add','list','cats'].forEach(t=>{
+    document.getElementById('tc-'+t)?.classList.toggle('active',t===name);
+    const sbEl=document.getElementById('sb-'+t);if(sbEl)sbEl.classList.toggle('active',t===name);
+  });
+  if(name==='list'){renderExpenses();renderCatBreakdown();}
+  if(name==='cats')renderCatsList();
+}
+
+/* ── HELPERS ── */
+function fmt(n){return(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');}
+function today(){return new Date().toISOString().split('T')[0];}
+function set(id,v){const el=document.getElementById(id);if(el)el.textContent=v;}
+function gval(id){const el=document.getElementById(id);return el?el.value.trim():'';}
+function notify(msg,type){
+  const d=document.createElement('div');
+  d.style.cssText='position:fixed;top:80px;left:50%;transform:translateX(-50%);background:'+(type==='g'?'var(--green)':'var(--red)')+';color:#fff;padding:10px 24px;border-radius:8px;font-family:Tajawal,sans-serif;font-size:13px;z-index:9999;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,0.2);max-width:90vw;';
+  d.textContent=msg;document.body.appendChild(d);
+  setTimeout(()=>{if(d.parentNode)d.parentNode.removeChild(d);},type==='g'?4000:3000);
+}
+async function logout(){await sb.auth.signOut();window.location.href='login.html';}
+
+/* ── LANGUAGE ── */
+function getStoredLang(){return localStorage.getItem('gl_lang')||'ar';}
+function applyLang(lang){
+  localStorage.setItem('gl_lang',lang);
+  document.getElementById('btn-ar')?.classList.toggle('on',lang==='ar');
+  document.getElementById('btn-en')?.classList.toggle('on',lang==='en');
+  document.documentElement.setAttribute('lang',lang);
+  document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
+  document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));
+  document.querySelectorAll('select option[data-ar]').forEach(o=>o.text=o.getAttribute('data-'+lang)||o.text);
+}
+function setLang(lang){L=lang;applyLang(lang);populateCatDropdowns();renderExpenses();renderCatsList();}
+
+// Force Gregorian dates
+(function(){function fixDates(){document.querySelectorAll('input[type="date"]').forEach(function(el){if(!el.dataset.gf){el.setAttribute('lang','en-SA-u-ca-gregory');el.dataset.gf='1';}});}fixDates();new MutationObserver(fixDates).observe(document.body,{childList:true,subtree:true});})();
+
+init();
+</script>
+</body>
+</html>
