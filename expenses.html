@@ -518,7 +518,7 @@ async function postExpenseJournal(exp,cat,amount,vatAmt,recVAT,total,method){
       {entry_id:entry.id,user_id:currentUser.id,account_code:crCode,account_name:crName,debit:0,credit:total,description:L==='ar'?'دفع مصروف':'Expense payment'}
     ];
     if(vatAmt>0){
-      lines.push({entry_id:entry.id,user_id:currentUser.id,account_code:'2210',account_name:'ضريبة القيمة المضافة — مدخلات',debit:recVAT,credit:0,description:'VAT مدخلات 15%'});
+      lines.push({entry_id:entry.id,user_id:currentUser.id,account_code:'2220',account_name:'ضريبة القيمة المضافة — مدخلات',debit:recVAT,credit:0,description:'VAT مدخلات 15%'});
       if(vatAmt>recVAT){
         lines.push({entry_id:entry.id,user_id:currentUser.id,account_code:accountCode,account_name:accountName,debit:vatAmt-recVAT,credit:0,description:'VAT غير قابل للاسترداد'});
       }
@@ -571,16 +571,19 @@ function renderExpenses(){
 
   const methodBadge=(m)=>({cash:`<span class="bdg bdg-cash">${L==='ar'?'نقداً':'Cash'}</span>`,bank:`<span class="bdg bdg-bank">${L==='ar'?'بنك':'Bank'}</span>`,card:`<span class="bdg bdg-card">${L==='ar'?'بطاقة':'Card'}</span>`,credit:`<span class="bdg bdg-credit">${L==='ar'?'آجل':'Credit'}</span>`})[m]||`<span class="bdg">${m}</span>`;
 
-  tb.innerHTML=page.map(e=>`<tr>
+  tb.innerHTML=page.map(e=>{
+    const isReversed=e.status==='reversed';
+    const methodBadge=(m)=>({cash:`<span class="bdg bdg-cash">${L==='ar'?'نقداً':'Cash'}</span>`,bank:`<span class="bdg bdg-bank">${L==='ar'?'بنك':'Bank'}</span>`,card:`<span class="bdg bdg-card">${L==='ar'?'بطاقة':'Card'}</span>`,credit:`<span class="bdg bdg-credit">${L==='ar'?'آجل':'Credit'}</span>`})[m]||`<span class="bdg">${m}</span>`;
+    return `<tr style="${isReversed?'opacity:.5;text-decoration:line-through;':''}">
     <td style="font-size:11px;color:var(--muted);white-space:nowrap;">${e.expense_date||'—'}</td>
-    <td><strong style="font-size:12px;">${e.description||'—'}</strong>${e.notes?`<div style="font-size:10px;color:var(--muted);">${e.notes}</div>`:''}</td>
+    <td><strong style="font-size:12px;">${e.description||'—'}</strong>${isReversed?` <span class="bdg" style="background:#fff1f2;color:var(--red);text-decoration:none;">${L==='ar'?'مُعكَس':'Reversed'}</span>`:''} ${e.notes?`<div style="font-size:10px;color:var(--muted);">${e.notes}</div>`:''}</td>
     <td style="font-size:12px;">${e.category_name||'—'}</td>
     <td style="font-size:11px;color:var(--muted);">${e.vendor||'—'}</td>
     <td class="mono" style="font-weight:700;">SAR ${fmt(e.total)}</td>
     <td>${e.has_vat?`<span class="bdg bdg-vat">SAR ${fmt(e.vat_recoverable||0)}</span>`:`<span class="bdg bdg-novat">${L==='ar'?'بدون':'No VAT'}</span>`}</td>
     <td>${methodBadge(e.payment_method)}</td>
-    <td><button class="btn-d" onclick="deleteExpense('${e.id}')" style="font-size:10px;padding:3px 8px;">${L==='ar'?'حذف':'Del'}</button></td>
-  </tr>`).join('');
+    <td>${isReversed?`<span style="font-size:10px;color:var(--muted);">—</span>`:`<button class="btn-d" onclick="reverseExpense('${e.id}')" style="font-size:10px;padding:3px 8px;">${L==='ar'?'عكس':'Reverse'}</button>`}</td>
+  </tr>`}).join('');
 
   const totalAmt=filtered.reduce((s,e)=>s+(e.total||0),0);
   const totalVAT=filtered.reduce((s,e)=>s+(e.vat_recoverable||0),0);
@@ -597,9 +600,63 @@ function clearExpFilters(){
   expCurrentPage=0;renderExpenses();
 }
 
-async function deleteExpense(id){
-  if(!confirm(L==='ar'?'هل تريد حذف هذا المصروف؟':'Delete this expense?'))return;
-  await sb.from('expenses').delete().eq('id',id);
+async function reverseExpense(id){
+  if(!confirm(L==='ar'?'هل تريد عكس هذا المصروف؟ سيتم إنشاء قيد عكسي في الدفتر.':'Reverse this expense? A reversing journal entry will be posted.'))return;
+
+  // Get expense details
+  const {data:exp}=await sb.from('expenses').select('*').eq('id',id).single();
+  if(!exp){notify(L==='ar'?'لم يتم العثور على المصروف':'Expense not found','r');return;}
+  if(exp.status==='reversed'){notify(L==='ar'?'هذا المصروف مُعكَس مسبقاً':'Already reversed','r');return;}
+
+  try{
+    // Find original journal entry
+    const {data:entries}=await sb.from('journal_entries')
+      .select('id,journal_lines(*)').eq('source_id',id).eq('source','expense').eq('user_id',currentUser.id);
+
+    if(entries&&entries.length){
+      const original=entries[0];
+      const originalLines=original.journal_lines||[];
+
+      // Post reversing entry — flip all debits/credits
+      const {data:revEntry}=await sb.from('journal_entries').insert({
+        user_id:currentUser.id,business_id:currentBiz?.id,
+        entry_date:today(),
+        reference:'REV-'+(exp.reference||id.slice(0,8)),
+        description:(L==='ar'?'عكس مصروف — ':'Reversal of expense — ')+exp.description,
+        source:'expense_reversal',source_id:id,
+        status:'posted',is_balanced:true
+      }).select().single();
+
+      if(revEntry){
+        const revLines=originalLines.map(l=>({
+          entry_id:revEntry.id,
+          user_id:currentUser.id,
+          account_code:l.account_code,
+          account_name:l.account_name,
+          debit:l.credit,   // flip
+          credit:l.debit,   // flip
+          description:(L==='ar'?'عكس: ':'Reversal: ')+l.description
+        }));
+        await sb.from('journal_lines').insert(revLines);
+      }
+
+      // Mark original entry as reversed
+      await sb.from('journal_entries').update({
+        status:'reversed',
+        updated_at:new Date().toISOString()
+      }).eq('id',original.id);
+    }
+
+    // Mark expense as reversed — do NOT delete
+    await sb.from('expenses').update({
+      status:'reversed',
+      updated_at:new Date().toISOString()
+    }).eq('id',id);
+
+    notify(L==='ar'?'✅ تم عكس المصروف — القيد العكسي مُرحَّل في الدفتر':'✅ Expense reversed — reversal entry posted to ledger','g');
+  }catch(e){
+    notify((L==='ar'?'خطأ: ':'Error: ')+e.message,'r');
+  }
   await loadExpenses();
 }
 
