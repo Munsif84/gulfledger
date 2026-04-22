@@ -353,11 +353,6 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
             </div>
           </div>
           <div class="fg fg-2" style="margin-bottom:14px;">
-            <div class="fld" id="cat-account-row" style="display:none;">
-              <label data-ar="كود الحساب (للدفتر)" data-en="Account Code (Ledger)">Account Code (Ledger)</label>
-              <input type="text" id="cat-account" placeholder="6100" dir="ltr" style="font-family:'DM Mono',monospace;">
-              <span class="hint" data-ar="يُعيَّن تلقائياً إذا تُرك فارغاً" data-en="Auto-assigned if left blank">Auto-assigned if left blank</span>
-            </div>
             <div class="fld">
               <label data-ar="الأيقونة" data-en="Icon">Icon</label>
               <input type="text" id="cat-icon" placeholder="🏠" maxlength="4">
@@ -407,11 +402,6 @@ async function init(){
   const {data:biz}=await sb.from('businesses').select('*').eq('user_id',currentUser.id).single();
   if(biz){currentBiz=biz;document.getElementById('biz-name').textContent=biz.name_ar||biz.name||'';}
   document.getElementById('exp-date').value=today();
-  // Show account code field only in accountant mode
-  if(localStorage.getItem('gl_accountant_mode')==='true'){
-    const row=document.getElementById('cat-account-row');
-    if(row)row.style.display='';
-  }
   await loadCategories();
   await loadExpenses();
   setLang(getStoredLang());
@@ -447,16 +437,14 @@ function renderCatsList(){
   const el=document.getElementById('cats-list');
   if(!categories.length){el.innerHTML=`<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px;">${L==='ar'?'لا توجد فئات بعد':'No categories yet'}</div>`;return;}
   el.innerHTML=`<table class="tbl"><thead><tr>
-    <th data-ar="الأيقونة" data-en="Icon">الأيقونة</th>
-    <th data-ar="الاسم عربي" data-en="Arabic Name">عربي</th>
-    <th data-ar="الاسم إنجليزي" data-en="English Name">إنجليزي</th>
-    <th data-ar="كود الحساب" data-en="Account">الحساب</th>
-    <th data-ar="إجراء" data-en="Action">إجراء</th>
+    <th data-ar="الأيقونة" data-en="Icon">Icon</th>
+    <th data-ar="الاسم عربي" data-en="Arabic Name">Arabic</th>
+    <th data-ar="الاسم إنجليزي" data-en="English Name">English</th>
+    <th data-ar="إجراء" data-en="Action">Action</th>
   </tr></thead><tbody>${categories.map(c=>`<tr>
     <td style="font-size:18px;">${c.icon||'📦'}</td>
     <td style="font-weight:600;">${c.name_ar}</td>
     <td style="color:var(--muted);">${c.name_en||'—'}</td>
-    <td class="mono">${c.account||'6000'}</td>
     <td>${c.is_default?`<span style="font-size:10px;color:var(--muted);">${L==='ar'?'افتراضي':'Default'}</span>`:`<button class="btn-d" onclick="deleteCat('${c.id}')">${L==='ar'?'حذف':'Del'}</button>`}</td>
   </tr>`).join('')}</tbody></table>`;
 }
@@ -482,8 +470,7 @@ async function saveCategory(){
   const nameAr=document.getElementById('cat-name-ar').value.trim();
   if(!nameAr){notify(L==='ar'?'أدخل اسم الفئة بالعربية':'Enter Arabic category name','r');return;}
   const nameEn=document.getElementById('cat-name-en').value.trim()||null;
-  const manualCode=document.getElementById('cat-account').value.trim();
-  const account=manualCode||autoMapAccount(nameAr,nameEn||'');
+  const account=autoMapAccount(nameAr,nameEn||'');
   const {error}=await sb.from('expense_categories').insert({
     user_id:currentUser.id,business_id:currentBiz?.id,
     name_ar:nameAr,name_en:nameEn,
@@ -494,9 +481,8 @@ async function saveCategory(){
   if(error){notify(error.message,'r');return;}
   document.getElementById('cat-name-ar').value='';
   document.getElementById('cat-name-en').value='';
-  document.getElementById('cat-account').value='';
   document.getElementById('cat-icon').value='';
-  notify(L==='ar'?`تم إضافة الفئة — كود الحساب: ${account} ✓`:`Category added — Account: ${account} ✓`,'g');
+  notify(L==='ar'?'تم إضافة الفئة ✓':'Category added ✓','g');
   await loadCategories();
 }
 
