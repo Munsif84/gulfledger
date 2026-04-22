@@ -16,7 +16,7 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
-:root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#C62828;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--border:#d4e6f7;--bg:#f7fafd;--white:#ffffff;}
+:root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#C62828;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--border:#d4e6f7;--bg:#f7fafd;--white:#ffffff;--purple:#6d28d9;}
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;}
 .topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;}
@@ -152,7 +152,6 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
 }
 input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
 /* ── PURCHASING (merged) ── */
---purple:#6d28d9;
 .pro-badge{display:inline-flex;align-items:center;gap:5px;background:#f5f3ff;color:#6d28d9;font-size:10px;font-weight:700;padding:3px 9px;border-radius:8px;border:1px solid #ddd6fe;}
 .btn-g{padding:7px 14px;background:#f0fdf4;color:var(--green);border:1.5px solid #86efac;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
 .totals-box{background:var(--tint);border-radius:9px;padding:13px 15px;}
@@ -946,6 +945,11 @@ let currentUser=null,currentBiz=null,L=localStorage.getItem('gl_lang')||'ar';
 let invItems=[],movements=[],suppliers=[];
 let poLineCount=0,activePOLineIdx=null;
 let cameraStream=null,cameraTarget='po';
+/* purchasing state */
+let purchDataLoaded=false,purchaseOrders=[];
+let poLineCountPurch=0;
+let currentSIId=null,currentSIPOId=null;
+let supPayInvoiceId=null,supPayTotal=0;
 
 async function init(){
   const {data:{session}}=await sb.auth.getSession();
@@ -1267,10 +1271,18 @@ function goPro(tabName){
 }
 
 function goTab(name){
-let purchaseOrders=[];
-let poLineCountPurch=0;
-let currentSIId=null,currentSIPOId=null;
-let supPayInvoiceId=null,supPayTotal=0;
+  const tabs=['stock','registry','receive','movements','adjust','cogs','suppliers','upload','fifo',
+              'po-list','po-new','po-detail','sup-inv','sup-inv-new'];
+  tabs.forEach(t=>{
+    document.getElementById('tc-'+t)?.classList.toggle('active',t===name);
+    const sbEl=document.getElementById('sb-'+t);
+    if(sbEl)sbEl.classList.toggle('active',t===name);
+  });
+  if(name==='receive')refreshSupDropdown();
+  if(name==='registry'){refreshSupDropdown();renderSuppliers();}
+  if(name==='fifo')loadFIFOBatches();
+  if(name==='adjust')loadAdjItems();
+}
 
 async function loadPurchasingData(){
   const next=new Date();next.setDate(next.getDate()+7);
