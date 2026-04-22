@@ -373,17 +373,15 @@ async function init(){
 
 /* ── CATEGORIES ── */
 async function loadCategories(){
-  const {data}=await sb.from('expense_categories').select('*').eq('user_id',currentUser.id).order('name_ar');
-  if(!data||!data.length){
-    // Seed defaults
-    await sb.from('expense_categories').insert(DEFAULT_CATS.map(c=>({...c,user_id:currentUser.id,business_id:currentBiz?.id,is_default:true})));
-    const {data:seeded}=await sb.from('expense_categories').select('*').eq('user_id',currentUser.id).order('name_ar');
-    categories=seeded||[];
-  } else {
-    categories=data;
-  }
+  // Always use DEFAULT_CATS as the base — no DB dependency for categories
+  categories = DEFAULT_CATS.map((c,i)=>({...c, id:'cat-'+i}));
+  // Try to also load any user-custom categories from DB (non-blocking)
+  try {
+    const {data}=await sb.from('expense_categories')
+      .select('*').eq('user_id',currentUser.id).eq('is_default',false).order('name_ar');
+    if(data&&data.length) categories=[...categories,...data];
+  } catch(e){ /* table may not exist yet — use defaults only */ }
   populateCatDropdowns();
-  renderCatsList();
 }
 
 function populateCatDropdowns(){
@@ -391,8 +389,10 @@ function populateCatDropdowns(){
     const sel=document.getElementById(id);
     if(!sel)return;
     const current=sel.value;
-    const first=id==='exp-filter-cat'?`<option value="">${L==='ar'?'كل الفئات':'All Categories'}</option>`:`<option value="">${L==='ar'?'— اختر فئة —':'— Select category —'}</option>`;
-    sel.innerHTML=first+categories.map(c=>`<option value="${c.id}">${c.icon||''} ${L==='ar'?c.name_ar:c.name_en||c.name_ar}</option>`).join('');
+    const first=id==='exp-filter-cat'
+      ?`<option value="">${L==='ar'?'كل الفئات':'All Categories'}</option>`
+      :`<option value="">${L==='ar'?'— اختر فئة —':'— Select category —'}</option>`;
+    sel.innerHTML=first+categories.map(c=>`<option value="${c.name_ar}">${c.icon||''} ${L==='ar'?c.name_ar:c.name_en||c.name_ar}</option>`).join('');
     sel.value=current;
   });
 }
@@ -454,11 +454,11 @@ function calcExpVAT(){
 /* ── SAVE EXPENSE ── */
 async function saveExpense(){
   const date=document.getElementById('exp-date').value;
-  const catId=document.getElementById('exp-cat').value;
+  const catName=document.getElementById('exp-cat').value;
   const desc=document.getElementById('exp-desc').value.trim();
   const amount=parseFloat(document.getElementById('exp-amount').value)||0;
   if(!date){notify(L==='ar'?'أدخل التاريخ':'Enter date','r');return;}
-  if(!catId){notify(L==='ar'?'اختر الفئة':'Select category','r');return;}
+  if(!catName){notify(L==='ar'?'اختر الفئة':'Select category','r');return;}
   if(!desc){notify(L==='ar'?'أدخل الوصف':'Enter description','r');return;}
   if(!amount){notify(L==='ar'?'أدخل المبلغ':'Enter amount','r');return;}
 
@@ -470,12 +470,12 @@ async function saveExpense(){
   const recVAT=isStandard?(deductType==='deductible'?vatAmt:deductType==='partial'?Math.round(vatAmt*0.5*100)/100:0):0;
   const method=document.getElementById('exp-method').value;
   const ref=document.getElementById('exp-ref').value.trim();
-  const cat=categories.find(c=>c.id===catId);
+  const cat=categories.find(c=>c.name_ar===catName);
 
   const {data:exp,error}=await sb.from('expenses').insert({
     user_id:currentUser.id,business_id:currentBiz?.id,
     expense_date:date,
-    category_id:catId,category_name:cat?cat.name_ar:'',
+    category_name:catName,
     description:desc,
     vendor:document.getElementById('exp-vendor').value.trim()||null,
     amount,vat_amount:vatAmt,total,
@@ -548,7 +548,7 @@ function renderExpenses(){
 
   let filtered=expenses.filter(e=>{
     const ms=!search||(e.description||'').toLowerCase().includes(search)||(e.vendor||'').toLowerCase().includes(search)||(e.category_name||'').toLowerCase().includes(search);
-    const mc=!catFilter||e.category_id===catFilter;
+    const mc=!catFilter||e.category_name===catFilter;
     const mm=!methodFilter||e.payment_method===methodFilter;
     const mf=!fromDate||e.expense_date>=fromDate;
     const mt=!toDate||e.expense_date<=toDate;
