@@ -154,7 +154,6 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
       <span class="sb-lbl">📝 <span data-ar="المصاريف" data-en="Expenses">Expenses</span></span>
       <div class="sb-item active" id="sb-add"  onclick="goTab('add')"><div class="sb-dot" style="background:var(--green);"></div><span data-ar="مصروف جديد" data-en="New Expense">New Expense</span></div>
       <div class="sb-item"        id="sb-list" onclick="goTab('list')"><div class="sb-dot" style="background:var(--blue);"></div><span data-ar="قائمة المصاريف" data-en="Expenses List">Expenses List</span></div>
-      <div class="sb-item"        id="sb-cats" onclick="goTab('cats')"><div class="sb-dot" style="background:var(--amber);"></div><span data-ar="الفئات" data-en="Categories">Categories</span></div>
     </div>
     <div class="sb-sec">
       <span class="sb-lbl">📊 <span data-ar="ملخص" data-en="Summary">ملخص</span></span>
@@ -331,41 +330,6 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
       </div>
     </div>
 
-    <!-- TAB: CATEGORIES -->
-    <div class="tc" id="tc-cats">
-      <div class="card">
-        <div class="card-hdr">
-          <span class="card-ttl" data-ar="إدارة فئات المصاريف" data-en="Expense Categories">إدارة فئات المصاريف</span>
-        </div>
-        <div class="card-bdy">
-          <div class="note-box blue">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
-            <span data-ar="الفئات الافتراضية مُضافة تلقائياً. يمكنك إضافة فئات مخصصة تناسب نشاطك." data-en="Default categories are added automatically. Add custom categories to match your business.">الفئات الافتراضية مُضافة تلقائياً. يمكنك إضافة فئات مخصصة.</span>
-          </div>
-          <div class="fg fg-2" style="margin-bottom:10px;">
-            <div class="fld">
-              <label data-ar="اسم الفئة (عربي) *" data-en="Category Name (Arabic) *">اسم الفئة (عربي) *</label>
-              <input type="text" id="cat-name-ar" data-placeholder-ar="مثال: مصاريف التسويق" data-placeholder-en="Example: مصاريف التسويق" placeholder="Example: مصاريف التسويق">
-            </div>
-            <div class="fld">
-              <label data-ar="اسم الفئة (إنجليزي)" data-en="Category Name (English)">Category Name (English)</label>
-              <input type="text" id="cat-name-en" data-placeholder-ar="مثال: Marketing Expenses" data-placeholder-en="e.g. Marketing Expenses" placeholder="e.g. Marketing Expenses">
-            </div>
-          </div>
-          <div class="fg fg-2" style="margin-bottom:14px;">
-            <div class="fld">
-              <label data-ar="الأيقونة" data-en="Icon">Icon</label>
-              <input type="text" id="cat-icon" placeholder="🏠" maxlength="4">
-            </div>
-          </div>
-          <div class="btn-row" style="margin-bottom:20px;">
-            <button class="btn-p" onclick="saveCategory()" data-ar="+ إضافة فئة" data-en="+ Add Category">+ إضافة فئة</button>
-          </div>
-          <div id="cats-list"></div>
-        </div>
-      </div>
-    </div>
-
   </div>
 </div>
 
@@ -433,63 +397,21 @@ function populateCatDropdowns(){
   });
 }
 
-function renderCatsList(){
-  const el=document.getElementById('cats-list');
-  if(!categories.length){el.innerHTML=`<div style="color:var(--muted);font-size:12px;text-align:center;padding:20px;">${L==='ar'?'لا توجد فئات بعد':'No categories yet'}</div>`;return;}
-  el.innerHTML=`<table class="tbl"><thead><tr>
-    <th data-ar="الأيقونة" data-en="Icon">Icon</th>
-    <th data-ar="الاسم عربي" data-en="Arabic Name">Arabic</th>
-    <th data-ar="الاسم إنجليزي" data-en="English Name">English</th>
-    <th data-ar="إجراء" data-en="Action">Action</th>
-  </tr></thead><tbody>${categories.map(c=>`<tr>
-    <td style="font-size:18px;">${c.icon||'📦'}</td>
-    <td style="font-weight:600;">${c.name_ar}</td>
-    <td style="color:var(--muted);">${c.name_en||'—'}</td>
-    <td>${c.is_default?`<span style="font-size:10px;color:var(--muted);">${L==='ar'?'افتراضي':'Default'}</span>`:`<button class="btn-d" onclick="deleteCat('${c.id}')">${L==='ar'?'حذف':'Del'}</button>`}</td>
-  </tr>`).join('')}</tbody></table>`;
-}
-
-/* ── AUTO-MAP ACCOUNT CODE FROM CATEGORY NAME ── */
+/* ── AUTO-MAP ACCOUNT CODE (silent — for ledger posting only) ── */
 function autoMapAccount(nameAr, nameEn){
   const name=(nameAr+' '+(nameEn||'')).toLowerCase();
-  if(/إيجار|rent|lease/.test(name))          return '6100';
-  if(/راتب|أجر|salary|wage|payroll/.test(name)) return '6200';
-  if(/كهرباء|ماء|غاز|مرافق|util/.test(name)) return '6300';
+  if(/إيجار|rent|lease/.test(name))               return '6100';
+  if(/راتب|أجر|salary|wage|payroll/.test(name))   return '6200';
+  if(/كهرباء|ماء|غاز|مرافق|util/.test(name))     return '6300';
   if(/وقود|مواصلات|سفر|fuel|transport|travel/.test(name)) return '6400';
-  if(/تسويق|إعلان|market|advertis/.test(name)) return '6500';
-  if(/قرطاسية|مستلزمات|stationery|supply|supplies/.test(name)) return '6600';
-  if(/صيانة|إصلاح|mainten|repair/.test(name)) return '6700';
+  if(/تسويق|إعلان|market|advertis/.test(name))    return '6500';
+  if(/قرطاسية|مستلزمات|stationery|supply/.test(name)) return '6600';
+  if(/صيانة|إصلاح|mainten|repair/.test(name))     return '6700';
   if(/اتصال|إنترنت|هاتف|telecom|internet|phone/.test(name)) return '6800';
-  if(/تأمين|insur/.test(name))               return '6900';
+  if(/تأمين|insur/.test(name))                     return '6900';
   if(/رسوم|محاسب|محامي|استشار|fee|legal|audit/.test(name)) return '7000';
   if(/ضيافة|ترفيه|entertain|hospitality/.test(name)) return '7100';
-  return '7900'; // Other expenses — default
-}
-
-async function saveCategory(){
-  const nameAr=document.getElementById('cat-name-ar').value.trim();
-  if(!nameAr){notify(L==='ar'?'أدخل اسم الفئة بالعربية':'Enter Arabic category name','r');return;}
-  const nameEn=document.getElementById('cat-name-en').value.trim()||null;
-  const account=autoMapAccount(nameAr,nameEn||'');
-  const {error}=await sb.from('expense_categories').insert({
-    user_id:currentUser.id,business_id:currentBiz?.id,
-    name_ar:nameAr,name_en:nameEn,
-    account,
-    icon:document.getElementById('cat-icon').value.trim()||'📦',
-    is_default:false
-  });
-  if(error){notify(error.message,'r');return;}
-  document.getElementById('cat-name-ar').value='';
-  document.getElementById('cat-name-en').value='';
-  document.getElementById('cat-icon').value='';
-  notify(L==='ar'?'تم إضافة الفئة ✓':'Category added ✓','g');
-  await loadCategories();
-}
-
-async function deleteCat(id){
-  if(!confirm(L==='ar'?'هل تريد حذف هذه الفئة؟':'Delete this category?'))return;
-  await sb.from('expense_categories').delete().eq('id',id);
-  await loadCategories();
+  return '7900';
 }
 
 /* ── VAT CALC ── */
@@ -753,12 +675,11 @@ function clearExpForm(){
 
 /* ── TAB NAV ── */
 function goTab(name){
-  ['add','list','cats'].forEach(t=>{
+  ['add','list'].forEach(t=>{
     document.getElementById('tc-'+t)?.classList.toggle('active',t===name);
     const sbEl=document.getElementById('sb-'+t);if(sbEl)sbEl.classList.toggle('active',t===name);
   });
   if(name==='list'){renderExpenses();renderCatBreakdown();}
-  if(name==='cats')renderCatsList();
 }
 
 /* ── HELPERS ── */
