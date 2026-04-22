@@ -353,13 +353,13 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
             </div>
           </div>
           <div class="fg fg-2" style="margin-bottom:14px;">
-            <div class="fld">
-              <label data-ar="كود الحساب (للدفتر)" data-en="Account Code (Ledger)">كود الحساب</label>
+            <div class="fld" id="cat-account-row" style="display:none;">
+              <label data-ar="كود الحساب (للدفتر)" data-en="Account Code (Ledger)">Account Code (Ledger)</label>
               <input type="text" id="cat-account" placeholder="6100" dir="ltr" style="font-family:'DM Mono',monospace;">
-              <span class="hint" data-ar="اتركه فارغاً للقيمة الافتراضية 6000" data-en="Leave blank for default 6000">اتركه فارغاً للقيمة الافتراضية 6000</span>
+              <span class="hint" data-ar="يُعيَّن تلقائياً إذا تُرك فارغاً" data-en="Auto-assigned if left blank">Auto-assigned if left blank</span>
             </div>
             <div class="fld">
-              <label data-ar="الأيقونة" data-en="Icon">الأيقونة</label>
+              <label data-ar="الأيقونة" data-en="Icon">Icon</label>
               <input type="text" id="cat-icon" placeholder="🏠" maxlength="4">
             </div>
           </div>
@@ -407,6 +407,11 @@ async function init(){
   const {data:biz}=await sb.from('businesses').select('*').eq('user_id',currentUser.id).single();
   if(biz){currentBiz=biz;document.getElementById('biz-name').textContent=biz.name_ar||biz.name||'';}
   document.getElementById('exp-date').value=today();
+  // Show account code field only in accountant mode
+  if(localStorage.getItem('gl_accountant_mode')==='true'){
+    const row=document.getElementById('cat-account-row');
+    if(row)row.style.display='';
+  }
   await loadCategories();
   await loadExpenses();
   setLang(getStoredLang());
@@ -456,14 +461,33 @@ function renderCatsList(){
   </tr>`).join('')}</tbody></table>`;
 }
 
+/* ── AUTO-MAP ACCOUNT CODE FROM CATEGORY NAME ── */
+function autoMapAccount(nameAr, nameEn){
+  const name=(nameAr+' '+(nameEn||'')).toLowerCase();
+  if(/إيجار|rent|lease/.test(name))          return '6100';
+  if(/راتب|أجر|salary|wage|payroll/.test(name)) return '6200';
+  if(/كهرباء|ماء|غاز|مرافق|util/.test(name)) return '6300';
+  if(/وقود|مواصلات|سفر|fuel|transport|travel/.test(name)) return '6400';
+  if(/تسويق|إعلان|market|advertis/.test(name)) return '6500';
+  if(/قرطاسية|مستلزمات|stationery|supply|supplies/.test(name)) return '6600';
+  if(/صيانة|إصلاح|mainten|repair/.test(name)) return '6700';
+  if(/اتصال|إنترنت|هاتف|telecom|internet|phone/.test(name)) return '6800';
+  if(/تأمين|insur/.test(name))               return '6900';
+  if(/رسوم|محاسب|محامي|استشار|fee|legal|audit/.test(name)) return '7000';
+  if(/ضيافة|ترفيه|entertain|hospitality/.test(name)) return '7100';
+  return '7900'; // Other expenses — default
+}
+
 async function saveCategory(){
   const nameAr=document.getElementById('cat-name-ar').value.trim();
   if(!nameAr){notify(L==='ar'?'أدخل اسم الفئة بالعربية':'Enter Arabic category name','r');return;}
+  const nameEn=document.getElementById('cat-name-en').value.trim()||null;
+  const manualCode=document.getElementById('cat-account').value.trim();
+  const account=manualCode||autoMapAccount(nameAr,nameEn||'');
   const {error}=await sb.from('expense_categories').insert({
     user_id:currentUser.id,business_id:currentBiz?.id,
-    name_ar:nameAr,
-    name_en:document.getElementById('cat-name-en').value.trim()||null,
-    account:document.getElementById('cat-account').value.trim()||'6000',
+    name_ar:nameAr,name_en:nameEn,
+    account,
     icon:document.getElementById('cat-icon').value.trim()||'📦',
     is_default:false
   });
@@ -472,7 +496,7 @@ async function saveCategory(){
   document.getElementById('cat-name-en').value='';
   document.getElementById('cat-account').value='';
   document.getElementById('cat-icon').value='';
-  notify(L==='ar'?'تم إضافة الفئة ✓':'Category added ✓','g');
+  notify(L==='ar'?`تم إضافة الفئة — كود الحساب: ${account} ✓`:`Category added — Account: ${account} ✓`,'g');
   await loadCategories();
 }
 
