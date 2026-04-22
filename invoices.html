@@ -2365,7 +2365,10 @@ function renderInvoiceList(data) {
       const amtPaid = parseFloat(inv.amount_paid)||0;
       const remaining = Math.max(0, (inv.total||0) - amtPaid);
 
-      const statusBadge = paid
+      const isVoided = inv.status === 'voided';
+      const statusBadge = isVoided
+        ? `<span class="badge" style="background:#f1f5f9;color:#64748b;text-decoration:line-through;">🚫 ${currentLang==='ar'?'ملغي':'Voided'}</span>`
+        : paid
         ? `<span class="badge" style="background:#dcfce7;color:#166534;">✅ ${currentLang==='ar'?'مدفوع':'Paid'}</span>`
         : partial
         ? `<div><span class="badge" style="background:#fef3c7;color:#92400e;">⚡ ${currentLang==='ar'?'جزئي':'Partial'}</span>
@@ -2374,29 +2377,89 @@ function renderInvoiceList(data) {
         : `<span class="badge" style="background:#fff1f2;color:#be123c;">⏳ ${currentLang==='ar'?'غير مدفوع':'Unpaid'}</span>`;
 
       const mobile = inv.buyer_mobile || '';
-      const reminderBtn = !paid
+      const reminderBtn = (!paid && !isVoided)
         ? `<button onclick="event.stopPropagation();sendReminder('${mobile}','${inv.invoice_number}',${remaining},'${(inv.buyer_name||'').replace(/'/g,"\\'")}');this.textContent='✅';this.disabled=true;setTimeout(()=>{this.textContent='${currentLang==='ar'?'📩 تذكير':'📩 Remind'}';this.disabled=false;},3000)"
             style="padding:3px 8px;background:#f0f9ff;color:#0369a1;border:1px solid #bae6fd;border-radius:5px;font-size:10px;font-family:'Tajawal',sans-serif;cursor:pointer;white-space:nowrap;">
             ${currentLang==='ar'?'📩 تذكير':'📩 Remind'}
           </button>` : '';
 
-      const payBtn = !paid
+      const payBtn = (!paid && !isVoided)
         ? `<button onclick="event.stopPropagation();openPaymentModal('${inv.id}','${inv.invoice_number}',${inv.total},'${(inv.buyer_name||'').replace(/'/g,"\\'")}',${inv.amount_paid||0})"
             style="padding:3px 8px;background:var(--green);color:#fff;border:none;border-radius:5px;font-size:10px;font-family:'Tajawal',sans-serif;cursor:pointer;white-space:nowrap;">
             💰 ${currentLang==='ar'?'دفعة':'Pay'}
           </button>` : '';
 
-      return `<tr onclick="loadInvoice('${inv.id}')">
+      const voidBtn = !isVoided
+        ? `<button onclick="event.stopPropagation();voidInvoice('${inv.id}','${inv.invoice_number}',${inv.total},'${(inv.buyer_name||'').replace(/'/g,"\\'")}')"
+            style="padding:3px 8px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:5px;font-size:10px;font-family:'Tajawal',sans-serif;cursor:pointer;white-space:nowrap;">
+            🚫 ${currentLang==='ar'?'إلغاء':'Void'}
+          </button>` : '';
+
+      return `<tr onclick="loadInvoice('${inv.id}')" style="${isVoided?'opacity:.5;':''}">
         <td class="mono" style="font-weight:600;color:var(--blue);">${inv.invoice_number}</td>
         <td style="font-size:11px;color:var(--muted);">${inv.issue_date||'—'}</td>
         <td style="font-size:12px;">${inv.buyer_name||'—'}</td>
         <td class="mono" style="font-weight:600;">SAR ${fmt(inv.total)}</td>
         <td>${statusBadge}</td>
-        <td onclick="event.stopPropagation()" style="white-space:nowrap;display:flex;gap:4px;align-items:center;">${payBtn}${reminderBtn}</td>
+        <td onclick="event.stopPropagation()" style="white-space:nowrap;display:flex;gap:4px;align-items:center;flex-wrap:wrap;">${payBtn}${reminderBtn}${voidBtn}</td>
       </tr>`;
     }).join('')}
     </tbody>
   </table></div>`;
+}
+
+/* ── VOID INVOICE — posts credit note reversal, marks invoice voided ── */
+async function voidInvoice(id, invNum, total, buyerName) {
+  if(!confirm(currentLang==='ar'
+    ?`هل تريد إلغاء الفاتورة ${invNum}؟ سيتم ترحيل قيد عكسي (إشعار دائن) في الدفتر.`
+    :`Void invoice ${invNum}? A credit note reversal will be posted to the ledger.`)) return;
+
+  try {
+    // Find original journal entry
+    const {data:entries} = await sb.from('journal_entries')
+      .select('id,journal_lines(*)')
+      .eq('source_id', id).eq('source','invoice').eq('user_id', currentUser.id);
+
+    if(entries && entries.length) {
+      const orig = entries[0];
+      const origLines = orig.journal_lines || [];
+
+      // Post credit note (full reversal)
+      const {data:cnEntry} = await sb.from('journal_entries').insert({
+        user_id: currentUser.id, business_id: currentBiz?.id,
+        entry_date: today(),
+        reference: 'CN-' + invNum,
+        description: (currentLang==='ar'?'إشعار دائن — إلغاء فاتورة ':'Credit Note — Void invoice ') + invNum,
+        source: 'credit_note', source_id: id,
+        status: 'posted', is_balanced: true
+      }).select().single();
+
+      if(cnEntry) {
+        await sb.from('journal_lines').insert(origLines.map(l=>({
+          entry_id: cnEntry.id, user_id: currentUser.id,
+          account_code: l.account_code, account_name: l.account_name,
+          debit: l.credit, credit: l.debit,
+          description: (currentLang==='ar'?'إشعار دائن: ':'CN: ') + l.description
+        })));
+      }
+
+      // Mark original as reversed
+      await sb.from('journal_entries').update({status:'reversed', updated_at:new Date().toISOString()}).eq('id', orig.id);
+    }
+
+    // Mark invoice as voided
+    await sb.from('invoices').update({
+      status: 'voided',
+      updated_at: new Date().toISOString()
+    }).eq('id', id);
+
+    notify(currentLang==='ar'
+      ?`✅ تم إلغاء الفاتورة ${invNum} — إشعار دائن مُرحَّل في الدفتر`
+      :`✅ Invoice ${invNum} voided — credit note posted to ledger`,'g');
+    loadInvoices();
+  } catch(e) {
+    notify((currentLang==='ar'?'خطأ: ':'Error: ')+e.message,'r');
+  }
 }
 
 /* ── LOAD SINGLE INVOICE ── */
@@ -2646,58 +2709,72 @@ async function autoPostInvoice(invoice) {
   const sub   = parseFloat(invoice.subtotal)   || 0;
   const vat   = parseFloat(invoice.vat_amount) || 0;
   const total = parseFloat(invoice.total)      || sub + vat;
-  if (total <= 0) return; // nothing to post
+  if (total <= 0) return;
   const ref   = invoice.invoice_number || ('INV-' + Date.now());
   const date  = invoice.issue_date || today();
 
   try {
-    // Check if already posted — if so delete old lines and repost (handles edits)
+    // If already posted — post a reversing entry first, then post fresh (audit trail preserved)
     const { data: existing } = await sb.from('journal_entries')
-      .select('id').eq('reference', ref).eq('user_id', currentUser.id).limit(1);
+      .select('id,journal_lines(*)').eq('reference', ref).eq('user_id', currentUser.id)
+      .eq('source','invoice').limit(1);
 
-    let entryId;
     if (existing && existing.length) {
-      entryId = existing[0].id;
-      await sb.from('journal_lines').delete().eq('entry_id', entryId);
-      await sb.from('journal_entries').update({
-        entry_date:  date,
-        description: 'فاتورة مبيعات — ' + (invoice.buyer_name || ''),
-        updated_at:  new Date().toISOString()
-      }).eq('id', entryId);
-    } else {
-      const { data: entry, error } = await sb.from('journal_entries').insert({
-        user_id:     currentUser.id,
-        business_id: currentBiz?.id,
-        entry_date:  date,
-        reference:   ref,
-        description: 'فاتورة مبيعات — ' + (invoice.buyer_name || ''),
-        source:      'invoice',
-        source_id:   invoice.id,
-        status:      'posted',
-        is_balanced: true
-      }).select().single();
-      if (error || !entry) { console.warn('Auto-post error:', error?.message); return; }
-      entryId = entry.id;
+      const orig = existing[0];
+      const origLines = orig.journal_lines || [];
+      // Only reverse if amounts actually changed
+      const origTotal = origLines.find(l=>l.account_code==='1200')?.debit || 0;
+      if (Math.abs(origTotal - total) > 0.001) {
+        // Post reversing entry
+        const { data: revEntry } = await sb.from('journal_entries').insert({
+          user_id: currentUser.id, business_id: currentBiz?.id,
+          entry_date: date,
+          reference: 'REV-' + ref,
+          description: (currentLang==='ar'?'عكس فاتورة — ':'Reversal of invoice — ') + (invoice.buyer_name||''),
+          source: 'invoice_reversal', source_id: invoice.id,
+          status: 'posted', is_balanced: true
+        }).select().single();
+        if (revEntry) {
+          await sb.from('journal_lines').insert(origLines.map(l=>({
+            entry_id: revEntry.id, user_id: currentUser.id,
+            account_code: l.account_code, account_name: l.account_name,
+            debit: l.credit, credit: l.debit,
+            description: (currentLang==='ar'?'عكس: ':'Rev: ') + l.description
+          })));
+        }
+        // Mark original as reversed
+        await sb.from('journal_entries').update({status:'reversed',updated_at:new Date().toISOString()}).eq('id',orig.id);
+      } else {
+        return; // No amount change — no need to repost
+      }
     }
 
-    // Three lines: Dr Receivables | Cr Revenue | Cr VAT Output
+    // Post fresh entry
+    const { data: entry, error } = await sb.from('journal_entries').insert({
+      user_id: currentUser.id, business_id: currentBiz?.id,
+      entry_date: date, reference: ref,
+      description: (currentLang==='ar'?'فاتورة مبيعات — ':'Sales invoice — ') + (invoice.buyer_name || ''),
+      source: 'invoice', source_id: invoice.id,
+      status: 'posted', is_balanced: true
+    }).select().single();
+    if (error || !entry) { console.warn('Auto-post error:', error?.message); return; }
+
     await sb.from('journal_lines').insert([
-      { entry_id: entryId, user_id: currentUser.id,
+      { entry_id: entry.id, user_id: currentUser.id,
         account_code: '1200', account_name: 'ذمم مدينة تجارية',
         debit: total, credit: 0,
-        description: 'مستحقات من ' + (invoice.buyer_name || 'عميل') },
-      { entry_id: entryId, user_id: currentUser.id,
+        description: (currentLang==='ar'?'مستحقات من ':'Receivable from ') + (invoice.buyer_name || 'عميل') },
+      { entry_id: entry.id, user_id: currentUser.id,
         account_code: '4100', account_name: 'إيرادات المبيعات',
         debit: 0, credit: sub,
-        description: 'إيرادات مبيعات — ' + ref },
-      { entry_id: entryId, user_id: currentUser.id,
+        description: (currentLang==='ar'?'إيرادات مبيعات — ':'Sales revenue — ') + ref },
+      { entry_id: entry.id, user_id: currentUser.id,
         account_code: '2210', account_name: 'ضريبة القيمة المضافة — مخرجات',
         debit: 0, credit: vat,
         description: 'VAT مخرجات 15% — ' + ref }
     ]);
   } catch(e) {
     console.warn('Auto-post failed:', e.message);
-    // Show subtle warning — doesn't block the invoice save
     showSaveStatus('saved', '✓ ' + (currentLang==='ar'?'تم الحفظ (تحقق من الدفتر)':'Saved (check ledger)'));
   }
 }
