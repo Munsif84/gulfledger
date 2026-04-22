@@ -316,7 +316,8 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
             <span data-ar="رمز SKU يُنشأ تلقائياً — يمكن تعديله. الباركود للمسح الضوئي عند الاستلام. حدّد المورد لتتبع المخزون بالمورد." data-en="SKU auto-generated — can be edited. Barcode for scanning during receiving. Set supplier to track stock by supplier.">SKU تلقائي — الباركود للمسح — المورد لتتبع المخزون</span>
           </div>
           <div class="fg fg-3">
-            <div class="fld"><label data-ar="اسم الصنف *" data-en="Item Name *">اسم الصنف *</label><input type="text" id="fi-name" placeholder="Nescafe Classic 190g" oninput="previewSKU()"></div>
+            <div class="fld"><label data-ar="اسم الصنف (إنجليزي) *" data-en="Item Name (English) *">Item Name *</label><input type="text" id="fi-name" placeholder="Nescafe Classic 190g" oninput="previewSKU()" onblur="autoTranslateName()"></div>
+            <div class="fld"><label data-ar="اسم الصنف (عربي) *" data-en="Item Name (Arabic) *">اسم الصنف (عربي) *<span id="fi-name-ar-status" style="font-size:9px;margin-right:4px;color:var(--muted);"></span></label><input type="text" id="fi-name-ar" placeholder="نسكافيه كلاسيك 190غرام" style="direction:rtl;"></div>
             <div class="fld"><label data-ar="الفئة *" data-en="Category *">الفئة *</label>
               <select id="fi-cat" onchange="previewSKU()">
                 <option value="FOOD" data-ar="مواد غذائية" data-en="Food">مواد غذائية</option>
@@ -1000,6 +1001,8 @@ async function previewSKU(){
 async function addItem(){
   const name=gval('fi-name');
   if(!name){notify(L==='ar'?'أدخل اسم الصنف':'Enter item name','r');return;}
+  const nameAr=gval('fi-name-ar');
+  if(!nameAr){notify(L==='ar'?'أدخل اسم الصنف بالعربية (مطلوب للامتثال)':'Arabic name required for ZATCA compliance','r');return;}
   const cat=document.getElementById('fi-cat').value;
   let sku=gval('fi-sku');
   if(!sku)sku=await generateSKU(cat);
@@ -1010,7 +1013,7 @@ async function addItem(){
   const hasExpiry=document.getElementById('fi-has-expiry')?.value==='1';
   const shelfDays=parseInt(document.getElementById('fi-shelf-life')?.value)||0;
   const supplierId=document.getElementById('fi-supplier')?.value||null;
-  const newItem={user_id:currentUser.id,business_id:currentBiz?.id,name,sku,barcode:gval('fi-barcode')||null,category:cat,unit:document.getElementById('fi-unit').value,cost_price:cost,sale_price:parseFloat(document.getElementById('fi-price').value)||0,current_qty:qty,alert_level:parseFloat(document.getElementById('fi-alert').value)||10,description:gval('fi-desc')||null,has_expiry:hasExpiry,shelf_life_days:shelfDays,supplier_id:supplierId||null};
+  const newItem={user_id:currentUser.id,business_id:currentBiz?.id,name,name_ar:nameAr||null,sku,barcode:gval('fi-barcode')||null,category:cat,unit:document.getElementById('fi-unit').value,cost_price:cost,sale_price:parseFloat(document.getElementById('fi-price').value)||0,current_qty:qty,alert_level:parseFloat(document.getElementById('fi-alert').value)||10,description:gval('fi-desc')||null,has_expiry:hasExpiry,shelf_life_days:shelfDays,supplier_id:supplierId||null};
   const {data,error}=await sb.from('inventory_items').insert(newItem).select().single();
   if(error){notify(error.message,'r');return;}
   if(qty>0){await sb.from('inventory_movements').insert({business_id:currentBiz?.id,item_id:data.id,movement_type:'in',quantity:qty,balance_after:qty,reference:'OPENING',note:L==='ar'?'رصيد افتتاحي':'Opening stock',movement_date:today()});}
@@ -1019,11 +1022,43 @@ async function addItem(){
 }
 
 function clearItemForm(){
-  ['fi-name','fi-sku','fi-barcode','fi-cost','fi-price','fi-qty','fi-alert','fi-desc','fi-shelf-life'].forEach(id=>{const el=document.getElementById(id);if(el){el.value='';delete el.dataset.userEdited;}});
+  ['fi-name','fi-name-ar','fi-sku','fi-barcode','fi-cost','fi-price','fi-qty','fi-alert','fi-desc','fi-shelf-life'].forEach(id=>{const el=document.getElementById(id);if(el){el.value='';delete el.dataset.userEdited;}});
   const hasExp=document.getElementById('fi-has-expiry');if(hasExp)hasExp.value='0';
   const supEl=document.getElementById('fi-supplier');if(supEl)supEl.value='';
   const slRow=document.getElementById('shelf-life-row');if(slRow)slRow.style.display='none';
+  const st=document.getElementById('fi-name-ar-status');if(st)st.textContent='';
   previewSKU();
+}
+
+/* ── AUTO-TRANSLATE PRODUCT NAME ── */
+async function autoTranslateName(){
+  const name=gval('fi-name');
+  const arEl=document.getElementById('fi-name-ar');
+  const status=document.getElementById('fi-name-ar-status');
+  if(!name||!arEl)return;
+  if(arEl.value.trim())return; // already filled — don't overwrite
+  if(status)status.textContent=L==='ar'?'جارٍ الترجمة...':'Translating...';
+  try{
+    const res=await fetch('https://api.anthropic.com/v1/messages',{
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:100,
+        messages:[{role:'user',content:`Translate this product name to Arabic. Return ONLY the Arabic translation, nothing else. Keep brand names, numbers and units as-is transliterated to Arabic where appropriate.\n\nProduct: ${name}`}]
+      })
+    });
+    const data=await res.json();
+    const translated=(data.content?.[0]?.text||'').trim();
+    if(translated&&/[\u0600-\u06FF]/.test(translated)){
+      arEl.value=translated;
+      if(status)status.textContent='✓';
+    } else {
+      if(status)status.textContent=L==='ar'?'أدخل يدوياً':'Enter manually';
+    }
+  }catch(e){
+    if(status)status.textContent=L==='ar'?'أدخل يدوياً':'Enter manually';
+  }
 }
 
 function toggleShelfLife(){const val=document.getElementById('fi-has-expiry')?.value;const row=document.getElementById('shelf-life-row');if(row)row.style.display=val==='1'?'grid':'none';}

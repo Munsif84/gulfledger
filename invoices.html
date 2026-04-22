@@ -110,14 +110,17 @@ body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-
 .btn-ai-go:disabled{opacity:0.6;}
 
 /* ITEMS */
-.item-row{display:grid;grid-template-columns:24px 0.8fr 72px 90px 54px 130px 22px;gap:4px;margin-bottom:5px;align-items:center;}
+.item-row{display:grid;grid-template-columns:24px 0.8fr 72px 90px 54px 130px 22px;gap:4px;margin-bottom:5px;align-items:start;}
 .item-row input{padding:6px 7px;border:1px solid var(--border);border-radius:5px;font-family:'Tajawal',sans-serif;font-size:12px;color:var(--ink);width:100%;}
 .item-row input[readonly]{background:var(--tint);color:var(--muted);font-family:'DM Mono',monospace;}
 .item-row input.disc-field{border-color:#fde68a;background:#fffbeb;}
-.item-num{font-size:11px;font-weight:700;color:var(--muted);text-align:center;}
-.del-btn{width:24px;height:24px;border-radius:50%;border:1px solid #fca5a5;background:#fff5f5;color:var(--red);cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center;}
+.item-num{font-size:11px;font-weight:700;color:var(--muted);text-align:center;padding-top:8px;}
+.del-btn{width:24px;height:24px;border-radius:50%;border:1px solid #fca5a5;background:#fff5f5;color:var(--red);cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center;margin-top:4px;}
 .item-header{display:grid;grid-template-columns:24px 0.8fr 72px 90px 54px 130px 22px;gap:4px;margin-bottom:4px;}
 .item-header span{font-size:10px;font-weight:600;color:var(--muted);text-transform:uppercase;}
+.desc-ar-input{border-color:#fde68a!important;background:#fffbeb!important;direction:rtl;font-size:11px!important;margin-top:3px;}
+.desc-ar-input::placeholder{color:#b45309;opacity:.7;}
+.translate-btn{position:absolute;left:4px;top:8px;background:var(--tint);border:1px solid var(--light);border-radius:4px;cursor:pointer;font-size:9px;padding:2px 4px;color:var(--blue);white-space:nowrap;}
 
 /* Mobile item card layout */
 @media(max-width:600px){
@@ -1224,7 +1227,7 @@ function applyBranding(biz){
   if(footerEl){ footerEl.textContent = footer; footerEl.style.display = footer ? 'block' : 'none'; }
 }
 let currentLang = localStorage.getItem('gl_lang') || 'ar';
-let items = [{ desc:'', qty:0, price:0, disc:0, itemId:null }];
+let items = [{ desc:'', desc_ar:'', qty:0, price:0, disc:0, itemId:null }];
 let selectedCustomerId = null;
 let lastSavedInvoiceNum = null;
 let customers = [];
@@ -1251,7 +1254,7 @@ async function btnAction(btn, asyncFn, successMsg) {
     btn.classList.remove('btn-loading');
     btn.disabled = false;
     // Only show red error for real errors, not user cancellation
-    if(e.message === 'cancelled' || e.message === 'no invoice number' || e.message === 'no amount' || e.message === 'no date' || e.message === 'no invoice' || e.message === 'no name' || e.message === 'no mobile' || e.message === 'schema missing' || e.message === 'update failed') {
+    if(e.message === 'cancelled' || e.message === 'no invoice number' || e.message === 'no amount' || e.message === 'no date' || e.message === 'no invoice' || e.message === 'no name' || e.message === 'no mobile' || e.message === 'schema missing' || e.message === 'update failed' || e.message === 'no arabic') {
       btn.innerHTML = original;
       btn.style.background = originalBg;
     } else {
@@ -1669,8 +1672,12 @@ Rules: if company/TRN mentioned = b2b, else b2c. Price = unit price before VAT.`
     if (result.buyer_trn)  document.getElementById('f-buyer-trn').value  = result.buyer_trn;
     if (result.invoice_type) document.getElementById('f-type').value = result.invoice_type;
     if (result.items && result.items.length) {
-      items = result.items.map(i => ({ desc: i.desc || '', qty: parseFloat(i.qty) || 1, price: parseFloat(i.price) || 0 }));
+      items = result.items.map(i => ({ desc: i.desc || '', desc_ar: '', qty: parseFloat(i.qty) || 1, price: parseFloat(i.price) || 0, disc: 0, itemId: null }));
       renderItems();
+      // Auto-translate all AI items
+      setTimeout(async () => {
+        for(let i=0;i<items.length;i++){ if(items[i].desc) await autoTranslateItem(i); }
+      }, 200);
     }
     if (result.notes) document.getElementById('f-notes').value = result.notes;
     render();
@@ -1697,16 +1704,20 @@ function renderItems() {
     const total    = netSub * 1.15;
     const row      = document.createElement('div');
     row.className  = 'item-row';
+    const hasAr    = item.desc_ar && /[\u0600-\u06FF]/.test(item.desc_ar);
+    const arBorder = hasAr ? 'border-color:var(--green)!important;' : '';
     row.innerHTML  = `
       <div class="item-num">${i+1}</div>
       <div style="position:relative;">
-        <input type="text" value="${item.desc}" placeholder="${currentLang==='ar'?'وصف البند أو اختر من المخزون':'Item description'}" oninput="items[${i}].desc=this.value;render()" style="width:100%;padding:6px 7px;border:1px solid var(--border);border-radius:5px;font-family:'Tajawal',sans-serif;font-size:12px;">
-        <button onclick="openInvPicker(${i})" title="${currentLang==='ar'?'اختر من المخزون':'Pick from inventory'}" style="position:absolute;left:4px;top:50%;transform:translateY(-50%);background:var(--tint);border:1px solid var(--light);border-radius:4px;cursor:pointer;font-size:10px;padding:2px 5px;color:var(--blue);">📦</button>
+        <input type="text" value="${(item.desc||'').replace(/"/g,'&quot;')}" placeholder="${currentLang==='ar'?'وصف البند':'Item description (EN)'}" oninput="items[${i}].desc=this.value;render()" onblur="autoTranslateItem(${i})" style="width:100%;padding:6px 7px;padding-left:52px;border:1px solid var(--border);border-radius:5px;font-family:'Tajawal',sans-serif;font-size:12px;">
+        <button onclick="openInvPicker(${i})" title="${currentLang==='ar'?'اختر من المخزون':'Pick from inventory'}" style="position:absolute;left:4px;top:6px;background:var(--tint);border:1px solid var(--light);border-radius:4px;cursor:pointer;font-size:10px;padding:2px 5px;color:var(--blue);">📦</button>
+        <input type="text" value="${(item.desc_ar||'').replace(/"/g,'&quot;')}" placeholder="الوصف بالعربية *" class="desc-ar-input" style="width:100%;padding:5px 7px;border:1px solid #fde68a;border-radius:5px;font-family:'Tajawal',sans-serif;font-size:11px;margin-top:3px;direction:rtl;${arBorder}" oninput="items[${i}].desc_ar=this.value;render()" title="Arabic description — required for ZATCA">
+        <span style="position:absolute;left:4px;bottom:6px;font-size:9px;color:${hasAr?'var(--green)':'var(--amber)'};">${hasAr?'✓ AR':'⚠ AR'}</span>
       </div>
       <input type="number" value="${item.qty||''}" placeholder="1" min="0" step="any" oninput="items[${i}].qty=parseFloat(this.value)||0;updateRow(${i});render()">
       <input type="number" value="${item.price||''}" placeholder="0.00" min="0" step="0.01" oninput="items[${i}].price=parseFloat(this.value)||0;updateRow(${i});render()">
-      <input type="number" value="${discPct||''}" placeholder="0" min="0" max="100" step="0.01" class="disc-field" title="${currentLang==='ar'?'نسبة الخصم %':'Discount %'}" oninput="items[${i}].disc=parseFloat(this.value)||0;updateRow(${i});render()">
-      <input type="text" readonly id="rt-${i}" value="SAR ${fmt(total)}" title="${currentLang==='ar'?'صافي: SAR ':'Net: SAR '}${fmt(netSub)} + VAT: SAR ${fmt(netSub*0.15)}${discAmt>0?' | خصم: SAR '+fmt(discAmt):''}">
+      <input type="number" value="${discPct||''}" placeholder="0" min="0" max="100" step="0.01" class="disc-field" oninput="items[${i}].disc=parseFloat(this.value)||0;updateRow(${i});render()">
+      <input type="text" readonly id="rt-${i}" value="SAR ${fmt(total)}" title="Net: SAR ${fmt(netSub)} + VAT: SAR ${fmt(netSub*0.15)}">
       <button class="del-btn" onclick="removeItem(${i})">×</button>`;
     c.appendChild(row);
   });
@@ -1717,7 +1728,7 @@ let pickerIdx = 0;
 async function openInvPicker(idx) {
   pickerIdx = idx;
   const { data: invData } = await sb.from('inventory_items')
-    .select('id,name,sku,sale_price,current_qty,unit')
+    .select('id,name,name_ar,sku,sale_price,current_qty,unit')
     .eq('user_id', currentUser.id)
     .order('name');
 
@@ -1750,7 +1761,7 @@ async function openInvPicker(idx) {
             <td style="padding:8px;font-family:'DM Mono',monospace;font-size:11px;color:var(--blue);">${it.sku||'—'}</td>
             <td style="padding:8px;font-family:'DM Mono',monospace;">SAR ${(it.sale_price||0).toFixed(2)}</td>
             <td style="padding:8px;color:${it.current_qty<=0?'var(--red)':'var(--green)'};">${it.current_qty||0} ${it.unit||''}</td>
-            <td style="padding:8px;"><button onclick="pickItem('${it.name}','${it.sale_price||0}','${it.id}')" style="padding:4px 12px;background:var(--blue);color:#fff;border:none;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;">${currentLang==='ar'?'اختر':'Pick'}</button></td>
+            <td style="padding:8px;"><button onclick="pickItem('${it.name.replace(/'/g,"\\'")}','${it.sale_price||0}','${it.id}','${(it.name_ar||'').replace(/'/g,"\\'")}')" style="padding:4px 12px;background:var(--blue);color:#fff;border:none;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;">${currentLang==='ar'?'اختر':'Pick'}</button></td>
           </tr>`).join('')}
         </tbody>
       </table>
@@ -1768,11 +1779,56 @@ function filterPicker(search) {
   });
 }
 
-function pickItem(name, price, itemId) {
-  items[pickerIdx].desc   = name;
-  items[pickerIdx].price  = parseFloat(price) || 0;
-  items[pickerIdx].itemId = itemId || null;
-  items[pickerIdx].disc   = 0;
+/* ── AUTO-TRANSLATE ITEM DESCRIPTION ── */
+async function autoTranslateItem(idx) {
+  const item = items[idx];
+  if(!item || !item.desc) return;
+  if(item.desc_ar && /[\u0600-\u06FF]/.test(item.desc_ar)) return; // already has Arabic
+
+  // If desc is already Arabic — translate to English instead
+  const isArabic = /[\u0600-\u06FF]/.test(item.desc);
+  const prompt = isArabic
+    ? `Translate this Arabic product description to English. Return ONLY the translation, nothing else.\n\nText: ${item.desc}`
+    : `Translate this product description to Arabic. Return ONLY the Arabic translation, nothing else. Keep brand names, numbers and units transliterated.\n\nText: ${item.desc}`;
+
+  try {
+    const res = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-20250514',
+        max_tokens: 150,
+        messages: [{role:'user', content: prompt}]
+      })
+    });
+    const data = await res.json();
+    const translated = (data.content?.[0]?.text || '').trim();
+    if(translated) {
+      if(isArabic) {
+        // desc is Arabic — fill desc_ar with same, desc with EN translation
+        item.desc_ar = item.desc;
+        item.desc    = translated;
+      } else {
+        item.desc_ar = translated;
+      }
+      renderItems();
+      render();
+    }
+  } catch(e) {
+    console.warn('Auto-translate failed:', e.message);
+  }
+}
+
+function pickItem(name, price, itemId, nameAr) {
+  items[pickerIdx].desc    = name;
+  items[pickerIdx].desc_ar = nameAr || '';
+  items[pickerIdx].price   = parseFloat(price) || 0;
+  items[pickerIdx].itemId  = itemId || null;
+  items[pickerIdx].disc    = 0;
+  // If no Arabic name stored yet, auto-translate
+  if(!nameAr || !/[\u0600-\u06FF]/.test(nameAr)) {
+    setTimeout(() => autoTranslateItem(pickerIdx), 100);
+  }
   renderItems();
   render();
   const modal = document.getElementById('inv-picker-modal');
@@ -1807,7 +1863,7 @@ function updateTotals() {
   setText('p-total', 'SAR ' + fmt(sub+vat));
 }
 
-function addItem()     { items.push({desc:'',qty:0,price:0,disc:0,itemId:null}); renderItems(); }
+function addItem()     { items.push({desc:'',desc_ar:'',qty:0,price:0,disc:0,itemId:null}); renderItems(); }
 function removeItem(i) { if(items.length>1){items.splice(i,1);renderItems();render();} }
 
 /* ── RENDER PREVIEW ── */
@@ -1893,7 +1949,12 @@ function render() {
         ? `<span class="disc-tag">${it.disc}% = ${fmt(disc)}</span>`
         : '—';
       return `<tr>
-        <td style="text-align:${descAlign};direction:${currentLang==='ar'?'rtl':'ltr'};">${it.desc||'—'}</td>
+        <td style="text-align:${descAlign};direction:${currentLang==='ar'?'rtl':'ltr'};">
+          <div style="display:flex;gap:8px;align-items:baseline;flex-wrap:wrap;">
+            <span style="font-weight:500;">${it.desc_ar||it.desc||'—'}</span>
+            ${it.desc && it.desc_ar ? `<span style="font-size:9px;color:var(--muted);border-right:1px solid var(--border);padding-right:8px;">${it.desc}</span>` : ''}
+          </div>
+        </td>
         <td style="text-align:center;font-family:'DM Mono',monospace;">${it.qty||''}</td>
         <td class="num">${fmt(it.price)}</td>
         <td style="text-align:center;">${discDisplay}</td>
@@ -1962,6 +2023,24 @@ async function saveInvoice() {
 
   // Validate
   if(!v('f-invnum')) { notify(currentLang==='ar'?'أدخل رقم الفاتورة':'Enter invoice number','r'); throw new Error('no invoice number'); }
+
+  // ZATCA hard block — all items must have Arabic description
+  const missingAr = items.filter(it => it.desc && (!it.desc_ar || !/[\u0600-\u06FF]/.test(it.desc_ar)));
+  if(missingAr.length > 0) {
+    notify(
+      currentLang==='ar'
+        ? `⚠ لا يمكن الحفظ — ${missingAr.length} بند بدون وصف عربي (مطلوب لزاتكا). أضف الترجمة أو اضغط 🌐 للترجمة التلقائية.`
+        : `⚠ Cannot save — ${missingAr.length} item(s) missing Arabic description (required by ZATCA). Add translation or click 🌐 to auto-translate.`,
+      'r'
+    );
+    // Trigger auto-translate for all missing
+    for(let i=0;i<items.length;i++){
+      if(items[i].desc && (!items[i].desc_ar || !/[\u0600-\u06FF]/.test(items[i].desc_ar))){
+        await autoTranslateItem(i);
+      }
+    }
+    throw new Error('no arabic');
+  }
 
   // Calculate totals with discount
   let sub = 0;
@@ -2039,6 +2118,7 @@ async function saveInvoice() {
     return {
       invoice_id:    invoiceId,
       description:   it.desc,
+      description_ar: it.desc_ar || null,
       quantity:      it.qty,
       unit_price:    it.price,
       discount_pct:  it.disc || 0,
@@ -2222,7 +2302,7 @@ async function saveInvoice() {
   document.getElementById('selected-customer-tag').style.display='none';
   setInvType('quick');
   document.getElementById('f-date').value=today();
-  items=[{desc:'',qty:0,price:0,disc:0,itemId:null}];
+  items=[{desc:'',desc_ar:'',qty:0,price:0,disc:0,itemId:null}];
   await setNextInvNumber();
   renderItems();
   render();
@@ -2344,8 +2424,8 @@ async function loadInvoice(id) {
   if(inv.invoice_number) showShareBar(inv.invoice_number);
   if(inv.buyer_mobile) document.getElementById('btn-whatsapp').style.display = 'flex';
 
-  items = (invItems || []).map(it => ({ desc: it.description, qty: it.quantity, price: it.unit_price, disc: it.discount_pct||0, itemId: null }));
-  if (!items.length) items = [{ desc:'', qty:0, price:0, disc:0, itemId:null }];
+  items = (invItems || []).map(it => ({ desc: it.description, desc_ar: it.description_ar||'', qty: it.quantity, price: it.unit_price, disc: it.discount_pct||0, itemId: null }));
+  if (!items.length) items = [{ desc:'', desc_ar:'', qty:0, price:0, disc:0, itemId:null }];
   renderItems();
   render();
   window.scrollTo(0, 0);
@@ -2369,7 +2449,7 @@ async function newInvoice() {
   document.getElementById('share-bar').style.display = 'none';
   document.getElementById('btn-whatsapp').style.display = 'none';
 
-  items = [{ desc:'', qty:0, price:0, disc:0, itemId:null }];
+  items = [{ desc:'', desc_ar:'', qty:0, price:0, disc:0, itemId:null }];
   await setNextInvNumber();
   renderItems();
   render();
