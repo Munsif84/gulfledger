@@ -1,430 +1,317 @@
-<!DOCTYPE html>
-<html>
+<!DOCTYPE html><html>
 <head>
 <meta charset="UTF-8">
-<script>
-/* Language flash prevention — runs before render */
-(function(){
-  var l=localStorage.getItem('gl_lang')||'ar';
-  document.documentElement.setAttribute('lang',l);
-  document.documentElement.setAttribute('dir',l==='ar'?'rtl':'ltr');
-})();
-</script>
-<script>
-/* Apply language before render to prevent flash */
-(function(){
-  var lang = localStorage.getItem('gl_lang') || 'ar';
-  document.documentElement.setAttribute('lang', lang);
-  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
-})();
-</script>
+<script>(function(){var l=localStorage.getItem('gl_lang')||'ar';document.documentElement.setAttribute('lang',l);document.documentElement.setAttribute('dir',l==='ar'?'rtl':'ltr');})();</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GulfLedger — الإعدادات</title>
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&family=Playfair+Display:wght@700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
-:root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#C62828;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--border:#d4e6f7;--bg:#f7fafd;--white:#ffffff;}
+:root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#C62828;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--border:#d4e6f7;--bg:#f7fafd;--white:#ffffff;--purple:#6d28d9;}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;}
-.topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;}
-.nav-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
-.nav-bars{display:flex;gap:3px;height:22px;}
-.nav-bar{width:3px;border-radius:2px;}
-.nav-name{font-family:'Playfair Display',serif;font-size:16px;color:#fff;}
-.nav-right{display:flex;align-items:center;gap:8px;}
-.nav-divider{width:1px;height:20px;background:rgba(255,255,255,0.2);}
-.nav-biz{font-size:12px;color:var(--light);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 10px;background:rgba(255,255,255,0.08);border-radius:6px;border:1px solid rgba(255,255,255,0.15);}
-.btn-logout{padding:5px 14px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
-.btn-logout:hover{background:rgba(255,255,255,0.2);}
-.nav-settings-btn{display:flex;align-items:center;justify-content:center;width:32px;height:32px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:#fff;text-decoration:none;font-size:15px;flex-shrink:0;}
-.nav-settings-btn:hover{background:rgba(255,255,255,0.2);}
-.lang-switch{display:flex;border:1px solid rgba(255,255,255,0.2);border-radius:6px;overflow:hidden;}
-.lang-btn{padding:4px 10px;font-size:11px;cursor:pointer;border:none;background:transparent;color:rgba(255,255,255,0.6);font-family:'Tajawal',sans-serif;font-weight:500;}
-.lang-btn.on{background:var(--sky);color:#fff;}
-.app-nav{background:var(--blue);padding:8px 20px;display:flex;gap:4px;align-items:center;overflow-x:auto;}
-.app-nav-link{padding:5px 14px;font-size:12px;font-weight:500;color:rgba(255,255,255,0.7);text-decoration:none;border-radius:6px;white-space:nowrap;}
-.app-nav-link:hover{background:rgba(255,255,255,0.12);color:#fff;}
-.app-nav-link.active{background:rgba(255,255,255,0.18);color:#fff;}
-.page{max-width:780px;margin:0 auto;padding:28px 20px;}
-.page-title{font-family:'Playfair Display',serif;font-size:22px;color:var(--navy);margin-bottom:4px;}
-.page-sub{font-size:13px;color:var(--muted);margin-bottom:20px;}
-.section-tabs{display:flex;gap:4px;margin-bottom:20px;flex-wrap:wrap;}
-.stab{padding:7px 16px;font-size:12px;font-weight:600;border-radius:7px;cursor:pointer;border:1.5px solid var(--border);background:var(--white);color:var(--muted);font-family:'Tajawal',sans-serif;transition:all .15s;}
-.stab.active{background:var(--blue);color:#fff;border-color:var(--blue);}
-.section{display:none;}.section.active{display:block;}
-.card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:22px;margin-bottom:14px;}
-.card-title{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid var(--tint);display:flex;align-items:center;gap:7px;}
-.tbl{width:100%;border-collapse:collapse;font-size:12px;}
-.tbl th{padding:9px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-align:right;white-space:nowrap;}
-.tbl td{padding:9px 12px;border-bottom:1px solid var(--tint);vertical-align:middle;}
-.tbl tr:last-child td{border-bottom:none;}
-.tbl tr:hover td{background:#fafcff;}
-.card-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;background:var(--tint);color:var(--blue);}
-.fg{display:grid;gap:12px;margin-bottom:12px;}
+body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);}
+.topnav,.app-nav{display:none!important;}
+.stats{display:grid;gap:12px;margin-bottom:20px;}
+.stat{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
+.stat-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px;}
+.stat-num{font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:var(--navy);}
+.stat-sub{font-size:11px;color:var(--muted);margin-top:3px;}
+.stat.s-green{border-color:#86efac;background:#f0fdf4;}
+.stat.s-red{border-color:#fca5a5;background:#fff5f5;}
+.stat.s-amber{border-color:#fde68a;background:#fffbeb;}
+.c-navy{color:var(--navy)!important;}.c-green{color:var(--green)!important;}.c-red{color:var(--red)!important;}.c-amber{color:var(--amber)!important;}
+.card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px;}
+.card-hdr{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;}
+.card-ttl{font-size:14px;font-weight:700;color:var(--navy);}
+.card-bdy{padding:18px;}
+.fg{display:grid;gap:12px;margin-bottom:14px;}
 .fg-2{grid-template-columns:1fr 1fr;}
 .fg-3{grid-template-columns:1fr 1fr 1fr;}
-.fg-4{grid-template-columns:repeat(4,1fr);}
 .fld{display:flex;flex-direction:column;gap:4px;}
 .fld label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
-.fld input,.fld select,.fld textarea{padding:8px 11px;border:1.5px solid var(--border);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;color:var(--ink);background:var(--white);width:100%;}
+.fld input,.fld select,.fld textarea{padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:13px;color:var(--ink);background:var(--white);width:100%;}
 .fld input:focus,.fld select:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(55,138,221,0.1);}
 .hint{font-size:10px;color:var(--muted);margin-top:2px;}
-.radio-group{display:flex;gap:8px;flex-wrap:wrap;}
-.radio-opt{display:flex;align-items:center;gap:6px;padding:8px 14px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;transition:all .15s;font-size:13px;}
-.radio-opt.selected{border-color:var(--blue);background:var(--tint);color:var(--blue);font-weight:600;}
-.own-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px;}
-.own-table th{padding:8px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-align:right;}
-.own-table td{padding:7px 10px;border-bottom:1px solid var(--tint);}
-.own-table input,.own-table select{padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-family:'Tajawal',sans-serif;font-size:12px;width:100%;}
-.own-total{padding:8px 12px;font-weight:700;}
-.own-total.ok{color:var(--green);}
-.own-total.err{color:var(--red);}
-.tax-result{background:var(--tint);border-radius:9px;padding:14px 16px;margin-top:12px;}
-.tax-result-row{display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid var(--light);}
-.tax-result-row:last-child{border-bottom:none;font-weight:700;font-size:13px;color:var(--navy);}
-.tax-val{font-family:'DM Mono',monospace;font-weight:600;}
-.logo-zone{border:2px dashed var(--border);border-radius:10px;padding:20px;text-align:center;cursor:pointer;transition:border .2s;position:relative;min-height:90px;}
-.logo-zone:hover{border-color:var(--sky);}
-/* Color presets */
-.color-preset{width:28px;height:28px;border-radius:50%;border:2px solid transparent;cursor:pointer;transition:transform .15s,border-color .15s;}
-.color-preset:hover{transform:scale(1.15);border-color:#fff;box-shadow:0 0 0 2px var(--border);}
-/* Layout option cards */
-.layout-opt{border:2px solid var(--border);border-radius:10px;padding:10px;cursor:pointer;transition:all .15s;background:var(--white);}
-.layout-opt:hover{border-color:var(--sky);box-shadow:0 2px 8px rgba(55,138,221,0.1);}
-.layout-opt.selected{border-color:var(--blue);background:var(--tint);}
-.layout-opt-preview{height:100px;border-radius:6px;overflow:hidden;border:1px solid var(--border);margin-bottom:8px;background:#f8fafc;}
-.layout-opt-label{font-size:12px;font-weight:700;color:var(--navy);margin-bottom:2px;}
-.layout-opt-desc{font-size:10px;color:var(--muted);}
-/* Mini invoice previews */
-.lp-header{height:22px;width:100%;}
-.lp-header-modern{height:8px;background:#f1f5f9;width:100%;}
-.lp-header-minimal{height:14px;background:#fff;border-bottom:1px solid #e2e8f0;width:100%;display:flex;align-items:flex-end;}
-.lp-min-accent{height:3px;width:40%;margin-bottom:0;}
-.lp-body{padding:6px 7px;}
-.lp-accent-line{height:2px;border-radius:2px;margin-bottom:5px;width:100%;}
-.lp-row{height:5px;background:#e2e8f0;border-radius:2px;margin-bottom:3px;width:80%;}
-.lp-row.short{width:50%;}
-.lp-table{margin-top:5px;}
-.lp-thead{height:7px;margin-bottom:2px;border-radius:2px;}
-.lp-thead-light{opacity:0.5;}
-.lp-thead-line{height:2px!important;margin-bottom:4px;}
-.lp-trow{height:4px;background:#f1f5f9;border-radius:1px;margin-bottom:2px;}
-.lp-footer{margin-top:6px;display:flex;gap:4px;align-items:flex-end;}
-.lp-qr{width:16px;height:16px;background:#e2e8f0;border-radius:2px;flex-shrink:0;}
-.lp-totals{flex:1;}
-.lp-tot-row{height:3px;background:#e2e8f0;border-radius:1px;margin-bottom:2px;}
-.lp-tot-grand{height:4px;border-radius:1px;margin-top:2px;}
-.btn-save{padding:10px 28px;background:var(--blue);color:#fff;border:none;border-radius:8px;font-family:'Tajawal',sans-serif;font-size:14px;font-weight:700;cursor:pointer;}
-.btn-save:hover{background:var(--navy);}
-.btn-p{padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;}
+.btn-p{padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;}
 .btn-p:hover{background:var(--navy);}
-.btn-s{padding:7px 14px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
+.btn-s{padding:7px 14px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;font-weight:600;cursor:pointer;}
 .btn-s:hover{border-color:var(--blue);}
-.btn-d{padding:4px 10px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:5px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;}
-.msg{padding:10px 14px;border-radius:8px;font-size:13px;margin-top:12px;display:none;}
-.msg.success{background:#f0fdf4;border:1px solid #86efac;color:var(--green);display:block;}
-.msg.error{background:#fff5f5;border:1px solid #fca5a5;color:var(--red);display:block;}
-.note-box{display:flex;align-items:flex-start;gap:8px;padding:10px 13px;border-radius:8px;margin-bottom:12px;font-size:12px;line-height:1.6;}
-.note-box.blue{background:var(--tint);border:1px solid var(--light);color:var(--navy);}
-.note-box.amber{background:#fffbeb;border:1px solid #fde68a;color:var(--amber);}
-.note-box.green{background:#f0fdf4;border:1px solid #86efac;color:#085041;}
-.export-btn{padding:9px 16px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
-.export-btn:hover{border-color:var(--blue);}
-.rates-table{width:100%;border-collapse:collapse;font-size:12px;}
-.rates-table th{padding:8px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-align:right;}
-.rates-table td{padding:8px 12px;border-bottom:1px solid var(--tint);}
-.rate-val{font-family:'DM Mono',monospace;font-weight:700;color:var(--blue);}
-@media(max-width:600px){.fg-2,.fg-3,.fg-4{grid-template-columns:1fr;}.radio-group{flex-direction:column;}.section-tabs{gap:3px;}.stab{padding:6px 9px;font-size:11px;}}
-
-/* Force Gregorian calendar on all devices — prevents Hijri on Arabic locale */
-input[type="date"]::-webkit-calendar-picker-indicator { filter: none; }
-input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family: 'DM Mono', monospace; }
-
-/* ═══════════════════════════════════════
-   GULFLEDGER MOBILE RESPONSIVE — ALL PAGES
-   Breakpoint: 768px
-   ═══════════════════════════════════════ */
-@media(max-width:768px){
-  /* NAV */
-  .topnav{padding:8px 12px;gap:6px;}
-  .nav-biz{max-width:100px;}
-  .lang-switch .lang-btn{padding:3px 8px;font-size:10px;}
-  .btn-logout{padding:4px 10px;font-size:11px;}
-
-  /* APP NAV — scrollable, compact */
-  .app-nav{padding:6px 10px;gap:2px;}
-  .app-nav-link{padding:5px 9px;font-size:11px;}
-
-  /* SIDEBAR LAYOUTS — hide sidebar, full width main */
-  .layout{grid-template-columns:1fr !important;}
-  .sidebar{display:none !important;}
-
-  /* STATS GRIDS */
-  .stats{grid-template-columns:1fr 1fr !important;}
-
-  /* MODULE CARDS */
-  .modules{grid-template-columns:1fr !important;}
-
-  /* INVOICE — stack panels */
-  .app{grid-template-columns:1fr !important;}
-  .form-panel{border-left:none;border-bottom:1px solid var(--border);}
-  .invoice-doc{margin-top:12px;}
-
-  /* FORM GRIDS — all single column */
-  .fg-2,.fg-3,.fg-4,.fg-5{grid-template-columns:1fr !important;}
-  .field-row.double,.field-row.triple{grid-template-columns:1fr !important;}
-
-  /* ITEM ROW — description on its own line */
-  .item-row{grid-template-columns:20px 1fr 40px 58px 46px 58px 22px !important;}
-
-  /* PERIOD BAR — stack */
-  .period-bar{flex-direction:column;align-items:stretch;gap:8px;}
-  .period-bar select,.period-bar input{width:100%;}
-
-  /* PAGE HEADER */
-  .page-header{flex-direction:column;gap:10px;}
-
-  /* TABLES — horizontal scroll */
-  .tbl-wrap, .overflow-x-auto, [style*="overflow-x:auto"]{overflow-x:auto;-webkit-overflow-scrolling:touch;}
-  .tbl{min-width:520px;}
-  .inv-items{min-width:480px;}
-
-  /* INVOICE PARTIES — stack on very small */
-  .inv-parties{grid-template-columns:1fr !important;}
-  .inv-parties > div:first-child{border-right:none;border-bottom:1px solid var(--border);}
-
-  /* CARDS */
-  .card-hdr{flex-direction:column;align-items:flex-start !important;}
-
-  /* SETTINGS TABS */
-  .section-tabs{flex-wrap:wrap;gap:4px;}
-  .stab{padding:6px 10px;font-size:11px;}
-
-  /* VAT FORM */
-  .f201-row{flex-direction:column;gap:8px;}
-  .f201-row > div{flex:none;width:100%;}
-  .f201-stats{grid-template-columns:1fr 1fr !important;}
-
-  /* STATEMENTS */
-  .stmt-row{font-size:12px;}
-
-  /* PADDING */
-  .main{padding:12px !important;}
-  .page{padding:14px 12px !important;}
-  .card-bdy{padding:12px !important;}
-}
-
-@media(max-width:480px){
-  .stats{grid-template-columns:1fr !important;}
-  .nav-name span{display:none;}
-  .item-row{grid-template-columns:16px 1fr 36px 52px 44px 52px 20px !important;}
-  .f201-stats{grid-template-columns:1fr !important;}
-}
+.btn-d{padding:5px 10px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;}
+.tbl{width:100%;border-collapse:collapse;font-size:12px;}
+.tbl th{padding:9px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-align:right;white-space:nowrap;letter-spacing:.04em;text-transform:uppercase;}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--tint);vertical-align:middle;text-align:right;}
+[dir="ltr"] .tbl th,[dir="ltr"] .tbl td{text-align:left;}
+.tbl tr:last-child td{border-bottom:none;}
+.tbl tr:hover td{background:#fafcff;}
+.mono{font-family:'DM Mono',monospace;font-size:12px;}
+.bdg{font-size:10px;font-weight:700;padding:2px 9px;border-radius:8px;display:inline-block;}
+.tc{display:none;}.tc.active{display:block;}
+.section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);display:block;}
+.main{padding:20px;}
+input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
+@media(max-width:768px){.stats{grid-template-columns:1fr 1fr!important;}.fg-2,.fg-3{grid-template-columns:1fr 1fr!important;}.main{padding:12px!important;}}
+@media(max-width:480px){.stats{grid-template-columns:1fr!important;}}
+.stab{{padding:7px 16px;font-size:12px;font-weight:600;border-radius:7px;cursor:pointer;border:1.5px solid var(--border);background:var(--white);color:var(--muted);font-family:"Tajawal",sans-serif;transition:all .15s;}}
+.stab.active{{background:var(--blue);color:#fff;border-color:var(--blue);}}
+.section{{display:none;}}
+.section.active{{display:block;}}
+.card-title{{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:12px;}}
+.toggle-btn{{width:48px;height:26px;border-radius:13px;background:var(--border);cursor:pointer;position:relative;transition:background .2s;flex-shrink:0;border:none;}}
+.toggle-btn.on{{background:var(--blue);}}
+.toggle-knob{{width:22px;height:22px;border-radius:50%;background:#fff;position:absolute;top:2px;right:2px;transition:right .2s;box-shadow:0 1px 4px rgba(0,0,0,0.2);}}
+[dir="ltr"] .toggle-knob{{right:auto;left:2px;}}
+.toggle-btn.on .toggle-knob{{right:2px!important;}}
+[dir="ltr"] .toggle-btn.on .toggle-knob{{right:auto!important;left:2px!important;}}
+.page{{padding:20px;}}
+.section-tabs{{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:20px;}}
 
 
-/* ── STICKY NAV ── */
-.topnav{position:sticky;top:0;z-index:300;box-shadow:0 2px 8px rgba(0,0,0,0.15);}
-.app-nav{position:sticky;top:44px;z-index:299;box-shadow:0 2px 6px rgba(0,0,0,0.1);}
+/* PERSISTENT SIDEBAR */
+.topnav,.app-nav{display:none!important;}
+.gl-sidebar{width:220px;height:100vh;position:fixed;top:0;right:0;background:var(--navy);display:flex;flex-direction:column;z-index:500;transition:width .25s ease;overflow:hidden;}
+[dir="ltr"] .gl-sidebar{right:auto;left:0;}
+.gl-sidebar.collapsed{width:56px;}
+.gl-sidebar.collapsed .gl-sb-show{display:none!important;}
+.gl-sidebar.collapsed #gl-sb-arrow{transform:rotate(180deg);}
+.gl-page-content{margin-right:220px;min-height:100vh;transition:margin-right .25s ease;}
+[dir="ltr"] .gl-page-content{margin-right:0;margin-left:220px;}
+body.gl-collapsed .gl-page-content{margin-right:56px;}
+[dir="ltr"] body.gl-collapsed .gl-page-content{margin-right:0;margin-left:56px;}
+.gl-sb-header{display:flex;align-items:center;justify-content:space-between;padding:16px 14px 10px;flex-shrink:0;}
+.gl-sb-logo{display:flex;align-items:center;gap:8px;text-decoration:none;overflow:hidden;}
+.gl-sb-logo-bars{display:flex;gap:3px;height:20px;flex-shrink:0;}
+.gl-sb-bar{width:3px;border-radius:2px;}
+.gl-sb-bar:first-child{height:100%;}
+.gl-sb-bar:last-child{height:60%;margin-top:40%;}
+.gl-sb-logo-name{font-family:'Playfair Display',serif;font-size:15px;color:#fff;white-space:nowrap;}
+.gl-sb-collapse-btn{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:rgba(255,255,255,0.6);cursor:pointer;font-size:10px;padding:4px 7px;flex-shrink:0;}
+.gl-sb-biz{margin:0 12px 12px;padding:6px 10px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:7px;font-size:11px;color:var(--light);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;}
+.gl-sb-nav{flex:1;overflow-y:auto;padding:4px 8px;display:flex;flex-direction:column;gap:2px;}
+.gl-sb-link{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;text-decoration:none;color:rgba(255,255,255,0.65);font-family:'Tajawal',sans-serif;font-size:13px;font-weight:500;transition:background .15s,color .15s;white-space:nowrap;border:none;background:transparent;cursor:pointer;width:100%;text-align:right;}
+[dir="ltr"] .gl-sb-link{text-align:left;}
+.gl-sb-link:hover{background:rgba(255,255,255,0.1);color:#fff;}
+.gl-sb-link.active{background:rgba(255,255,255,0.15);color:#fff;font-weight:700;border-right:3px solid var(--sky);}
+[dir="ltr"] .gl-sb-link.active{border-right:none;border-left:3px solid var(--sky);}
+.gl-sb-icon{font-size:15px;flex-shrink:0;width:20px;text-align:center;}
+.gl-sb-bottom{padding:8px 8px 12px;flex-shrink:0;display:flex;flex-direction:column;gap:2px;}
+.gl-sb-divider{height:1px;background:rgba(255,255,255,0.1);margin:6px 4px 8px;}
+.gl-sb-lang{display:flex;gap:4px;padding:4px 10px 8px;}
+.gl-lang-btn{padding:4px 12px;font-size:11px;cursor:pointer;border:1px solid rgba(255,255,255,0.2);border-radius:5px;background:transparent;color:rgba(255,255,255,0.6);font-family:'Tajawal',sans-serif;}
+.gl-lang-btn.on{background:var(--sky);color:#fff;border-color:var(--sky);}
+.gl-sb-logout{color:rgba(255,255,255,0.5);}
+.gl-sb-logout:hover{color:#fca5a5;background:rgba(220,38,38,0.15);}
+.gl-sb-mob-btn{display:none;position:fixed;top:12px;right:12px;z-index:600;background:var(--navy);color:#fff;border:none;border-radius:8px;width:40px;height:40px;font-size:18px;cursor:pointer;align-items:center;justify-content:center;}
+[dir="ltr"] .gl-sb-mob-btn{right:auto;left:12px;}
+.gl-sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:490;}
+@media(max-width:768px){.gl-sidebar{width:240px!important;transform:translateX(100%);transition:transform .25s ease;}[dir="ltr"] .gl-sidebar{transform:translateX(-100%);}.gl-sidebar.mob-open{transform:translateX(0)!important;}.gl-page-content{margin-right:0!important;margin-left:0!important;}.gl-sb-mob-btn{display:flex;}}
 
+</style>
+</head>
+<body>
+<div class="gl-sidebar" id="gl-sidebar">
+  <div class="gl-sb-header">
+    <a href="dashboard.html" class="gl-sb-logo"><div class="gl-sb-logo-bars"><div class="gl-sb-bar" style="background:#fff;"></div><div class="gl-sb-bar" style="background:rgba(255,255,255,0.45);"></div></div><span class="gl-sb-logo-name gl-sb-show">Gulf<span style="color:var(--light);">Ledger</span></span></a>
+    <button class="gl-sb-collapse-btn" onclick="toggleGLSidebar()"><span id="gl-sb-arrow">◀</span></button>
+  </div>
+  <div class="gl-sb-biz gl-sb-show"><span id="biz-name">...</span></div>
+  <nav class="gl-sb-nav">    <a href="dashboard.html" class="gl-sb-link"><span class="gl-sb-icon">⊞</span><span class="gl-sb-show" data-ar="الرئيسية" data-en="Dashboard">الرئيسية</span></a>
+    <a href="inventory.html" class="gl-sb-link"><span class="gl-sb-icon">📦</span><span class="gl-sb-show" data-ar="المنتجات والمخزون" data-en="Products & Stock">المنتجات والمخزون</span></a>
+    <a href="invoices.html" class="gl-sb-link"><span class="gl-sb-icon">🧾</span><span class="gl-sb-show" data-ar="المبيعات والفواتير" data-en="Sales & Invoices">المبيعات والفواتير</span></a>
+    <a href="expenses.html" class="gl-sb-link"><span class="gl-sb-icon">💸</span><span class="gl-sb-show" data-ar="المصاريف" data-en="Expenses">المصاريف</span></a>
+    <a href="ledger.html" class="gl-sb-link"><span class="gl-sb-icon">📒</span><span class="gl-sb-show" data-ar="المحاسبة" data-en="Accounting">المحاسبة</span></a>
+    <a href="vat.html" class="gl-sb-link"><span class="gl-sb-icon">🧮</span><span class="gl-sb-show" data-ar="ضريبة القيمة المضافة" data-en="VAT">ضريبة القيمة المضافة</span></a>
+    <a href="reports.html" class="gl-sb-link"><span class="gl-sb-icon">📊</span><span class="gl-sb-show" data-ar="التقارير" data-en="Reports">التقارير</span></a></nav>
+  <div class="gl-sb-bottom">
+    <div class="gl-sb-divider"></div>
+    <div class="gl-sb-lang gl-sb-show"><button class="gl-lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button><button class="gl-lang-btn" id="btn-en" onclick="setLang('en')">EN</button></div>
+    <a href="settings.html" class="gl-sb-link active"><span class="gl-sb-icon">⚙️</span><span class="gl-sb-show" data-ar="الإعدادات" data-en="Settings">الإعدادات</span></a>
+    <button class="gl-sb-link gl-sb-logout" onclick="logout()"><span class="gl-sb-icon">↩</span><span class="gl-sb-show" data-ar="خروج" data-en="Sign Out">خروج</span></button>
+  </div>
+</div>
+<div class="gl-sb-overlay" id="gl-sb-overlay" onclick="closeSidebar()"></div>
+<button class="gl-sb-mob-btn" id="gl-mob-btn" onclick="toggleGLSidebar()">☰</button>
+<div class="gl-page-content">
+<div class="page">
+  <div class="section-tabs">
+    <button class="stab active" onclick="goSection('identity')" data-ar="الهوية التجارية" data-en="Business Identity">Business Identity</button>
+    <button class="stab" onclick="goSection('invoicing')" data-ar="إعدادات الفواتير" data-en="Invoice Settings">Invoice Settings</button>
+    <button class="stab" onclick="goSection('advanced')" data-ar="متقدم" data-en="Advanced">Advanced</button>
+  </div>
 
-/* ════════════════════════════════════════
-   GULFLEDGER PERSISTENT SIDEBAR — v2
-   ════════════════════════════════════════ */
+  <!-- IDENTITY -->
+  <div class="section active" id="sec-identity">
+    <div class="card">
+      <div class="card-hdr"><span class="card-ttl" data-ar="معلومات المنشأة" data-en="Business Information">Business Information</span></div>
+      <div class="card-bdy">
+        <div class="fg fg-2">
+          <div class="fld"><label data-ar="اسم المنشأة (عربي)" data-en="Business Name (Arabic)">Business Name (Arabic)</label><input type="text" id="s-name-ar" data-placeholder-ar="الاسم بالعربية" data-placeholder-en="Arabic name" placeholder="Arabic name"></div>
+          <div class="fld"><label data-ar="اسم المنشأة (إنجليزي)" data-en="Business Name (English)">Business Name (English)</label><input type="text" id="s-name" data-placeholder-ar="الاسم بالإنجليزية" data-placeholder-en="English name" placeholder="English name"></div>
+        </div>
+        <div class="fg fg-2">
+          <div class="fld"><label data-ar="الرقم الضريبي (TRN)" data-en="Tax Registration No. (TRN)">Tax Registration No.</label><input type="text" id="s-trn" placeholder="300000000000003" maxlength="15"><span class="hint" data-ar="15 رقماً من شهادة زاتكا" data-en="15 digits from ZATCA">15 digits from ZATCA</span></div>
+          <div class="fld"><label data-ar="رقم السجل التجاري" data-en="Commercial Registration No.">Commercial Reg. No.</label><input type="text" id="s-cr" placeholder="1010000000"></div>
+        </div>
+        <div class="fg fg-3">
+          <div class="fld"><label data-ar="المدينة" data-en="City">City</label><input type="text" id="s-city" data-placeholder-ar="الرياض" data-placeholder-en="Riyadh" placeholder="Riyadh"></div>
+          <div class="fld"><label data-ar="العنوان" data-en="Address">Address</label><input type="text" id="s-address" data-placeholder-ar="اسم الشارع" data-placeholder-en="Street name" placeholder="Street"></div>
+          <div class="fld"><label data-ar="الرمز البريدي" data-en="Postal Code">Postal Code</label><input type="text" id="s-postal" placeholder="12345"></div>
+        </div>
+        <div class="fg fg-2">
+          <div class="fld"><label data-ar="الهاتف" data-en="Phone">Phone</label><input type="text" id="s-phone" placeholder="+966 5x xxx xxxx"></div>
+          <div class="fld"><label data-ar="البريد الإلكتروني" data-en="Email">Email</label><input type="text" id="s-email" placeholder="info@company.com"></div>
+        </div>
+        <button class="btn-p" onclick="saveBusiness()" data-ar="💾 حفظ البيانات" data-en="💾 Save">💾 Save</button>
+      </div>
+    </div>
+  </div>
 
-/* Hide old nav */
-.topnav, .app-nav { display: none !important; }
+  <!-- INVOICE SETTINGS -->
+  <div class="section" id="sec-invoicing">
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-hdr"><span class="card-ttl" data-ar="نمط الأسعار والضريبة" data-en="Price & VAT Mode">Price & VAT Mode</span></div>
+      <div class="card-bdy">
+        <p style="font-size:13px;color:var(--muted);margin-bottom:16px;" data-ar="هل أسعارك شاملة الضريبة أم بدونها؟" data-en="Are your prices inclusive or exclusive of VAT?">Are your prices inclusive or exclusive of VAT?</p>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
+          <div id="vat-mode-exclusive" onclick="setVatMode('exclusive')" style="border:2px solid var(--blue);border-radius:10px;padding:16px;cursor:pointer;background:var(--tint);">
+            <div style="font-size:16px;margin-bottom:6px;">🏷️</div>
+            <div style="font-size:13px;font-weight:700;" data-ar="بدون ضريبة (الافتراضي)" data-en="Excluding VAT (default)">Excluding VAT (default)</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:4px;" data-ar="تُدخل 100 → الفاتورة 115" data-en="Enter 100 → invoice shows 115">Enter 100 → invoice shows 115</div>
+            <div id="vat-excl-badge" style="margin-top:8px;font-size:10px;font-weight:700;color:var(--blue);">✓ Active</div>
+          </div>
+          <div id="vat-mode-inclusive" onclick="setVatMode('inclusive')" style="border:2px solid var(--border);border-radius:10px;padding:16px;cursor:pointer;background:var(--white);">
+            <div style="font-size:16px;margin-bottom:6px;">💰</div>
+            <div style="font-size:13px;font-weight:700;" data-ar="شامل الضريبة" data-en="Including VAT">Including VAT</div>
+            <div style="font-size:11px;color:var(--muted);margin-top:4px;" data-ar="تُدخل 115 → صافي 100 + ضريبة 15" data-en="Enter 115 → net 100 + VAT 15">Enter 115 → net 100 + VAT 15</div>
+            <div id="vat-incl-badge" style="margin-top:8px;font-size:10px;font-weight:700;color:var(--muted);display:none;">✓ Active</div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-hdr"><span class="card-ttl" data-ar="بادئة رقم الفاتورة" data-en="Invoice Number Prefix">Invoice Number Prefix</span></div>
+      <div class="card-bdy">
+        <div style="display:flex;gap:10px;align-items:center;">
+          <input type="text" id="inv-prefix" value="INV" maxlength="6" oninput="updatePrefixPreview()" style="width:100px;padding:8px 12px;border:1px solid var(--border);border-radius:7px;font-family:'DM Mono',monospace;font-size:14px;font-weight:700;text-transform:uppercase;">
+          <span style="font-size:13px;color:var(--muted);">→</span>
+          <span id="inv-prefix-preview" style="font-family:'DM Mono',monospace;font-size:13px;color:var(--navy);font-weight:700;">INV-2026-001</span>
+          <button class="btn-p" onclick="saveInvoiceSettings()" style="font-size:12px;padding:7px 16px;" data-ar="حفظ" data-en="Save">Save</button>
+        </div>
+      </div>
+    </div>
+  </div>
 
-/* ── SIDEBAR — fixed position, doesn't affect flow ── */
-.gl-sidebar {
-  width: 220px;
-  height: 100vh;
-  position: fixed;
-  top: 0;
-  right: 0;
-  background: var(--navy);
-  display: flex;
-  flex-direction: column;
-  z-index: 500;
-  transition: width .25s ease;
-  overflow: hidden;
-}
-[dir="ltr"] .gl-sidebar { right: auto; left: 0; }
+  <!-- ADVANCED -->
+  <div class="section" id="sec-advanced">
+    <div class="card">
+      <div class="card-title" data-ar="وضع المحاسب" data-en="Accountant Mode">Accountant Mode</div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:18px;line-height:1.7;" data-ar="يُظهر أدوات المحاسبة المتقدمة — دفتر الأستاذ والقيود" data-en="Reveals advanced accounting tools — ledger and journal entries">Reveals advanced accounting tools</p>
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px;background:var(--tint);border-radius:10px;border:1px solid var(--border);">
+        <div>
+          <div style="font-size:13px;font-weight:700;color:var(--navy);" data-ar="تفعيل وضع المحاسب" data-en="Enable Accountant Mode">Enable Accountant Mode</div>
+          <div id="accountant-mode-status" style="font-size:11px;color:var(--muted);margin-top:3px;"></div>
+        </div>
+        <button onclick="toggleAccountantMode()" id="accountant-toggle" class="toggle-btn">
+          <div id="accountant-toggle-knob" class="toggle-knob"></div>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+</div>
+<script>
 
-.gl-sidebar.collapsed { width: 56px; }
-.gl-sidebar.collapsed .gl-sb-show { display: none !important; }
-.gl-sidebar.collapsed #gl-sb-arrow { transform: rotate(180deg); }
-[dir="ltr"] .gl-sidebar.collapsed #gl-sb-arrow { transform: rotate(0deg); }
+const SUPABASE_URL='https://ykzivnasjwtuhvjxfxzf.supabase.co';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+let currentUser=null,currentBiz=null,currentBizId=null,L=localStorage.getItem('gl_lang')||'ar';
+function set(id,v){const e=document.getElementById(id);if(e)e.textContent=v;}
+function setVal(id,v){const e=document.getElementById(id);if(e)e.value=v;}
+function gval(id){const e=document.getElementById(id);return e?e.value.trim():'';}
+function fmt(n){return(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');}
+function today(){return new Date().toISOString().split('T')[0];}
+async function logout(){await sb.auth.signOut();window.location.href='login.html';}
+function notify(msg,type){const d=document.createElement('div');d.style.cssText='position:fixed;top:20px;left:50%;transform:translateX(-50%);background:'+(type==='g'?'var(--green)':'var(--red)')+';color:#fff;padding:10px 24px;border-radius:8px;font-family:Tajawal,sans-serif;font-size:13px;z-index:9999;';d.textContent=msg;document.body.appendChild(d);setTimeout(()=>{if(d.parentNode)d.parentNode.removeChild(d);},type==='g'?4000:3000);}
+function applyLang(lang){localStorage.setItem('gl_lang',lang);document.getElementById('btn-ar')?.classList.toggle('on',lang==='ar');document.getElementById('btn-en')?.classList.toggle('on',lang==='en');document.documentElement.setAttribute('lang',lang);document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));document.querySelectorAll('select option[data-ar]').forEach(o=>o.text=o.getAttribute('data-'+lang)||o.text);}
+function toggleGLSidebar(){var s=document.getElementById('gl-sidebar');if(window.innerWidth<=768){s.classList.toggle('mob-open');var o=document.getElementById('gl-sb-overlay');if(o)o.style.display=s.classList.contains('mob-open')?'block':'none';var b=document.getElementById('gl-mob-btn');if(b)b.textContent=s.classList.contains('mob-open')?'×':'☰';}else{s.classList.toggle('collapsed');document.body.classList.toggle('gl-collapsed');localStorage.setItem('gl_sb_collapsed',s.classList.contains('collapsed')?'1':'0');}}
+function closeSidebar(){var s=document.getElementById('gl-sidebar');s.classList.remove('mob-open');var o=document.getElementById('gl-sb-overlay');if(o)o.style.display='none';var b=document.getElementById('gl-mob-btn');if(b)b.textContent='☰';}
+function initSidebarState(){if(localStorage.getItem('gl_sb_collapsed')==='1'){var s=document.getElementById('gl-sidebar');if(s){s.classList.add('collapsed');document.body.classList.add('gl-collapsed');}}}
 
-/* ── PAGE CONTENT — margin pushes it away from sidebar ── */
-.gl-page-content {
-  margin-right: 220px;
-  min-height: 100vh;
-  transition: margin-right .25s ease;
-}
-[dir="ltr"] .gl-page-content { margin-right: 0; margin-left: 220px; }
-body.gl-collapsed .gl-page-content { margin-right: 56px; }
-[dir="ltr"] body.gl-collapsed .gl-page-content { margin-right: 0; margin-left: 56px; }
-
-/* ── HEADER ── */
-.gl-sb-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 16px 14px 10px;
-  flex-shrink: 0;
-}
-.gl-sb-logo {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  text-decoration: none;
-  overflow: hidden;
-}
-.gl-sb-logo-bars { display: flex; gap: 3px; height: 20px; flex-shrink: 0; }
-.gl-sb-bar { width: 3px; border-radius: 2px; }
-.gl-sb-bar:first-child { height: 100%; }
-.gl-sb-bar:last-child { height: 60%; margin-top: 40%; }
-.gl-sb-logo-name {
-  font-family: 'Playfair Display', serif;
-  font-size: 15px;
-  color: #fff;
-  white-space: nowrap;
-}
-.gl-sb-collapse-btn {
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.15);
-  border-radius: 6px;
-  color: rgba(255,255,255,0.6);
-  cursor: pointer;
-  font-size: 10px;
-  padding: 4px 7px;
-  flex-shrink: 0;
-  transition: background .15s;
-}
-.gl-sb-collapse-btn:hover { background: rgba(255,255,255,0.15); color: #fff; }
-
-/* ── BIZ NAME ── */
-.gl-sb-biz {
-  margin: 0 12px 12px;
-  padding: 6px 10px;
-  background: rgba(255,255,255,0.08);
-  border: 1px solid rgba(255,255,255,0.12);
-  border-radius: 7px;
-  font-size: 11px;
-  color: var(--light);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  flex-shrink: 0;
-}
-
-/* ── NAV ── */
-.gl-sb-nav {
-  flex: 1;
-  overflow-y: auto;
-  padding: 4px 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.gl-sb-nav::-webkit-scrollbar { width: 3px; }
-.gl-sb-nav::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.15); border-radius: 2px; }
-
-.gl-sb-link {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 9px 10px;
-  border-radius: 8px;
-  text-decoration: none;
-  color: rgba(255,255,255,0.65);
-  font-family: 'Tajawal', sans-serif;
-  font-size: 13px;
-  font-weight: 500;
-  transition: background .15s, color .15s;
-  white-space: nowrap;
-  border: none;
-  background: transparent;
-  cursor: pointer;
-  width: 100%;
-  text-align: right;
-}
-[dir="ltr"] .gl-sb-link { text-align: left; }
-.gl-sb-link:hover { background: rgba(255,255,255,0.1); color: #fff; }
-.gl-sb-link.active {
-  background: rgba(255,255,255,0.15);
-  color: #fff;
-  font-weight: 700;
-  border-right: 3px solid var(--sky);
-}
-[dir="ltr"] .gl-sb-link.active { border-right: none; border-left: 3px solid var(--sky); }
-.gl-sb-icon { font-size: 15px; flex-shrink: 0; width: 20px; text-align: center; }
-
-/* ── BOTTOM ── */
-.gl-sb-bottom {
-  padding: 8px 8px 12px;
-  flex-shrink: 0;
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-}
-.gl-sb-divider { height: 1px; background: rgba(255,255,255,0.1); margin: 6px 4px 8px; }
-.gl-sb-lang {
-  display: flex;
-  gap: 4px;
-  padding: 4px 10px 8px;
-}
-.gl-lang-btn {
-  padding: 4px 12px;
-  font-size: 11px;
-  cursor: pointer;
-  border: 1px solid rgba(255,255,255,0.2);
-  border-radius: 5px;
-  background: transparent;
-  color: rgba(255,255,255,0.6);
-  font-family: 'Tajawal', sans-serif;
-  transition: all .15s;
-}
-.gl-lang-btn.on { background: var(--sky); color: #fff; border-color: var(--sky); }
-.gl-sb-logout { color: rgba(255,255,255,0.5); }
-.gl-sb-logout:hover { color: #fca5a5; background: rgba(220,38,38,0.15); }
-
-/* ── MOBILE ── */
-.gl-sb-mob-btn {
-  display: none;
-  position: fixed;
-  top: 12px;
-  right: 12px;
-  z-index: 600;
-  background: var(--navy);
-  color: #fff;
-  border: none;
-  border-radius: 8px;
-  width: 40px;
-  height: 40px;
-  font-size: 18px;
-  cursor: pointer;
-  box-shadow: 0 2px 10px rgba(0,0,0,0.2);
-  align-items: center;
-  justify-content: center;
-}
-[dir="ltr"] .gl-sb-mob-btn { right: auto; left: 12px; }
-.gl-sb-overlay {
-  display: none;
-  position: fixed;
-  inset: 0;
-  background: rgba(0,0,0,0.4);
-  z-index: 490;
-}
-@media (max-width: 768px) {
-  .gl-sidebar {
-    width: 240px !important;
-    transform: translateX(100%);
-    transition: transform .25s ease;
+async function init(){
+  const {data:{session}}=await sb.auth.getSession();
+  if(!session){window.location.href='login.html';return;}
+  currentUser=session.user;
+  const {data:biz}=await sb.from('businesses').select('*').eq('user_id',currentUser.id).single();
+  if(biz){
+    currentBiz=biz;currentBizId=biz.id;
+    document.getElementById('biz-name').textContent=biz.name_ar||biz.name||'';
+    setVal('s-name-ar',biz.name_ar||'');setVal('s-name',biz.name||'');
+    setVal('s-trn',biz.trn||'');setVal('s-cr',biz.cr_number||'');
+    setVal('s-city',biz.city||'');setVal('s-address',biz.address||'');
+    setVal('s-postal',biz.postal_code||'');
+    setVal('s-phone',biz.phone||'');setVal('s-email',biz.email||'');
+    if(biz.vat_mode)localStorage.setItem('gl_vat_mode',biz.vat_mode);
+    if(biz.inv_prefix)localStorage.setItem('gl_inv_prefix',biz.inv_prefix);
   }
-  [dir="ltr"] .gl-sidebar { transform: translateX(-100%); }
-  .gl-sidebar.mob-open { transform: translateX(0) !important; }
-  .gl-page-content { margin-right: 0 !important; margin-left: 0 !important; }
-  .gl-sb-mob-btn { display: flex; }
-  .gl-sb-collapse-btn { display: none; }
+  initInvoiceSettings();
+  initAccountantToggle();
+  const storedL=localStorage.getItem('gl_lang')||'ar';L=storedL;setLang(storedL);
+  initSidebarState();
 }
+async function saveBusiness(){
+  if(!currentBizId){notify(L==='ar'?'لم يتم تحميل بيانات المنشأة':'Business not loaded','r');return;}
+  const updates={name_ar:gval('s-name-ar'),name:gval('s-name'),trn:gval('s-trn'),cr_number:gval('s-cr'),city:gval('s-city'),address:gval('s-address'),postal_code:gval('s-postal'),phone:gval('s-phone'),email:gval('s-email'),updated_at:new Date().toISOString()};
+  const {error}=await sb.from('businesses').update(updates).eq('id',currentBizId);
+  if(error){notify(error.message,'r');return;}
+  document.getElementById('biz-name').textContent=updates.name_ar||updates.name||'';
+  notify(L==='ar'?'✅ تم حفظ بيانات المنشأة':'✅ Business info saved','g');
+}
+function goSection(name){
+  document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
+  document.querySelectorAll('.stab').forEach(t=>t.classList.remove('active'));
+  document.getElementById('sec-'+name)?.classList.add('active');
+  const map=['identity','invoicing','advanced'];
+  const idx=map.indexOf(name);
+  document.querySelectorAll('.stab')[idx]?.classList.add('active');
+  if(name==='invoicing')initInvoiceSettings();
+}
+function initInvoiceSettings(){
+  const mode=localStorage.getItem('gl_vat_mode')||'exclusive';
+  updateVatModeUI(mode);
+  const prefix=localStorage.getItem('gl_inv_prefix')||'INV';
+  const el=document.getElementById('inv-prefix');if(el)el.value=prefix;
+  updatePrefixPreview();
+}
+function setVatMode(mode){localStorage.setItem('gl_vat_mode',mode);updateVatModeUI(mode);notify(L==='ar'?(mode==='inclusive'?'✅ أسعار شاملة الضريبة':'✅ أسعار بدون ضريبة'):(mode==='inclusive'?'✅ Prices include VAT':'✅ Prices exclude VAT'),'g');}
+function updateVatModeUI(mode){
+  const ec=document.getElementById('vat-mode-exclusive');const ic=document.getElementById('vat-mode-inclusive');
+  const eb=document.getElementById('vat-excl-badge');const ib=document.getElementById('vat-incl-badge');
+  if(!ec)return;
+  if(mode==='inclusive'){ec.style.borderColor='var(--border)';ec.style.background='var(--white)';ic.style.borderColor='var(--blue)';ic.style.background='var(--tint)';if(eb)eb.style.display='none';if(ib){ib.style.display='block';ib.style.color='var(--blue)';}}
+  else{ec.style.borderColor='var(--blue)';ec.style.background='var(--tint)';ic.style.borderColor='var(--border)';ic.style.background='var(--white)';if(eb){eb.style.display='block';eb.style.color='var(--blue)';}if(ib)ib.style.display='none';}
+}
+function updatePrefixPreview(){const v=(document.getElementById('inv-prefix')?.value||'INV').toUpperCase();const el=document.getElementById('inv-prefix-preview');if(el)el.textContent=v+'-2026-001';}
+async function saveInvoiceSettings(){
+  const prefix=(document.getElementById('inv-prefix')?.value||'INV').toUpperCase().replace(/[^A-Z0-9]/g,'');
+  localStorage.setItem('gl_inv_prefix',prefix);
+  if(currentBizId){await sb.from('businesses').update({vat_mode:localStorage.getItem('gl_vat_mode')||'exclusive',inv_prefix:prefix}).eq('id',currentBizId);}
+  notify(L==='ar'?'✅ تم حفظ إعدادات الفاتورة':'✅ Invoice settings saved','g');
+}
+function initAccountantToggle(){
+  const on=localStorage.getItem('gl_accountant_mode')==='true';
+  const toggle=document.getElementById('accountant-toggle');
+  const knob=document.getElementById('accountant-toggle-knob');
+  const status=document.getElementById('accountant-mode-status');
+  if(toggle){toggle.classList.toggle('on',on);if(knob)knob.style.right=on?'2px':'auto';}
+  if(status)status.textContent=on?(L==='ar'?'مفعّل — أدوات المحاسبة ظاهرة':'Enabled — accounting tools visible'):(L==='ar'?'معطّل':'Disabled');
+}
+function toggleAccountantMode(){
+  const current=localStorage.getItem('gl_accountant_mode')==='true';
+  localStorage.setItem('gl_accountant_mode',(!current).toString());
+  initAccountantToggle();
+  notify(L==='ar'?(!current?'✅ وضع المحاسب مفعّل':'وضع المحاسب معطّل'):(!current?'✅ Accountant mode enabled':'Accountant mode disabled'),'g');
+}
+function setLang(lang){L=lang;applyLang(lang);}
+init();
+</script></body></html>
