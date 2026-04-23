@@ -1201,32 +1201,68 @@ function openNewEntry() {
 /* ── REVERSE / ADJUST JOURNAL ENTRY ── */
 async function reverseJournalEntry(entryId, ref) {
   if(!confirm(L==='ar'
-    ?`عكس القيد ${ref}؟ سيتم ترحيل قيد عكسي لإلغاء هذا القيد.`
-    :`Reverse entry ${ref}? A reversing entry will be posted to cancel it.`)) return;
+    ?`عكس القيد ${ref}؟ سيتم ترحيل قيد عكسي متوازن لإلغاء هذا القيد.`
+    :`Reverse entry ${ref}? A balanced reversing entry will be posted.`)) return;
 
   const entry = entries.find(e=>e.id===entryId);
   if(!entry){notify(L==='ar'?'لم يتم العثور على القيد':'Entry not found','r');return;}
 
   const origLines = entry.journal_lines||[];
+
+  // Calculate totals of original entry
+  const origDr = origLines.reduce((s,l)=>s+(l.debit||0),0);
+  const origCr = origLines.reduce((s,l)=>s+(l.credit||0),0);
+
+  // Build reversal lines — flip each line
+  let revLines = origLines.map(l=>({
+    account_code: l.account_code,
+    account_name: l.account_name,
+    debit:  Math.round((l.credit||0)*100)/100,
+    credit: Math.round((l.debit||0)*100)/100,
+    description: (L==='ar'?'عكس: ':'Rev: ')+(l.description||l.account_name||'')
+  }));
+
+  // Verify the reversal is balanced — if not, add a plug line
+  const revDr = revLines.reduce((s,l)=>s+(l.debit||0),0);
+  const revCr = revLines.reduce((s,l)=>s+(l.credit||0),0);
+  const gap   = Math.round((revDr-revCr)*100)/100;
+
+  if(Math.abs(gap) > 0.01) {
+    // Add a suspense/plug line to force balance
+    revLines.push({
+      account_code: gap > 0 ? '2400' : '1400', // Accrued expenses or Prepaid
+      account_name: gap > 0
+        ? (L==='ar'?'مصاريف مستحقة (تسوية عكس)':'Accrued Expenses (reversal plug)')
+        : (L==='ar'?'مدفوعات مقدمة (تسوية عكس)':'Prepaid (reversal plug)'),
+      debit:  gap > 0 ? 0 : Math.abs(gap),
+      credit: gap > 0 ? Math.abs(gap) : 0,
+      description: L==='ar'?'تسوية توازن العكس':'Reversal balance plug'
+    });
+  }
+
   const {data:revEntry,error} = await sb.from('journal_entries').insert({
     user_id:currentUser.id, business_id:currentBiz?.id,
     entry_date:today(),
     reference:'REV-'+ref,
-    description:(L==='ar'?'عكس قيد — ':'Reversal of — ')+entry.description,
-    source:'manual', status:'posted', is_balanced:true
+    description:(L==='ar'?'عكس — ':'Reversal of — ')+entry.description,
+    source:'expense_reversal', status:'posted', is_balanced:true
   }).select().single();
 
-  if(error||!revEntry){notify(L==='ar'?'فشل إنشاء القيد العكسي':'Failed to create reversal','r');return;}
+  if(error||!revEntry){
+    notify((L==='ar'?'فشل إنشاء القيد العكسي: ':'Failed to create reversal: ')+error?.message,'r');
+    return;
+  }
 
-  await sb.from('journal_lines').insert(origLines.map(l=>({
-    entry_id:revEntry.id, user_id:currentUser.id,
-    account_code:l.account_code, account_name:l.account_name,
-    debit:l.credit, credit:l.debit,
-    description:(L==='ar'?'عكس: ':'Rev: ')+l.description
-  })));
+  await sb.from('journal_lines').insert(
+    revLines.map(l=>({...l, entry_id:revEntry.id, user_id:currentUser.id}))
+  );
 
+  // Mark original as reversed
   await sb.from('journal_entries').update({status:'reversed'}).eq('id',entryId);
-  notify(L==='ar'?`✅ تم عكس القيد ${ref}`:`✅ Entry ${ref} reversed`,'g');
+
+  notify(L==='ar'
+    ?`✅ تم عكس القيد ${ref} — القيد العكسي متوازن`
+    :`✅ Entry ${ref} reversed — reversal is balanced`,'g');
   await loadEntries();
 }
 
