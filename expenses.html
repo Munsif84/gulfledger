@@ -570,7 +570,7 @@ async function saveExpense(){
 
 async function postExpenseJournal(exp,cat,amount,vatAmt,recVAT,total,method){
   try{
-    const accountCode=cat?.account||'6000';
+    const accountCode=cat?.account||autoMapAccount(cat?.name_ar||'','');
     const accountName=cat?cat.name_ar:'مصاريف عامة';
     const crCode=method==='bank'||method==='card'?'1101':'1100';
     const crName=method==='bank'||method==='card'?(L==='ar'?'البنك':'Bank'):(L==='ar'?'النقد وما في حكمه':'Cash');
@@ -585,18 +585,44 @@ async function postExpenseJournal(exp,cat,amount,vatAmt,recVAT,total,method){
     }).select().single();
 
     if(!entry)return;
-    const lines=[
-      {entry_id:entry.id,user_id:currentUser.id,account_code:accountCode,account_name:accountName,debit:amount,credit:0,description:exp.description},
-      {entry_id:entry.id,user_id:currentUser.id,account_code:crCode,account_name:crName,debit:0,credit:total,description:L==='ar'?'دفع مصروف':'Expense payment'}
-    ];
+
+    // Build lines — always balanced: total Dr = total Cr = total (amount + vatAmt)
+    const lines=[];
+
+    // Dr Expense (net amount before VAT)
+    lines.push({entry_id:entry.id,user_id:currentUser.id,
+      account_code:accountCode,account_name:accountName,
+      debit:amount,credit:0,description:exp.description});
+
     if(vatAmt>0){
-      lines.push({entry_id:entry.id,user_id:currentUser.id,account_code:'2220',account_name:'ضريبة القيمة المضافة — مدخلات',debit:recVAT,credit:0,description:'VAT مدخلات 15%'});
-      if(vatAmt>recVAT){
-        lines.push({entry_id:entry.id,user_id:currentUser.id,account_code:accountCode,account_name:accountName,debit:vatAmt-recVAT,credit:0,description:'VAT غير قابل للاسترداد'});
+      // Dr VAT Input 2220 — recoverable portion
+      if(recVAT>0){
+        lines.push({entry_id:entry.id,user_id:currentUser.id,
+          account_code:'2220',account_name:'ضريبة القيمة المضافة — مدخلات',
+          debit:Math.round(recVAT*100)/100,credit:0,description:'VAT مدخلات 15%'});
       }
-      // Adjust credit to balance
-      lines[1].credit=amount+(vatAmt-recVAT);
+      // Dr Expense again — non-recoverable VAT portion (e.g. entertainment 50%)
+      const nonRec=Math.round((vatAmt-recVAT)*100)/100;
+      if(nonRec>0){
+        lines.push({entry_id:entry.id,user_id:currentUser.id,
+          account_code:accountCode,account_name:accountName,
+          debit:nonRec,credit:0,description:L==='ar'?'VAT غير قابل للاسترداد':'Non-recoverable VAT'});
+      }
     }
+
+    // Cr Cash/Bank — always the full total (amount + vatAmt)
+    lines.push({entry_id:entry.id,user_id:currentUser.id,
+      account_code:crCode,account_name:crName,
+      debit:0,credit:Math.round(total*100)/100,
+      description:L==='ar'?'دفع مصروف':'Expense payment'});
+
+    // Verify balance before inserting
+    const totalDr=lines.reduce((s,l)=>s+(l.debit||0),0);
+    const totalCr=lines.reduce((s,l)=>s+(l.credit||0),0);
+    if(Math.abs(totalDr-totalCr)>0.01){
+      console.error('Journal imbalance detected:',totalDr,'vs',totalCr);
+    }
+
     await sb.from('journal_lines').insert(lines);
   }catch(e){console.warn('Journal post skipped:',e.message);}
 }
