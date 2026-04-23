@@ -507,13 +507,14 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
         </div>
         <div style="overflow-x:auto;"><table class="tbl">
           <thead><tr>
-            <th data-ar="التاريخ"   data-en="Date">التاريخ</th>
-            <th data-ar="المرجع"    data-en="Ref">المرجع</th>
-            <th data-ar="الوصف"     data-en="Description">الوصف</th>
-            <th data-ar="الحساب"    data-en="Account">الحساب</th>
-            <th data-ar="مدين"      data-en="Debit">مدين</th>
-            <th data-ar="دائن"      data-en="Credit">دائن</th>
-            <th data-ar="حالة"      data-en="Status">حالة</th>
+            <th data-ar="التاريخ"   data-en="Date">Date</th>
+            <th data-ar="المرجع"    data-en="Ref">Ref</th>
+            <th data-ar="الوصف"     data-en="Description">Description</th>
+            <th data-ar="الحساب"    data-en="Account">Account</th>
+            <th data-ar="مدين"      data-en="Debit">Debit</th>
+            <th data-ar="دائن"      data-en="Credit">Credit</th>
+            <th data-ar="حالة"      data-en="Status">Status</th>
+            <th data-ar="إجراء"     data-en="Actions">Actions</th>
           </tr></thead>
           <tbody id="journal-tbody">
             <tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted);">جارٍ التحميل...</td></tr>
@@ -791,31 +792,33 @@ async function loadEntries() {
 function renderStats() {
   let totalDr = 0, totalCr = 0;
   entries.forEach(e => {
+    // Skip reversed entries — they net to zero with their reversal pairs
+    if(e.status === 'reversed') return;
     (e.journal_lines || []).forEach(l => {
       totalDr += l.debit  || 0;
       totalCr += l.credit || 0;
     });
   });
 
-  set('s-entries',  entries.length);
+  set('s-entries', entries.length);
   set('s-total-dr', 'SAR ' + fmt(totalDr));
   set('s-total-cr', 'SAR ' + fmt(totalCr));
 
-  const diff = Math.abs(totalDr - totalCr);
-  const balEl   = document.getElementById('s-balance');
-  const actEl   = document.getElementById('s-balance-action');
-  const cardEl  = document.getElementById('stat-balance-card');
+  const diff = Math.round(Math.abs(totalDr - totalCr)*100)/100;
+  const balEl  = document.getElementById('s-balance');
+  const actEl  = document.getElementById('s-balance-action');
+  const cardEl = document.getElementById('stat-balance-card');
 
   if (diff < 0.01) {
     if(balEl) { balEl.textContent = L==='ar'?'✓ متوازن':'✓ Balanced'; balEl.className='stat-num c-green'; }
-    if(actEl) actEl.innerHTML = `<span style="font-size:11px;color:var(--muted);">${L==='ar'?'المدين = الدائن — ممتاز':'Debit = Credit — perfect'}</span>`;
+    if(actEl) actEl.innerHTML = `<span style="font-size:11px;color:var(--muted);">${L==='ar'?'المدين = الدائن — ممتاز':'Debit = Credit — all good'}</span>`;
     if(cardEl) { cardEl.style.borderColor='#86efac'; cardEl.style.background='#f0fdf4'; }
   } else {
     if(balEl) { balEl.textContent = 'SAR ' + fmt(diff); balEl.className='stat-num c-red'; }
-    if (actEl) actEl.innerHTML = `
-      <div style="font-size:11px;color:var(--red);margin-bottom:6px;">${L==='ar'?'⚠ فجوة في الميزان':'⚠ Balance gap'}</div>
-      <button onclick="checkBalanceIssue()" style="font-size:10px;padding:4px 10px;background:var(--red);color:#fff;border:none;border-radius:5px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:600;">
-        ${L==='ar'?'🔍 عرض المشكلة':'🔍 Check Issue'}
+    if(actEl) actEl.innerHTML = `
+      <div style="font-size:11px;color:var(--red);margin-bottom:6px;">⚠ ${L==='ar'?'فجوة في الميزان':'Balance gap'}</div>
+      <button onclick="checkBalanceIssue()" style="font-size:10px;padding:4px 12px;background:var(--red);color:#fff;border:none;border-radius:5px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:600;">
+        🔍 ${L==='ar'?'عرض المشكلة':'Check Issue'}
       </button>`;
     if(cardEl) { cardEl.style.borderColor='#fca5a5'; cardEl.style.background='#fff5f5'; }
   }
@@ -996,40 +999,45 @@ function renderJournal() {
     const lines = entry.journal_lines || [];
     const isReversed = entry.status === 'reversed';
 
-    // Detect imbalance
+    // Detect imbalance — but ONLY on entries that haven't been reversed
+    // AND exclude reversal entries themselves (they inherit the imbalance by design when reversing bad entries)
+    const isReversalEntry = (entry.source||'').includes('reversal') || entry.source==='credit_note' || (entry.reference||'').startsWith('REV-');
     const entryDr = lines.reduce((s,l)=>s+(l.debit||0),0);
     const entryCr = lines.reduce((s,l)=>s+(l.credit||0),0);
     const gap = Math.round((entryDr-entryCr)*100)/100;
-    const isImbalanced = !isReversed && Math.abs(gap) > 0.01;
+    const isImbalanced = !isReversed && !isReversalEntry && Math.abs(gap) > 0.01;
 
+    // Status badge — clean, single item
     const srcBadge = {
-      invoice:          `<span style="background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">📄 ${L==='ar'?'فاتورة':'Invoice'}</span>`,
-      invoice_reversal: `<span style="background:#fce7f3;color:#9d174d;font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">↩️ ${L==='ar'?'عكس فاتورة':'Invoice Rev.'}</span>`,
-      credit_note:      `<span style="background:#fce7f3;color:#9d174d;font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">🚫 ${L==='ar'?'إشعار دائن':'Credit Note'}</span>`,
-      expense:          `<span style="background:#fff1f2;color:#be123c;font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">💸 ${L==='ar'?'مصروف':'Expense'}</span>`,
-      expense_reversal: `<span style="background:#fce7f3;color:#9d174d;font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">↩️ ${L==='ar'?'عكس مصروف':'Expense Rev.'}</span>`,
-      payment:          `<span style="background:#dcfce7;color:#166534;font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">💰 ${L==='ar'?'دفعة':'Payment'}</span>`,
-      supplier_invoice: `<span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">🏭 ${L==='ar'?'فاتورة مورد':'Supplier Inv.'}</span>`,
-      inventory:        `<span style="background:#dcfce7;color:#166534;font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">📦 ${L==='ar'?'مخزون':'Stock'}</span>`,
-    }[entry.source] || `<span style="background:var(--tint);color:var(--muted);font-size:10px;font-weight:700;padding:3px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">✏️ ${L==='ar'?'يدوي':'Manual'}</span>`;
+      invoice:          `<span style="background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">📄 ${L==='ar'?'فاتورة':'Invoice'}</span>`,
+      invoice_reversal: `<span style="background:#fce7f3;color:#9d174d;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">↩️ ${L==='ar'?'عكس فاتورة':'Invoice Rev.'}</span>`,
+      credit_note:      `<span style="background:#fce7f3;color:#9d174d;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">🚫 ${L==='ar'?'إشعار دائن':'Credit Note'}</span>`,
+      expense:          `<span style="background:#fff1f2;color:#be123c;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">💸 ${L==='ar'?'مصروف':'Expense'}</span>`,
+      expense_reversal: `<span style="background:#fce7f3;color:#9d174d;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">↩️ ${L==='ar'?'عكس مصروف':'Expense Rev.'}</span>`,
+      payment:          `<span style="background:#dcfce7;color:#166534;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">💰 ${L==='ar'?'دفعة':'Payment'}</span>`,
+      supplier_invoice: `<span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">🏭 ${L==='ar'?'فاتورة مورد':'Supplier Inv.'}</span>`,
+      inventory:        `<span style="background:#dcfce7;color:#166534;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">📦 ${L==='ar'?'مخزون':'Stock'}</span>`,
+    }[entry.source] || `<span style="background:var(--tint);color:var(--muted);font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">✏️ ${L==='ar'?'يدوي':'Manual'}</span>`;
 
-    const reversedBadge = isReversed
-      ? `<br><span style="background:#f1f5f9;color:#64748b;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;margin-top:3px;display:inline-block;">${L==='ar'?'مُعكَس':'Reversed'}</span>`
-      : '';
+    const statusCell = isReversed
+      ? `${srcBadge}<br><span style="font-size:9px;color:var(--muted);margin-top:2px;display:inline-block;">${L==='ar'?'مُعكَس':'Reversed'}</span>`
+      : isImbalanced
+      ? `${srcBadge}<br><span style="font-size:9px;color:var(--red);font-weight:700;margin-top:2px;display:inline-block;">⚠ ${L==='ar'?'غير متوازن':'Imbalanced'}</span><br><span style="font-size:9px;color:var(--muted);">Dr-Cr = SAR ${fmt(Math.abs(gap))}</span>`
+      : srcBadge;
 
-    const imbalancedBadge = isImbalanced
-      ? `<br><span style="background:#fff1f2;color:var(--red);font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;margin-top:3px;display:inline-block;">⚠ ${L==='ar'?'غير متوازن':'Imbalanced'}</span>
-         <br><span style="font-size:10px;color:var(--red);">Dr-Cr = SAR ${fmt(Math.abs(gap))}</span>
-         <br><div style="display:flex;gap:4px;margin-top:4px;">
-           <button onclick="reverseJournalEntry('${entry.id}','${entry.reference||''}')" style="font-size:9px;padding:2px 7px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:4px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:600;">↩️ ${L==='ar'?'عكس':'Reverse'}</button>
-           <button onclick="adjustJournalEntry('${entry.id}','${entry.reference||''}',${gap})" style="font-size:9px;padding:2px 7px;background:#fffbeb;color:var(--amber);border:1px solid #fde68a;border-radius:4px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:600;">✏️ ${L==='ar'?'تعديل':'Adjust'}</button>
+    // Actions cell — only shown on first row, only relevant actions
+    const actionsCell = isReversed || isReversalEntry ? '—' :
+      isImbalanced
+      ? `<div style="display:flex;flex-direction:column;gap:4px;">
+           <button onclick="reverseJournalEntry('${entry.id}','${entry.reference||''}')" style="font-size:10px;padding:3px 10px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:5px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:600;white-space:nowrap;">↩️ ${L==='ar'?'عكس':'Reverse'}</button>
+           <button onclick="adjustJournalEntry('${entry.id}','${entry.reference||''}',${gap})" style="font-size:10px;padding:3px 10px;background:#fffbeb;color:var(--amber);border:1px solid #fde68a;border-radius:5px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:600;white-space:nowrap;">✏️ ${L==='ar'?'تعديل موجّه':'Guided Fix'}</button>
          </div>`
-      : '';
+      : `<span style="font-size:10px;color:var(--muted);">—</span>`;
 
     lines.forEach((line, idx) => {
       rows.push(`<tr style="${isReversed?'opacity:.45;text-decoration:line-through;':''}${isImbalanced?'background:#fffbeb;':''}${idx===0?'':'border-top:none;'}">
         ${idx===0 ? `
-          <td rowspan="${lines.length}" style="vertical-align:top;font-size:11px;color:var(--muted);">${entry.entry_date}</td>
+          <td rowspan="${lines.length}" style="vertical-align:top;font-size:11px;color:var(--muted);white-space:nowrap;">${entry.entry_date}</td>
           <td rowspan="${lines.length}" style="vertical-align:top;"><span class="acc-code">${entry.reference||'—'}</span></td>
           <td rowspan="${lines.length}" style="vertical-align:top;font-size:12px;">${entry.description||'—'}</td>
         ` : ''}
@@ -1039,7 +1047,10 @@ function renderJournal() {
         </td>
         <td class="mono dr">${line.debit  > 0 ? 'SAR ' + fmt(line.debit)  : '—'}</td>
         <td class="mono cr">${line.credit > 0 ? 'SAR ' + fmt(line.credit) : '—'}</td>
-        ${idx===0 ? `<td rowspan="${lines.length}" style="vertical-align:top;">${srcBadge}${reversedBadge}${imbalancedBadge}</td>` : ''}
+        ${idx===0 ? `
+          <td rowspan="${lines.length}" style="vertical-align:top;">${statusCell}</td>
+          <td rowspan="${lines.length}" style="vertical-align:top;">${actionsCell}</td>
+        ` : ''}
       </tr>`);
     });
   });
@@ -1220,40 +1231,52 @@ async function reverseJournalEntry(entryId, ref) {
 }
 
 function adjustJournalEntry(entryId, ref, gap) {
-  // Open new entry form pre-filled with the adjusting entry to plug the gap
+  // Open guided new entry form with explanation
   openNewEntry();
 
-  // Pre-fill date and reference
-  document.getElementById('je-date').value = today();
-  document.getElementById('je-ref').value = 'ADJ-'+ref;
-  document.getElementById('je-desc').value = (L==='ar'?'تعديل قيد — ':'Adjusting entry — ')+ref;
-
-  // Clear existing lines and add one pre-filled line for the gap
-  document.getElementById('je-lines').innerHTML='';
-  jeLineCount=0;
-
-  // Add two lines — user fills in accounts, gap amount pre-filled
-  addJELine(); addJELine();
-
-  // Pre-fill gap amount in first debit or credit depending on sign
   const absGap = Math.abs(gap).toFixed(2);
-  const inputs = document.getElementById('je-lines').querySelectorAll('.je-line');
-  if(gap > 0) {
-    // Dr side is larger — need a credit to balance
-    inputs[0]?.querySelectorAll('input[type="number"]')[1]?.setAttribute('value', absGap);
-    inputs[0]?.querySelectorAll('input[type="number"]')[1]?.focus();
-  } else {
-    // Cr side is larger — need a debit to balance
-    inputs[0]?.querySelectorAll('input[type="number"]')[0]?.setAttribute('value', absGap);
-    inputs[0]?.querySelectorAll('input[type="number"]')[0]?.focus();
-  }
+  const needsDebit = gap < 0;  // Cr > Dr → need to add a debit line
+  const needsCredit = gap > 0; // Dr > Cr → need to add a credit line
 
-  notify(
-    L==='ar'
-      ?`✏️ أدخل قيد تعديل — الفجوة SAR ${absGap}`
-      :`✏️ Enter adjusting entry — gap is SAR ${absGap}`,
-    'g'
-  );
+  // Pre-fill header
+  document.getElementById('je-date').value = today();
+  document.getElementById('je-ref').value  = 'ADJ-' + ref;
+  document.getElementById('je-desc').value = (L==='ar'?'قيد تعديل — ':'Adjusting entry — ') + ref;
+
+  // Clear lines and add 1 pre-filled line
+  document.getElementById('je-lines').innerHTML = '';
+  jeLineCount = 0;
+  addJELine();
+
+  // Pre-fill the gap amount in the right column
+  setTimeout(() => {
+    const row = document.getElementById('je-lines').querySelector('.je-line');
+    if(!row) return;
+    const [drInput, crInput] = row.querySelectorAll('input[type="number"]');
+    if(needsDebit  && drInput) { drInput.value = absGap; drInput.dispatchEvent(new Event('input')); }
+    if(needsCredit && crInput) { crInput.value = absGap; crInput.dispatchEvent(new Event('input')); }
+    calcJEBalance();
+  }, 100);
+
+  // Show guided instruction below the form
+  const noteBox = document.querySelector('#tc-entry .note-box');
+  if(noteBox) {
+    noteBox.className = 'note-box amber';
+    noteBox.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <div>
+        <div style="font-weight:700;margin-bottom:4px;">${L==='ar'?'إرشادات التعديل':'Adjustment Guide'}</div>
+        <div style="font-size:11px;line-height:1.7;">
+          ${L==='ar'
+            ? `القيد <strong>${ref}</strong> يحتاج ${needsDebit?'مدين':'دائن'} إضافي بمبلغ <strong>SAR ${absGap}</strong><br>
+               — الحساب المناسب عادةً: اختر الحساب الذي يكمّل القيد الأصلي<br>
+               — مثال: إذا كانت الفجوة في ضريبة المدخلات، اختر <strong>2220</strong>`
+            : `Entry <strong>${ref}</strong> needs an additional ${needsDebit?'debit':'credit'} of <strong>SAR ${absGap}</strong><br>
+               — Select the account that completes the original entry<br>
+               — Example: if the gap is VAT input, choose account <strong>2220</strong>`}
+        </div>
+      </div>`;
+  }
 }
 
 function checkBalanceIssue() {
