@@ -1002,19 +1002,16 @@ function renderJournal() {
   }
 
   const rows = [];
-  filtered.forEach(entry => {
+  filtered.forEach((entry, entryIdx) => {
     const lines = entry.journal_lines || [];
     const isReversed = entry.status === 'reversed';
-
-    // Detect imbalance — but ONLY on entries that haven't been reversed
-    // AND exclude reversal entries themselves (they inherit the imbalance by design when reversing bad entries)
     const isReversalEntry = (entry.source||'').includes('reversal') || entry.source==='credit_note' || (entry.reference||'').startsWith('REV-');
     const entryDr = lines.reduce((s,l)=>s+(l.debit||0),0);
     const entryCr = lines.reduce((s,l)=>s+(l.credit||0),0);
     const gap = Math.round((entryDr-entryCr)*100)/100;
     const isImbalanced = !isReversed && !isReversalEntry && Math.abs(gap) > 0.01;
+    const grpId = 'jeg-' + entryIdx;
 
-    // Status badge — clean, single item
     const srcBadge = {
       invoice:          `<span style="background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">📄 ${L==='ar'?'فاتورة':'Invoice'}</span>`,
       invoice_reversal: `<span style="background:#fce7f3;color:#9d174d;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">↩️ ${L==='ar'?'عكس فاتورة':'Invoice Rev.'}</span>`,
@@ -1029,35 +1026,49 @@ function renderJournal() {
     const statusCell = isReversed
       ? `${srcBadge}<br><span style="font-size:9px;color:var(--muted);margin-top:2px;display:inline-block;">${L==='ar'?'مُعكَس':'Reversed'}</span>`
       : isImbalanced
-      ? `${srcBadge}<br><span style="font-size:9px;color:var(--red);font-weight:700;margin-top:2px;display:inline-block;">⚠ ${L==='ar'?'غير متوازن':'Imbalanced'}</span><br><span style="font-size:9px;color:var(--muted);">Dr-Cr = SAR ${fmt(Math.abs(gap))}</span>`
+      ? `${srcBadge}<br><span style="font-size:9px;color:var(--red);font-weight:700;margin-top:2px;display:inline-block;">⚠ ${L==='ar'?'غير متوازن':'Imbalanced'}</span><br><span style="font-size:9px;color:var(--muted);">SAR ${fmt(Math.abs(gap))}</span>`
       : srcBadge;
 
-    // Actions cell — only shown on first row, only relevant actions
     const actionsCell = isReversed || isReversalEntry ? '—' :
       isImbalanced
       ? `<div style="display:flex;flex-direction:column;gap:4px;">
-           <button onclick="reverseJournalEntry('${entry.id}','${entry.reference||''}')" style="font-size:10px;padding:3px 10px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:5px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:600;white-space:nowrap;">↩️ ${L==='ar'?'عكس':'Reverse'}</button>
-           <button onclick="adjustJournalEntry('${entry.id}','${entry.reference||''}',${gap})" style="font-size:10px;padding:3px 10px;background:#fffbeb;color:var(--amber);border:1px solid #fde68a;border-radius:5px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:600;white-space:nowrap;">✏️ ${L==='ar'?'تعديل موجّه':'Guided Fix'}</button>
+           <button onclick="event.stopPropagation();reverseJournalEntry('${entry.id}','${entry.reference||''}')" style="font-size:10px;padding:3px 10px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:5px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:600;white-space:nowrap;">↩️ ${L==='ar'?'عكس':'Reverse'}</button>
+           <button onclick="event.stopPropagation();adjustJournalEntry('${entry.id}','${entry.reference||''}',${gap})" style="font-size:10px;padding:3px 10px;background:#fffbeb;color:var(--amber);border:1px solid #fde68a;border-radius:5px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:600;white-space:nowrap;">✏️ ${L==='ar'?'تعديل موجّه':'Guided Fix'}</button>
          </div>`
-      : `<span style="font-size:10px;color:var(--muted);">—</span>`;
+      : '—';
 
+    const drTotal = fmt(entryDr);
+    const crTotal = fmt(entryCr);
+    const rowBg = isImbalanced ? '#fffbeb' : isReversed ? '#fafafa' : '#fff';
+
+    // SUMMARY ROW — always visible, click to expand
+    rows.push(`<tr onclick="toggleJEGroup('${grpId}')" style="cursor:pointer;background:${rowBg};border-top:2px solid var(--border);${isReversed?'opacity:.5;':''}" class="jeg-summary">
+      <td style="font-size:11px;color:var(--muted);white-space:nowrap;padding:9px 12px;">
+        <span id="${grpId}-arrow" style="font-size:10px;color:var(--muted);margin-left:4px;">▶</span>
+        ${entry.entry_date}
+      </td>
+      <td style="padding:9px 12px;"><span class="acc-code">${entry.reference||'—'}</span></td>
+      <td style="padding:9px 12px;font-size:12px;font-weight:500;">${entry.description||'—'}</td>
+      <td style="padding:9px 12px;font-size:11px;color:var(--muted);">${lines.length} ${L==='ar'?'سطر':'lines'}</td>
+      <td style="padding:9px 12px;" class="mono dr">SAR ${drTotal}</td>
+      <td style="padding:9px 12px;" class="mono cr">SAR ${crTotal}</td>
+      <td style="padding:9px 12px;">${statusCell}</td>
+      <td style="padding:9px 12px;">${actionsCell}</td>
+    </tr>`);
+
+    // DETAIL ROWS — hidden by default
     lines.forEach((line, idx) => {
-      rows.push(`<tr style="${isReversed?'opacity:.45;text-decoration:line-through;':''}${isImbalanced?'background:#fffbeb;':''}${idx===0?'':'border-top:none;'}">
-        ${idx===0 ? `
-          <td rowspan="${lines.length}" style="vertical-align:top;font-size:11px;color:var(--muted);white-space:nowrap;">${entry.entry_date}</td>
-          <td rowspan="${lines.length}" style="vertical-align:top;"><span class="acc-code">${entry.reference||'—'}</span></td>
-          <td rowspan="${lines.length}" style="vertical-align:top;font-size:12px;">${entry.description||'—'}</td>
-        ` : ''}
-        <td>
-          <span class="acc-code">${line.account_code}</span>
-          <span style="font-size:11px;color:var(--muted);margin-right:6px;">${line.account_name||line.description||''}</span>
+      rows.push(`<tr class="${grpId}" style="display:none;background:#f8fbff;${isReversed?'opacity:.5;text-decoration:line-through;':''}">
+        <td style="padding:5px 12px;font-size:11px;color:var(--muted);padding-right:24px;" colspan="3">
+          ${idx===0?'<span style="font-size:10px;color:var(--muted);font-style:italic;">'+(L==='ar'?'تفاصيل القيد:':'Entry details:')+'</span>':''}
         </td>
-        <td class="mono dr">${line.debit  > 0 ? 'SAR ' + fmt(line.debit)  : '—'}</td>
-        <td class="mono cr">${line.credit > 0 ? 'SAR ' + fmt(line.credit) : '—'}</td>
-        ${idx===0 ? `
-          <td rowspan="${lines.length}" style="vertical-align:top;">${statusCell}</td>
-          <td rowspan="${lines.length}" style="vertical-align:top;">${actionsCell}</td>
-        ` : ''}
+        <td style="padding:5px 12px;">
+          <span class="acc-code">${line.account_code}</span>
+          <span style="font-size:11px;color:var(--muted);margin-right:6px;">${line.account_name||''}</span>
+        </td>
+        <td style="padding:5px 12px;" class="mono dr">${line.debit  > 0 ? 'SAR ' + fmt(line.debit)  : '—'}</td>
+        <td style="padding:5px 12px;" class="mono cr">${line.credit > 0 ? 'SAR ' + fmt(line.credit) : '—'}</td>
+        <td colspan="2"></td>
       </tr>`);
     });
   });
@@ -1071,15 +1082,22 @@ async function calcTrialBalance() {
   if (!from || !to) { notify(L==='ar'?'اختر الفترة':'Select period', 'r'); return; }
 
   const { data: lines } = await sb.from('journal_lines')
-    .select('*, journal_entries(entry_date, user_id)')
+    .select('*, journal_entries(entry_date, user_id, status, source, reference)')
     .filter('journal_entries.user_id', 'eq', currentUser.id)
     .filter('journal_entries.entry_date', 'gte', from)
     .filter('journal_entries.entry_date', 'lte', to);
 
-  // Aggregate by account code
+  // Aggregate by account code — exclude reversed entries and their reversal counterparts
   const accounts = {};
   (lines || []).forEach(l => {
-    if (!l.journal_entries) return;
+    const je = l.journal_entries;
+    if (!je) return;
+    // Same exclusion logic as renderStats
+    if(je.status === 'reversed') return;
+    if((je.source||'').includes('reversal')) return;
+    if(je.source === 'credit_note') return;
+    if((je.reference||'').startsWith('REV-')) return;
+
     if (!accounts[l.account_code]) {
       accounts[l.account_code] = {
         code: l.account_code,
@@ -1170,6 +1188,14 @@ function renderCOA() {
     <td style="font-size:11px;color:var(--muted);">${a.cat}</td>
     <td><span style="font-size:11px;font-weight:700;color:${a.normal==='مدين'?'var(--green)':'var(--red)'};">${a.normal==='مدين'?(L==='ar'?'مدين':'Debit'):(L==='ar'?'دائن':'Credit')}</span></td>
   </tr>`).join('');
+}
+
+function toggleJEGroup(grpId) {
+  const detailRows = document.querySelectorAll('.' + grpId);
+  const arrow = document.getElementById(grpId + '-arrow');
+  const isOpen = detailRows.length && detailRows[0].style.display !== 'none';
+  detailRows.forEach(r => r.style.display = isOpen ? 'none' : '');
+  if(arrow) arrow.textContent = isOpen ? '▶' : '▼';
 }
 
 /* ── NAVIGATION ── */
