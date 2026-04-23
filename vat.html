@@ -296,6 +296,19 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
   .stats{grid-template-columns:1fr!important;}
   .fg-2,.fg-3{grid-template-columns:1fr!important;}
 }
+/* ── VAT WIZARD ── */
+.wizard-step{animation:fadeIn .2s ease;}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.wiz-step-item{display:flex;align-items:center;flex:1;}
+.wiz-step-circle{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;transition:all .25s;}
+.wiz-step-circle.done{background:var(--green);color:#fff;}
+.wiz-step-circle.active{background:var(--blue);color:#fff;box-shadow:0 0 0 4px rgba(24,95,165,0.15);}
+.wiz-step-circle.pending{background:var(--tint);color:var(--muted);border:2px solid var(--border);}
+.wiz-step-label{font-size:10px;font-weight:600;margin-top:4px;color:var(--muted);white-space:nowrap;}
+.wiz-step-label.active{color:var(--blue);}
+.wiz-step-label.done{color:var(--green);}
+.wiz-connector{flex:1;height:2px;background:var(--border);margin:0 6px;transition:background .25s;}
+.wiz-connector.done{background:var(--green);}
 </style>
 </head>
 <body>
@@ -343,276 +356,310 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
 
 <div class="page">
 
-  <!-- PAGE HEADER -->
-  <div class="page-header">
+  <!-- WIZARD HEADER -->
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;flex-wrap:wrap;gap:12px;">
     <div>
-      <div class="page-title" data-ar="إقرار ضريبة القيمة المضافة" data-en="VAT Return — Form 201">إقرار ضريبة القيمة المضافة</div>
-      <div class="page-sub" data-ar="نموذج 201 — مُحتسب تلقائياً من الفواتير المسجّلة" data-en="Form 201 — auto-calculated from registered invoices">نموذج 201 — مُحتسب تلقائياً من الفواتير المسجّلة</div>
+      <div style="font-size:20px;font-weight:700;color:var(--navy);" data-ar="إقرار ضريبة القيمة المضافة" data-en="VAT Return — Form 201">VAT Return — Form 201</div>
+      <div style="font-size:12px;color:var(--muted);margin-top:3px;" data-ar="اتبع الخطوات للوصول إلى إقرار متوافق مع زاتكا" data-en="Follow the steps to reach a ZATCA-compliant return">Follow the steps to reach a ZATCA-compliant return</div>
     </div>
-    <div style="text-align:center;background:var(--tint);border:1px solid var(--light);border-radius:10px;padding:10px 16px;">
-      <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;" data-ar="موعد الإقرار التالي" data-en="Next Filing Due">موعد الإقرار التالي</div>
+    <div style="background:var(--tint);border:1px solid var(--light);border-radius:10px;padding:10px 18px;text-align:center;">
+      <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;" data-ar="موعد الإقرار التالي" data-en="Next Filing Due">Next Filing Due</div>
       <div style="font-size:16px;font-weight:700;color:var(--navy);" id="next-due">—</div>
-      <div style="font-size:10px;color:var(--muted);" id="days-left"></div>
+      <div style="font-size:11px;color:var(--muted);" id="days-left"></div>
     </div>
   </div>
 
-  <!-- ZATCA WARNING -->
-  <div class="zatca-warn">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px;"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-    <span data-ar="هذا الإقرار مُحتسب تلقائياً من فواتيرك المسجّلة. يجب تقديمه يدوياً على بوابة زاتكا: gazt.gov.sa — التأخير يُعرّضك لغرامة تبدأ من 5% من الضريبة المستحقة." data-en="This return is auto-calculated from your invoices. Must be filed manually at ZATCA portal: gazt.gov.sa — Late filing incurs a penalty starting from 5% of tax due.">هذا الإقرار مُحتسب تلقائياً من فواتيرك. يجب تقديمه يدوياً على بوابة زاتكا: gazt.gov.sa</span>
+  <!-- STEP PROGRESS BAR -->
+  <div id="wizard-progress" style="display:flex;align-items:center;margin-bottom:28px;gap:0;">
+    <!-- steps injected by JS -->
   </div>
 
-  <!-- PERIOD SELECTOR -->
-  <div class="period-bar">
-    <div>
-      <label data-ar="اختر الربع" data-en="Select Quarter">اختر الربع</label>
-      <select id="quarter-select" onchange="setQuarterDates()">
-        <option value="Q1">Q1 — يناير إلى مارس</option>
-        <option value="Q2">Q2 — أبريل إلى يونيو</option>
-        <option value="Q3">Q3 — يوليو إلى سبتمبر</option>
-        <option value="Q4">Q4 — أكتوبر إلى ديسمبر</option>
-      </select>
-    </div>
-    <div>
-      <label data-ar="السنة" data-en="Year">السنة</label>
-      <select id="year-select" onchange="setQuarterDates()">
-        <option value="2026">2026</option>
-        <option value="2025">2025</option>
-        <option value="2024">2024</option>
-      </select>
-    </div>
-    <div>
-      <label data-ar="من" data-en="From">من</label>
-      <input type="date" lang="en" id="vat-from">
-    </div>
-    <div>
-      <label data-ar="إلى" data-en="To">إلى</label>
-      <input type="date" lang="en" id="vat-to">
-    </div>
-    <button class="btn-calc" onclick="calcVAT()" data-ar="احتساب الإقرار" data-en="Calculate Return">احتساب الإقرار</button>
+  <!-- ZATCA WARNING (compact) -->
+  <div id="zatca-warn-bar" style="display:flex;align-items:flex-start;gap:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;font-size:11px;color:var(--amber);margin-bottom:20px;line-height:1.5;">
+    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px;"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    <span data-ar="هذا الإقرار مُحتسب تلقائياً من فواتيرك. يجب تقديمه يدوياً على بوابة زاتكا: gazt.gov.sa — التأخير يُعرّضك لغرامة تبدأ من 5% من الضريبة المستحقة." data-en="Auto-calculated from your invoices. Must be filed manually at: gazt.gov.sa — Late filing incurs a penalty starting from 5% of tax due.">Auto-calculated from your invoices. Must be filed manually at: gazt.gov.sa — Late filing incurs a penalty from 5% of tax due.</span>
   </div>
 
-  <!-- STATS -->
-  <div class="vat-stats">
-    <div class="vat-stat">
-      <div class="vat-stat-lbl" data-ar="فواتير الفترة" data-en="Period Invoices">فواتير الفترة</div>
-      <div class="vat-stat-val c-navy" id="vs-count">0</div>
-      <div style="font-size:11px;color:var(--muted);" data-ar="فاتورة" data-en="invoices">فاتورة</div>
-    </div>
-    <div class="vat-stat">
-      <div class="vat-stat-lbl" data-ar="إجمالي المبيعات" data-en="Total Sales">إجمالي المبيعات</div>
-      <div class="vat-stat-val c-navy" id="vs-sales">SAR 0</div>
-      <div style="font-size:11px;color:var(--muted);" data-ar="قبل الضريبة" data-en="before VAT">قبل الضريبة</div>
-    </div>
-    <div class="vat-stat">
-      <div class="vat-stat-lbl" data-ar="ضريبة المخرجات" data-en="Output VAT">ضريبة المخرجات</div>
-      <div class="vat-stat-val c-green" id="vs-output">SAR 0</div>
-      <div style="font-size:11px;color:var(--muted);" data-ar="15% من المبيعات" data-en="15% of sales">15% من المبيعات</div>
-    </div>
-    <div class="vat-stat">
-      <div class="vat-stat-lbl" data-ar="صافي الضريبة المستحقة" data-en="Net VAT Due">صافي الضريبة المستحقة</div>
-      <div class="vat-stat-val" id="vs-net" style="color:var(--navy);">SAR 0</div>
-      <div style="font-size:11px;color:var(--muted);" data-ar="للسداد لزاتكا" data-en="payable to ZATCA">للسداد لزاتكا</div>
+  <!-- ─── STEP 1: SELECT PERIOD ─── -->
+  <div class="wizard-step" id="step-1">
+    <div class="card">
+      <div class="card-hdr">
+        <div>
+          <span style="font-size:11px;font-weight:700;color:var(--sky);text-transform:uppercase;letter-spacing:.08em;" data-ar="الخطوة 1 من 5" data-en="Step 1 of 5">Step 1 of 5</span>
+          <div class="card-ttl" style="margin-top:2px;" data-ar="اختر الفترة الضريبية" data-en="Select Tax Period">Select Tax Period</div>
+        </div>
+        <div style="font-size:12px;color:var(--muted);" data-ar="حدد الربع السنوي الذي تريد الإقرار عنه" data-en="Choose the quarter you're filing for">Choose the quarter you're filing for</div>
+      </div>
+      <div class="card-bdy">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:12px;align-items:end;">
+          <div class="fld">
+            <label data-ar="الربع" data-en="Quarter">Quarter</label>
+            <select id="quarter-select" onchange="setQuarterDates()">
+              <option value="Q1">Q1 — Jan to Mar</option>
+              <option value="Q2">Q2 — Apr to Jun</option>
+              <option value="Q3">Q3 — Jul to Sep</option>
+              <option value="Q4">Q4 — Oct to Dec</option>
+            </select>
+          </div>
+          <div class="fld">
+            <label data-ar="السنة" data-en="Year">Year</label>
+            <select id="year-select" onchange="setQuarterDates()">
+              <option value="2026">2026</option>
+              <option value="2025">2025</option>
+              <option value="2024">2024</option>
+            </select>
+          </div>
+          <div class="fld">
+            <label data-ar="من" data-en="From">From</label>
+            <input type="date" lang="en" id="vat-from">
+          </div>
+          <div class="fld">
+            <label data-ar="إلى" data-en="To">To</label>
+            <input type="date" lang="en" id="vat-to">
+          </div>
+          <button class="btn-p" onclick="runStep1()" style="white-space:nowrap;" data-ar="التالي ←" data-en="Next →">Next →</button>
+        </div>
+      </div>
     </div>
   </div>
 
-  <!-- FORM 201 -->
-  <div class="form201" id="form201">
-    <div class="form201-header">
-      <div>
-        <div class="form201-title" data-ar="نموذج الإقرار الضريبي" data-en="VAT Return Form">نموذج الإقرار الضريبي</div>
-        <div class="form201-sub" id="form-period-label">الربع: — | الفترة: —</div>
+  <!-- ─── STEP 2: REVIEW SALES & OUTPUT VAT ─── -->
+  <div class="wizard-step" id="step-2" style="display:none;">
+    <div class="card">
+      <div class="card-hdr">
+        <div>
+          <span style="font-size:11px;font-weight:700;color:var(--sky);text-transform:uppercase;letter-spacing:.08em;" data-ar="الخطوة 2 من 5" data-en="Step 2 of 5">Step 2 of 5</span>
+          <div class="card-ttl" style="margin-top:2px;" data-ar="مراجعة المبيعات وضريبة المخرجات" data-en="Review Sales & Output VAT">Review Sales & Output VAT</div>
+        </div>
+        <span style="font-size:11px;color:var(--muted);" id="step2-period-label"></span>
       </div>
-      <div style="text-align:left;">
-        <div class="form201-zatca">ZATCA FORM 201</div>
-        <div style="font-size:11px;color:rgba(255,255,255,0.6);margin-top:2px;" id="form-biz-name">—</div>
-        <div style="font-size:10px;color:rgba(255,255,255,0.4);" id="form-trn">TRN: —</div>
-      </div>
-    </div>
-
-    <div class="form201-body">
-
-      <!-- Column Headers -->
-      <div class="f201-col-header">
-        <span data-ar="البيان" data-en="Description">البيان</span>
-        <span data-ar="المبالغ الخاضعة للضريبة (SAR)" data-en="Taxable Amount (SAR)">المبالغ الخاضعة (SAR)</span>
-        <span data-ar="الضريبة المستحقة (SAR)" data-en="VAT Amount (SAR)">الضريبة المستحقة (SAR)</span>
-      </div>
-
-      <!-- PART A: Output VAT -->
-      <div class="f201-section">
-        <div class="f201-section-title" data-ar="أ — ضريبة المبيعات (المخرجات)" data-en="A — Output VAT (Sales)">أ — ضريبة المبيعات (المخرجات)</div>
-
-        <div class="f201-row">
-          <div>
-            <div class="f201-label" data-ar="1. المبيعات المحلية الخاضعة للضريبة بنسبة 15%" data-en="1. Standard rated domestic supplies (15%)">1. المبيعات المحلية الخاضعة للضريبة بنسبة 15%</div>
-            <div class="f201-note" data-ar="فواتير B2B وB2C" data-en="B2B and B2C invoices">فواتير B2B وB2C</div>
+      <div class="card-bdy">
+        <!-- Stats -->
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;">
+          <div class="stat">
+            <div class="stat-lbl" data-ar="فواتير الفترة" data-en="Period Invoices">Period Invoices</div>
+            <div class="stat-num c-navy" id="vs-count">0</div>
+            <div class="stat-sub" data-ar="فاتورة" data-en="invoices">invoices</div>
           </div>
-          <div>
-            <div class="f201-box-label">المبلغ</div>
-            <div class="f201-val" id="f1-amount">0.00</div>
+          <div class="stat">
+            <div class="stat-lbl" data-ar="إجمالي المبيعات" data-en="Total Sales">Total Sales</div>
+            <div class="stat-num c-navy" id="vs-sales">SAR 0</div>
+            <div class="stat-sub" data-ar="قبل الضريبة" data-en="before VAT">before VAT</div>
           </div>
-          <div>
-            <div class="f201-box-label">الضريبة</div>
-            <div class="f201-val green" id="f1-vat">0.00</div>
+          <div class="stat s-green">
+            <div class="stat-lbl" data-ar="ضريبة المخرجات" data-en="Output VAT">Output VAT</div>
+            <div class="stat-num c-green" id="vs-output">SAR 0</div>
+            <div class="stat-sub">15%</div>
           </div>
         </div>
-
-        <div class="f201-row">
-          <div>
-            <div class="f201-label" data-ar="2. المبيعات للمناطق الخاصة والتصدير (0%)" data-en="2. Zero-rated supplies & exports (0%)">2. المبيعات بنسبة صفر والتصدير (0%)</div>
-          </div>
-          <div>
-            <div class="f201-box-label">المبلغ</div>
-            <input type="number" class="f201-input" id="f2-amount" value="0" oninput="recalcVAT()" min="0" step="0.01">
-          </div>
-          <div>
-            <div class="f201-box-label">الضريبة</div>
-            <div class="f201-val">0.00</div>
-          </div>
-        </div>
-
-        <div class="f201-row">
-          <div>
-            <div class="f201-label" data-ar="3. المبيعات المعفاة من الضريبة" data-en="3. Exempt supplies">3. المبيعات المعفاة</div>
-          </div>
-          <div>
-            <div class="f201-box-label">المبلغ</div>
-            <input type="number" class="f201-input" id="f3-amount" value="0" oninput="recalcVAT()" min="0" step="0.01">
-          </div>
-          <div>
-            <div class="f201-box-label">الضريبة</div>
-            <div class="f201-val">0.00</div>
-          </div>
-        </div>
-
-        <div class="f201-row highlight">
-          <div>
-            <div class="f201-label" style="font-weight:700;" data-ar="إجمالي المبيعات" data-en="Total Sales">إجمالي المبيعات</div>
-          </div>
-          <div>
-            <div class="f201-box-label">الإجمالي</div>
-            <div class="f201-val c-navy" id="fa-total-amount">0.00</div>
-          </div>
-          <div>
-            <div class="f201-box-label">إجمالي الضريبة</div>
-            <div class="f201-val green" id="fa-total-vat">0.00</div>
-          </div>
+        <!-- Invoice list -->
+        <div style="overflow-x:auto;"><table class="tbl">
+          <thead><tr>
+            <th data-ar="رقم الفاتورة" data-en="Invoice No.">Invoice No.</th>
+            <th data-ar="التاريخ" data-en="Date">Date</th>
+            <th data-ar="المشتري" data-en="Buyer">Buyer</th>
+            <th data-ar="النوع" data-en="Type">Type</th>
+            <th data-ar="المبلغ قبل الضريبة" data-en="Amount ex VAT">Amount ex VAT</th>
+            <th data-ar="الضريبة 15%" data-en="VAT 15%">VAT 15%</th>
+            <th data-ar="الإجمالي" data-en="Total">Total</th>
+          </tr></thead>
+          <tbody id="inv-tbody">
+            <tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted);" data-ar="جارٍ التحميل..." data-en="Loading...">Loading...</td></tr>
+          </tbody>
+        </table></div>
+        <div style="margin-top:6px;font-size:11px;color:var(--muted);" id="inv-period-count"></div>
+        <!-- Issues notice -->
+        <div id="step2-issues" style="display:none;margin-top:14px;padding:10px 14px;background:#fff1f2;border:1px solid #fca5a5;border-radius:8px;font-size:12px;color:var(--red);">
+          ⚠ <span id="step2-issues-text"></span>
+          <a href="invoices.html" style="color:var(--red);font-weight:700;margin-right:8px;" data-ar="← تصحيح الفواتير" data-en="Fix Invoices →">Fix Invoices →</a>
         </div>
       </div>
-
-      <!-- PART B: Input VAT -->
-      <div class="f201-section">
-        <div class="f201-section-title" data-ar="ب — ضريبة المشتريات (المدخلات)" data-en="B — Input VAT (Purchases)">ب — ضريبة المشتريات (المدخلات)</div>
-
-        <div class="f201-row">
-          <div>
-            <div class="f201-label" data-ar="4. المشتريات المحلية الخاضعة للضريبة" data-en="4. Standard rated purchases">4. المشتريات المحلية بنسبة 15%</div>
-            <div class="f201-note" data-ar="يُحسب تلقائياً من استلامات المخزون — يمكن تعديله يدوياً" data-en="Auto-calculated from inventory receipts — can be edited manually">يُحسب تلقائياً من استلامات المخزون — يمكن تعديله</div>
-            <div id="f4-auto-note" style="display:none;font-size:10px;color:var(--green);font-weight:600;margin-top:3px;"></div>
-          </div>
-          <div>
-            <div class="f201-box-label">المبلغ</div>
-            <input type="number" class="f201-input" id="f4-amount" value="0" oninput="recalcVAT()" min="0" step="0.01">
-          </div>
-          <div>
-            <div class="f201-box-label">الضريبة القابلة للخصم</div>
-            <div class="f201-val red" id="f4-vat">0.00</div>
-          </div>
-        </div>
-
-        <div class="f201-row">
-          <div>
-            <div class="f201-label" data-ar="5. مشتريات من خارج المملكة" data-en="5. Imports">5. مشتريات مستوردة</div>
-          </div>
-          <div>
-            <div class="f201-box-label">المبلغ</div>
-            <input type="number" class="f201-input" id="f5-amount" value="0" oninput="recalcVAT()" min="0" step="0.01">
-          </div>
-          <div>
-            <div class="f201-box-label">الضريبة</div>
-            <div class="f201-val red" id="f5-vat">0.00</div>
-          </div>
-        </div>
-
-        <div class="f201-row highlight">
-          <div>
-            <div class="f201-label" style="font-weight:700;" data-ar="إجمالي ضريبة المدخلات القابلة للخصم" data-en="Total Deductible Input VAT">إجمالي ضريبة المدخلات</div>
-          </div>
-          <div></div>
-          <div>
-            <div class="f201-box-label">إجمالي المدخلات</div>
-            <div class="f201-val red" id="fb-total-vat">0.00</div>
-          </div>
-        </div>
+      <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;">
+        <button class="btn-s" onclick="goStep(1)" data-ar="→ السابق" data-en="← Back">← Back</button>
+        <button class="btn-p" onclick="goStep(3)" data-ar="التالي ←" data-en="Next →">Next →</button>
       </div>
-
-      <!-- NET VAT -->
-      <div class="f201-section">
-        <div class="f201-section-title" data-ar="ج — صافي الضريبة المستحقة" data-en="C — Net VAT Payable">ج — صافي الضريبة المستحقة</div>
-
-        <div class="f201-row">
-          <div>
-            <div class="f201-label" data-ar="ضريبة المخرجات (أ)" data-en="Output VAT (A)">ضريبة المخرجات (أ)</div>
-          </div>
-          <div></div>
-          <div>
-            <div class="f201-val green" id="fc-output">0.00</div>
-          </div>
-        </div>
-
-        <div class="f201-row">
-          <div>
-            <div class="f201-label" data-ar="يُطرح: ضريبة المدخلات (ب)" data-en="Less: Input VAT (B)">يُطرح: ضريبة المدخلات (ب)</div>
-          </div>
-          <div></div>
-          <div>
-            <div class="f201-val red" id="fc-input">( 0.00 )</div>
-          </div>
-        </div>
-
-        <!-- NET RESULT -->
-        <div class="f201-row total" id="net-row">
-          <div>
-            <div class="f201-label" data-ar="صافي الضريبة المستحقة للسداد" data-en="Net VAT Payable">صافي الضريبة المستحقة للسداد</div>
-          </div>
-          <div></div>
-          <div>
-            <div class="f201-val white" id="fc-net">0.00</div>
-          </div>
-        </div>
-      </div>
-
     </div>
   </div>
 
-  <!-- ACTIONS -->
-  <div class="actions-bar">
-    <button class="btn-p" onclick="window.print()" data-ar="🖨 طباعة الإقرار" data-en="🖨 Print Return">🖨 طباعة الإقرار</button>
-    <a href="https://gazt.gov.sa" target="_blank" class="btn-s" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;" data-ar="تقديم على بوابة زاتكا ←" data-en="File on ZATCA Portal →">تقديم على بوابة زاتكا ←</a>
-    <a href="statements.html" class="btn-s" style="text-decoration:none;" data-ar="القوائم المالية ←" data-en="Statements →">القوائم المالية ←</a>
+  <!-- ─── STEP 3: REVIEW EXPENSES & INPUT VAT ─── -->
+  <div class="wizard-step" id="step-3" style="display:none;">
+    <div class="card">
+      <div class="card-hdr">
+        <div>
+          <span style="font-size:11px;font-weight:700;color:var(--sky);text-transform:uppercase;letter-spacing:.08em;" data-ar="الخطوة 3 من 5" data-en="Step 3 of 5">Step 3 of 5</span>
+          <div class="card-ttl" style="margin-top:2px;" data-ar="مراجعة المشتريات وضريبة المدخلات" data-en="Review Purchases & Input VAT">Review Purchases & Input VAT</div>
+        </div>
+        <a href="expenses.html" class="btn-s" style="font-size:11px;text-decoration:none;" data-ar="إضافة مصروف ←" data-en="Add Expense →">Add Expense →</a>
+      </div>
+      <div class="card-bdy">
+        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;">
+          <div class="stat">
+            <div class="stat-lbl" data-ar="إجمالي المشتريات" data-en="Total Purchases">Total Purchases</div>
+            <div class="stat-num c-navy" id="vs-purchases">SAR 0</div>
+            <div class="stat-sub" data-ar="قبل الضريبة" data-en="before VAT">before VAT</div>
+          </div>
+          <div class="stat s-red">
+            <div class="stat-lbl" data-ar="ضريبة المدخلات" data-en="Input VAT">Input VAT</div>
+            <div class="stat-num c-red" id="vs-input">SAR 0</div>
+            <div class="stat-sub" data-ar="قابلة للخصم" data-en="deductible">deductible</div>
+          </div>
+          <div class="stat s-amber">
+            <div class="stat-lbl" data-ar="غير قابلة للخصم" data-en="Non-deductible">Non-deductible</div>
+            <div class="stat-num c-amber" id="vs-nonrec">SAR 0</div>
+            <div class="stat-sub" data-ar="ضريبة محتجزة" data-en="retained VAT">retained VAT</div>
+          </div>
+        </div>
+        <!-- Input VAT form fields -->
+        <div class="note-box blue" style="margin-bottom:16px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+          <span data-ar="تم حساب ضريبة المدخلات تلقائياً من مصاريفك ومخزونك — يمكنك التعديل يدوياً إذا لزم الأمر" data-en="Input VAT is auto-calculated from your expenses and inventory — you can adjust manually if needed">Input VAT is auto-calculated from your expenses and inventory — adjust manually if needed</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+          <div class="fld">
+            <label data-ar="4. المشتريات المحلية (SAR)" data-en="4. Local purchases (SAR)">4. Local purchases (SAR)</label>
+            <input type="number" class="f201-input" id="f4-amount" value="0" oninput="recalcVAT();updateStep3Stats()" min="0" step="0.01" style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:'DM Mono',monospace;font-size:13px;width:100%;">
+            <span class="hint" id="f4-auto-note"></span>
+          </div>
+          <div class="fld">
+            <label data-ar="5. مشتريات مستوردة (SAR)" data-en="5. Imports (SAR)">5. Imports (SAR)</label>
+            <input type="number" class="f201-input" id="f5-amount" value="0" oninput="recalcVAT();updateStep3Stats()" min="0" step="0.01" style="padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:'DM Mono',monospace;font-size:13px;width:100%;">
+          </div>
+        </div>
+      </div>
+      <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;">
+        <button class="btn-s" onclick="goStep(2)" data-ar="→ السابق" data-en="← Back">← Back</button>
+        <button class="btn-p" onclick="goStep(4)" data-ar="التالي ←" data-en="Next →">Next →</button>
+      </div>
+    </div>
   </div>
 
-  <!-- HISTORY -->
-  <div class="history-card">
-    <div class="history-header">
-      <div class="history-title" data-ar="سجل الفواتير في الفترة" data-en="Invoices in Period">سجل الفواتير في الفترة</div>
-      <span id="inv-period-count" style="font-size:12px;color:var(--muted);">0</span>
+  <!-- ─── STEP 4: VAT RETURN FORM 201 ─── -->
+  <div class="wizard-step" id="step-4" style="display:none;">
+    <div class="card">
+      <div class="card-hdr">
+        <div>
+          <span style="font-size:11px;font-weight:700;color:var(--sky);text-transform:uppercase;letter-spacing:.08em;" data-ar="الخطوة 4 من 5" data-en="Step 4 of 5">Step 4 of 5</span>
+          <div class="card-ttl" style="margin-top:2px;" data-ar="نموذج الإقرار الضريبي — 201" data-en="VAT Return Form — 201">VAT Return Form — 201</div>
+        </div>
+        <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
+          <span style="font-size:12px;font-weight:700;color:var(--navy);background:var(--tint);padding:3px 10px;border-radius:6px;">ZATCA FORM 201</span>
+          <span style="font-size:10px;color:var(--muted);" id="form-biz-name"></span>
+          <span style="font-size:10px;color:var(--muted);" id="form-trn"></span>
+        </div>
+      </div>
+      <div class="form201-body" style="padding:0;">
+        <div style="padding:10px 18px 6px;font-size:11px;color:var(--muted);" id="form-period-label"></div>
+
+        <!-- Column Headers -->
+        <div class="f201-col-header">
+          <span data-ar="البيان" data-en="Description">Description</span>
+          <span data-ar="المبالغ الخاضعة للضريبة (SAR)" data-en="Taxable Amount (SAR)">Taxable Amount (SAR)</span>
+          <span data-ar="الضريبة المستحقة (SAR)" data-en="VAT Amount (SAR)">VAT Amount (SAR)</span>
+        </div>
+
+        <!-- PART A -->
+        <div class="f201-section">
+          <div class="f201-section-title" data-ar="أ — ضريبة المبيعات (المخرجات)" data-en="A — Output VAT (Sales)">A — Output VAT (Sales)</div>
+          <div class="f201-row">
+            <div><div class="f201-label" data-ar="1. المبيعات المحلية الخاضعة بنسبة 15%" data-en="1. Standard rated domestic supplies (15%)">1. Standard rated domestic supplies (15%)</div><div class="f201-note" data-ar="فواتير B2B وB2C" data-en="B2B and B2C invoices">B2B and B2C invoices</div></div>
+            <div><div class="f201-box-label" data-ar="المبلغ" data-en="Amount">Amount</div><div class="f201-val" id="f1-amount">0.00</div></div>
+            <div><div class="f201-box-label" data-ar="الضريبة" data-en="VAT">VAT</div><div class="f201-val green" id="f1-vat">0.00</div></div>
+          </div>
+          <div class="f201-row">
+            <div><div class="f201-label" data-ar="2. المبيعات بنسبة صفر والتصدير (0%)" data-en="2. Zero-rated & exports (0%)">2. Zero-rated & exports (0%)</div></div>
+            <div><div class="f201-box-label" data-ar="المبلغ" data-en="Amount">Amount</div><input type="number" class="f201-input" id="f2-amount" value="0" oninput="recalcVAT()" min="0" step="0.01"></div>
+            <div><div class="f201-box-label" data-ar="الضريبة" data-en="VAT">VAT</div><div class="f201-val">0.00</div></div>
+          </div>
+          <div class="f201-row">
+            <div><div class="f201-label" data-ar="3. المبيعات المعفاة" data-en="3. Exempt supplies">3. Exempt supplies</div></div>
+            <div><div class="f201-box-label" data-ar="المبلغ" data-en="Amount">Amount</div><input type="number" class="f201-input" id="f3-amount" value="0" oninput="recalcVAT()" min="0" step="0.01"></div>
+            <div><div class="f201-box-label" data-ar="الضريبة" data-en="VAT">VAT</div><div class="f201-val">0.00</div></div>
+          </div>
+          <div class="f201-row highlight">
+            <div><div class="f201-label" style="font-weight:700;" data-ar="إجمالي المبيعات" data-en="Total Sales">Total Sales</div></div>
+            <div><div class="f201-box-label" data-ar="الإجمالي" data-en="Total">Total</div><div class="f201-val c-navy" id="fa-total-amount">0.00</div></div>
+            <div><div class="f201-box-label" data-ar="إجمالي الضريبة" data-en="Total VAT">Total VAT</div><div class="f201-val green" id="fa-total-vat">0.00</div></div>
+          </div>
+        </div>
+
+        <!-- PART B -->
+        <div class="f201-section">
+          <div class="f201-section-title" data-ar="ب — ضريبة المشتريات (المدخلات)" data-en="B — Input VAT (Purchases)">B — Input VAT (Purchases)</div>
+          <div class="f201-row">
+            <div><div class="f201-label" data-ar="4. المشتريات المحلية بنسبة 15%" data-en="4. Standard rated purchases">4. Standard rated purchases</div></div>
+            <div><div class="f201-box-label" data-ar="المبلغ" data-en="Amount">Amount</div><div class="f201-val" id="f4-display">0.00</div></div>
+            <div><div class="f201-box-label" data-ar="ضريبة قابلة للخصم" data-en="Deductible VAT">Deductible VAT</div><div class="f201-val red" id="f4-vat">0.00</div></div>
+          </div>
+          <div class="f201-row">
+            <div><div class="f201-label" data-ar="5. مشتريات مستوردة" data-en="5. Imports">5. Imports</div></div>
+            <div><div class="f201-box-label" data-ar="المبلغ" data-en="Amount">Amount</div><div class="f201-val" id="f5-display">0.00</div></div>
+            <div><div class="f201-box-label" data-ar="الضريبة" data-en="VAT">VAT</div><div class="f201-val red" id="f5-vat">0.00</div></div>
+          </div>
+          <div class="f201-row highlight">
+            <div><div class="f201-label" style="font-weight:700;" data-ar="إجمالي ضريبة المدخلات القابلة للخصم" data-en="Total Deductible Input VAT">Total Deductible Input VAT</div></div>
+            <div></div>
+            <div><div class="f201-box-label" data-ar="إجمالي المدخلات" data-en="Total Input">Total Input</div><div class="f201-val red" id="fb-total-vat">0.00</div></div>
+          </div>
+        </div>
+
+        <!-- PART C -->
+        <div class="f201-section">
+          <div class="f201-section-title" data-ar="ج — صافي الضريبة المستحقة" data-en="C — Net VAT Payable">C — Net VAT Payable</div>
+          <div class="f201-row"><div><div class="f201-label" data-ar="ضريبة المخرجات (أ)" data-en="Output VAT (A)">Output VAT (A)</div></div><div></div><div><div class="f201-val green" id="fc-output">0.00</div></div></div>
+          <div class="f201-row"><div><div class="f201-label" data-ar="يُطرح: ضريبة المدخلات (ب)" data-en="Less: Input VAT (B)">Less: Input VAT (B)</div></div><div></div><div><div class="f201-val red" id="fc-input">( 0.00 )</div></div></div>
+          <div class="f201-row total" id="net-row">
+            <div><div class="f201-label" data-ar="صافي الضريبة المستحقة للسداد" data-en="Net VAT Payable">Net VAT Payable</div></div>
+            <div></div>
+            <div><div class="f201-val white" id="fc-net">0.00</div></div>
+          </div>
+        </div>
+      </div>
+      <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;">
+        <button class="btn-s" onclick="goStep(3)" data-ar="→ السابق" data-en="← Back">← Back</button>
+        <button class="btn-p" onclick="goStep(5)" data-ar="التالي ←" data-en="Next →">Next →</button>
+      </div>
     </div>
-    <div style="overflow-x:auto;"><table class="tbl">
-      <thead><tr>
-        <th data-ar="رقم الفاتورة" data-en="Invoice No.">رقم الفاتورة</th>
-        <th data-ar="التاريخ"      data-en="Date">التاريخ</th>
-        <th data-ar="المشتري"      data-en="Buyer">المشتري</th>
-        <th data-ar="النوع"        data-en="Type">النوع</th>
-        <th data-ar="المبلغ قبل الضريبة" data-en="Amount ex VAT">المبلغ قبل الضريبة</th>
-        <th data-ar="الضريبة 15%"  data-en="VAT 15%">الضريبة 15%</th>
-        <th data-ar="الإجمالي"     data-en="Total">الإجمالي</th>
-      </tr></thead>
-      <tbody id="inv-tbody">
-        <tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted);">احتسب الإقرار أولاً</td></tr>
-      </tbody>
-    </table></div>
+  </div>
+
+  <!-- ─── STEP 5: SUBMIT & COMPLIANCE ─── -->
+  <div class="wizard-step" id="step-5" style="display:none;">
+    <div class="card">
+      <div class="card-hdr">
+        <div>
+          <span style="font-size:11px;font-weight:700;color:var(--sky);text-transform:uppercase;letter-spacing:.08em;" data-ar="الخطوة 5 من 5" data-en="Step 5 of 5">Step 5 of 5</span>
+          <div class="card-ttl" style="margin-top:2px;" data-ar="التقديم والامتثال" data-en="Submit & Compliance">Submit & Compliance</div>
+        </div>
+      </div>
+      <div class="card-bdy">
+
+        <!-- Net VAT summary box -->
+        <div id="step5-summary" style="border-radius:12px;padding:20px 24px;margin-bottom:20px;text-align:center;border:2px solid var(--border);">
+          <div style="font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;" data-ar="صافي الضريبة المستحقة" data-en="Net VAT Payable">Net VAT Payable</div>
+          <div style="font-size:32px;font-weight:700;font-family:'DM Mono',monospace;" id="vs-net">SAR 0</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:6px;" id="step5-net-label"></div>
+        </div>
+
+        <!-- Checklist -->
+        <div style="margin-bottom:20px;">
+          <div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:10px;" data-ar="قائمة التحقق قبل التقديم" data-en="Pre-submission checklist">Pre-submission checklist</div>
+          <div id="step5-checklist" style="display:flex;flex-direction:column;gap:8px;"></div>
+        </div>
+
+        <!-- Actions -->
+        <div style="display:flex;gap:10px;flex-wrap:wrap;">
+          <button class="btn-p" onclick="window.print()" data-ar="🖨 طباعة الإقرار" data-en="🖨 Print Return">🖨 Print Return</button>
+          <a href="https://gazt.gov.sa" target="_blank" class="btn-p" style="text-decoration:none;background:var(--green);" data-ar="تقديم على بوابة زاتكا ←" data-en="File on ZATCA Portal →">File on ZATCA Portal →</a>
+          <button class="btn-s" onclick="markFiled()" data-ar="✓ تأكيد التقديم" data-en="✓ Mark as Filed">✓ Mark as Filed</button>
+        </div>
+        <div style="margin-top:14px;padding:10px 14px;background:var(--tint);border-radius:8px;font-size:11px;color:var(--muted);line-height:1.6;">
+          💡 <span data-ar="بعد التقديم على بوابة زاتكا، احتفظ بنسخة من الإقرار لمدة 5 سنوات — هذا شرط نظامي." data-en="After filing on the ZATCA portal, keep a copy of this return for 5 years — this is a regulatory requirement.">After filing on the ZATCA portal, keep a copy for 5 years — regulatory requirement.</span>
+        </div>
+      </div>
+      <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;">
+        <button class="btn-s" onclick="goStep(4)" data-ar="→ السابق" data-en="← Back">← Back</button>
+        <button class="btn-s" onclick="startOver()" data-ar="↺ إقرار جديد" data-en="↺ New Return">↺ New Return</button>
+      </div>
+    </div>
   </div>
 
 </div>
@@ -644,6 +691,8 @@ async function init() {
   // Set current quarter
   setCurrentQuarter();
   calcNextDueDate();
+  renderProgress();
+  goStep(1);
   const storedL=getStoredLang(); L=storedL; setLang(storedL);
 }
 
@@ -791,6 +840,9 @@ function recalcVAT() {
   set('fb-total-vat', fmt(totalInVAT));
   set('fc-input',    '( ' + fmt(totalInVAT) + ' )');
 
+  // Sync step 3 stats and step 4 display fields
+  updateStep3Stats();
+
   // Net VAT
   const netVAT = totalOutVAT - totalInVAT;
   set('fc-net', fmt(Math.abs(netVAT)));
@@ -808,6 +860,130 @@ function recalcVAT() {
     document.getElementById('fc-net').className = 'f201-val white';
     set('fc-net', '(' + fmt(Math.abs(netVAT)) + ') ' + (L==='ar'?'استرداد':'Refund'));
   }
+}
+
+/* ── VAT WIZARD STATE ── */
+let currentStep = 1;
+const TOTAL_STEPS = 5;
+const STEP_LABELS = {
+  ar: ['اختر الفترة','المبيعات','المشتريات','نموذج 201','التقديم'],
+  en: ['Period','Sales','Purchases','Form 201','Submit']
+};
+
+function renderProgress() {
+  const prog = document.getElementById('wizard-progress');
+  if(!prog) return;
+  const labels = STEP_LABELS[L==='ar'?'ar':'en'];
+  let html = '';
+  for(let i=1;i<=TOTAL_STEPS;i++){
+    const state = i < currentStep ? 'done' : i === currentStep ? 'active' : 'pending';
+    const icon  = i < currentStep ? '✓' : i;
+    html += `<div class="wiz-step-item">
+      <div style="display:flex;flex-direction:column;align-items:center;gap:4px;">
+        <div class="wiz-step-circle ${state}">${icon}</div>
+        <div class="wiz-step-label ${state}">${labels[i-1]}</div>
+      </div>
+      ${i < TOTAL_STEPS ? `<div class="wiz-connector ${i < currentStep ? 'done' : ''}"></div>` : ''}
+    </div>`;
+  }
+  prog.innerHTML = html;
+}
+
+function goStep(n) {
+  currentStep = n;
+  document.querySelectorAll('.wizard-step').forEach(el => el.style.display = 'none');
+  const el = document.getElementById('step-'+n);
+  if(el) { el.style.display = 'block'; el.scrollIntoView({behavior:'smooth', block:'start'}); }
+  renderProgress();
+  if(n===5) renderStep5();
+}
+
+async function runStep1() {
+  await calcVAT();
+  goStep(2);
+  // Sync period label
+  const from = document.getElementById('vat-from').value;
+  const to   = document.getElementById('vat-to').value;
+  const q    = document.getElementById('quarter-select').value;
+  const yr   = document.getElementById('year-select').value;
+  const lbl  = document.getElementById('step2-period-label');
+  if(lbl) lbl.textContent = `${q} ${yr} — ${from} → ${to}`;
+  // Check for issues
+  checkStep2Issues();
+}
+
+function checkStep2Issues() {
+  const unpaid = (currentInvoices||[]).filter(i=>i.payment_status!=='paid').length;
+  const issueEl = document.getElementById('step2-issues');
+  const issueTxt = document.getElementById('step2-issues-text');
+  if(unpaid > 0 && issueEl && issueTxt){
+    issueEl.style.display = 'block';
+    issueTxt.textContent = L==='ar'
+      ? `${unpaid} فاتورة غير مسددة في هذه الفترة — VAT مستحق حتى لو لم تُدفع الفاتورة`
+      : `${unpaid} unpaid invoice(s) in this period — VAT is due even if invoice is unpaid`;
+  } else if(issueEl) {
+    issueEl.style.display = 'none';
+  }
+}
+
+function updateStep3Stats() {
+  const f4 = parseFloat(document.getElementById('f4-amount')?.value)||0;
+  const f5 = parseFloat(document.getElementById('f5-amount')?.value)||0;
+  const total = f4 + f5;
+  const inputVAT = Math.round(total * 0.15 * 100)/100;
+  set('vs-purchases', 'SAR ' + fmt(total));
+  set('vs-input',     'SAR ' + fmt(inputVAT));
+  // Sync f4-display and f5-display in step 4
+  const f4d = document.getElementById('f4-display');
+  const f5d = document.getElementById('f5-display');
+  if(f4d) f4d.textContent = fmt(f4);
+  if(f5d) f5d.textContent = fmt(f5);
+}
+
+function renderStep5() {
+  // Net VAT summary
+  const netEl  = document.getElementById('vs-net');
+  const netRaw = parseFloat(document.getElementById('fc-net')?.textContent?.replace(/[^0-9.-]/g,''))||0;
+  const isRefund = (document.getElementById('net-row')?.className||'').includes('refund');
+  const summaryBox = document.getElementById('step5-summary');
+  if(summaryBox){
+    summaryBox.style.borderColor = isRefund ? 'var(--green)' : 'var(--red)';
+    summaryBox.style.background  = isRefund ? '#f0fdf4' : '#fff5f5';
+  }
+  const netLbl = document.getElementById('step5-net-label');
+  if(netLbl) netLbl.textContent = isRefund
+    ? (L==='ar'?'مبلغ مسترد من زاتكا':'Refund from ZATCA')
+    : (L==='ar'?'مبلغ واجب السداد لزاتكا':'Amount payable to ZATCA');
+
+  // Checklist
+  const invoiceCount = (currentInvoices||[]).length;
+  const unpaid = (currentInvoices||[]).filter(i=>i.payment_status!=='paid').length;
+  const f4val  = parseFloat(document.getElementById('f4-amount')?.value)||0;
+  const items = [
+    { ok: invoiceCount > 0, ar: `تم تضمين ${invoiceCount} فاتورة في الإقرار`, en: `${invoiceCount} invoice(s) included in return` },
+    { ok: unpaid === 0,     ar: `${unpaid===0?'جميع الفواتير مسددة':unpaid+' فاتورة غير مسددة — VAT مستحق'}`, en: `${unpaid===0?'All invoices paid':unpaid+' unpaid invoice(s) — VAT still due'}` },
+    { ok: f4val > 0,        ar: 'تم إدخال قيمة المشتريات', en: 'Purchase amount entered' },
+    { ok: true,             ar: 'تم مراجعة النموذج 201', en: 'Form 201 reviewed' },
+  ];
+  const cl = document.getElementById('step5-checklist');
+  if(cl) cl.innerHTML = items.map(item=>`
+    <div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:${item.ok?'#f0fdf4':'#fff5f5'};border-radius:7px;border:1px solid ${item.ok?'#86efac':'#fca5a5'};">
+      <span style="font-size:14px;">${item.ok?'✅':'⚠️'}</span>
+      <span style="font-size:12px;color:${item.ok?'var(--green)':'var(--red)'};">${L==='ar'?item.ar:item.en}</span>
+    </div>`).join('');
+}
+
+function markFiled() {
+  const q  = document.getElementById('quarter-select')?.value;
+  const yr = document.getElementById('year-select')?.value;
+  const key = `vat_filed_${yr}_${q}`;
+  localStorage.setItem(key, new Date().toISOString());
+  notify(L==='ar'?`✅ تم تأكيد تقديم إقرار ${q} ${yr}`:`✅ ${q} ${yr} return marked as filed`,'g');
+}
+
+function startOver() {
+  goStep(1);
+  currentInvoices = [];
 }
 
 /* ── INVOICE LIST ── */
@@ -832,7 +1008,7 @@ function renderInvoiceList() {
 }
 
 /* ── LANGUAGE ── */
-function setLang(lang){ L=lang; applyLang(lang); if(typeof onBusinessTypeChange==='function')onBusinessTypeChange(); if(typeof renderStock==='function')renderStock(); if(typeof renderSuppliers==='function')renderSuppliers(); if(typeof renderPartners==='function')renderPartners(); }
+function setLang(lang){ L=lang; applyLang(lang); renderProgress(); }
 
 /* ── HELPERS ── */
 function set(id,v)     { const e=document.getElementById(id); if(e) e.textContent=v; }
