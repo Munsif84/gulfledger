@@ -1,190 +1,1089 @@
-<!DOCTYPE html><html>
+<!DOCTYPE html>
+<html>
 <head>
 <meta charset="UTF-8">
-<script>(function(){var l=localStorage.getItem('gl_lang')||'ar';document.documentElement.setAttribute('lang',l);document.documentElement.setAttribute('dir',l==='ar'?'rtl':'ltr');})();</script>
+<script>
+/* Language flash prevention — runs before render */
+(function(){
+  var l=localStorage.getItem('gl_lang')||'ar';
+  document.documentElement.setAttribute('lang',l);
+  document.documentElement.setAttribute('dir',l==='ar'?'rtl':'ltr');
+})();
+</script>
+<script>
+/* Apply language before render — prevents flash */
+(function(){
+  var lang=localStorage.getItem('gl_lang')||'ar';
+  document.documentElement.setAttribute('lang',lang);
+  document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
+})();
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GulfLedger — الرئيسية</title>
+<title>GulfLedger — Dashboard</title>
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&family=Playfair+Display:wght@700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
-:root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#C62828;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--border:#d4e6f7;--bg:#f7fafd;--white:#ffffff;--purple:#6d28d9;}
+:root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#C62828;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--border:#d4e6f7;--bg:#f7fafd;--white:#ffffff;}
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);}
-.topnav,.app-nav{display:none!important;}
+.topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;}
+.nav-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
+.nav-bars{display:flex;gap:3px;height:22px;}
+.nav-bar{width:3px;border-radius:2px;}
+.nav-name{font-family:'Playfair Display',serif;font-size:16px;color:#fff;}
+.nav-right{display:flex;align-items:center;gap:8px;}
+.nav-divider{width:1px;height:20px;background:rgba(255,255,255,0.2);}
+.nav-biz{font-size:12px;color:var(--light);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 10px;background:rgba(255,255,255,0.08);border-radius:6px;border:1px solid rgba(255,255,255,0.15);}
+.btn-logout{padding:5px 14px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
+.btn-logout:hover{background:rgba(255,255,255,0.2);}
+.nav-settings-btn{display:flex;align-items:center;justify-content:center;width:32px;height:32px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:#fff;text-decoration:none;font-size:15px;flex-shrink:0;}
+.nav-settings-btn:hover{background:rgba(255,255,255,0.2);}
+.lang-switch{display:flex;border:1px solid rgba(255,255,255,0.2);border-radius:6px;overflow:hidden;}
+.lang-btn{padding:4px 10px;font-size:11px;cursor:pointer;border:none;background:transparent;color:rgba(255,255,255,0.6);font-family:'Tajawal',sans-serif;font-weight:500;}
+.lang-btn.on{background:var(--sky);color:#fff;}
+.app-nav{background:var(--blue);padding:8px 20px;display:flex;gap:4px;align-items:center;overflow-x:auto;}
+.app-nav-link{padding:5px 14px;font-size:12px;font-weight:500;color:rgba(255,255,255,0.7);text-decoration:none;border-radius:6px;white-space:nowrap;}
+.app-nav-link:hover{background:rgba(255,255,255,0.12);color:#fff;}
+.app-nav-link.active{background:rgba(255,255,255,0.18);color:#fff;}
+.page{max-width:960px;margin:0 auto;padding:28px 20px;}
+.page-title{font-family:'Playfair Display',serif;font-size:24px;color:var(--navy);margin-bottom:4px;}
+.page-sub{font-size:13px;color:var(--muted);margin-bottom:24px;}
+/* SETUP BANNER */
+.setup-banner{display:none;background:linear-gradient(135deg,var(--blue),var(--navy));border-radius:12px;padding:16px 20px;margin-bottom:20px;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.setup-text h3{font-size:15px;color:#fff;margin-bottom:4px;}
+.setup-text p{font-size:12px;color:var(--light);line-height:1.5;}
+.btn-setup{padding:9px 20px;background:#fff;color:var(--navy);border-radius:8px;text-decoration:none;font-size:13px;font-weight:700;white-space:nowrap;}
+/* STATS */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:28px;}
+.stat{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px;min-width:0;}
+.stat-label{font-size:11px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;}
+.stat-val{font-size:18px;font-weight:700;font-family:'DM Mono',monospace;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.stat-sub{font-size:11px;color:var(--muted);margin-top:4px;}
+/* ACTIVITY CARDS */
+.activity-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:24px;}
+.act-card{background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
+/* AI Insight Cards */
+.insight-card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;position:relative;overflow:hidden;}
+.insight-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;}
+.insight-card.type-warning::before{background:var(--amber);}
+.insight-card.type-positive::before{background:var(--green);}
+.insight-card.type-alert::before{background:var(--red);}
+.insight-card.type-info::before{background:var(--blue);}
+.insight-card.type-action::before{background:#7c3aed;}
+.insight-icon{font-size:20px;margin-bottom:2px;}
+.insight-title{font-size:12px;font-weight:700;color:var(--navy);line-height:1.4;}
+.insight-body{font-size:11px;color:var(--muted);line-height:1.6;}
+.insight-action{font-size:10px;font-weight:700;color:var(--blue);text-decoration:none;margin-top:2px;display:inline-block;}
+.insight-skeleton{background:linear-gradient(90deg,var(--tint) 25%,#e8f0f8 50%,var(--tint) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:12px;height:110px;}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@media(max-width:768px){
+  #insights-container{grid-template-columns:1fr!important;}
+}
+.act-card-hdr{padding:14px 18px 12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--tint);}
+.act-card-title{font-size:13px;font-weight:700;color:var(--navy);}
+.act-card-link{font-size:11px;color:var(--sky);text-decoration:none;font-weight:500;}
+.act-card-link:hover{color:var(--navy);}
+.act-item{display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--tint);}
+.act-item:last-child{border-bottom:none;}
+.act-icon{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:14px;flex-shrink:0;}
+.act-icon.inv{background:#dbeafe;}
+.act-icon.exp{background:#fff1f2;}
+.act-icon.stk-ok{background:#dcfce7;}
+.act-icon.stk-low{background:#fffbeb;}
+.act-icon.stk-out{background:#fff1f2;}
+.act-body{flex:1;min-width:0;}
+.act-name{font-size:12px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.act-meta{font-size:10px;color:var(--muted);margin-top:2px;}
+.act-amount{font-family:'DM Mono',monospace;font-size:13px;font-weight:700;white-space:nowrap;}
+.act-empty{padding:24px 18px;text-align:center;color:var(--muted);font-size:12px;}
+.act-col{display:flex;flex-direction:column;gap:16px;}
+/* STAT improvements */
+.c-red{color:var(--red);}
+.c-green{color:var(--green);}
+.c-navy{color:var(--navy);}
+.c-amber{color:var(--amber);}
+@media(max-width:768px){.activity-grid{grid-template-columns:1fr !important;}}
+.modules{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;}
+.module-card{display:flex;align-items:center;gap:14px;background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px;text-decoration:none;color:var(--ink);transition:all .15s;}
+.module-card:hover{border-color:var(--sky);box-shadow:0 4px 16px rgba(24,95,165,0.08);transform:translateY(-1px);}
+.module-icon{width:42px;height:42px;background:var(--tint);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.module-name{font-size:14px;font-weight:700;color:var(--navy);margin-bottom:3px;}
+.module-desc{font-size:11px;color:var(--muted);line-height:1.5;}
+.module-badge{font-size:9px;font-weight:700;padding:2px 8px;border-radius:8px;display:inline-block;margin-top:5px;}
+.badge-ai{background:#f5f3ff;color:#6d28d9;}
+.badge-ready{background:var(--tint);color:var(--blue);}
+@media(max-width:768px){
+  .stats{grid-template-columns:1fr 1fr !important;}
+  .modules{grid-template-columns:1fr !important;}
+  #activity-grid{grid-template-columns:1fr !important;}
+}
+@media(max-width:480px){.stats{grid-template-columns:1fr 1fr !important;}}
+
+/* ═══════════════════════════════════════
+   GULFLEDGER MOBILE RESPONSIVE — ALL PAGES
+   Breakpoint: 768px
+   ═══════════════════════════════════════ */
+@media(max-width:768px){
+  /* NAV */
+  .topnav{padding:8px 12px;gap:6px;}
+  .nav-biz{max-width:100px;}
+  .lang-switch .lang-btn{padding:3px 8px;font-size:10px;}
+  .btn-logout{padding:4px 10px;font-size:11px;}
+
+  /* APP NAV — scrollable, compact */
+  .app-nav{padding:6px 10px;gap:2px;}
+  .app-nav-link{padding:5px 9px;font-size:11px;}
+
+  /* SIDEBAR LAYOUTS — hide sidebar, full width main */
+  .layout{grid-template-columns:1fr !important;}
+  .sidebar{display:none !important;}
+
+  /* STATS GRIDS */
+  .stats{grid-template-columns:1fr 1fr !important;}
+
+  /* MODULE CARDS */
+  .modules{grid-template-columns:1fr !important;}
+
+  /* INVOICE — stack panels */
+  .app{grid-template-columns:1fr !important;}
+  .form-panel{border-left:none;border-bottom:1px solid var(--border);}
+  .invoice-doc{margin-top:12px;}
+
+  /* FORM GRIDS — all single column */
+  .fg-2,.fg-3,.fg-4,.fg-5{grid-template-columns:1fr !important;}
+  .field-row.double,.field-row.triple{grid-template-columns:1fr !important;}
+
+  /* ITEM ROW — description on its own line */
+  .item-row{grid-template-columns:20px 1fr 40px 58px 46px 58px 22px !important;}
+
+  /* PERIOD BAR — stack */
+  .period-bar{flex-direction:column;align-items:stretch;gap:8px;}
+  .period-bar select,.period-bar input{width:100%;}
+
+  /* PAGE HEADER */
+  .page-header{flex-direction:column;gap:10px;}
+
+  /* TABLES — horizontal scroll */
+  .tbl-wrap, .overflow-x-auto, [style*="overflow-x:auto"]{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .tbl{min-width:520px;}
+  .inv-items{min-width:480px;}
+
+  /* INVOICE PARTIES — stack on very small */
+  .inv-parties{grid-template-columns:1fr !important;}
+  .inv-parties > div:first-child{border-right:none;border-bottom:1px solid var(--border);}
+
+  /* CARDS */
+  .card-hdr{flex-direction:column;align-items:flex-start !important;}
+
+  /* SETTINGS TABS */
+  .section-tabs{flex-wrap:wrap;gap:4px;}
+  .stab{padding:6px 10px;font-size:11px;}
+
+  /* VAT FORM */
+  .f201-row{flex-direction:column;gap:8px;}
+  .f201-row > div{flex:none;width:100%;}
+  .f201-stats{grid-template-columns:1fr 1fr !important;}
+
+  /* STATEMENTS */
+  .stmt-row{font-size:12px;}
+
+  /* PADDING */
+  .main{padding:12px !important;}
+  .page{padding:14px 12px !important;}
+  .card-bdy{padding:12px !important;}
+}
+
+@media(max-width:480px){
+  .stats{grid-template-columns:1fr !important;}
+  .nav-name span{display:none;}
+  .item-row{grid-template-columns:16px 1fr 36px 52px 44px 52px 20px !important;}
+  .f201-stats{grid-template-columns:1fr !important;}
+}
+
+
+/* ── STICKY NAV ── */
+.topnav{position:sticky;top:0;z-index:300;box-shadow:0 2px 8px rgba(0,0,0,0.15);}
+.app-nav{position:sticky;top:44px;z-index:299;box-shadow:0 2px 6px rgba(0,0,0,0.1);}
+
+
+/* ═══════════════════════════════════════
+   GULFLEDGER SHARED UX — consistent across all pages
+   ═══════════════════════════════════════ */
+.sidebar{background:var(--white);border-left:1px solid var(--border);padding:14px 0;overflow-y:auto;}
+[dir="ltr"] .sidebar{border-left:none;border-right:1px solid var(--border);}
+.layout{display:grid;grid-template-columns:210px 1fr;min-height:calc(100vh - 88px);}
+.sb-sec{padding:0 12px;margin-bottom:6px;}
+.sb-lbl{font-size:13px;font-weight:700;color:var(--navy);padding:12px 6px 6px;display:block;letter-spacing:.01em;}
+.sb-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px;color:var(--ink);margin-bottom:2px;user-select:none;transition:background .15s;}
+.sb-item:hover{background:var(--tint);color:var(--blue);}
+.sb-item.active{background:var(--tint);color:var(--blue);font-weight:600;border-right:3px solid var(--blue);}
+[dir="ltr"] .sb-item.active{border-right:none;border-left:3px solid var(--blue);}
+.sb-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.sb-stat{font-size:11px;color:var(--muted);padding:4px 10px;display:flex;justify-content:space-between;}
+.sb-stat-val{font-family:'DM Mono',monospace;font-weight:700;font-size:11px;}
+.main{padding:20px;overflow-y:auto;}
 .stats{display:grid;gap:12px;margin-bottom:20px;}
 .stat{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
 .stat-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px;}
 .stat-num{font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:var(--navy);}
 .stat-sub{font-size:11px;color:var(--muted);margin-top:3px;}
 .stat.s-green{border-color:#86efac;background:#f0fdf4;}
-.stat.s-red{border-color:#fca5a5;background:#fff5f5;}
 .stat.s-amber{border-color:#fde68a;background:#fffbeb;}
+.stat.s-red{border-color:#fca5a5;background:#fff5f5;}
 .c-navy{color:var(--navy)!important;}.c-green{color:var(--green)!important;}.c-red{color:var(--red)!important;}.c-amber{color:var(--amber)!important;}
 .card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px;}
 .card-hdr{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;}
 .card-ttl{font-size:14px;font-weight:700;color:var(--navy);}
 .card-bdy{padding:18px;}
+.section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);display:block;}
 .fg{display:grid;gap:12px;margin-bottom:14px;}
 .fg-2{grid-template-columns:1fr 1fr;}
 .fg-3{grid-template-columns:1fr 1fr 1fr;}
 .fld{display:flex;flex-direction:column;gap:4px;}
 .fld label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
 .fld input,.fld select,.fld textarea{padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:13px;color:var(--ink);background:var(--white);width:100%;}
-.fld input:focus,.fld select:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(55,138,221,0.1);}
+.fld input:focus,.fld select:focus,.fld textarea:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(55,138,221,0.1);}
 .hint{font-size:10px;color:var(--muted);margin-top:2px;}
 .btn-p{padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;}
 .btn-p:hover{background:var(--navy);}
 .btn-s{padding:7px 14px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;font-weight:600;cursor:pointer;}
-.btn-s:hover{border-color:var(--blue);}
+.btn-s:hover{border-color:var(--blue);background:#dbeafe;}
 .btn-d{padding:5px 10px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;}
 .btn-row{display:flex;gap:8px;flex-wrap:wrap;}
 .tbl{width:100%;border-collapse:collapse;font-size:12px;}
 .tbl th{padding:9px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-align:right;white-space:nowrap;letter-spacing:.04em;text-transform:uppercase;}
-.tbl td{padding:9px 12px;border-bottom:1px solid var(--tint);vertical-align:middle;text-align:right;}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--tint);vertical-align:middle;}
 [dir="ltr"] .tbl th,[dir="ltr"] .tbl td{text-align:left;}
 .tbl tr:last-child td{border-bottom:none;}
-.tbl tr:hover td{background:#fafcff;}
+.tbl tr:hover td{background:#fafcff;cursor:pointer;}
 .mono{font-family:'DM Mono',monospace;font-size:12px;}
 .bdg{font-size:10px;font-weight:700;padding:2px 9px;border-radius:8px;display:inline-block;}
+.note-box{display:flex;align-items:flex-start;gap:8px;padding:10px 13px;border-radius:8px;margin-bottom:13px;font-size:12px;line-height:1.5;}
+.note-box.blue{background:var(--tint);border:1px solid var(--light);color:var(--navy);}
+.note-box.amber{background:#fffbeb;border:1px solid #fde68a;color:var(--amber);}
 .tc{display:none;}.tc.active{display:block;}
-.section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);display:block;}
-.main{padding:20px;}
-input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
-@media(max-width:768px){.stats{grid-template-columns:1fr 1fr!important;}.fg-2,.fg-3{grid-template-columns:1fr 1fr!important;}.main{padding:12px!important;}}
-@media(max-width:480px){.stats{grid-template-columns:1fr!important;}}
-.main{padding:24px;} .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:16px;} .act-item{display:flex;align-items:center;gap:12px;padding:10px 18px;border-bottom:1px solid var(--tint);} .act-item:last-child{border-bottom:none;} .act-icon{width:36px;height:36px;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;} .act-body{flex:1;} .act-title{font-size:13px;font-weight:600;} .act-sub{font-size:11px;color:var(--muted);margin-top:2px;} .act-amt{font-family:"DM Mono",monospace;font-size:13px;font-weight:700;} @media(max-width:768px){.grid-2{grid-template-columns:1fr!important;}}
+@media(max-width:768px){
+  .layout{grid-template-columns:1fr!important;}
+  .sidebar{display:none!important;}
+  .stats{grid-template-columns:1fr 1fr!important;}
+  .fg-2,.fg-3{grid-template-columns:1fr 1fr!important;}
+  .main{padding:12px!important;}
+  .card-bdy{padding:12px!important;}
+  .card-hdr{flex-direction:column;align-items:flex-start!important;}
+}
+@media(max-width:480px){
+  .stats{grid-template-columns:1fr!important;}
+  .fg-2,.fg-3{grid-template-columns:1fr!important;}
+}
 
-/* PERSISTENT SIDEBAR */
+/* ── SIDEBAR + HEADER (added, original design untouched) ── */
 .topnav,.app-nav{display:none!important;}
 .gl-sidebar{width:220px;height:100vh;position:fixed;top:0;right:0;background:var(--navy);display:flex;flex-direction:column;z-index:500;transition:width .25s ease;overflow:hidden;}
 [dir="ltr"] .gl-sidebar{right:auto;left:0;}
-.gl-sidebar.collapsed{width:56px;}
-.gl-sidebar.collapsed .gl-sb-show{display:none!important;}
-.gl-sidebar.collapsed #gl-sb-arrow{transform:rotate(180deg);}
+.gl-sidebar.collapsed{width:54px;}
+.gl-sidebar.collapsed .sb-hide{display:none!important;}
+.gl-sidebar.collapsed .sb-link{justify-content:center;padding:10px 0;}
+.gl-sidebar.collapsed .sb-link span:last-child{display:none;}
+.gl-sidebar.collapsed .sb-biz{display:none;}
+.gl-sidebar.collapsed #sb-arrow{transform:rotate(180deg);}
+[dir="ltr"] .gl-sidebar.collapsed #sb-arrow{transform:rotate(0deg);}
+.sb-top{padding:14px 14px 8px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.sb-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
+.sb-logo-bars{display:flex;gap:3px;height:20px;flex-shrink:0;}
+.sb-logo-bar{width:3px;border-radius:2px;}
+.sb-logo-bar:first-child{height:100%;background:#fff;}
+.sb-logo-bar:last-child{height:60%;margin-top:40%;background:rgba(255,255,255,0.45);}
+.sb-logo-name{font-family:'Playfair Display',serif;font-size:15px;color:#fff;white-space:nowrap;}
+.sb-logo-name span{color:var(--light);}
+.sb-collapse{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:5px;color:rgba(255,255,255,0.5);cursor:pointer;font-size:10px;padding:4px 7px;flex-shrink:0;}
+.sb-collapse:hover{background:rgba(255,255,255,0.15);color:#fff;}
+.sb-biz{margin:4px 12px 10px;padding:6px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08);border-radius:6px;font-size:11px;color:rgba(255,255,255,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;}
+.sb-nav{flex:1;overflow-y:auto;padding:6px 8px;display:flex;flex-direction:column;gap:1px;}
+.sb-nav::-webkit-scrollbar{width:0;}
+.sb-sec-label{font-size:9px;font-weight:700;color:rgba(255,255,255,0.25);text-transform:uppercase;letter-spacing:.08em;padding:12px 10px 4px;}
+.sb-link{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:6px;text-decoration:none;color:rgba(255,255,255,0.6);font-size:13px;font-weight:500;transition:all .12s;white-space:nowrap;border:none;background:transparent;cursor:pointer;width:100%;text-align:right;}
+[dir="ltr"] .sb-link{text-align:left;}
+.sb-link:hover{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.9);}
+.sb-link.active{background:rgba(255,255,255,0.12);color:#fff;font-weight:700;border-right:3px solid var(--sky);}
+[dir="ltr"] .sb-link.active{border-right:none;border-left:3px solid var(--sky);}
+.sb-link-icon{font-size:14px;flex-shrink:0;width:20px;text-align:center;opacity:.7;}
+.sb-link.active .sb-link-icon{opacity:1;}
+.sb-bottom{padding:6px 8px 12px;flex-shrink:0;display:flex;flex-direction:column;gap:1px;}
+.sb-hr{height:1px;background:rgba(255,255,255,0.08);margin:6px 4px;}
+.sb-logout{color:rgba(255,255,255,0.4);}
+.sb-logout:hover{color:#f87171;background:rgba(248,113,113,0.1);}
+/* Header */
+.gl-header{height:48px;background:var(--white);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 20px;position:sticky;top:0;z-index:400;}
+.gl-h-title{font-size:15px;font-weight:700;color:var(--navy);}
+.gl-h-right{display:flex;align-items:center;gap:8px;}
+.gl-h-add{display:flex;align-items:center;gap:4px;padding:6px 14px;background:var(--blue);color:#fff;border:none;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;font-weight:700;cursor:pointer;}
+.gl-h-add:hover{background:var(--navy);}
+.gl-h-lang{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;}
+.gl-h-lang-btn{padding:4px 10px;font-size:11px;cursor:pointer;border:none;background:transparent;color:var(--muted);font-family:'Tajawal',sans-serif;font-weight:500;}
+.gl-h-lang-btn.on{background:var(--sky);color:#fff;}
+.gl-h-user{display:flex;align-items:center;gap:6px;padding:3px 10px 3px 4px;background:var(--tint);border:1px solid var(--border);border-radius:16px;font-size:12px;color:var(--ink);}
+.gl-h-av{width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;}
+/* Page content wrapper */
 .gl-page-content{margin-right:220px;min-height:100vh;transition:margin-right .25s ease;}
 [dir="ltr"] .gl-page-content{margin-right:0;margin-left:220px;}
-body.gl-collapsed .gl-page-content{margin-right:56px;}
-[dir="ltr"] body.gl-collapsed .gl-page-content{margin-right:0;margin-left:56px;}
-.gl-sb-header{display:flex;align-items:center;justify-content:space-between;padding:16px 14px 10px;flex-shrink:0;}
-.gl-sb-logo{display:flex;align-items:center;gap:8px;text-decoration:none;overflow:hidden;}
-.gl-sb-logo-bars{display:flex;gap:3px;height:20px;flex-shrink:0;}
-.gl-sb-bar{width:3px;border-radius:2px;}
-.gl-sb-bar:first-child{height:100%;}
-.gl-sb-bar:last-child{height:60%;margin-top:40%;}
-.gl-sb-logo-name{font-family:'Playfair Display',serif;font-size:15px;color:#fff;white-space:nowrap;}
-.gl-sb-collapse-btn{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:rgba(255,255,255,0.6);cursor:pointer;font-size:10px;padding:4px 7px;flex-shrink:0;}
-.gl-sb-biz{margin:0 12px 12px;padding:6px 10px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:7px;font-size:11px;color:var(--light);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;}
-.gl-sb-nav{flex:1;overflow-y:auto;padding:4px 8px;display:flex;flex-direction:column;gap:2px;}
-.gl-sb-link{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;text-decoration:none;color:rgba(255,255,255,0.65);font-family:'Tajawal',sans-serif;font-size:13px;font-weight:500;transition:background .15s,color .15s;white-space:nowrap;border:none;background:transparent;cursor:pointer;width:100%;text-align:right;}
-[dir="ltr"] .gl-sb-link{text-align:left;}
-.gl-sb-link:hover{background:rgba(255,255,255,0.1);color:#fff;}
-.gl-sb-link.active{background:rgba(255,255,255,0.15);color:#fff;font-weight:700;border-right:3px solid var(--sky);}
-[dir="ltr"] .gl-sb-link.active{border-right:none;border-left:3px solid var(--sky);}
-.gl-sb-icon{font-size:15px;flex-shrink:0;width:20px;text-align:center;}
-.gl-sb-bottom{padding:8px 8px 12px;flex-shrink:0;display:flex;flex-direction:column;gap:2px;}
-.gl-sb-divider{height:1px;background:rgba(255,255,255,0.1);margin:6px 4px 8px;}
-.gl-sb-lang{display:flex;gap:4px;padding:4px 10px 8px;}
-.gl-lang-btn{padding:4px 12px;font-size:11px;cursor:pointer;border:1px solid rgba(255,255,255,0.2);border-radius:5px;background:transparent;color:rgba(255,255,255,0.6);font-family:'Tajawal',sans-serif;}
-.gl-lang-btn.on{background:var(--sky);color:#fff;border-color:var(--sky);}
-.gl-sb-logout{color:rgba(255,255,255,0.5);}
-.gl-sb-logout:hover{color:#fca5a5;background:rgba(220,38,38,0.15);}
-.gl-sb-mob-btn{display:none;position:fixed;top:12px;right:12px;z-index:600;background:var(--navy);color:#fff;border:none;border-radius:8px;width:40px;height:40px;font-size:18px;cursor:pointer;align-items:center;justify-content:center;}
-[dir="ltr"] .gl-sb-mob-btn{right:auto;left:12px;}
-.gl-sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:490;}
-@media(max-width:768px){.gl-sidebar{width:240px!important;transform:translateX(100%);transition:transform .25s ease;}[dir="ltr"] .gl-sidebar{transform:translateX(-100%);}.gl-sidebar.mob-open{transform:translateX(0)!important;}.gl-page-content{margin-right:0!important;margin-left:0!important;}.gl-sb-mob-btn{display:flex;}}
+body.gl-collapsed .gl-page-content{margin-right:54px;}
+[dir="ltr"] body.gl-collapsed .gl-page-content{margin-right:0;margin-left:54px;}
+/* Quick-add dropdown */
+.gl-qa-menu{display:none;position:absolute;top:46px;right:0;background:var(--white);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,0.12);padding:6px;min-width:180px;z-index:450;}
+[dir="ltr"] .gl-qa-menu{right:auto;left:0;}
+.gl-qa-menu.open{display:block;}
+.gl-qa-item{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--ink);text-decoration:none;}
+.gl-qa-item:hover{background:var(--tint);}
+/* Mobile */
+.sb-mob-btn{display:none;position:fixed;top:10px;right:10px;z-index:600;background:var(--navy);color:#fff;border:none;border-radius:8px;width:40px;height:40px;font-size:18px;cursor:pointer;align-items:center;justify-content:center;}
+[dir="ltr"] .sb-mob-btn{right:auto;left:10px;}
+.sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:490;}
+@media(max-width:768px){.gl-sidebar{width:240px!important;transform:translateX(100%);transition:transform .25s ease;}[dir="ltr"] .gl-sidebar{transform:translateX(-100%);}.gl-sidebar.mob-open{transform:translateX(0)!important;}.gl-page-content{margin-right:0!important;margin-left:0!important;}.sb-mob-btn{display:flex;}.sb-collapse{display:none;}}
 
 </style>
 </head>
 <body>
+<!-- GL SIDEBAR -->
 <div class="gl-sidebar" id="gl-sidebar">
-  <div class="gl-sb-header">
-    <a href="dashboard.html" class="gl-sb-logo"><div class="gl-sb-logo-bars"><div class="gl-sb-bar" style="background:#fff;"></div><div class="gl-sb-bar" style="background:rgba(255,255,255,0.45);"></div></div><span class="gl-sb-logo-name gl-sb-show">Gulf<span style="color:var(--light);">Ledger</span></span></a>
-    <button class="gl-sb-collapse-btn" onclick="toggleGLSidebar()"><span id="gl-sb-arrow">◀</span></button>
+  <div class="sb-top">
+    <a href="dashboard.html" class="sb-logo">
+      <div class="sb-logo-bars"><div class="sb-logo-bar"></div><div class="sb-logo-bar"></div></div>
+      <span class="sb-logo-name sb-hide">Gulf<span>Ledger</span></span>
+    </a>
+    <button class="sb-collapse" onclick="toggleGLSB()"><span id="sb-arrow">&#9664;</span></button>
   </div>
-  <div class="gl-sb-biz gl-sb-show"><span id="biz-name">...</span></div>
-  <nav class="gl-sb-nav">    <a href="dashboard.html" class="gl-sb-link active"><span class="gl-sb-icon">⊞</span><span class="gl-sb-show" data-ar="الرئيسية" data-en="Dashboard">الرئيسية</span></a>
-    <a href="inventory.html" class="gl-sb-link"><span class="gl-sb-icon">📦</span><span class="gl-sb-show" data-ar="المنتجات والمخزون" data-en="Products & Stock">المنتجات والمخزون</span></a>
-    <a href="invoices.html" class="gl-sb-link"><span class="gl-sb-icon">🧾</span><span class="gl-sb-show" data-ar="المبيعات والفواتير" data-en="Sales & Invoices">المبيعات والفواتير</span></a>
-    <a href="expenses.html" class="gl-sb-link"><span class="gl-sb-icon">💸</span><span class="gl-sb-show" data-ar="المصاريف" data-en="Expenses">المصاريف</span></a>
-    <a href="ledger.html" class="gl-sb-link"><span class="gl-sb-icon">📒</span><span class="gl-sb-show" data-ar="المحاسبة" data-en="Accounting">المحاسبة</span></a>
-    <a href="vat.html" class="gl-sb-link"><span class="gl-sb-icon">🧮</span><span class="gl-sb-show" data-ar="ضريبة القيمة المضافة" data-en="VAT">ضريبة القيمة المضافة</span></a>
-    <a href="reports.html" class="gl-sb-link"><span class="gl-sb-icon">📊</span><span class="gl-sb-show" data-ar="التقارير" data-en="Reports">التقارير</span></a></nav>
-  <div class="gl-sb-bottom">
-    <div class="gl-sb-divider"></div>
-    <div class="gl-sb-lang gl-sb-show"><button class="gl-lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button><button class="gl-lang-btn" id="btn-en" onclick="setLang('en')">EN</button></div>
-    <a href="settings.html" class="gl-sb-link"><span class="gl-sb-icon">⚙️</span><span class="gl-sb-show" data-ar="الإعدادات" data-en="Settings">الإعدادات</span></a>
-    <button class="gl-sb-link gl-sb-logout" onclick="logout()"><span class="gl-sb-icon">↩</span><span class="gl-sb-show" data-ar="خروج" data-en="Sign Out">خروج</span></button>
-  </div>
-</div>
-<div class="gl-sb-overlay" id="gl-sb-overlay" onclick="closeSidebar()"></div>
-<button class="gl-sb-mob-btn" id="gl-mob-btn" onclick="toggleGLSidebar()">☰</button>
-<div class="gl-page-content">
-<div class="main">
-  <div class="stats" style="grid-template-columns:repeat(4,1fr);">
-    <div class="stat"><div class="stat-lbl" data-ar="المبيعات هذا الشهر" data-en="Sales This Month">Sales This Month</div><div class="stat-num c-navy" id="s-sales">SAR 0</div><div class="stat-sub" id="s-sales-count">0 invoices</div></div>
-    <div class="stat s-red"><div class="stat-lbl" data-ar="المصاريف هذا الشهر" data-en="Expenses This Month">Expenses This Month</div><div class="stat-num c-red" id="s-expenses">SAR 0</div><div class="stat-sub" id="s-expenses-count">0 expenses</div></div>
-    <div class="stat s-green"><div class="stat-lbl" data-ar="صافي الربح" data-en="Net Profit">Net Profit</div><div class="stat-num c-green" id="s-profit">SAR 0</div><div class="stat-sub" data-ar="هذا الشهر" data-en="this month">this month</div></div>
-    <div class="stat s-amber"><div class="stat-lbl" data-ar="فواتير غير مسددة" data-en="Unpaid Invoices">Unpaid Invoices</div><div class="stat-num c-amber" id="s-unpaid">0</div><div class="stat-sub" id="s-unpaid-amt">SAR 0 pending</div></div>
-  </div>
-  <div class="grid-2">
-    <div class="card"><div class="card-hdr"><span class="card-ttl" data-ar="آخر الفواتير" data-en="Recent Invoices">Recent Invoices</span><a href="invoices.html" class="btn-s" style="font-size:11px;text-decoration:none;" data-ar="عرض الكل" data-en="View All">View All</a></div><div id="recent-invoices" style="min-height:80px;"><div style="text-align:center;padding:24px;color:var(--muted);font-size:12px;">Loading...</div></div></div>
-    <div class="card"><div class="card-hdr"><span class="card-ttl" data-ar="إجراءات سريعة" data-en="Quick Actions">Quick Actions</span></div><div class="card-bdy"><div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
-      <a href="invoices.html" class="btn-p" style="text-decoration:none;justify-content:center;font-size:12px;">🧾 <span data-ar="فاتورة جديدة" data-en="New Invoice">New Invoice</span></a>
-      <a href="expenses.html" class="btn-p" style="text-decoration:none;justify-content:center;font-size:12px;background:var(--red);">💸 <span data-ar="مصروف جديد" data-en="New Expense">New Expense</span></a>
-      <a href="inventory.html" class="btn-s" style="text-decoration:none;text-align:center;font-size:12px;">📦 <span data-ar="المنتجات" data-en="Products">Products</span></a>
-      <a href="vat.html" class="btn-s" style="text-decoration:none;text-align:center;font-size:12px;">🧮 <span data-ar="إقرار VAT" data-en="VAT Return">VAT Return</span></a>
-      <a href="reports.html" class="btn-s" style="text-decoration:none;text-align:center;font-size:12px;">📊 <span data-ar="التقارير" data-en="Reports">Reports</span></a>
-      <a href="ledger.html" class="btn-s" style="text-decoration:none;text-align:center;font-size:12px;">📒 <span data-ar="المحاسبة" data-en="Accounting">Accounting</span></a>
-    </div></div></div>
-  </div>
-  <div class="card"><div class="card-hdr"><span class="card-ttl" data-ar="آخر المصاريف" data-en="Recent Expenses">Recent Expenses</span><a href="expenses.html" class="btn-s" style="font-size:11px;text-decoration:none;" data-ar="عرض الكل" data-en="View All">View All</a></div>
-  <div style="overflow-x:auto;"><table class="tbl"><thead><tr><th data-ar="التاريخ" data-en="Date">Date</th><th data-ar="الوصف" data-en="Description">Description</th><th data-ar="الفئة" data-en="Category">Category</th><th data-ar="المبلغ" data-en="Amount">Amount</th></tr></thead><tbody id="recent-expenses"><tr><td colspan="4" style="text-align:center;padding:20px;color:var(--muted);">Loading...</td></tr></tbody></table></div></div>
-</div>
-</div>
-<script>
+  <div class="sb-biz sb-hide" id="gl-biz-name">...</div>
+  <nav class="sb-nav">
+    <div class="sb-sec-label sb-hide" data-ar="القائمة الرئيسية" data-en="Main Menu">القائمة الرئيسية</div>
+    <a href="dashboard.html" class="sb-link active" data-ar="الرئيسية" data-en="Dashboard"><span class="sb-link-icon">⊞</span><span>الرئيسية</span></a>
+    <a href="inventory.html" class="sb-link" data-ar="المنتجات والمخزون" data-en="Products & Stock"><span class="sb-link-icon">📦</span><span>المنتجات والمخزون</span></a>
+    <a href="invoices.html" class="sb-link" data-ar="المبيعات والفواتير" data-en="Sales & Invoices"><span class="sb-link-icon">🧾</span><span>المبيعات والفواتير</span></a>
+    <a href="expenses.html" class="sb-link" data-ar="المصاريف" data-en="Expenses"><span class="sb-link-icon">💸</span><span>المصاريف</span></a>
+    <a href="ledger.html" class="sb-link" data-ar="المحاسبة" data-en="Accounting"><span class="sb-link-icon">📒</span><span>المحاسبة</span></a>
+    <a href="vat.html" class="sb-link" data-ar="ضريبة القيمة المضافة" data-en="VAT"><span class="sb-link-icon">🧮</span><span>ضريبة القيمة المضافة</span></a>
+    <a href="reports.html" class="sb-link" data-ar="التقارير" data-en="Reports"><span class="sb-link-icon">📊</span><span>التقارير</span></a>
 
+    <div class="sb-sec-label sb-hide" data-ar="التقارير المالية" data-en="Financial">التقارير المالية</div>
+    <a href="statements.html" class="sb-link" data-ar="القوائم المالية" data-en="Statements"><span class="sb-link-icon">📑</span><span>القوائم المالية</span></a>
+    <a href="purchasing.html" class="sb-link" data-ar="المشتريات" data-en="Purchasing"><span class="sb-link-icon">🛒</span><span>المشتريات</span></a>
+  </nav>
+  <div class="sb-bottom">
+    <div class="sb-hr"></div>
+    <a href="settings.html" class="sb-link" data-ar="الإعدادات" data-en="Settings"><span class="sb-link-icon">⚙️</span><span class="sb-hide">الإعدادات</span></a>
+    <button class="sb-link sb-logout" onclick="logout()" data-ar="خروج" data-en="Sign Out"><span class="sb-link-icon">↩</span><span class="sb-hide">خروج</span></button>
+  </div>
+</div>
+<div class="sb-overlay" id="sb-overlay" onclick="closeGLSB()"></div>
+<button class="sb-mob-btn" id="sb-mob-btn" onclick="toggleGLSB()">&#9776;</button>
+
+<div class="gl-page-content">
+<!-- GL HEADER -->
+<div class="gl-header">
+  <span class="gl-h-title" data-ar="الرئيسية" data-en="Dashboard">الرئيسية</span>
+  <div class="gl-h-right" style="position:relative;">
+    <button class="gl-h-add" onclick="document.getElementById('gl-qa-menu').classList.toggle('open')"><span style="font-size:16px;font-weight:300;">+</span> إضافة</button>
+    <div class="gl-qa-menu" id="gl-qa-menu">
+      <a href="invoices.html" class="gl-qa-item">🧾 فاتورة جديدة</a>
+      <a href="expenses.html" class="gl-qa-item">💸 مصروف جديد</a>
+      <a href="inventory.html" class="gl-qa-item">📦 منتج جديد</a>
+    </div>
+    <div class="gl-h-lang">
+      <button class="gl-h-lang-btn" id="gl-btn-ar" onclick="setLang('ar')">ع</button>
+      <button class="gl-h-lang-btn" id="gl-btn-en" onclick="setLang('en')">EN</button>
+    </div>
+    <div class="gl-h-user"><div class="gl-h-av" id="gl-user-av">م</div><span id="gl-user-name">...</span></div>
+  </div>
+</div>
+
+
+
+<div class="topnav">
+  <a href="dashboard.html" class="nav-logo">
+    <div class="nav-bars">
+      <div class="nav-bar" style="background:#fff;"></div>
+      <div class="nav-bar" style="background:rgba(255,255,255,0.45);"></div>
+    </div>
+    <span class="nav-name">Gulf<span style="color:var(--light);">Ledger</span></span>
+  </a>
+    <div class="nav-right">
+    <a href="settings.html" class="nav-settings-btn" title="الإعدادات">⚙️</a>
+    <div class="lang-switch">
+      <button class="lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button>
+      <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
+    </div>
+    <div class="nav-divider"></div>
+    <span class="nav-biz" id="biz-name">...</span>
+    <button class="btn-logout" onclick="logout()" data-ar="خروج" data-en="Sign Out">خروج</button>
+  </div>
+</div>
+
+<div class="app-nav" id="app-nav">
+  <a href="dashboard.html"  class="app-nav-link active"  data-ar="الرئيسية"             data-en="Dashboard">الرئيسية</a>
+  <a href="inventory.html"  class="app-nav-link"  data-ar="المنتجات والمخزون"    data-en="Products & Stock">المنتجات والمخزون</a>
+  <a href="invoices.html"   class="app-nav-link"   data-ar="المبيعات والفواتير"   data-en="Sales & Invoices">المبيعات والفواتير</a>
+  <a href="expenses.html"   class="app-nav-link"   data-ar="المصاريف"             data-en="Expenses">المصاريف</a>
+  <a href="ledger.html"     class="app-nav-link"     data-ar="المحاسبة"             data-en="Accounting">المحاسبة</a>
+  <a href="vat.html"        class="app-nav-link"        data-ar="ضريبة القيمة المضافة" data-en="VAT">ضريبة القيمة المضافة</a>
+  <a href="reports.html"    class="app-nav-link"    data-ar="التقارير"             data-en="Reports">التقارير</a>
+  <a href="accounting.html" class="app-nav-link" id="nav-accounting" data-ar="محاسبة متقدمة" data-en="Advanced" style="display:none;">محاسبة متقدمة</a>
+</div>
+
+<script>
+(function(){
+  var mode = localStorage.getItem('gl_accountant_mode');
+  if(mode === 'true'){
+    var el = document.getElementById('nav-accounting');
+    if(el) el.style.display = 'inline-block';
+  }
+})();
+</script>
+
+<div class="page">
+
+  <!-- Setup Banner -->
+  <div class="setup-banner" id="setup-banner">
+    <div class="setup-text">
+      <h3 data-ar="أكمل إعداد منشأتك" data-en="Complete your business setup">أكمل إعداد منشأتك</h3>
+      <p data-ar="أضف الرقم الضريبي والسجل التجاري والعنوان لتفعيل الفواتير المتوافقة مع زاتكا." data-en="Add your TRN, CR number, and address to enable ZATCA-compliant invoicing.">أضف الرقم الضريبي والسجل التجاري والعنوان لتفعيل الفواتير المتوافقة مع زاتكا.</p>
+    </div>
+    <a href="settings.html" class="btn-setup" data-ar="إعداد الآن ←" data-en="Set Up Now →">إعداد الآن ←</a>
+  </div>
+
+  <h1 class="page-title" id="dash-title" data-ar="مرحباً" data-en="Welcome back">مرحباً</h1>
+  <p class="page-sub" data-ar="نظرة عامة على أعمالك" data-en="Here's your business overview">نظرة عامة على أعمالك</p>
+
+  <!-- Stats -->
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-label" data-ar="المبيعات" data-en="Revenue">المبيعات</div>
+      <div class="stat-val" id="s-invoiced">SAR 0</div>
+      <div class="stat-sub" data-ar="هذا الشهر" data-en="This month">هذا الشهر</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label" data-ar="المصاريف" data-en="Expenses">المصاريف</div>
+      <div class="stat-val c-red" id="s-expenses">SAR 0</div>
+      <div class="stat-sub" data-ar="هذا الشهر" data-en="This month">هذا الشهر</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label" data-ar="صافي الربح" data-en="Net Profit">صافي الربح</div>
+      <div class="stat-val c-green" id="s-profit">SAR 0</div>
+      <div class="stat-sub" data-ar="هذا الشهر" data-en="This month">هذا الشهر</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label" data-ar="VAT المستحق" data-en="VAT Payable">VAT المستحق</div>
+      <div class="stat-val" id="s-vat">SAR 0</div>
+      <div class="stat-sub" data-ar="الربع الحالي" data-en="Current quarter">الربع الحالي</div>
+    </div>
+  </div>
+
+  <!-- AI Insights Panel -->
+  <div id="insights-panel" style="margin-bottom:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:14px;font-weight:700;color:var(--navy);" data-ar="💡 تحليل ذكي" data-en="💡 AI Insights">💡 تحليل ذكي</span>
+        <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:#f5f3ff;color:#6d28d9;">AI</span>
+      </div>
+      <button onclick="loadInsights(true)" id="insights-refresh-btn"
+        style="padding:4px 12px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;">
+        🔄 <span data-ar="تحديث" data-en="Refresh">تحديث</span>
+      </button>
+    </div>
+    <div id="insights-container" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+      <div class="insight-skeleton"></div>
+      <div class="insight-skeleton"></div>
+      <div class="insight-skeleton"></div>
+    </div>
+  </div>
+
+  <!-- Recent Activity -->
+  <div class="activity-grid">
+
+    <!-- Recent Invoices -->
+    <div class="act-card">
+      <div class="act-card-hdr">
+        <span class="act-card-title" data-ar="آخر الفواتير" data-en="Recent Invoices">آخر الفواتير</span>
+        <a href="invoices.html" class="act-card-link" data-ar="عرض الكل ←" data-en="View all →">عرض الكل ←</a>
+      </div>
+      <div id="recent-invoices">
+        <div class="act-empty" data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
+      </div>
+    </div>
+
+    <!-- Right column -->
+    <div class="act-col">
+
+      <!-- Recent Expenses -->
+      <div class="act-card">
+        <div class="act-card-hdr">
+          <span class="act-card-title" data-ar="آخر المصاريف" data-en="Recent Expenses">آخر المصاريف</span>
+          <a href="ledger.html" class="act-card-link" data-ar="عرض الكل ←" data-en="View all →">عرض الكل ←</a>
+        </div>
+        <div id="recent-expenses">
+          <div class="act-empty" data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
+        </div>
+      </div>
+
+      <!-- Stock Alerts -->
+      <div class="act-card">
+        <div class="act-card-hdr">
+          <span class="act-card-title" data-ar="تنبيهات المخزون" data-en="Stock Alerts">تنبيهات المخزون</span>
+          <a href="inventory.html" class="act-card-link" data-ar="إدارة ←" data-en="Manage →">إدارة ←</a>
+        </div>
+        <div id="stock-alerts-list">
+          <div class="act-empty" data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Modules -->
+  <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:10px;" data-ar="الوصول السريع" data-en="Quick Access">الوصول السريع</div>
+
+  <div class="modules">
+    <a href="invoices.html" class="module-card">
+      <div class="module-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="8" y1="14" x2="12" y2="14"/></svg></div>
+      <div>
+        <div class="module-name" data-ar="الفواتير" data-en="Invoices">الفواتير</div>
+        <div class="module-desc" data-ar="إنشاء فواتير متوافقة مع زاتكا برمز QR. B2B و B2C." data-en="Create ZATCA-compliant invoices with QR code. B2B and B2C.">إنشاء فواتير متوافقة مع زاتكا برمز QR.</div>
+        <span class="module-badge badge-ai" data-ar="✨ فاتورة ذكية AI" data-en="✨ AI Smart Invoice">✨ فاتورة ذكية AI</span>
+      </div>
+    </a>
+
+    <a href="inventory.html" class="module-card">
+      <div class="module-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><path d="M20 7H4a2 2 0 00-2 2v6a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/><path d="M16 21V5a2 2 0 00-2-2h-4a2 2 0 00-2 2v16"/></svg></div>
+      <div>
+        <div class="module-name" data-ar="المخزون" data-en="Inventory">المخزون</div>
+        <div class="module-desc" data-ar="تتبع المخزون، استلام البضاعة، إدارة الموردين." data-en="Track stock, receive goods, manage suppliers.">تتبع المخزون، استلام البضاعة، إدارة الموردين.</div>
+        <span class="module-badge badge-ready" data-ar="المخزون + الموردون" data-en="Stock + Suppliers">المخزون + الموردون</span>
+      </div>
+    </a>
+
+    <a href="ledger.html" class="module-card">
+      <div class="module-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
+      <div>
+        <div class="module-name" data-ar="دفتر الأستاذ" data-en="General Ledger">دفتر الأستاذ</div>
+        <div class="module-desc" data-ar="قيد مزدوج مع ميزان المراجعة — ترحيل تلقائي." data-en="Double-entry bookkeeping with trial balance — auto-posting.">قيد مزدوج مع ميزان المراجعة — ترحيل تلقائي.</div>
+        <span class="module-badge badge-ready" data-ar="محرك المحاسبة" data-en="Accounting Engine">محرك المحاسبة</span>
+      </div>
+    </a>
+
+    <a href="vat.html" class="module-card">
+      <div class="module-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
+      <div>
+        <div class="module-name" data-ar="إقرار VAT" data-en="VAT Return">إقرار VAT</div>
+        <div class="module-desc" data-ar="إقرار VAT ربعي نموذج 201 — يُنشأ تلقائياً." data-en="Quarterly VAT return Form 201 — auto-generated.">إقرار VAT ربعي نموذج 201 — يُنشأ تلقائياً.</div>
+        <span class="module-badge badge-ready" data-ar="نموذج زاتكا 201" data-en="ZATCA Form 201">نموذج زاتكا 201</span>
+      </div>
+    </a>
+
+    <a href="statements.html" class="module-card">
+      <div class="module-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg></div>
+      <div>
+        <div class="module-name" data-ar="القوائم المالية" data-en="Financial Statements">القوائم المالية</div>
+        <div class="module-desc" data-ar="قائمة الدخل، الميزانية، الزكاة، جاهز لقوائم." data-en="P&L, Balance Sheet, Zakat, Qawaem-ready.">قائمة الدخل، الميزانية، الزكاة، جاهز لقوائم.</div>
+        <span class="module-badge badge-ready" data-ar="جاهز لمنصة قوائم" data-en="Qawaem Ready">جاهز لمنصة قوائم</span>
+      </div>
+    </a>
+
+    <a href="settings.html" class="module-card">
+      <div class="module-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 010 2.83 2 2 0 01-2.83 0l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06A1.65 1.65 0 004.68 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06A1.65 1.65 0 009 4.68a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg></div>
+      <div>
+        <div class="module-name" data-ar="الإعدادات" data-en="Settings">الإعدادات</div>
+        <div class="module-desc" data-ar="الرقم الضريبي، السجل التجاري، الشعار، العنوان الوطني، لغة النظام." data-en="TRN, CR number, logo, national address, system language.">الرقم الضريبي، السجل التجاري، الشعار، لغة النظام.</div>
+        <span class="module-badge badge-ready" data-ar="الإعداد مطلوب" data-en="Setup Required">الإعداد مطلوب</span>
+      </div>
+    </a>
+  </div>
+
+</div>
+
+<script>
 const SUPABASE_URL='https://ykzivnasjwtuhvjxfxzf.supabase.co';
 const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
-let currentUser=null,currentBiz=null,L=localStorage.getItem('gl_lang')||'ar';
-function set(id,v){const e=document.getElementById(id);if(e)e.textContent=v;}
-function fmt(n){return(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');}
-function today(){return new Date().toISOString().split('T')[0];}
-async function logout(){await sb.auth.signOut();window.location.href='login.html';}
-function notify(msg,type){const d=document.createElement('div');d.style.cssText='position:fixed;top:20px;left:50%;transform:translateX(-50%);background:'+(type==='g'?'var(--green)':'var(--red)')+';color:#fff;padding:10px 24px;border-radius:8px;font-family:Tajawal,sans-serif;font-size:13px;z-index:9999;';d.textContent=msg;document.body.appendChild(d);setTimeout(()=>{if(d.parentNode)d.parentNode.removeChild(d);},type==='g'?4000:3000);}
-function applyLang(lang){localStorage.setItem('gl_lang',lang);document.getElementById('btn-ar')?.classList.toggle('on',lang==='ar');document.getElementById('btn-en')?.classList.toggle('on',lang==='en');document.documentElement.setAttribute('lang',lang);document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));document.querySelectorAll('select option[data-ar]').forEach(o=>o.text=o.getAttribute('data-'+lang)||o.text);}
-function toggleGLSidebar(){var s=document.getElementById('gl-sidebar');if(window.innerWidth<=768){s.classList.toggle('mob-open');var o=document.getElementById('gl-sb-overlay');if(o)o.style.display=s.classList.contains('mob-open')?'block':'none';var b=document.getElementById('gl-mob-btn');if(b)b.textContent=s.classList.contains('mob-open')?'×':'☰';}else{s.classList.toggle('collapsed');document.body.classList.toggle('gl-collapsed');localStorage.setItem('gl_sb_collapsed',s.classList.contains('collapsed')?'1':'0');}}
-function closeSidebar(){var s=document.getElementById('gl-sidebar');s.classList.remove('mob-open');var o=document.getElementById('gl-sb-overlay');if(o)o.style.display='none';var b=document.getElementById('gl-mob-btn');if(b)b.textContent='☰';}
-function initSidebarState(){if(localStorage.getItem('gl_sb_collapsed')==='1'){var s=document.getElementById('gl-sidebar');if(s){s.classList.add('collapsed');document.body.classList.add('gl-collapsed');}}}
+let L=localStorage.getItem('gl_lang')||'ar';
+let currentBiz=null;
 
+/* ── LANGUAGE ── */
+function getStoredLang(){return localStorage.getItem('gl_lang')||'ar';}
+function applyLang(lang){
+  localStorage.setItem('gl_lang',lang);
+  document.getElementById('btn-ar')?.classList.toggle('on',lang==='ar');
+  document.getElementById('btn-en')?.classList.toggle('on',lang==='en');
+  document.documentElement.setAttribute('lang',lang);
+  document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
+  document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));
+  // Update dash title with biz name
+  if(currentBiz){
+    const name=currentBiz.name_ar||currentBiz.name||'';
+    document.getElementById('dash-title').textContent=(lang==='ar'?'مرحباً، ':'Welcome, ')+name;
+  }
+}
+function setLang(lang){
+  L=lang;
+  applyLang(lang);
+  // Clear insights cache and reload in new language
+  if(currentBiz?.id){
+    localStorage.removeItem('gl_insights_'+currentBiz.id);
+    localStorage.removeItem('gl_insights_time_'+currentBiz.id);
+  }
+  loadInsights();
+}
+
+/* ── INIT ── */
 async function init(){
   const {data:{session}}=await sb.auth.getSession();
   if(!session){window.location.href='login.html';return;}
-  currentUser=session.user;
-  const {data:biz}=await sb.from('businesses').select('*').eq('user_id',currentUser.id).single();
-  if(biz){currentBiz=biz;document.getElementById('biz-name').textContent=biz.name_ar||biz.name||'';}
-  await loadDashboard();
-  const storedL=localStorage.getItem('gl_lang')||'ar';L=storedL;setLang(storedL);
-  initSidebarState();
+  const user=session.user;
+
+  const {data:biz}=await sb.from('businesses').select('*').eq('user_id',user.id).single();
+
+  if(biz){
+    currentBiz=biz;
+    const name=biz.name_ar||biz.name||'';
+    document.getElementById('biz-name').textContent=name;
+    document.getElementById('dash-title').textContent=(L==='ar'?'مرحباً، ':'Welcome, ')+name;
+    if(!biz.trn)document.getElementById('setup-banner').style.display='flex';
+    // Sync language from DB
+    // Language: localStorage is source of truth, don't override from DB
+    applyPlanGating(biz.plan||'starter');
+  } else {
+    const bizName=user.user_metadata?.business_name||'My Business';
+    document.getElementById('biz-name').textContent=bizName;
+    document.getElementById('dash-title').textContent=(L==='ar'?'مرحباً، ':'Welcome, ')+bizName;
+    document.getElementById('setup-banner').style.display='flex';
+    const {data:newBiz}=await sb.from('businesses').insert({
+      user_id:user.id,name:bizName,plan:'starter',plan_status:'active'
+    }).select().single();
+    currentBiz=newBiz;
+    applyPlanGating('starter');
+  }
+
+  // Stats — current month revenue, quarterly VAT, all-time count
+  const now        = new Date();
+  const monthStart = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-01';
+  const monthEnd   = now.toISOString().split('T')[0];
+  const q          = Math.floor(now.getMonth()/3);
+  const qStart     = now.getFullYear()+'-'+String(q*3+1).padStart(2,'0')+'-01';
+
+  const {data:allInv}=await sb.from('invoices').select('total,vat_amount,subtotal,issue_date,invoice_number,buyer_name').eq('user_id',user.id).order('issue_date',{ascending:false});
+  if(allInv){
+    const monthInv=allInv.filter(i=>i.issue_date>=monthStart&&i.issue_date<=monthEnd);
+    const monthRev=monthInv.reduce((s,i)=>s+(i.subtotal||0),0);
+    const qInv=allInv.filter(i=>i.issue_date>=qStart&&i.issue_date<=monthEnd);
+    const qVat=qInv.reduce((s,i)=>s+(i.vat_amount||0),0);
+    document.getElementById('s-invoiced').textContent='SAR '+fmt(monthRev);
+    document.getElementById('s-vat').textContent='SAR '+fmt(qVat);
+
+    // Recent invoices — clean act-item design
+    const ri=document.getElementById('recent-invoices');
+    const recent=allInv.slice(0,5);
+    if(recent.length){
+      ri.innerHTML=recent.map(i=>`
+        <div class="act-item">
+          <div class="act-icon inv">📄</div>
+          <div class="act-body">
+            <div class="act-name">${i.buyer_name||'—'}</div>
+            <div class="act-meta">${i.invoice_number} · ${i.issue_date}</div>
+          </div>
+          <div class="act-amount c-navy">SAR ${fmt(i.total)}</div>
+        </div>`).join('');
+    } else {
+      ri.innerHTML=`<div class="act-empty">${L==='ar'?'لا توجد فواتير بعد':'No invoices yet'}</div>`;
+    }
+  }
+
+  // Load expenses this month
+  const {data:expEntries}=await sb.from('journal_entries')
+    .select('*, journal_lines(*)')
+    .eq('user_id',user.id)
+    .eq('source','expense')
+    .gte('entry_date',monthStart)
+    .order('entry_date',{ascending:false})
+    .limit(4);
+
+  const EXP_NAMES={'5200':'رواتب','5300':'إيجار','5400':'مرافق','5500':'تسويق','5750':'سفر','5700':'رسوم بنكية','5800':'أتعاب','5900':'متنوع'};
+  const EXP_NAMES_EN={'5200':'Salaries','5300':'Rent','5400':'Utilities','5500':'Marketing','5750':'Travel','5700':'Bank Fees','5800':'Prof. Fees','5900':'Misc'};
+  let monthExp=0;
+  const re=document.getElementById('recent-expenses');
+  if(expEntries&&expEntries.length){
+    let rows='';
+    expEntries.forEach(e=>{
+      const expLine=(e.journal_lines||[]).find(l=>l.account_code?.startsWith('5')&&l.debit>0);
+      const crLine=(e.journal_lines||[]).find(l=>l.credit>0);
+      if(!expLine)return;
+      const amt=crLine?.credit||expLine.debit||0;
+      monthExp+=amt;
+      const catName=L==='ar'?(EXP_NAMES[expLine.account_code]||'مصروف'):(EXP_NAMES_EN[expLine.account_code]||'Expense');
+      rows+=`<div class="act-item">
+        <div class="act-icon exp">💸</div>
+        <div class="act-body">
+          <div class="act-name">${catName}</div>
+          <div class="act-meta">${e.description?.replace(/\(شامل VAT\)/,'').trim()||''} · ${e.entry_date}</div>
+        </div>
+        <div class="act-amount c-red">SAR ${fmt(amt)}</div>
+      </div>`;
+    });
+    re.innerHTML=rows||`<div class="act-empty">${L==='ar'?'لا مصاريف هذا الشهر':'No expenses this month'}</div>`;
+  } else {
+    re.innerHTML=`<div class="act-empty">${L==='ar'?'لا مصاريف هذا الشهر':'No expenses this month'}</div>`;
+  }
+
+  // Profit stat — calculate after both revenue and expenses are known
+  const monthRev2 = (allInv||[]).filter(i=>i.issue_date>=monthStart&&i.issue_date<=monthEnd).reduce((s,i)=>s+(i.subtotal||0),0);
+  document.getElementById('s-expenses').textContent='SAR '+fmt(monthExp);
+  const profit=monthRev2-monthExp;
+  const profEl=document.getElementById('s-profit');
+  profEl.textContent='SAR '+fmt(Math.abs(profit));
+  profEl.className='stat-val '+(profit>=0?'c-green':'c-red');
+
+  // Stock alerts — clean act-item design
+  const {data:items}=await sb.from('inventory_items').select('name,current_qty,alert_level,unit').eq('user_id',user.id);
+  const sal=document.getElementById('stock-alerts-list');
+  if(items){
+    const low=items.filter(i=>i.current_qty<=(i.alert_level||0));
+    if(low.length){
+      sal.innerHTML=low.slice(0,4).map(i=>{
+        const isOut=i.current_qty===0;
+        return `<div class="act-item">
+          <div class="act-icon ${isOut?'stk-out':'stk-low'}">${isOut?'🔴':'🟡'}</div>
+          <div class="act-body">
+            <div class="act-name">${i.name}</div>
+            <div class="act-meta">${L==='ar'?(isOut?'نفد تماماً':'قارب النفاد'):(isOut?'Out of stock':'Low stock')}</div>
+          </div>
+          <div class="act-amount ${isOut?'c-red':'c-amber'}">${i.current_qty} ${i.unit||''}</div>
+        </div>`;
+      }).join('');
+    } else {
+      sal.innerHTML=`<div class="act-item"><div class="act-icon stk-ok">✅</div><div class="act-body"><div class="act-name" style="color:var(--green);">${L==='ar'?'المخزون بحالة جيدة':'Stock levels OK'}</div></div></div>`;
+    }
+  }
+
+  // Apply language after data loaded
+  applyLang(L);
+
+  // Load AI insights after data is available
+  loadInsights();
 }
-async function loadDashboard(){
-  const now=new Date();const monthStart=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
-  const {data:inv}=await sb.from('invoices').select('*').eq('user_id',currentUser.id).gte('issue_date',monthStart).neq('status','voided');
-  const totalSales=(inv||[]).reduce((s,i)=>s+(i.total||0),0);
-  const unpaid=(inv||[]).filter(i=>i.payment_status!=='paid');
-  set('s-sales','SAR '+fmt(totalSales));set('s-sales-count',(inv||[]).length+(L==='ar'?' فاتورة':' invoices'));
-  set('s-unpaid',unpaid.length);set('s-unpaid-amt','SAR '+fmt(unpaid.reduce((s,i)=>s+(i.total||0),0))+(L==='ar'?' معلقة':' pending'));
-  const {data:exp}=await sb.from('expenses').select('*').eq('user_id',currentUser.id).gte('expense_date',monthStart).neq('status','reversed');
-  const totalExp=(exp||[]).reduce((s,e)=>s+(e.total||0),0);
-  set('s-expenses','SAR '+fmt(totalExp));set('s-expenses-count',(exp||[]).length+(L==='ar'?' مصروف':' expenses'));
-  set('s-profit','SAR '+fmt(Math.max(0,totalSales-totalExp)));
-  const {data:recentInv}=await sb.from('invoices').select('*').eq('user_id',currentUser.id).neq('status','voided').order('issue_date',{ascending:false}).limit(5);
-  const riEl=document.getElementById('recent-invoices');
-  if(riEl){riEl.innerHTML=(recentInv||[]).length?recentInv.map(i=>{const p=i.payment_status==='paid';return`<div class="act-item"><div class="act-icon" style="background:${p?'#dcfce7':'#fff1f2'};color:${p?'var(--green)':'var(--red)'};">${p?'✅':'⏳'}</div><div class="act-body"><div class="act-title">${i.buyer_name||'—'}</div><div class="act-sub">${i.invoice_number} • ${i.issue_date}</div></div><div class="act-amt" style="color:${p?'var(--green)':'var(--red)'};">SAR ${fmt(i.total)}</div></div>`;}).join(''):`<div style="text-align:center;padding:24px;color:var(--muted);font-size:12px;">${L==='ar'?'لا توجد فواتير':'No invoices yet'}</div>`;}
-  const {data:recentExp}=await sb.from('expenses').select('*').eq('user_id',currentUser.id).neq('status','reversed').order('expense_date',{ascending:false}).limit(5);
-  const reEl=document.getElementById('recent-expenses');
-  if(reEl){reEl.innerHTML=(recentExp||[]).length?recentExp.map(e=>`<tr><td style="font-size:11px;color:var(--muted);">${e.expense_date}</td><td style="font-size:12px;">${e.description||'—'}</td><td style="font-size:11px;color:var(--muted);">${e.category_name||'—'}</td><td class="mono" style="color:var(--red);font-weight:700;">SAR ${fmt(e.total)}</td></tr>`).join(''):`<tr><td colspan="4" style="text-align:center;padding:20px;color:var(--muted);">${L==='ar'?'لا توجد مصاريف':'No expenses yet'}</td></tr>`;}
+
+/* ── AI INSIGHTS ── */
+let insightsData = {};
+
+async function loadInsights(forceRefresh=false){
+  const container = document.getElementById('insights-container');
+  const cacheKey  = 'gl_insights_' + (currentBiz?.id||'');
+  const cacheTime = 'gl_insights_time_' + (currentBiz?.id||'');
+
+  // Use cache if fresh (< 30 mins) and not forced
+  if(!forceRefresh){
+    const cached = localStorage.getItem(cacheKey);
+    const cachedAt = parseInt(localStorage.getItem(cacheTime)||'0');
+    if(cached && Date.now()-cachedAt < 30*60*1000){
+      renderInsights(JSON.parse(cached));
+      return;
+    }
+  }
+
+  // Show skeletons
+  container.innerHTML = '<div class="insight-skeleton"></div><div class="insight-skeleton"></div><div class="insight-skeleton"></div>';
+
+  try {
+    // Build data summary for AI
+    const now = new Date();
+    const monthStart = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-01';
+    const prevMonthStart = new Date(now.getFullYear(), now.getMonth()-1, 1).toISOString().split('T')[0];
+    const prevMonthEnd   = new Date(now.getFullYear(), now.getMonth(), 0).toISOString().split('T')[0];
+    const q = Math.floor(now.getMonth()/3);
+    const qStart = now.getFullYear()+'-'+String(q*3+1).padStart(2,'0')+'-01';
+    const vatDueDate = new Date(now.getFullYear(), q*3+3, 30).toISOString().split('T')[0];
+    const daysToVat  = Math.round((new Date(vatDueDate)-now)/(1000*60*60*24));
+
+    // Fetch all needed data in parallel
+    const [invRes, expRes, unpaidRes, prevInvRes, stockRes] = await Promise.all([
+      sb.from('invoices').select('total,subtotal,vat_amount,issue_date,payment_status').eq('user_id',currentBiz.user_id||currentUser?.id).gte('issue_date',monthStart),
+      sb.from('journal_entries').select('journal_lines(debit,account_code)').eq('user_id',currentBiz.user_id||currentUser?.id).eq('source','expense').gte('entry_date',monthStart),
+      sb.from('invoices').select('total,buyer_name,issue_date').eq('user_id',currentBiz.user_id||currentUser?.id).eq('payment_status','unpaid'),
+      sb.from('invoices').select('total,subtotal').eq('user_id',currentBiz.user_id||currentUser?.id).gte('issue_date',prevMonthStart).lte('issue_date',prevMonthEnd),
+      sb.from('inventory_items').select('name,current_qty,alert_level').eq('user_id',currentBiz.user_id||currentUser?.id),
+    ]);
+
+    const thisMonthRev  = (invRes.data||[]).reduce((s,i)=>s+(i.subtotal||0),0);
+    const prevMonthRev  = (prevInvRes.data||[]).reduce((s,i)=>s+(i.subtotal||0),0);
+    const thisMonthVat  = (invRes.data||[]).reduce((s,i)=>s+(i.vat_amount||0),0);
+    const thisMonthExp  = (expRes.data||[]).reduce((s,e)=>{
+      const line=(e.journal_lines||[]).find(l=>l.account_code?.startsWith('5')&&l.debit>0);
+      return s+(line?.debit||0);
+    },0);
+    const unpaidTotal   = (unpaidRes.data||[]).reduce((s,i)=>s+(i.total||0),0);
+    const unpaidCount   = (unpaidRes.data||[]).length;
+    const lowStock      = (stockRes.data||[]).filter(i=>i.current_qty<=(i.alert_level||0));
+    const revChange     = prevMonthRev>0 ? Math.round((thisMonthRev-prevMonthRev)/prevMonthRev*100) : null;
+
+    const lang = L === 'ar' ? 'Arabic' : 'English';
+    const prompt = `You are a financial advisor AI for a Saudi SME using GulfLedger accounting software.
+Based on this month's data, generate exactly 3 actionable business insights in ${lang}.
+
+Business data:
+- This month revenue: SAR ${fmt(thisMonthRev)}
+- Last month revenue: SAR ${fmt(prevMonthRev)} ${revChange!==null?'('+revChange+'% change)':''}
+- This month expenses: SAR ${fmt(thisMonthExp)}
+- Net profit this month: SAR ${fmt(thisMonthRev-thisMonthExp)}
+- Unpaid invoices: ${unpaidCount} invoices totaling SAR ${fmt(unpaidTotal)}
+- VAT due in: ${daysToVat} days (estimated SAR ${fmt(thisMonthVat)})
+- Low/out of stock items: ${lowStock.length}
+
+Return ONLY a JSON array with exactly 3 objects, no markdown, no explanation:
+[
+  {
+    "type": "warning|positive|alert|info|action",
+    "icon": "emoji",
+    "title": "short title in ${lang}",
+    "body": "1-2 sentence insight in ${lang}",
+    "action_label": "short action text in ${lang}",
+    "action_url": "invoices.html|ledger.html|vat.html|inventory.html|statements.html"
+  }
+]
+
+Types: alert=urgent red, warning=amber caution, positive=green good news, info=blue informational, action=purple opportunity.
+Make insights specific with real numbers. Be direct and practical.`;
+
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST',
+      headers:{'Content-Type':'application/json'},
+      body: JSON.stringify({
+        model:'claude-sonnet-4-20250514',
+        max_tokens:1000,
+        messages:[{role:'user',content:prompt}]
+      })
+    });
+
+    const data = await response.json();
+    const text = (data.content||[]).map(c=>c.text||'').join('');
+    const clean = text.replace(/```json|```/g,'').trim();
+    const insights = JSON.parse(clean);
+
+    // Cache for 30 mins
+    localStorage.setItem(cacheKey, JSON.stringify(insights));
+    localStorage.setItem(cacheTime, Date.now().toString());
+
+    renderInsights(insights);
+
+  } catch(e) {
+    console.warn('AI insights failed:', e.message);
+    // Fallback to rule-based insights
+    renderInsights(buildFallbackInsights());
+  }
 }
-function setLang(lang){L=lang;applyLang(lang);loadDashboard();}
+
+function buildFallbackInsights(){
+  const now = new Date();
+  const q = Math.floor(now.getMonth()/3);
+  const vatDueDate = new Date(now.getFullYear(), q*3+3, 30);
+  const daysToVat = Math.round((vatDueDate-now)/(1000*60*60*24));
+  const vatAmt  = document.getElementById('s-vat')?.textContent||'SAR 0';
+  const revenue = document.getElementById('s-invoiced')?.textContent||'SAR 0';
+  const expenses= document.getElementById('s-expenses')?.textContent||'SAR 0';
+  return [
+    {
+      type: daysToVat<=30?'warning':'info', icon:'📅',
+      title: L==='ar'?`VAT مستحق خلال ${daysToVat} يوم`:`VAT due in ${daysToVat} days`,
+      body:  L==='ar'
+        ?`الضريبة المستحقة ${vatAmt}. تأكد من تقديم الإقرار قبل الموعد النهائي لتجنب الغرامات.`
+        :`Estimated VAT ${vatAmt}. Submit your return before the deadline to avoid penalties.`,
+      action_label: L==='ar'?'تقديم إقرار VAT →':'Submit VAT Return →', action_url:'vat.html'
+    },
+    {
+      type:'info', icon:'📊',
+      title: L==='ar'?'أداء هذا الشهر':'This Month Performance',
+      body:  L==='ar'
+        ?`المبيعات ${revenue} والمصاريف ${expenses}. راجع القوائم المالية للتفاصيل الكاملة.`
+        :`Revenue ${revenue}, Expenses ${expenses}. Review financial statements for full details.`,
+      action_label: L==='ar'?'القوائم المالية →':'Statements →', action_url:'statements.html'
+    },
+    {
+      type:'action', icon:'💰',
+      title: L==='ar'?'تابع مدفوعاتك':'Track Your Payments',
+      body:  L==='ar'
+        ?'راجع الفواتير غير المدفوعة وتابع مع عملائك لتحسين التدفق النقدي وتقليل الذمم المدينة.'
+        :'Review unpaid invoices and follow up with customers to improve cash flow.',
+      action_label: L==='ar'?'الفواتير →':'Invoices →', action_url:'invoices.html'
+    }
+  ];
+}
+
+function renderInsights(insights){
+  const container = document.getElementById('insights-container');
+  if(!insights||!insights.length){
+    insights = buildFallbackInsights();
+  }
+  // Always show exactly 3
+  while(insights.length < 3) insights.push(...buildFallbackInsights().slice(0, 3-insights.length));
+  insights = insights.slice(0,3);
+  container.innerHTML = insights.map(ins=>`
+    <div class="insight-card type-${ins.type||'info'}">
+      <div class="insight-icon">${ins.icon||'💡'}</div>
+      <div class="insight-title">${ins.title||''}</div>
+      <div class="insight-body">${ins.body||''}</div>
+      ${ins.action_label?`<a href="${ins.action_url||'#'}" class="insight-action">${ins.action_label}</a>`:''}
+    </div>`).join('');
+}
+
+/* ── PLAN GATING ── */
+const PLAN_FEATURES={
+  starter: ['invoices','ledger','vat','statements','settings'],
+  business:['invoices','ledger','vat','statements','settings','inventory'],
+  pro:     ['invoices','ledger','vat','statements','settings','inventory']
+};
+function applyPlanGating(plan){
+  const allowed=PLAN_FEATURES[plan]||PLAN_FEATURES.starter;
+  localStorage.setItem('gl_plan',plan);
+  // Plan badge
+  const badge=document.createElement('span');
+  badge.style.cssText='font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;margin-right:8px;'
+    +(plan==='pro'?'background:#f5f3ff;color:#6d28d9;':plan==='business'?'background:var(--tint);color:var(--blue);':'background:#f0fdf4;color:var(--green);');
+  badge.textContent=plan==='pro'?'Pro':plan==='business'?'Business':'Starter';
+  document.getElementById('biz-name').after(badge);
+
+  if(!allowed.includes('inventory')){
+    // Lock nav
+    const navInv=document.querySelector('.app-nav a[href="inventory.html"]');
+    if(navInv){navInv.style.opacity='0.4';navInv.style.pointerEvents='none';navInv.href='#';}
+    // Lock module card
+    const invCard=document.querySelector('a[href="inventory.html"]');
+    if(invCard){
+      invCard.style.opacity='0.5';invCard.style.pointerEvents='none';
+      invCard.href='#';invCard.style.cursor='not-allowed';
+      const lock=document.createElement('div');
+      lock.style.cssText='font-size:10px;color:var(--amber);font-weight:700;margin-top:4px;';
+      lock.setAttribute('data-ar','🔒 يتطلب باقة الأعمال');
+      lock.setAttribute('data-en','🔒 Requires Business plan');
+      lock.textContent=L==='ar'?'🔒 يتطلب باقة الأعمال':'🔒 Requires Business plan';
+      invCard.appendChild(lock);
+    }
+    // Upgrade banner
+    const banner=document.createElement('div');
+    banner.style.cssText='background:linear-gradient(135deg,#b45309,#d97706);border-radius:10px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:12px;';
+    banner.setAttribute('data-ar','');banner.setAttribute('data-en','');
+    banner.innerHTML=`<div>
+      <div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:3px;" data-ar="🔒 المخزون متاح في باقة الأعمال" data-en="🔒 Inventory available in Business plan">🔒 ${L==='ar'?'المخزون متاح في باقة الأعمال':'Inventory available in Business plan'}</div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.8);" data-ar="ترقّ للحصول على إدارة المخزون الكاملة والموردين" data-en="Upgrade for full inventory management and suppliers">${L==='ar'?'ترقّ للحصول على إدارة المخزون الكاملة':'Upgrade for full inventory management'}</div>
+    </div>
+    <a href="https://wa.me/966500000000" style="padding:9px 18px;background:#fff;color:#b45309;border-radius:7px;text-decoration:none;font-size:12px;font-weight:700;white-space:nowrap;" data-ar="ترقّ الآن ←" data-en="Upgrade Now →">${L==='ar'?'ترقّ الآن ←':'Upgrade Now →'}</a>`;
+    const page=document.querySelector('.page');
+    const stats=page?.querySelector('.stats');
+    if(stats)page.insertBefore(banner,stats);
+  }
+}
+
+function fmt(n){return(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');}
+async function logout(){await sb.auth.signOut();window.location.href='login.html';}
+
+// Force Gregorian dates
+(function(){
+  function fixDates(){document.querySelectorAll('input[type="date"]').forEach(function(el){if(!el.dataset.gf){el.setAttribute('lang','en-SA-u-ca-gregory');el.dataset.gf='1';}});}
+  fixDates();
+  new MutationObserver(fixDates).observe(document.body,{childList:true,subtree:true});
+})();
+
+
+/* ── ROLE-BASED ACCESS ── */
+async function checkRoleAccess(){
+  if(!currentUser)return;
+  // Check if user is a team member (not owner)
+  const {data:membership}=await sb.from('business_users')
+    .select('role,business_id,status')
+    .eq('user_id',currentUser.id)
+    .eq('status','active')
+    .single();
+
+  if(!membership)return; // owner — no restriction
+
+  const role=membership.role;
+  const ROLE_NAV={
+    owner:      ['dashboard','invoices','inventory','ledger','purchasing','vat','statements','settings'],
+    accountant: ['dashboard','ledger','vat','statements'],
+    sales:      ['dashboard','invoices'],
+    warehouse:  ['dashboard','inventory'],
+  };
+  const allowed=ROLE_NAV[role]||ROLE_NAV.owner;
+  const currentPage=window.location.pathname.split('/').pop().replace('.html','');
+
+  // Redirect if page not allowed
+  if(currentPage&&currentPage!=='dashboard'&&!allowed.includes(currentPage)){
+    window.location.href='dashboard.html';
+    return;
+  }
+
+  // Hide nav links not allowed
+  document.querySelectorAll('.app-nav-link').forEach(link=>{
+    const href=(link.getAttribute('href')||'').replace('.html','');
+    if(href&&!allowed.includes(href)){
+      link.style.display='none';
+    }
+  });
+
+  // Show role badge in nav
+  const ROLE_LABELS={owner:'مالك',accountant:'محاسب',sales:'مبيعات',warehouse:'مستودع'};
+  const bizNameEl=document.getElementById('biz-name');
+  if(bizNameEl&&role!=='owner'){
+    const badge=document.createElement('span');
+    badge.style.cssText='font-size:9px;font-weight:700;padding:2px 6px;border-radius:5px;margin-right:6px;background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9);';
+    badge.textContent=ROLE_LABELS[role]||role;
+    bizNameEl.after(badge);
+  }
+
+  // Load the correct business for team members
+  if(membership.business_id&&(!currentBiz||currentBiz.id!==membership.business_id)){
+    const {data:biz}=await sb.from('businesses').select('*').eq('id',membership.business_id).single();
+    if(biz){
+      currentBiz=biz;
+      if(bizNameEl)bizNameEl.textContent=biz.name_ar||biz.name||'';
+    }
+  }
+}
+
 init();
-</script></body></html>
+</script>
+</div><!-- /gl-page-content -->
+<script>
+
+function toggleGLSB(){var s=document.getElementById('gl-sidebar');if(window.innerWidth<=768){s.classList.toggle('mob-open');var o=document.getElementById('sb-overlay');if(o)o.style.display=s.classList.contains('mob-open')?'block':'none';var b=document.getElementById('sb-mob-btn');if(b)b.textContent=s.classList.contains('mob-open')?'\u00d7':'\u2630';}else{s.classList.toggle('collapsed');document.body.classList.toggle('gl-collapsed');localStorage.setItem('gl_sb_collapsed',s.classList.contains('collapsed')?'1':'0');}}
+function closeGLSB(){var s=document.getElementById('gl-sidebar');s.classList.remove('mob-open');var o=document.getElementById('sb-overlay');if(o)o.style.display='none';var b=document.getElementById('sb-mob-btn');if(b)b.textContent='\u2630';}
+(function(){if(localStorage.getItem('gl_sb_collapsed')==='1'){var s=document.getElementById('gl-sidebar');if(s){s.classList.add('collapsed');document.body.classList.add('gl-collapsed');}}})();
+document.addEventListener('click',function(e){var m=document.getElementById('gl-qa-menu');if(m&&!e.target.closest('.gl-h-add')&&!e.target.closest('.gl-qa-menu'))m.classList.remove('open');});
+</script>
+<script>
+(function(){
+  var origSet = window._origBizSet;
+  var obs = new MutationObserver(function(){
+    var bn = document.getElementById('biz-name');
+    var gbn = document.getElementById('gl-biz-name');
+    if(bn && gbn && bn.textContent !== '...') gbn.textContent = bn.textContent;
+    var un = document.getElementById('gl-user-name');
+    if(un && bn && bn.textContent !== '...') un.textContent = bn.textContent.substring(0,10);
+  });
+  obs.observe(document.body, {childList:true, subtree:true, characterData:true});
+})();
+</script>
+<script>
+(function(){
+  var origSetLang = window.setLang;
+  if(typeof setLang === 'function'){
+    var _origSL = setLang;
+    window.setLang = function(lang){
+      _origSL(lang);
+      var a=document.getElementById('gl-btn-ar'),e=document.getElementById('gl-btn-en');
+      if(a)a.classList.toggle('on',lang==='ar');
+      if(e)e.classList.toggle('on',lang==='en');
+    };
+  }
+  // Init
+  var l=localStorage.getItem('gl_lang')||'ar';
+  var a=document.getElementById('gl-btn-ar'),e=document.getElementById('gl-btn-en');
+  if(a)a.classList.toggle('on',l==='ar');
+  if(e)e.classList.toggle('on',l==='en');
+})();
+</script>
+</body>
+</html>

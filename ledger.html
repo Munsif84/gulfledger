@@ -1,62 +1,262 @@
-<!DOCTYPE html><html>
+<!DOCTYPE html>
+<html>
 <head>
 <meta charset="UTF-8">
-<script>(function(){var l=localStorage.getItem('gl_lang')||'ar';document.documentElement.setAttribute('lang',l);document.documentElement.setAttribute('dir',l==='ar'?'rtl':'ltr');})();</script>
+<script>
+/* Language flash prevention — runs before render */
+(function(){
+  var l=localStorage.getItem('gl_lang')||'ar';
+  document.documentElement.setAttribute('lang',l);
+  document.documentElement.setAttribute('dir',l==='ar'?'rtl':'ltr');
+})();
+</script>
+<script>
+/* Apply language before render to prevent flash */
+(function(){
+  var lang = localStorage.getItem('gl_lang') || 'ar';
+  document.documentElement.setAttribute('lang', lang);
+  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+})();
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GulfLedger — المحاسبة</title>
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&family=Playfair+Display:wght@700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
-:root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#C62828;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--border:#d4e6f7;--bg:#f7fafd;--white:#ffffff;--purple:#6d28d9;}
+:root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#C62828;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--border:#d4e6f7;--bg:#f7fafd;--white:#ffffff;}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);}
-.topnav,.app-nav{display:none!important;}
-.stats{display:grid;gap:12px;margin-bottom:20px;}
-.stat{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
-.stat-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px;}
-.stat-num{font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:var(--navy);}
-.stat-sub{font-size:11px;color:var(--muted);margin-top:3px;}
-.stat.s-green{border-color:#86efac;background:#f0fdf4;}
-.stat.s-red{border-color:#fca5a5;background:#fff5f5;}
-.stat.s-amber{border-color:#fde68a;background:#fffbeb;}
-.c-navy{color:var(--navy)!important;}.c-green{color:var(--green)!important;}.c-red{color:var(--red)!important;}.c-amber{color:var(--amber)!important;}
+body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;}
+.topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;}
+.nav-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
+.nav-bars{display:flex;gap:3px;height:22px;}
+.nav-bar{width:3px;border-radius:2px;}
+.nav-name{font-family:'Playfair Display',serif;font-size:16px;color:#fff;}
+.nav-right{display:flex;align-items:center;gap:8px;}
+.nav-divider{width:1px;height:20px;background:rgba(255,255,255,0.2);}
+.nav-biz{font-size:12px;color:var(--light);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 10px;background:rgba(255,255,255,0.08);border-radius:6px;border:1px solid rgba(255,255,255,0.15);}
+.btn-logout{padding:5px 14px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
+.btn-logout:hover{background:rgba(255,255,255,0.2);}
+.nav-settings-btn{display:flex;align-items:center;justify-content:center;width:32px;height:32px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:#fff;text-decoration:none;font-size:15px;flex-shrink:0;}
+.nav-settings-btn:hover{background:rgba(255,255,255,0.2);}
+.lang-switch{display:flex;border:1px solid rgba(255,255,255,0.2);border-radius:6px;overflow:hidden;}
+.lang-btn{padding:4px 10px;font-size:11px;cursor:pointer;border:none;background:transparent;color:rgba(255,255,255,0.6);font-family:'Tajawal',sans-serif;}
+.lang-btn.on{background:var(--sky);color:#fff;}
+.app-nav{background:var(--blue);padding:8px 20px;display:flex;gap:4px;align-items:center;overflow-x:auto;}
+.app-nav-link{padding:5px 14px;font-size:12px;font-weight:500;color:rgba(255,255,255,0.7);text-decoration:none;border-radius:6px;white-space:nowrap;}
+.app-nav-link:hover{background:rgba(255,255,255,0.12);color:#fff;}
+.app-nav-link.active{background:rgba(255,255,255,0.18);color:#fff;}
+
+/* LAYOUT */
+.layout{display:grid;grid-template-columns:220px 1fr;min-height:calc(100vh - 88px);}
+.sidebar{background:var(--white);border-left:1px solid var(--border);padding:14px 0;overflow-y:auto;}
+.sb-sec{padding:0 12px;margin-bottom:8px;}
+.sb-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);padding:8px 6px 5px;display:block;}
+.sb-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px;color:var(--ink);margin-bottom:2px;user-select:none;transition:background .15s;}
+.sb-item:hover{background:var(--tint);color:var(--blue);}
+.sb-item.active{background:var(--tint);color:var(--blue);font-weight:600;border-right:3px solid var(--blue);}
+.sb-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+.main{padding:20px;overflow-y:auto;}
+
+/* STATS */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;}
+.stat{background:var(--white);border:1px solid var(--border);border-radius:10px;padding:13px 15px;}
+.stat-lbl{font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;}
+.stat-num{font-size:18px;font-weight:700;font-family:'DM Mono',monospace;}
+.c-navy{color:var(--navy);}.c-green{color:var(--green);}.c-red{color:var(--red);}.c-amber{color:var(--amber);}
+.stat-sub{font-size:11px;color:var(--muted);margin-top:2px;}
+
+/* TABS */
+.tc{display:none;}.tc.active{display:block;}
+
+/* CARD */
 .card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px;}
-.card-hdr{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;}
+.card-hdr{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
 .card-ttl{font-size:14px;font-weight:700;color:var(--navy);}
 .card-bdy{padding:18px;}
+
+/* FORM */
 .fg{display:grid;gap:12px;margin-bottom:14px;}
 .fg-2{grid-template-columns:1fr 1fr;}
 .fg-3{grid-template-columns:1fr 1fr 1fr;}
 .fld{display:flex;flex-direction:column;gap:4px;}
 .fld label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
 .fld input,.fld select,.fld textarea{padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:13px;color:var(--ink);background:var(--white);width:100%;}
-.fld input:focus,.fld select:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(55,138,221,0.1);}
-.hint{font-size:10px;color:var(--muted);margin-top:2px;}
-.btn-p{padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;}
-.btn-p:hover{background:var(--navy);}
-.btn-s{padding:7px 14px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;font-weight:600;cursor:pointer;}
-.btn-s:hover{border-color:var(--blue);}
-.btn-d{padding:5px 10px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;}
-.btn-row{display:flex;gap:8px;flex-wrap:wrap;}
+.fld input:focus,.fld select:focus,.fld textarea:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(55,138,221,0.1);}
+
+/* JOURNAL ENTRY LINES */
+.je-header{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 24px;gap:6px;margin-bottom:4px;}
+.je-header span{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;}
+.je-line{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 24px;gap:6px;margin-bottom:5px;align-items:center;}
+.je-line input,.je-line select{padding:7px 8px;border:1px solid var(--border);border-radius:5px;font-family:'Tajawal',sans-serif;font-size:12px;color:var(--ink);width:100%;}
+.je-line input[type="number"]{font-family:'DM Mono',monospace;}
+.je-del{width:22px;height:22px;border-radius:50%;border:1px solid #fca5a5;background:#fff5f5;color:var(--red);cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;}
+
+/* BALANCE CHECK */
+.balance-bar{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-radius:8px;font-size:13px;margin-top:10px;}
+.balance-bar.balanced{background:#f0fdf4;border:1px solid #86efac;color:var(--green);}
+.balance-bar.unbalanced{background:#fff5f5;border:1px solid #fca5a5;color:var(--red);}
+.balance-val{font-family:'DM Mono',monospace;font-weight:700;}
+
+/* TABLE */
 .tbl{width:100%;border-collapse:collapse;font-size:12px;}
-.tbl th{padding:9px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-align:right;white-space:nowrap;letter-spacing:.04em;text-transform:uppercase;}
-.tbl td{padding:9px 12px;border-bottom:1px solid var(--tint);vertical-align:middle;text-align:right;}
-[dir="ltr"] .tbl th,[dir="ltr"] .tbl td{text-align:left;}
+.tbl th{padding:9px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-align:right;white-space:nowrap;}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--tint);vertical-align:middle;}
 .tbl tr:last-child td{border-bottom:none;}
 .tbl tr:hover td{background:#fafcff;}
 .mono{font-family:'DM Mono',monospace;font-size:12px;}
-.bdg{font-size:10px;font-weight:700;padding:2px 9px;border-radius:8px;display:inline-block;}
-.tc{display:none;}.tc.active{display:block;}
-.section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);display:block;}
-.main{padding:20px;}
-input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
-@media(max-width:768px){.stats{grid-template-columns:1fr 1fr!important;}.fg-2,.fg-3{grid-template-columns:1fr 1fr!important;}.main{padding:12px!important;}}
-@media(max-width:480px){.stats{grid-template-columns:1fr!important;}}
-.layout{display:grid;grid-template-columns:210px 1fr;min-height:100vh;}
+.dr{color:var(--green);font-weight:600;}
+.cr{color:var(--red);font-weight:600;}
+
+/* TRIAL BALANCE */
+.tb-section{margin-bottom:8px;}
+.tb-group{font-size:11px;font-weight:700;color:var(--navy);text-transform:uppercase;letter-spacing:.06em;padding:8px 12px;background:var(--tint);border-radius:6px;margin-bottom:4px;}
+.tb-row{display:grid;grid-template-columns:1fr 120px 120px;padding:7px 12px;border-bottom:1px solid var(--tint);font-size:12px;}
+.tb-row:last-child{border-bottom:none;}
+.tb-total{display:grid;grid-template-columns:1fr 120px 120px;padding:9px 12px;font-size:13px;font-weight:700;color:var(--navy);border-top:2px solid var(--border);margin-top:4px;}
+
+/* BUTTONS */
+.btn-p{padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;}
+.btn-p:hover{background:var(--navy);}
+.btn-s{padding:7px 14px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
+.btn-s:hover{border-color:var(--blue);}
+.btn-d{padding:5px 10px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;}
+
+/* NOTE BOX */
+.note-box{display:flex;align-items:flex-start;gap:8px;padding:10px 13px;border-radius:8px;margin-bottom:13px;font-size:12px;line-height:1.5;}
+.note-box.blue{background:var(--tint);border:1px solid var(--light);color:var(--navy);}
+.note-box.amber{background:#fffbeb;border:1px solid #fde68a;color:var(--amber);}
+
+/* SAVE STATUS */
+.save-status{font-size:11px;padding:4px 10px;border-radius:6px;}
+.saving{background:var(--tint);color:var(--blue);}
+.saved{background:#f0fdf4;color:var(--green);}
+
+/* ACCOUNT CODE */
+.acc-code{font-family:'DM Mono',monospace;font-size:11px;background:var(--tint);color:var(--blue);padding:2px 7px;border-radius:5px;display:inline-block;}
+
+@media(max-width:768px){
+  .layout{grid-template-columns:1fr;}
+  .sidebar{display:none;}
+  .stats{grid-template-columns:1fr 1fr;}
+  .fg-3{grid-template-columns:1fr 1fr;}
+  .je-header,.je-line{grid-template-columns:1.5fr 80px 80px 80px 24px;}
+}
+
+/* Force Gregorian calendar on all devices — prevents Hijri on Arabic locale */
+input[type="date"]::-webkit-calendar-picker-indicator { filter: none; }
+input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family: 'DM Mono', monospace; }
+
+/* ═══════════════════════════════════════
+   GULFLEDGER MOBILE RESPONSIVE — ALL PAGES
+   Breakpoint: 768px
+   ═══════════════════════════════════════ */
+@media(max-width:768px){
+  /* NAV */
+  .topnav{padding:8px 12px;gap:6px;}
+  .nav-biz{max-width:100px;}
+  .lang-switch .lang-btn{padding:3px 8px;font-size:10px;}
+  .btn-logout{padding:4px 10px;font-size:11px;}
+
+  /* APP NAV — scrollable, compact */
+  .app-nav{padding:6px 10px;gap:2px;}
+  .app-nav-link{padding:5px 9px;font-size:11px;}
+
+  /* SIDEBAR LAYOUTS — hide sidebar, full width main */
+  .layout{grid-template-columns:1fr !important;}
+  .sidebar{display:none !important;}
+
+  /* STATS GRIDS */
+  .stats{grid-template-columns:1fr 1fr !important;}
+
+  /* MODULE CARDS */
+  .modules{grid-template-columns:1fr !important;}
+
+  /* INVOICE — stack panels */
+  .app{grid-template-columns:1fr !important;}
+  .form-panel{border-left:none;border-bottom:1px solid var(--border);}
+  .invoice-doc{margin-top:12px;}
+
+  /* FORM GRIDS — all single column */
+  .fg-2,.fg-3,.fg-4,.fg-5{grid-template-columns:1fr !important;}
+  .field-row.double,.field-row.triple{grid-template-columns:1fr !important;}
+
+  /* ITEM ROW — description on its own line */
+  .item-row{grid-template-columns:20px 1fr 40px 58px 46px 58px 22px !important;}
+
+  /* PERIOD BAR — stack */
+  .period-bar{flex-direction:column;align-items:stretch;gap:8px;}
+  .period-bar select,.period-bar input{width:100%;}
+
+  /* PAGE HEADER */
+  .page-header{flex-direction:column;gap:10px;}
+
+  /* TABLES — horizontal scroll */
+  .tbl-wrap, .overflow-x-auto, [style*="overflow-x:auto"]{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .tbl{min-width:520px;}
+  .inv-items{min-width:480px;}
+
+  /* INVOICE PARTIES — stack on very small */
+  .inv-parties{grid-template-columns:1fr !important;}
+  .inv-parties > div:first-child{border-right:none;border-bottom:1px solid var(--border);}
+
+  /* CARDS */
+  .card-hdr{flex-direction:column;align-items:flex-start !important;}
+
+  /* SETTINGS TABS */
+  .section-tabs{flex-wrap:wrap;gap:4px;}
+  .stab{padding:6px 10px;font-size:11px;}
+
+  /* VAT FORM */
+  .f201-row{flex-direction:column;gap:8px;}
+  .f201-row > div{flex:none;width:100%;}
+  .f201-stats{grid-template-columns:1fr 1fr !important;}
+
+  /* STATEMENTS */
+  .stmt-row{font-size:12px;}
+
+  /* PADDING */
+  .main{padding:12px !important;}
+  .page{padding:14px 12px !important;}
+  .card-bdy{padding:12px !important;}
+}
+
+@media(max-width:480px){
+  .stats{grid-template-columns:1fr !important;}
+  .nav-name span{display:none;}
+  .item-row{grid-template-columns:16px 1fr 36px 52px 44px 52px 20px !important;}
+  .f201-stats{grid-template-columns:1fr !important;}
+}
+
+
+/* MOBILE SIDEBAR TOGGLE */
+.mob-sidebar-btn{display:none;position:fixed;bottom:20px;right:16px;z-index:500;
+  background:var(--blue);color:#fff;border:none;border-radius:50%;width:48px;height:48px;
+  font-size:20px;cursor:pointer;box-shadow:0 4px 16px rgba(0,0,0,0.2);align-items:center;justify-content:center;}
+@media(max-width:768px){
+  .mob-sidebar-btn{display:flex;}
+  .sidebar.mob-open{display:block !important;position:fixed;top:88px;right:0;width:220px;height:calc(100vh - 88px);
+    z-index:400;box-shadow:-4px 0 24px rgba(0,0,0,0.15);overflow-y:auto;}
+  .sidebar.mob-open ~ .mob-overlay{display:block;}
+  .mob-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.3);z-index:399;}
+}
+[dir="ltr"] .mob-sidebar-btn{right:auto;left:16px;}
+[dir="ltr"] .sidebar.mob-open{right:auto;left:0;}
+
+
+/* ── STICKY NAV ── */
+.topnav{position:sticky;top:0;z-index:300;box-shadow:0 2px 8px rgba(0,0,0,0.15);}
+.app-nav{position:sticky;top:44px;z-index:299;box-shadow:0 2px 6px rgba(0,0,0,0.1);}
+
+
+/* ═══════════════════════════════════════
+   GULFLEDGER SHARED UX — consistent across all pages
+   ═══════════════════════════════════════ */
 .sidebar{background:var(--white);border-left:1px solid var(--border);padding:14px 0;overflow-y:auto;}
 [dir="ltr"] .sidebar{border-left:none;border-right:1px solid var(--border);}
+.layout{display:grid;grid-template-columns:210px 1fr;min-height:calc(100vh - 88px);}
 .sb-sec{padding:0 12px;margin-bottom:6px;}
-.sb-lbl{font-size:13px;font-weight:700;color:var(--navy);padding:12px 6px 6px;display:block;}
+.sb-lbl{font-size:13px;font-weight:700;color:var(--navy);padding:12px 6px 6px;display:block;letter-spacing:.01em;}
 .sb-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px;color:var(--ink);margin-bottom:2px;user-select:none;transition:background .15s;}
 .sb-item:hover{background:var(--tint);color:var(--blue);}
 .sb-item.active{background:var(--tint);color:var(--blue);font-weight:600;border-right:3px solid var(--blue);}
@@ -64,101 +264,254 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
 .sb-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
 .sb-stat{font-size:11px;color:var(--muted);padding:4px 10px;display:flex;justify-content:space-between;}
 .sb-stat-val{font-family:'DM Mono',monospace;font-weight:700;font-size:11px;}
-.balance-bar{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-radius:8px;font-size:13px;margin-top:10px;}
-.balance-bar.balanced{background:#f0fdf4;border:1px solid #86efac;color:var(--green);}
-.balance-bar.unbalanced{background:#fff5f5;border:1px solid #fca5a5;color:var(--red);}
-.balance-val{font-family:'DM Mono',monospace;font-weight:700;}
-.je-header{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 24px;gap:6px;margin-bottom:4px;}
-.je-header span{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;}
-.je-line{display:grid;grid-template-columns:2fr 1fr 1fr 1fr 24px;gap:6px;margin-bottom:5px;align-items:center;}
-.je-line input,.je-line select{padding:7px 8px;border:1px solid var(--border);border-radius:5px;font-family:'Tajawal',sans-serif;font-size:12px;color:var(--ink);width:100%;}
-.je-line input[type="number"]{font-family:'DM Mono',monospace;}
-.je-del{width:22px;height:22px;border-radius:50%;border:1px solid #fca5a5;background:#fff5f5;color:var(--red);cursor:pointer;font-size:13px;display:flex;align-items:center;justify-content:center;}
-.acc-code{font-family:'DM Mono',monospace;font-size:11px;background:var(--tint);color:var(--blue);padding:2px 7px;border-radius:5px;display:inline-block;}
-.dr{color:var(--green);font-weight:600;}
-.cr{color:var(--red);font-weight:600;}
-.save-status{font-size:11px;padding:4px 10px;border-radius:6px;}
-.saving{background:var(--tint);color:var(--blue);}
-.saved{background:#f0fdf4;color:var(--green);}
+.main{padding:20px;overflow-y:auto;}
+.stats{display:grid;gap:12px;margin-bottom:20px;}
+.stat{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
+.stat-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px;}
+.stat-num{font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:var(--navy);}
+.stat-sub{font-size:11px;color:var(--muted);margin-top:3px;}
+.stat.s-green{border-color:#86efac;background:#f0fdf4;}
+.stat.s-amber{border-color:#fde68a;background:#fffbeb;}
+.stat.s-red{border-color:#fca5a5;background:#fff5f5;}
+.c-navy{color:var(--navy)!important;}.c-green{color:var(--green)!important;}.c-red{color:var(--red)!important;}.c-amber{color:var(--amber)!important;}
+.card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px;}
+.card-hdr{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;}
+.card-ttl{font-size:14px;font-weight:700;color:var(--navy);}
+.card-bdy{padding:18px;}
+.section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);display:block;}
+.fg{display:grid;gap:12px;margin-bottom:14px;}
+.fg-2{grid-template-columns:1fr 1fr;}
+.fg-3{grid-template-columns:1fr 1fr 1fr;}
+.fld{display:flex;flex-direction:column;gap:4px;}
+.fld label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+.fld input,.fld select,.fld textarea{padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:13px;color:var(--ink);background:var(--white);width:100%;}
+.fld input:focus,.fld select:focus,.fld textarea:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(55,138,221,0.1);}
+.hint{font-size:10px;color:var(--muted);margin-top:2px;}
+.btn-p{padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;}
+.btn-p:hover{background:var(--navy);}
+.btn-s{padding:7px 14px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;font-weight:600;cursor:pointer;}
+.btn-s:hover{border-color:var(--blue);background:#dbeafe;}
+.btn-d{padding:5px 10px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;}
+.tbl{width:100%;border-collapse:collapse;font-size:12px;}
+.tbl th{padding:9px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-align:right;white-space:nowrap;letter-spacing:.04em;text-transform:uppercase;}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--tint);vertical-align:middle;}
+[dir="ltr"] .tbl th,[dir="ltr"] .tbl td{text-align:left;}
+.tbl tr:last-child td{border-bottom:none;}
+.tbl tr:hover td{background:#fafcff;cursor:pointer;}
+.mono{font-family:'DM Mono',monospace;font-size:12px;}
+.bdg{font-size:10px;font-weight:700;padding:2px 9px;border-radius:8px;display:inline-block;}
 .note-box{display:flex;align-items:flex-start;gap:8px;padding:10px 13px;border-radius:8px;margin-bottom:13px;font-size:12px;line-height:1.5;}
 .note-box.blue{background:var(--tint);border:1px solid var(--light);color:var(--navy);}
 .note-box.amber{background:#fffbeb;border:1px solid #fde68a;color:var(--amber);}
-@media(max-width:768px){.layout{grid-template-columns:1fr!important;}.sidebar{display:none!important;}}
+.tc{display:none;}.tc.active{display:block;}
+@media(max-width:768px){
+  .layout{grid-template-columns:1fr!important;}
+  .sidebar{display:none!important;}
+  .stats{grid-template-columns:1fr 1fr!important;}
+  .fg-2,.fg-3{grid-template-columns:1fr 1fr!important;}
+  .main{padding:12px!important;}
+  .card-bdy{padding:12px!important;}
+  .card-hdr{flex-direction:column;align-items:flex-start!important;}
+}
+@media(max-width:480px){
+  .stats{grid-template-columns:1fr!important;}
+  .fg-2,.fg-3{grid-template-columns:1fr!important;}
+}
 
-/* PERSISTENT SIDEBAR */
+/* ── SIDEBAR + HEADER (added, original design untouched) ── */
 .topnav,.app-nav{display:none!important;}
 .gl-sidebar{width:220px;height:100vh;position:fixed;top:0;right:0;background:var(--navy);display:flex;flex-direction:column;z-index:500;transition:width .25s ease;overflow:hidden;}
 [dir="ltr"] .gl-sidebar{right:auto;left:0;}
-.gl-sidebar.collapsed{width:56px;}
-.gl-sidebar.collapsed .gl-sb-show{display:none!important;}
-.gl-sidebar.collapsed #gl-sb-arrow{transform:rotate(180deg);}
+.gl-sidebar.collapsed{width:54px;}
+.gl-sidebar.collapsed .sb-hide{display:none!important;}
+.gl-sidebar.collapsed .sb-link{justify-content:center;padding:10px 0;}
+.gl-sidebar.collapsed .sb-link span:last-child{display:none;}
+.gl-sidebar.collapsed .sb-biz{display:none;}
+.gl-sidebar.collapsed #sb-arrow{transform:rotate(180deg);}
+[dir="ltr"] .gl-sidebar.collapsed #sb-arrow{transform:rotate(0deg);}
+.sb-top{padding:14px 14px 8px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.sb-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
+.sb-logo-bars{display:flex;gap:3px;height:20px;flex-shrink:0;}
+.sb-logo-bar{width:3px;border-radius:2px;}
+.sb-logo-bar:first-child{height:100%;background:#fff;}
+.sb-logo-bar:last-child{height:60%;margin-top:40%;background:rgba(255,255,255,0.45);}
+.sb-logo-name{font-family:'Playfair Display',serif;font-size:15px;color:#fff;white-space:nowrap;}
+.sb-logo-name span{color:var(--light);}
+.sb-collapse{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:5px;color:rgba(255,255,255,0.5);cursor:pointer;font-size:10px;padding:4px 7px;flex-shrink:0;}
+.sb-collapse:hover{background:rgba(255,255,255,0.15);color:#fff;}
+.sb-biz{margin:4px 12px 10px;padding:6px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08);border-radius:6px;font-size:11px;color:rgba(255,255,255,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;}
+.sb-nav{flex:1;overflow-y:auto;padding:6px 8px;display:flex;flex-direction:column;gap:1px;}
+.sb-nav::-webkit-scrollbar{width:0;}
+.sb-sec-label{font-size:9px;font-weight:700;color:rgba(255,255,255,0.25);text-transform:uppercase;letter-spacing:.08em;padding:12px 10px 4px;}
+.sb-link{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:6px;text-decoration:none;color:rgba(255,255,255,0.6);font-size:13px;font-weight:500;transition:all .12s;white-space:nowrap;border:none;background:transparent;cursor:pointer;width:100%;text-align:right;}
+[dir="ltr"] .sb-link{text-align:left;}
+.sb-link:hover{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.9);}
+.sb-link.active{background:rgba(255,255,255,0.12);color:#fff;font-weight:700;border-right:3px solid var(--sky);}
+[dir="ltr"] .sb-link.active{border-right:none;border-left:3px solid var(--sky);}
+.sb-link-icon{font-size:14px;flex-shrink:0;width:20px;text-align:center;opacity:.7;}
+.sb-link.active .sb-link-icon{opacity:1;}
+.sb-bottom{padding:6px 8px 12px;flex-shrink:0;display:flex;flex-direction:column;gap:1px;}
+.sb-hr{height:1px;background:rgba(255,255,255,0.08);margin:6px 4px;}
+.sb-logout{color:rgba(255,255,255,0.4);}
+.sb-logout:hover{color:#f87171;background:rgba(248,113,113,0.1);}
+/* Header */
+.gl-header{height:48px;background:var(--white);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 20px;position:sticky;top:0;z-index:400;}
+.gl-h-title{font-size:15px;font-weight:700;color:var(--navy);}
+.gl-h-right{display:flex;align-items:center;gap:8px;}
+.gl-h-add{display:flex;align-items:center;gap:4px;padding:6px 14px;background:var(--blue);color:#fff;border:none;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;font-weight:700;cursor:pointer;}
+.gl-h-add:hover{background:var(--navy);}
+.gl-h-lang{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;}
+.gl-h-lang-btn{padding:4px 10px;font-size:11px;cursor:pointer;border:none;background:transparent;color:var(--muted);font-family:'Tajawal',sans-serif;font-weight:500;}
+.gl-h-lang-btn.on{background:var(--sky);color:#fff;}
+.gl-h-user{display:flex;align-items:center;gap:6px;padding:3px 10px 3px 4px;background:var(--tint);border:1px solid var(--border);border-radius:16px;font-size:12px;color:var(--ink);}
+.gl-h-av{width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;}
+/* Page content wrapper */
 .gl-page-content{margin-right:220px;min-height:100vh;transition:margin-right .25s ease;}
 [dir="ltr"] .gl-page-content{margin-right:0;margin-left:220px;}
-body.gl-collapsed .gl-page-content{margin-right:56px;}
-[dir="ltr"] body.gl-collapsed .gl-page-content{margin-right:0;margin-left:56px;}
-.gl-sb-header{display:flex;align-items:center;justify-content:space-between;padding:16px 14px 10px;flex-shrink:0;}
-.gl-sb-logo{display:flex;align-items:center;gap:8px;text-decoration:none;overflow:hidden;}
-.gl-sb-logo-bars{display:flex;gap:3px;height:20px;flex-shrink:0;}
-.gl-sb-bar{width:3px;border-radius:2px;}
-.gl-sb-bar:first-child{height:100%;}
-.gl-sb-bar:last-child{height:60%;margin-top:40%;}
-.gl-sb-logo-name{font-family:'Playfair Display',serif;font-size:15px;color:#fff;white-space:nowrap;}
-.gl-sb-collapse-btn{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:rgba(255,255,255,0.6);cursor:pointer;font-size:10px;padding:4px 7px;flex-shrink:0;}
-.gl-sb-biz{margin:0 12px 12px;padding:6px 10px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:7px;font-size:11px;color:var(--light);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;}
-.gl-sb-nav{flex:1;overflow-y:auto;padding:4px 8px;display:flex;flex-direction:column;gap:2px;}
-.gl-sb-link{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;text-decoration:none;color:rgba(255,255,255,0.65);font-family:'Tajawal',sans-serif;font-size:13px;font-weight:500;transition:background .15s,color .15s;white-space:nowrap;border:none;background:transparent;cursor:pointer;width:100%;text-align:right;}
-[dir="ltr"] .gl-sb-link{text-align:left;}
-.gl-sb-link:hover{background:rgba(255,255,255,0.1);color:#fff;}
-.gl-sb-link.active{background:rgba(255,255,255,0.15);color:#fff;font-weight:700;border-right:3px solid var(--sky);}
-[dir="ltr"] .gl-sb-link.active{border-right:none;border-left:3px solid var(--sky);}
-.gl-sb-icon{font-size:15px;flex-shrink:0;width:20px;text-align:center;}
-.gl-sb-bottom{padding:8px 8px 12px;flex-shrink:0;display:flex;flex-direction:column;gap:2px;}
-.gl-sb-divider{height:1px;background:rgba(255,255,255,0.1);margin:6px 4px 8px;}
-.gl-sb-lang{display:flex;gap:4px;padding:4px 10px 8px;}
-.gl-lang-btn{padding:4px 12px;font-size:11px;cursor:pointer;border:1px solid rgba(255,255,255,0.2);border-radius:5px;background:transparent;color:rgba(255,255,255,0.6);font-family:'Tajawal',sans-serif;}
-.gl-lang-btn.on{background:var(--sky);color:#fff;border-color:var(--sky);}
-.gl-sb-logout{color:rgba(255,255,255,0.5);}
-.gl-sb-logout:hover{color:#fca5a5;background:rgba(220,38,38,0.15);}
-.gl-sb-mob-btn{display:none;position:fixed;top:12px;right:12px;z-index:600;background:var(--navy);color:#fff;border:none;border-radius:8px;width:40px;height:40px;font-size:18px;cursor:pointer;align-items:center;justify-content:center;}
-[dir="ltr"] .gl-sb-mob-btn{right:auto;left:12px;}
-.gl-sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:490;}
-@media(max-width:768px){.gl-sidebar{width:240px!important;transform:translateX(100%);transition:transform .25s ease;}[dir="ltr"] .gl-sidebar{transform:translateX(-100%);}.gl-sidebar.mob-open{transform:translateX(0)!important;}.gl-page-content{margin-right:0!important;margin-left:0!important;}.gl-sb-mob-btn{display:flex;}}
+body.gl-collapsed .gl-page-content{margin-right:54px;}
+[dir="ltr"] body.gl-collapsed .gl-page-content{margin-right:0;margin-left:54px;}
+/* Quick-add dropdown */
+.gl-qa-menu{display:none;position:absolute;top:46px;right:0;background:var(--white);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,0.12);padding:6px;min-width:180px;z-index:450;}
+[dir="ltr"] .gl-qa-menu{right:auto;left:0;}
+.gl-qa-menu.open{display:block;}
+.gl-qa-item{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--ink);text-decoration:none;}
+.gl-qa-item:hover{background:var(--tint);}
+/* Mobile */
+.sb-mob-btn{display:none;position:fixed;top:10px;right:10px;z-index:600;background:var(--navy);color:#fff;border:none;border-radius:8px;width:40px;height:40px;font-size:18px;cursor:pointer;align-items:center;justify-content:center;}
+[dir="ltr"] .sb-mob-btn{right:auto;left:10px;}
+.sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:490;}
+@media(max-width:768px){.gl-sidebar{width:240px!important;transform:translateX(100%);transition:transform .25s ease;}[dir="ltr"] .gl-sidebar{transform:translateX(-100%);}.gl-sidebar.mob-open{transform:translateX(0)!important;}.gl-page-content{margin-right:0!important;margin-left:0!important;}.sb-mob-btn{display:flex;}.sb-collapse{display:none;}}
 
 </style>
 </head>
 <body>
+<!-- GL SIDEBAR -->
 <div class="gl-sidebar" id="gl-sidebar">
-  <div class="gl-sb-header"><a href="dashboard.html" class="gl-sb-logo"><div class="gl-sb-logo-bars"><div class="gl-sb-bar" style="background:#fff;"></div><div class="gl-sb-bar" style="background:rgba(255,255,255,0.45);"></div></div><span class="gl-sb-logo-name gl-sb-show">Gulf<span style="color:var(--light);">Ledger</span></span></a><button class="gl-sb-collapse-btn" onclick="toggleGLSidebar()"><span id="gl-sb-arrow">◀</span></button></div>
-  <div class="gl-sb-biz gl-sb-show"><span id="biz-name">...</span></div>
-  <nav class="gl-sb-nav">    <a href="dashboard.html" class="gl-sb-link"><span class="gl-sb-icon">⊞</span><span class="gl-sb-show" data-ar="الرئيسية" data-en="Dashboard">الرئيسية</span></a>
-    <a href="inventory.html" class="gl-sb-link"><span class="gl-sb-icon">📦</span><span class="gl-sb-show" data-ar="المنتجات والمخزون" data-en="Products & Stock">المنتجات والمخزون</span></a>
-    <a href="invoices.html" class="gl-sb-link"><span class="gl-sb-icon">🧾</span><span class="gl-sb-show" data-ar="المبيعات والفواتير" data-en="Sales & Invoices">المبيعات والفواتير</span></a>
-    <a href="expenses.html" class="gl-sb-link"><span class="gl-sb-icon">💸</span><span class="gl-sb-show" data-ar="المصاريف" data-en="Expenses">المصاريف</span></a>
-    <a href="ledger.html" class="gl-sb-link active"><span class="gl-sb-icon">📒</span><span class="gl-sb-show" data-ar="المحاسبة" data-en="Accounting">المحاسبة</span></a>
-    <a href="vat.html" class="gl-sb-link"><span class="gl-sb-icon">🧮</span><span class="gl-sb-show" data-ar="ضريبة القيمة المضافة" data-en="VAT">ضريبة القيمة المضافة</span></a>
-    <a href="reports.html" class="gl-sb-link"><span class="gl-sb-icon">📊</span><span class="gl-sb-show" data-ar="التقارير" data-en="Reports">التقارير</span></a></nav>
-  <div class="gl-sb-bottom"><div class="gl-sb-divider"></div><div class="gl-sb-lang gl-sb-show"><button class="gl-lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button><button class="gl-lang-btn" id="btn-en" onclick="setLang('en')">EN</button></div><a href="settings.html" class="gl-sb-link"><span class="gl-sb-icon">⚙️</span><span class="gl-sb-show" data-ar="الإعدادات" data-en="Settings">الإعدادات</span></a><button class="gl-sb-link gl-sb-logout" onclick="logout()"><span class="gl-sb-icon">↩</span><span class="gl-sb-show" data-ar="خروج" data-en="Sign Out">خروج</span></button></div>
+  <div class="sb-top">
+    <a href="dashboard.html" class="sb-logo">
+      <div class="sb-logo-bars"><div class="sb-logo-bar"></div><div class="sb-logo-bar"></div></div>
+      <span class="sb-logo-name sb-hide">Gulf<span>Ledger</span></span>
+    </a>
+    <button class="sb-collapse" onclick="toggleGLSB()"><span id="sb-arrow">&#9664;</span></button>
+  </div>
+  <div class="sb-biz sb-hide" id="gl-biz-name">...</div>
+  <nav class="sb-nav">
+    <div class="sb-sec-label sb-hide" data-ar="القائمة الرئيسية" data-en="Main Menu">القائمة الرئيسية</div>
+    <a href="dashboard.html" class="sb-link" data-ar="الرئيسية" data-en="Dashboard"><span class="sb-link-icon">⊞</span><span>الرئيسية</span></a>
+    <a href="inventory.html" class="sb-link" data-ar="المنتجات والمخزون" data-en="Products & Stock"><span class="sb-link-icon">📦</span><span>المنتجات والمخزون</span></a>
+    <a href="invoices.html" class="sb-link" data-ar="المبيعات والفواتير" data-en="Sales & Invoices"><span class="sb-link-icon">🧾</span><span>المبيعات والفواتير</span></a>
+    <a href="expenses.html" class="sb-link" data-ar="المصاريف" data-en="Expenses"><span class="sb-link-icon">💸</span><span>المصاريف</span></a>
+    <a href="ledger.html" class="sb-link active" data-ar="المحاسبة" data-en="Accounting"><span class="sb-link-icon">📒</span><span>المحاسبة</span></a>
+    <a href="vat.html" class="sb-link" data-ar="ضريبة القيمة المضافة" data-en="VAT"><span class="sb-link-icon">🧮</span><span>ضريبة القيمة المضافة</span></a>
+    <a href="reports.html" class="sb-link" data-ar="التقارير" data-en="Reports"><span class="sb-link-icon">📊</span><span>التقارير</span></a>
+
+    <div class="sb-sec-label sb-hide" data-ar="التقارير المالية" data-en="Financial">التقارير المالية</div>
+    <a href="statements.html" class="sb-link" data-ar="القوائم المالية" data-en="Statements"><span class="sb-link-icon">📑</span><span>القوائم المالية</span></a>
+    <a href="purchasing.html" class="sb-link" data-ar="المشتريات" data-en="Purchasing"><span class="sb-link-icon">🛒</span><span>المشتريات</span></a>
+  </nav>
+  <div class="sb-bottom">
+    <div class="sb-hr"></div>
+    <a href="settings.html" class="sb-link" data-ar="الإعدادات" data-en="Settings"><span class="sb-link-icon">⚙️</span><span class="sb-hide">الإعدادات</span></a>
+    <button class="sb-link sb-logout" onclick="logout()" data-ar="خروج" data-en="Sign Out"><span class="sb-link-icon">↩</span><span class="sb-hide">خروج</span></button>
+  </div>
 </div>
-<div class="gl-sb-overlay" id="gl-sb-overlay" onclick="closeSidebar()"></div>
-<button class="gl-sb-mob-btn" id="gl-mob-btn" onclick="toggleGLSidebar()">☰</button>
+<div class="sb-overlay" id="sb-overlay" onclick="closeGLSB()"></div>
+<button class="sb-mob-btn" id="sb-mob-btn" onclick="toggleGLSB()">&#9776;</button>
+
 <div class="gl-page-content">
+<!-- GL HEADER -->
+<div class="gl-header">
+  <span class="gl-h-title" data-ar="المحاسبة" data-en="Accounting">المحاسبة</span>
+  <div class="gl-h-right" style="position:relative;">
+    <button class="gl-h-add" onclick="document.getElementById('gl-qa-menu').classList.toggle('open')"><span style="font-size:16px;font-weight:300;">+</span> إضافة</button>
+    <div class="gl-qa-menu" id="gl-qa-menu">
+      <a href="invoices.html" class="gl-qa-item">🧾 فاتورة جديدة</a>
+      <a href="expenses.html" class="gl-qa-item">💸 مصروف جديد</a>
+      <a href="inventory.html" class="gl-qa-item">📦 منتج جديد</a>
+    </div>
+    <div class="gl-h-lang">
+      <button class="gl-h-lang-btn" id="gl-btn-ar" onclick="setLang('ar')">ع</button>
+      <button class="gl-h-lang-btn" id="gl-btn-en" onclick="setLang('en')">EN</button>
+    </div>
+    <div class="gl-h-user"><div class="gl-h-av" id="gl-user-av">م</div><span id="gl-user-name">...</span></div>
+  </div>
+</div>
+
+
+
+<div class="topnav">
+  <a href="dashboard.html" class="nav-logo">
+    <div class="nav-bars">
+      <div class="nav-bar" style="background:#fff;"></div>
+      <div class="nav-bar" style="background:rgba(255,255,255,0.45);"></div>
+    </div>
+    <span class="nav-name">Gulf<span style="color:var(--light);">Ledger</span></span>
+  </a>
+    <div class="nav-right">
+    <a href="settings.html" class="nav-settings-btn" title="الإعدادات">⚙️</a>
+    <div class="lang-switch">
+      <button class="lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button>
+      <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
+    </div>
+    <div class="nav-divider"></div>
+    <span class="nav-biz" id="biz-name">...</span>
+    <button class="btn-logout" onclick="logout()" data-ar="خروج" data-en="Sign Out">خروج</button>
+  </div>
+</div>
+
+<div class="app-nav" id="app-nav">
+  <a href="dashboard.html"  class="app-nav-link"  data-ar="الرئيسية"             data-en="Dashboard">الرئيسية</a>
+  <a href="inventory.html"  class="app-nav-link"  data-ar="المنتجات والمخزون"    data-en="Products & Stock">المنتجات والمخزون</a>
+  <a href="invoices.html"   class="app-nav-link"   data-ar="المبيعات والفواتير"   data-en="Sales & Invoices">المبيعات والفواتير</a>
+  <a href="expenses.html"   class="app-nav-link"   data-ar="المصاريف"             data-en="Expenses">المصاريف</a>
+  <a href="ledger.html"     class="app-nav-link active"     data-ar="المحاسبة"             data-en="Accounting">المحاسبة</a>
+  <a href="vat.html"        class="app-nav-link"        data-ar="ضريبة القيمة المضافة" data-en="VAT">ضريبة القيمة المضافة</a>
+  <a href="reports.html"    class="app-nav-link"    data-ar="التقارير"             data-en="Reports">التقارير</a>
+  <a href="accounting.html" class="app-nav-link" id="nav-accounting" data-ar="محاسبة متقدمة" data-en="Advanced" style="display:none;">محاسبة متقدمة</a>
+</div>
+
+<script>
+(function(){
+  var mode = localStorage.getItem('gl_accountant_mode');
+  if(mode === 'true'){
+    var el = document.getElementById('nav-accounting');
+    if(el) el.style.display = 'inline-block';
+  }
+})();
+</script>
+
 <div class="layout">
 
-  <!-- MODULE SIDEBAR -->
+  <!-- SIDEBAR -->
   <div class="sidebar">
     <div class="sb-sec">
-      <button onclick="openNewEntry()" style="width:100%;margin:8px 0 14px;padding:10px 14px;background:var(--blue);color:#fff;border:none;border-radius:8px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:8px;justify-content:center;">
-        <span style="font-size:16px;">+</span><span data-ar="قيد محاسبي جديد" data-en="New Journal Entry">New Journal Entry</span>
-      </button>
       <span class="sb-lbl" data-ar="الأقسام" data-en="Sections">Sections</span>
-      <div class="sb-item active" id="sb-journal" onclick="goTab('journal')"><div class="sb-dot" style="background:var(--green);"></div><span data-ar="دفتر اليومية" data-en="Journal">Journal</span></div>
-      <div class="sb-item" id="sb-trial" onclick="goTab('trial')"><div class="sb-dot" style="background:var(--amber);"></div><span data-ar="ميزان المراجعة" data-en="Trial Balance">Trial Balance</span></div>
-      <div class="sb-item" id="sb-accounts" onclick="goTab('accounts')"><div class="sb-dot" style="background:var(--navy);"></div><span data-ar="دليل الحسابات" data-en="Chart of Accounts">Chart of Accounts</span></div>
+      <div class="sb-item active" id="sb-journal"  onclick="goTab('journal')">
+        <div class="sb-dot" style="background:var(--green);"></div>
+        <span data-ar="دفتر اليومية"    data-en="Journal">Journal</span>
+      </div>
+      <div class="sb-item" id="sb-trial"    onclick="goTab('trial')">
+        <div class="sb-dot" style="background:var(--amber);"></div>
+        <span data-ar="ميزان المراجعة"  data-en="Trial Balance">Trial Balance</span>
+      </div>
+      <div class="sb-item" id="sb-accounts" onclick="goTab('accounts')">
+        <div class="sb-dot" style="background:var(--navy);"></div>
+        <span data-ar="دليل الحسابات"  data-en="Chart of Accounts">Chart of Accounts</span>
+      </div>
     </div>
     <div class="sb-sec">
       <span class="sb-lbl" data-ar="ملخص" data-en="Summary">Summary</span>
-      <div class="sb-stat"><span data-ar="إجمالي المدين" data-en="Total Debit">Total Debit</span><span class="sb-stat-val c-green" id="sb-total-dr">0.00</span></div>
-      <div class="sb-stat"><span data-ar="إجمالي الدائن" data-en="Total Credit">Total Credit</span><span class="sb-stat-val c-red" id="sb-total-cr">0.00</span></div>
+      <div style="padding:4px 6px;font-size:12px;color:var(--muted);" id="sidebar-summary">
+        <div style="display:flex;justify-content:space-between;margin-bottom:4px;">
+          <span data-ar="إجمالي المدين" data-en="Total Debit">Total Debit</span>
+          <span class="mono c-green" id="sb-total-dr">0.00</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;">
+          <span data-ar="إجمالي الدائن" data-en="Total Credit">Total Credit</span>
+          <span class="mono c-red" id="sb-total-cr">0.00</span>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -166,13 +519,29 @@ body.gl-collapsed .gl-page-content{margin-right:56px;}
 
     <!-- STATS -->
     <div class="stats" style="grid-template-columns:repeat(4,1fr);">
-      <div class="stat"><div class="stat-lbl" data-ar="إجمالي القيود" data-en="Total Entries">Total Entries</div><div class="stat-num c-navy" id="s-entries">0</div><div class="stat-sub" data-ar="قيد مسجّل" data-en="entries">entries</div></div>
-      <div class="stat"><div class="stat-lbl" data-ar="إجمالي المدين" data-en="Total Debit">Total Debit</div><div class="stat-num c-green" id="s-total-dr">SAR 0</div><div class="stat-sub" data-ar="مجموع المدينات" data-en="sum of debits">sum of debits</div></div>
-      <div class="stat"><div class="stat-lbl" data-ar="إجمالي الدائن" data-en="Total Credit">Total Credit</div><div class="stat-num c-red" id="s-total-cr">SAR 0</div><div class="stat-sub" data-ar="مجموع الدائنات" data-en="sum of credits">sum of credits</div></div>
-      <div class="stat" id="stat-balance-card"><div class="stat-lbl" data-ar="حالة الميزان" data-en="Balance Status">Balance Status</div><div class="stat-num" id="s-balance" style="font-size:16px;">—</div><div id="s-balance-action" style="margin-top:6px;"></div></div>
+      <div class="stat">
+        <div class="stat-lbl" data-ar="إجمالي القيود" data-en="Total Entries">إجمالي القيود</div>
+        <div class="stat-num c-navy" id="s-entries">0</div>
+        <div class="stat-sub" data-ar="قيد مسجّل" data-en="entries">قيد مسجّل</div>
+      </div>
+      <div class="stat">
+        <div class="stat-lbl" data-ar="إجمالي المدين" data-en="Total Debit">إجمالي المدين</div>
+        <div class="stat-num c-green" id="s-total-dr">SAR 0</div>
+        <div class="stat-sub" data-ar="مجموع المدينات" data-en="sum of debits">مجموع المدينات</div>
+      </div>
+      <div class="stat">
+        <div class="stat-lbl" data-ar="إجمالي الدائن" data-en="Total Credit">إجمالي الدائن</div>
+        <div class="stat-num c-red" id="s-total-cr">SAR 0</div>
+        <div class="stat-sub" data-ar="مجموع الدائنات" data-en="sum of credits">مجموع الدائنات</div>
+      </div>
+      <div class="stat" id="stat-balance-card">
+        <div class="stat-lbl" data-ar="حالة الميزان" data-en="Balance Status">Balance Status</div>
+        <div class="stat-num" id="s-balance" style="font-size:16px;">—</div>
+        <div id="s-balance-action" style="margin-top:6px;"></div>
+      </div>
     </div>
 
-    <!-- TAB: NEW ENTRY -->
+    <!-- TAB: NEW ENTRY — opened via modal/action button -->
     <div class="tc" id="tc-entry">
       <div class="card">
         <div class="card-hdr">
@@ -183,24 +552,38 @@ body.gl-collapsed .gl-page-content{margin-right:56px;}
           </div>
         </div>
         <div class="card-bdy">
-          <div class="note-box blue" id="je-note-box">
+          <div class="note-box blue">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
-            <span data-ar="القيد المحاسبي المزدوج: مجموع المدين يجب أن يساوي مجموع الدائن في كل قيد" data-en="Double-entry: total debits must equal total credits in every entry">Double-entry: total debits must equal total credits</span>
+            <span data-ar="القيد المحاسبي المزدوج: مجموع المدين يجب أن يساوي مجموع الدائن في كل قيد" data-en="Double-entry: total debits must equal total credits in every entry">القيد المحاسبي المزدوج: مجموع المدين = مجموع الدائن</span>
           </div>
-          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:14px;">
-            <div class="fld"><label data-ar="تاريخ القيد *" data-en="Entry Date *">Entry Date *</label><input type="date" lang="en" id="je-date"></div>
-            <div class="fld"><label data-ar="رقم المرجع" data-en="Reference No.">Reference No.</label><input type="text" id="je-ref" placeholder="JE-2026-001"></div>
-            <div class="fld"><label data-ar="الوصف" data-en="Description">Description</label><input type="text" id="je-desc" data-placeholder-ar="مثال: مبيعات نقدية" data-placeholder-en="e.g. Cash sales" placeholder="e.g. Cash sales"></div>
+
+          <div class="fg fg-3">
+            <div class="fld">
+              <label data-ar="تاريخ القيد *" data-en="Entry Date *">تاريخ القيد *</label>
+              <input type="date" lang="en" id="je-date">
+            </div>
+            <div class="fld">
+              <label data-ar="رقم المرجع" data-en="Reference No.">رقم المرجع</label>
+              <input type="text" id="je-ref" placeholder="JE-2026-001">
+            </div>
+            <div class="fld">
+              <label data-ar="الوصف" data-en="Description">الوصف</label>
+              <input type="text" id="je-desc" data-placeholder-ar="مثال: مبيعات نقدية" data-placeholder-en="e.g. Cash sales" placeholder="e.g. Cash sales">
+            </div>
           </div>
+
+          <!-- Lines header -->
           <div class="je-header">
-            <span data-ar="الحساب" data-en="Account">Account</span>
-            <span data-ar="كود" data-en="Code">Code</span>
-            <span data-ar="مدين (SAR)" data-en="Debit (SAR)">Debit (SAR)</span>
-            <span data-ar="دائن (SAR)" data-en="Credit (SAR)">Credit (SAR)</span>
+            <span data-ar="الحساب" data-en="Account">الحساب</span>
+            <span data-ar="كود الحساب" data-en="Account Code">كود</span>
+            <span data-ar="مدين (SAR)" data-en="Debit (SAR)">مدين</span>
+            <span data-ar="دائن (SAR)" data-en="Credit (SAR)">دائن</span>
             <span></span>
           </div>
           <div id="je-lines"></div>
-          <button class="btn-s" onclick="addJELine()" style="width:100%;margin-bottom:12px;" data-ar="+ إضافة سطر" data-en="+ Add Line">+ Add Line</button>
+          <button class="btn-s" onclick="addJELine()" style="width:100%;margin-bottom:12px;" data-ar="+ إضافة سطر" data-en="+ Add Line">+ إضافة سطر</button>
+
+          <!-- Balance check -->
           <div class="balance-bar unbalanced" id="balance-bar">
             <span id="balance-label" data-ar="⚠ القيد غير متوازن" data-en="⚠ Entry not balanced">⚠ Entry not balanced</span>
             <div style="display:flex;gap:16px;">
@@ -208,9 +591,11 @@ body.gl-collapsed .gl-page-content{margin-right:56px;}
               <span><span data-ar="دائن" data-en="Cr">Cr</span>: <span class="balance-val" id="bal-cr">0.00</span></span>
             </div>
           </div>
+
           <div class="btn-row" style="margin-top:14px;">
-            <button class="btn-p" onclick="saveEntry()" data-ar="💾 حفظ القيد" data-en="💾 Save Entry">💾 Save Entry</button>
-            <button class="btn-s" onclick="clearEntry()" data-ar="مسح" data-en="Clear">Clear</button>
+            <button class="btn-p" onclick="saveEntry()" data-ar="💾 حفظ القيد" data-en="💾 Save Entry">💾 حفظ القيد</button>
+            <button class="btn-s" onclick="clearEntry()" data-ar="مسح" data-en="Clear">مسح</button>
+            <button class="btn-s" onclick="goTab('journal')" data-ar="دفتر اليومية ←" data-en="View Journal →">دفتر اليومية ←</button>
           </div>
         </div>
       </div>
@@ -223,29 +608,35 @@ body.gl-collapsed .gl-page-content{margin-right:56px;}
           <span class="card-ttl" data-ar="دفتر اليومية" data-en="General Journal">General Journal</span>
           <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
             <button onclick="openNewEntry()" class="btn-p" style="font-size:12px;padding:7px 14px;" data-ar="+ قيد جديد" data-en="+ New Entry">+ New Entry</button>
-            <input type="text" id="journal-search" data-placeholder-ar="بحث..." data-placeholder-en="Search..." placeholder="Search..." oninput="renderJournal()" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;width:130px;">
+            <input type="text" id="journal-search" data-placeholder-ar="بحث..." data-placeholder-en="Search..." placeholder="Search..." style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;width:130px;" oninput="renderJournal()">
             <select id="journal-source-filter" onchange="renderJournal()" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;">
               <option value="" data-ar="كل المصادر" data-en="All Sources">All Sources</option>
-              <option value="invoice" data-ar="فواتير" data-en="Invoices">Invoices</option>
-              <option value="expense" data-ar="مصاريف" data-en="Expenses">Expenses</option>
-              <option value="payment" data-ar="دفعات" data-en="Payments">Payments</option>
-              <option value="reversal" data-ar="قيود عكسية" data-en="Reversals">Reversals</option>
+              <option value="invoice"          data-ar="فواتير"         data-en="Invoices">Invoices</option>
+              <option value="expense"          data-ar="مصاريف"         data-en="Expenses">Expenses</option>
+              <option value="payment"          data-ar="دفعات"          data-en="Payments">Payments</option>
+              <option value="supplier_invoice" data-ar="فواتير موردين"  data-en="Supplier Invoices">Supplier Invoices</option>
+              <option value="manual"           data-ar="يدوي"           data-en="Manual">Manual</option>
+              <option value="reversal"         data-ar="قيود عكسية"     data-en="Reversals">Reversals</option>
             </select>
+            <input type="date" lang="en" id="journal-from" onchange="renderJournal()" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;">
+            <input type="date" lang="en" id="journal-to"   onchange="renderJournal()" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;">
             <button class="btn-s" onclick="loadEntries()" style="font-size:11px;padding:5px 10px;" data-ar="↻ تحديث" data-en="↻ Refresh">↻ Refresh</button>
           </div>
         </div>
         <div style="overflow-x:auto;"><table class="tbl">
           <thead><tr>
-            <th data-ar="التاريخ" data-en="Date">Date</th>
-            <th data-ar="المرجع" data-en="Ref">Ref</th>
-            <th data-ar="الوصف" data-en="Description">Description</th>
-            <th data-ar="السطور" data-en="Lines">Lines</th>
-            <th data-ar="مدين" data-en="Debit">Debit</th>
-            <th data-ar="دائن" data-en="Credit">Credit</th>
-            <th data-ar="حالة" data-en="Status">Status</th>
-            <th data-ar="إجراء" data-en="Actions">Actions</th>
+            <th data-ar="التاريخ"   data-en="Date">Date</th>
+            <th data-ar="المرجع"    data-en="Ref">Ref</th>
+            <th data-ar="الوصف"     data-en="Description">Description</th>
+            <th data-ar="الحساب"    data-en="Account">Account</th>
+            <th data-ar="مدين"      data-en="Debit">Debit</th>
+            <th data-ar="دائن"      data-en="Credit">Credit</th>
+            <th data-ar="حالة"      data-en="Status">Status</th>
+            <th data-ar="إجراء"     data-en="Actions">Actions</th>
           </tr></thead>
-          <tbody id="journal-tbody"><tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted);">Loading...</td></tr></tbody>
+          <tbody id="journal-tbody">
+            <tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted);">جارٍ التحميل...</td></tr>
+          </tbody>
         </table></div>
         <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;">
           <button class="btn-s" onclick="goTab('trial')" data-ar="ميزان المراجعة ←" data-en="Trial Balance →">Trial Balance →</button>
@@ -257,15 +648,21 @@ body.gl-collapsed .gl-page-content{margin-right:56px;}
     <div class="tc" id="tc-trial">
       <div class="card">
         <div class="card-hdr">
-          <span class="card-ttl" data-ar="ميزان المراجعة" data-en="Trial Balance">Trial Balance</span>
+          <span class="card-ttl" data-ar="ميزان المراجعة" data-en="Trial Balance">ميزان المراجعة</span>
           <div style="display:flex;gap:8px;align-items:center;">
             <input type="date" lang="en" id="tb-from" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;">
-            <input type="date" lang="en" id="tb-to" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;">
-            <button class="btn-p" onclick="calcTrialBalance()" style="font-size:12px;padding:6px 14px;" data-ar="احتساب" data-en="Calculate">Calculate</button>
+            <input type="date" lang="en" id="tb-to"   style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;">
+            <button class="btn-p" onclick="calcTrialBalance()" style="font-size:12px;padding:6px 14px;" data-ar="احتساب" data-en="Calculate">احتساب</button>
           </div>
         </div>
         <div class="card-bdy">
-          <div id="trial-balance-result"><div style="text-align:center;padding:30px;color:var(--muted);font-size:13px;" data-ar="اختر الفترة واضغط احتساب" data-en="Select period and click Calculate">Select period and click Calculate</div></div>
+          <div id="trial-balance-result">
+            <div style="text-align:center;padding:30px;color:var(--muted);font-size:13px;" data-ar="اختر الفترة واضغط احتساب" data-en="Select period and click Calculate">اختر الفترة واضغط احتساب</div>
+          </div>
+          <div class="btn-row" style="margin-top:14px;">
+            <a href="statements.html" class="btn-p" style="text-decoration:none;font-size:12px;" data-ar="القوائم المالية ←" data-en="Financial Statements →">القوائم المالية ←</a>
+            <a href="vat.html" class="btn-s" style="text-decoration:none;font-size:12px;" data-ar="إقرار VAT ←" data-en="VAT Return →">إقرار VAT ←</a>
+          </div>
         </div>
       </div>
     </div>
@@ -278,303 +675,1143 @@ body.gl-collapsed .gl-page-content{margin-right:56px;}
           <span style="font-size:11px;color:var(--muted);" data-ar="وفق معايير SOCPA" data-en="per SOCPA standards">per SOCPA standards</span>
         </div>
         <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-          <input type="text" id="coa-search" data-placeholder-ar="بحث بالاسم أو الكود..." data-placeholder-en="Search by name or code..." placeholder="Search..." oninput="renderCOA()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;width:200px;">
+          <input type="text" id="coa-search" data-placeholder-ar="بحث بالاسم أو الكود..." data-placeholder-en="Search by name or code..." placeholder="Search by name or code..." oninput="renderCOA()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;width:200px;">
           <select id="coa-type-filter" onchange="renderCOA()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;">
             <option value="" data-ar="كل الأنواع" data-en="All Types">All Types</option>
-            <option value="أصول" data-ar="أصول" data-en="Assets">Assets</option>
-            <option value="خصوم" data-ar="خصوم" data-en="Liabilities">Liabilities</option>
+            <option value="أصول"         data-ar="أصول"         data-en="Assets">Assets</option>
+            <option value="خصوم"         data-ar="خصوم"         data-en="Liabilities">Liabilities</option>
             <option value="حقوق الملكية" data-ar="حقوق الملكية" data-en="Equity">Equity</option>
-            <option value="إيرادات" data-ar="إيرادات" data-en="Revenue">Revenue</option>
-            <option value="مصاريف" data-ar="مصاريف" data-en="Expenses">Expenses</option>
+            <option value="إيرادات"      data-ar="إيرادات"      data-en="Revenue">Revenue</option>
+            <option value="مصاريف"       data-ar="مصاريف"       data-en="Expenses">Expenses</option>
           </select>
         </div>
         <div style="overflow-x:auto;"><table class="tbl">
           <thead><tr>
-            <th data-ar="الكود" data-en="Code">Code</th>
-            <th data-ar="اسم الحساب" data-en="Account Name">Account Name</th>
-            <th data-ar="النوع" data-en="Type">Type</th>
-            <th data-ar="الفئة" data-en="Category">Category</th>
-            <th data-ar="طبيعة الرصيد" data-en="Normal Balance">Normal Balance</th>
+            <th data-ar="الكود"      data-en="Code">الكود</th>
+            <th data-ar="اسم الحساب" data-en="Account Name">اسم الحساب</th>
+            <th data-ar="النوع"      data-en="Type">النوع</th>
+            <th data-ar="الفئة"      data-en="Category">الفئة</th>
+            <th data-ar="طبيعة الرصيد" data-en="Normal Balance">طبيعة الرصيد</th>
           </tr></thead>
           <tbody id="coa-tbody"></tbody>
         </table></div>
       </div>
     </div>
 
+    <!-- TAB: EXPENSES -->
+    <div class="tc" id="tc-expenses">
+
+      <!-- ADD EXPENSE FORM -->
+      <div class="card">
+        <div class="card-hdr">
+          <span class="card-ttl" data-ar="تسجيل مصروف جديد" data-en="Record New Expense">تسجيل مصروف جديد</span>
+        </div>
+        <div class="card-bdy">
+          <div class="note-box blue">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+            <span data-ar="أدخل المصروف وسيُرحَّل تلقائياً للدفتر — لا حاجة لمعرفة أكواد الحسابات." data-en="Enter the expense and it will auto-post to the ledger — no account codes needed.">أدخل المصروف وسيُرحَّل تلقائياً للدفتر.</span>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+            <div class="fld">
+              <label data-ar="نوع المصروف *" data-en="Expense Type *">نوع المصروف *</label>
+              <select id="exp-category" onchange="updateExpRef()">
+                <option value="5200" data-ar="رواتب وأجور"         data-en="Salaries & Wages">رواتب وأجور</option>
+                <option value="5300" data-ar="إيجار"               data-en="Rent">إيجار</option>
+                <option value="5400" data-ar="مرافق (كهرباء/ماء/إنترنت)" data-en="Utilities">مرافق</option>
+                <option value="5500" data-ar="تسويق وإعلان"        data-en="Marketing & Ads">تسويق وإعلان</option>
+                <option value="5750" data-ar="سفر ومواصلات"        data-en="Travel & Transport">سفر ومواصلات</option>
+                <option value="5700" data-ar="رسوم بنكية"          data-en="Bank Charges">رسوم بنكية</option>
+                <option value="5800" data-ar="أتعاب مهنية"         data-en="Professional Fees">أتعاب مهنية</option>
+                <option value="5900" data-ar="مصاريف متنوعة"       data-en="Miscellaneous">مصاريف متنوعة</option>
+              </select>
+            </div>
+            <div class="fld">
+              <label data-ar="المبلغ (SAR) *" data-en="Amount (SAR) *">المبلغ *</label>
+              <input type="number" id="exp-amount" placeholder="0.00" min="0" step="0.01">
+            </div>
+            <div class="fld">
+              <label data-ar="التاريخ *" data-en="Date *">التاريخ *</label>
+              <input type="date" id="exp-date" lang="en">
+            </div>
+          </div>
+
+          <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;">
+            <div class="fld">
+              <label data-ar="طريقة الدفع" data-en="Payment Method">طريقة الدفع</label>
+              <select id="exp-payment">
+                <option value="1100" data-ar="نقداً / بنك"     data-en="Cash / Bank">نقداً / بنك</option>
+                <option value="2100" data-ar="آجل (مستحق لاحقاً)" data-en="Credit (unpaid)">آجل</option>
+              </select>
+            </div>
+            <div class="fld">
+              <label data-ar="الوصف / المرجع" data-en="Description / Ref">الوصف / المرجع</label>
+              <input type="text" id="exp-desc" placeholder="إيجار مكتب — أبريل 2026">
+            </div>
+            <div class="fld">
+              <label style="display:flex;align-items:center;gap:6px;cursor:pointer;">
+                <input type="checkbox" id="exp-has-vat" onchange="toggleExpVAT()" style="width:16px;height:16px;">
+                <span data-ar="يشمل ضريبة القيمة المضافة 15%؟" data-en="Includes VAT 15%?">يشمل VAT 15%؟</span>
+              </label>
+              <div id="exp-vat-row" style="display:none;margin-top:6px;font-size:12px;color:var(--muted);">
+                <span data-ar="الضريبة: SAR " data-en="VAT: SAR ">الضريبة: SAR </span>
+                <span id="exp-vat-amount" class="mono c-amber">0.00</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="btn-row">
+            <button class="btn-p" onclick="saveExpense()" data-ar="💾 حفظ المصروف" data-en="💾 Save Expense">💾 حفظ المصروف</button>
+            <button class="btn-s" onclick="clearExpForm()" data-ar="مسح" data-en="Clear">مسح</button>
+          </div>
+        </div>
+      </div>
+
+      <!-- EXPENSE HISTORY -->
+      <div class="card">
+        <div class="card-hdr">
+          <span class="card-ttl" data-ar="سجل المصاريف" data-en="Expense History">سجل المصاريف</span>
+          <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+            <select id="exp-filter-cat" onchange="renderExpenses()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;">
+              <option value="" data-ar="كل الأنواع" data-en="All Types">كل الأنواع</option>
+              <option value="5200" data-ar="رواتب" data-en="Salaries">رواتب</option>
+              <option value="5300" data-ar="إيجار" data-en="Rent">إيجار</option>
+              <option value="5400" data-ar="مرافق" data-en="Utilities">مرافق</option>
+              <option value="5500" data-ar="تسويق" data-en="Marketing">تسويق</option>
+              <option value="5750" data-ar="سفر"   data-en="Travel">سفر</option>
+              <option value="5700" data-ar="رسوم بنكية" data-en="Bank Charges">رسوم بنكية</option>
+              <option value="5800" data-ar="أتعاب" data-en="Prof. Fees">أتعاب</option>
+              <option value="5900" data-ar="متنوع" data-en="Misc">متنوع</option>
+            </select>
+            <span id="exp-total-label" style="font-size:12px;color:var(--muted);"></span>
+          </div>
+        </div>
+        <div style="overflow-x:auto;">
+          <table class="tbl">
+            <thead><tr>
+              <th data-ar="التاريخ"    data-en="Date">التاريخ</th>
+              <th data-ar="النوع"      data-en="Type">النوع</th>
+              <th data-ar="الوصف"      data-en="Description">الوصف</th>
+              <th data-ar="المبلغ"     data-en="Amount">المبلغ</th>
+              <th data-ar="VAT"        data-en="VAT">VAT</th>
+              <th data-ar="طريقة الدفع" data-en="Payment">طريقة الدفع</th>
+              <th data-ar="المرجع"     data-en="Ref">المرجع</th>
+            </tr></thead>
+            <tbody id="exp-tbody">
+              <tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted);" data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+
   </div>
 </div>
-</div>
-<script>
-const SUPABASE_URL='https://ykzivnasjwtuhvjxfxzf.supabase.co';
-const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
-const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
-let currentUser=null,currentBiz=null,L=localStorage.getItem('gl_lang')||'ar';
-let entries=[],jeLineCount=0;
 
-const COA=[
-  {code:'1100',name:'النقد وما في حكمه',nameEn:'Cash & Cash Equivalents',type:'أصول',cat:'أصول متداولة',normal:'مدين'},
-  {code:'1101',name:'البنك',nameEn:'Bank',type:'أصول',cat:'أصول متداولة',normal:'مدين'},
-  {code:'1200',name:'ذمم مدينة تجارية',nameEn:'Trade Receivables',type:'أصول',cat:'أصول متداولة',normal:'مدين'},
-  {code:'1300',name:'المخزون',nameEn:'Inventory',type:'أصول',cat:'أصول متداولة',normal:'مدين'},
-  {code:'1400',name:'مصاريف مدفوعة مقدماً',nameEn:'Prepaid Expenses',type:'أصول',cat:'أصول متداولة',normal:'مدين'},
-  {code:'2100',name:'ذمم دائنة تجارية',nameEn:'Trade Payables',type:'خصوم',cat:'خصوم متداولة',normal:'دائن'},
-  {code:'2150',name:'حساب استلام البضاعة (مؤقت)',nameEn:'GR Clearing Account',type:'خصوم',cat:'خصوم متداولة',normal:'دائن'},
-  {code:'2200',name:'ضريبة القيمة المضافة المستحقة',nameEn:'VAT Payable (Net)',type:'خصوم',cat:'ضريبة القيمة المضافة',normal:'دائن'},
-  {code:'2210',name:'ضريبة القيمة المضافة — مخرجات',nameEn:'VAT Output (Sales)',type:'خصوم',cat:'ضريبة القيمة المضافة',normal:'دائن'},
-  {code:'2220',name:'ضريبة القيمة المضافة — مدخلات',nameEn:'VAT Input (Purchases)',type:'أصول',cat:'ضريبة القيمة المضافة',normal:'مدين'},
-  {code:'2400',name:'مصاريف مستحقة الدفع',nameEn:'Accrued Expenses',type:'خصوم',cat:'خصوم متداولة',normal:'دائن'},
-  {code:'3100',name:'رأس المال',nameEn:'Share Capital',type:'حقوق الملكية',cat:'حقوق الملكية',normal:'دائن'},
-  {code:'3200',name:'الأرباح المحتجزة',nameEn:'Retained Earnings',type:'حقوق الملكية',cat:'حقوق الملكية',normal:'دائن'},
-  {code:'4100',name:'إيرادات المبيعات',nameEn:'Sales Revenue',type:'إيرادات',cat:'إيرادات تشغيلية',normal:'دائن'},
-  {code:'4200',name:'إيرادات الخدمات',nameEn:'Service Revenue',type:'إيرادات',cat:'إيرادات تشغيلية',normal:'دائن'},
-  {code:'5100',name:'تكلفة البضاعة المباعة',nameEn:'Cost of Goods Sold',type:'مصاريف',cat:'تكاليف المبيعات',normal:'مدين'},
-  {code:'6100',name:'مصاريف الإيجار',nameEn:'Rent Expense',type:'مصاريف',cat:'مصاريف تشغيلية',normal:'مدين'},
-  {code:'6200',name:'مصاريف الرواتب والأجور',nameEn:'Salaries & Wages Expense',type:'مصاريف',cat:'مصاريف تشغيلية',normal:'مدين'},
-  {code:'6300',name:'مصاريف المرافق',nameEn:'Utilities Expense',type:'مصاريف',cat:'مصاريف تشغيلية',normal:'مدين'},
-  {code:'6400',name:'مصاريف المواصلات والوقود',nameEn:'Transport & Fuel Expense',type:'مصاريف',cat:'مصاريف تشغيلية',normal:'مدين'},
-  {code:'6500',name:'مصاريف التسويق والإعلان',nameEn:'Marketing & Advertising',type:'مصاريف',cat:'مصاريف تشغيلية',normal:'مدين'},
-  {code:'6600',name:'مصاريف القرطاسية والمستلزمات',nameEn:'Stationery & Supplies',type:'مصاريف',cat:'مصاريف تشغيلية',normal:'مدين'},
-  {code:'6700',name:'مصاريف الصيانة والإصلاح',nameEn:'Maintenance & Repair',type:'مصاريف',cat:'مصاريف تشغيلية',normal:'مدين'},
-  {code:'6800',name:'مصاريف الاتصالات والإنترنت',nameEn:'Telecom & Internet',type:'مصاريف',cat:'مصاريف تشغيلية',normal:'مدين'},
-  {code:'6900',name:'مصاريف التأمين',nameEn:'Insurance Expense',type:'مصاريف',cat:'مصاريف تشغيلية',normal:'مدين'},
-  {code:'7000',name:'الرسوم القانونية والمهنية',nameEn:'Legal & Professional Fees',type:'مصاريف',cat:'مصاريف تشغيلية',normal:'مدين'},
-  {code:'7300',name:'مصاريف بنكية وعمولات',nameEn:'Bank Charges & Fees',type:'مصاريف',cat:'مصاريف مالية',normal:'مدين'},
-  {code:'7800',name:'ضريبة الزكاة',nameEn:'Zakat Expense',type:'مصاريف',cat:'ضرائب',normal:'مدين'},
-  {code:'7900',name:'مصاريف أخرى',nameEn:'Other Expenses',type:'مصاريف',cat:'مصاريف تشغيلية',normal:'مدين'},
+<script>
+const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let currentUser = null;
+let currentBiz  = null;
+let L = localStorage.getItem('gl_lang')||'ar';
+let entries = [];
+let jeLineCount = 0;
+
+/* ── CHART OF ACCOUNTS — SOCPA compliant ── */
+const COA = [
+  // ASSETS
+  { code:'1100', name:'النقد وما في حكمه',            nameEn:'Cash & Cash Equivalents',      type:'أصول',         cat:'أصول متداولة',          normal:'مدين' },
+  { code:'1101', name:'البنك',                         nameEn:'Bank',                          type:'أصول',         cat:'أصول متداولة',          normal:'مدين' },
+  { code:'1200', name:'ذمم مدينة تجارية',              nameEn:'Trade Receivables',             type:'أصول',         cat:'أصول متداولة',          normal:'مدين' },
+  { code:'1300', name:'المخزون',                       nameEn:'Inventory',                     type:'أصول',         cat:'أصول متداولة',          normal:'مدين' },
+  { code:'1400', name:'مصاريف مدفوعة مقدماً',          nameEn:'Prepaid Expenses',              type:'أصول',         cat:'أصول متداولة',          normal:'مدين' },
+  { code:'1500', name:'أصول ثابتة — المباني',          nameEn:'Fixed Assets — Buildings',      type:'أصول',         cat:'أصول ثابتة',            normal:'مدين' },
+  { code:'1600', name:'أصول ثابتة — المعدات',          nameEn:'Fixed Assets — Equipment',      type:'أصول',         cat:'أصول ثابتة',            normal:'مدين' },
+  { code:'1700', name:'مجمع الإهلاك',                  nameEn:'Accumulated Depreciation',      type:'أصول',         cat:'أصول ثابتة',            normal:'دائن' },
+  // LIABILITIES
+  { code:'2100', name:'ذمم دائنة تجارية',              nameEn:'Trade Payables',                type:'خصوم',         cat:'خصوم متداولة',          normal:'دائن' },
+  { code:'2150', name:'حساب استلام البضاعة (مؤقت)',    nameEn:'GR Clearing Account',           type:'خصوم',         cat:'خصوم متداولة',          normal:'دائن' },
+  { code:'2200', name:'ضريبة القيمة المضافة المستحقة', nameEn:'VAT Payable (Net)',              type:'خصوم',         cat:'ضريبة القيمة المضافة',  normal:'دائن' },
+  { code:'2210', name:'ضريبة القيمة المضافة — مخرجات', nameEn:'VAT Output (Sales)',             type:'خصوم',         cat:'ضريبة القيمة المضافة',  normal:'دائن' },
+  { code:'2220', name:'ضريبة القيمة المضافة — مدخلات', nameEn:'VAT Input (Purchases)',          type:'أصول',         cat:'ضريبة القيمة المضافة',  normal:'مدين' },
+  { code:'2300', name:'قروض قصيرة الأجل',              nameEn:'Short-term Loans',              type:'خصوم',         cat:'خصوم متداولة',          normal:'دائن' },
+  { code:'2400', name:'مصاريف مستحقة الدفع',           nameEn:'Accrued Expenses',              type:'خصوم',         cat:'خصوم متداولة',          normal:'دائن' },
+  { code:'2500', name:'قروض طويلة الأجل',              nameEn:'Long-term Loans',               type:'خصوم',         cat:'خصوم طويلة الأجل',      normal:'دائن' },
+  // EQUITY
+  { code:'3100', name:'رأس المال',                     nameEn:'Share Capital',                 type:'حقوق الملكية', cat:'حقوق الملكية',          normal:'دائن' },
+  { code:'3200', name:'الأرباح المحتجزة',               nameEn:'Retained Earnings',             type:'حقوق الملكية', cat:'حقوق الملكية',          normal:'دائن' },
+  { code:'3300', name:'المسحوبات',                     nameEn:'Drawings',                      type:'حقوق الملكية', cat:'حقوق الملكية',          normal:'مدين' },
+  // REVENUE
+  { code:'4100', name:'إيرادات المبيعات',               nameEn:'Sales Revenue',                 type:'إيرادات',      cat:'إيرادات تشغيلية',       normal:'دائن' },
+  { code:'4200', name:'إيرادات الخدمات',                nameEn:'Service Revenue',               type:'إيرادات',      cat:'إيرادات تشغيلية',       normal:'دائن' },
+  { code:'4300', name:'إيرادات أخرى',                  nameEn:'Other Income',                  type:'إيرادات',      cat:'إيرادات أخرى',          normal:'دائن' },
+  // COST OF SALES
+  { code:'5100', name:'تكلفة البضاعة المباعة',          nameEn:'Cost of Goods Sold',            type:'مصاريف',       cat:'تكاليف المبيعات',       normal:'مدين' },
+  // OPERATING EXPENSES (6xxx)
+  { code:'6100', name:'مصاريف الإيجار',                 nameEn:'Rent Expense',                  type:'مصاريف',       cat:'مصاريف تشغيلية',        normal:'مدين' },
+  { code:'6200', name:'مصاريف الرواتب والأجور',         nameEn:'Salaries & Wages Expense',      type:'مصاريف',       cat:'مصاريف تشغيلية',        normal:'مدين' },
+  { code:'6300', name:'مصاريف المرافق',                 nameEn:'Utilities Expense',             type:'مصاريف',       cat:'مصاريف تشغيلية',        normal:'مدين' },
+  { code:'6400', name:'مصاريف المواصلات والوقود',       nameEn:'Transport & Fuel Expense',      type:'مصاريف',       cat:'مصاريف تشغيلية',        normal:'مدين' },
+  { code:'6500', name:'مصاريف التسويق والإعلان',        nameEn:'Marketing & Advertising',       type:'مصاريف',       cat:'مصاريف تشغيلية',        normal:'مدين' },
+  { code:'6600', name:'مصاريف القرطاسية والمستلزمات',   nameEn:'Stationery & Supplies',         type:'مصاريف',       cat:'مصاريف تشغيلية',        normal:'مدين' },
+  { code:'6700', name:'مصاريف الصيانة والإصلاح',        nameEn:'Maintenance & Repair',          type:'مصاريف',       cat:'مصاريف تشغيلية',        normal:'مدين' },
+  { code:'6800', name:'مصاريف الاتصالات والإنترنت',     nameEn:'Telecom & Internet',            type:'مصاريف',       cat:'مصاريف تشغيلية',        normal:'مدين' },
+  { code:'6900', name:'مصاريف التأمين',                 nameEn:'Insurance Expense',             type:'مصاريف',       cat:'مصاريف تشغيلية',        normal:'مدين' },
+  { code:'7000', name:'الرسوم القانونية والمهنية',       nameEn:'Legal & Professional Fees',     type:'مصاريف',       cat:'مصاريف تشغيلية',        normal:'مدين' },
+  { code:'7100', name:'مصاريف الضيافة والترفيه',        nameEn:'Entertainment Expense',         type:'مصاريف',       cat:'مصاريف تشغيلية',        normal:'مدين' },
+  { code:'7200', name:'مصاريف الإهلاك',                 nameEn:'Depreciation Expense',          type:'مصاريف',       cat:'مصاريف تشغيلية',        normal:'مدين' },
+  { code:'7300', name:'مصاريف بنكية وعمولات',           nameEn:'Bank Charges & Fees',           type:'مصاريف',       cat:'مصاريف مالية',          normal:'مدين' },
+  { code:'7800', name:'ضريبة الزكاة',                   nameEn:'Zakat Expense',                 type:'مصاريف',       cat:'ضرائب',                 normal:'مدين' },
+  { code:'7900', name:'مصاريف أخرى',                   nameEn:'Other Expenses',                type:'مصاريف',       cat:'مصاريف تشغيلية',        normal:'مدين' },
 ];
 
-async function init(){
-  const {data:{session}}=await sb.auth.getSession();
-  if(!session){window.location.href='login.html';return;}
-  currentUser=session.user;
-  const {data:biz}=await sb.from('businesses').select('*').eq('user_id',currentUser.id).single();
-  if(biz){currentBiz=biz;document.getElementById('biz-name').textContent=biz.name_ar||biz.name||'';}
-  document.getElementById('je-date').value=today();
-  document.getElementById('je-ref').value='JE-'+new Date().getFullYear()+'-001';
-  document.getElementById('tb-from').value=new Date().getFullYear()+'-01-01';
-  document.getElementById('tb-to').value=today();
-  addJELine();addJELine();
+/* ── INIT ── */
+async function init() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { window.location.href = 'login.html'; return; }
+  currentUser = session.user;
+
+  const { data: biz } = await sb.from('businesses').select('*').eq('user_id', currentUser.id).single();
+  if (biz) {
+    currentBiz = biz;
+    document.getElementById('biz-name').textContent = biz.name;
+  }
+
+  document.getElementById('je-date').value = today();
+  document.getElementById('je-ref').value  = 'JE-' + new Date().getFullYear() + '-001';
+  document.getElementById('tb-from').value = new Date().getFullYear() + '-01-01';
+  document.getElementById('tb-to').value   = today();
+
+  addJELine(); addJELine();
   renderCOA();
   await loadEntries();
-  goTab('journal');
-  const storedL=localStorage.getItem('gl_lang')||'ar';L=storedL;setLang(storedL);
-  initSidebarState();
+  goTab('journal'); // default landing is journal
+  const storedL=getStoredLang(); L=storedL; setLang(storedL);
 }
 
-async function loadEntries(){
-  const {data}=await sb.from('journal_entries').select('*,journal_lines(*)').eq('user_id',currentUser.id).order('entry_date',{ascending:false}).limit(200);
-  entries=data||[];renderStats();renderJournal();updateSidebarSummary();
+/* ── LOAD ENTRIES ── */
+async function loadEntries() {
+  const { data } = await sb.from('journal_entries')
+    .select('*, journal_lines(*)')
+    .eq('user_id', currentUser.id)
+    .order('entry_date', { ascending: false })
+    .limit(100);
+
+  entries = data || [];
+  renderStats();
+  renderJournal();
+  updateSidebarSummary();
 }
 
-function renderStats(){
-  let dr=0,cr=0;
-  entries.forEach(e=>{if(e.status==='reversed')return;if((e.source||'').includes('reversal'))return;if(e.source==='credit_note')return;if((e.reference||'').startsWith('REV-'))return;(e.journal_lines||[]).forEach(l=>{dr+=l.debit||0;cr+=l.credit||0;});});
-  set('s-entries',entries.length);set('s-total-dr','SAR '+fmt(dr));set('s-total-cr','SAR '+fmt(cr));
-  const diff=Math.round(Math.abs(dr-cr)*100)/100;
-  const balEl=document.getElementById('s-balance');const actEl=document.getElementById('s-balance-action');const cardEl=document.getElementById('stat-balance-card');
-  if(diff<0.01){if(balEl){balEl.textContent=L==='ar'?'✓ متوازن':'✓ Balanced';balEl.className='stat-num c-green';}if(actEl)actEl.innerHTML=`<span style="font-size:11px;color:var(--muted);">${L==='ar'?'المدين = الدائن':'Debit = Credit — all good'}</span>`;if(cardEl){cardEl.style.borderColor='#86efac';cardEl.style.background='#f0fdf4';}}
-  else{if(balEl){balEl.textContent='SAR '+fmt(diff);balEl.className='stat-num c-red';}if(actEl)actEl.innerHTML=`<div style="font-size:11px;color:var(--red);margin-bottom:6px;">⚠ ${L==='ar'?'فجوة في الميزان':'Balance gap'}</div><button onclick="checkBalanceIssue()" style="font-size:10px;padding:4px 12px;background:var(--red);color:#fff;border:none;border-radius:5px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:600;">🔍 ${L==='ar'?'عرض المشكلة':'Check Issue'}</button>`;if(cardEl){cardEl.style.borderColor='#fca5a5';cardEl.style.background='#fff5f5';}}
-}
-
-function updateSidebarSummary(){
-  let dr=0,cr=0;
-  entries.forEach(e=>{if(e.status==='reversed')return;if((e.source||'').includes('reversal'))return;if(e.source==='credit_note')return;if((e.reference||'').startsWith('REV-'))return;(e.journal_lines||[]).forEach(l=>{dr+=l.debit||0;cr+=l.credit||0;});});
-  set('sb-total-dr',fmt(dr));set('sb-total-cr',fmt(cr));
-}
-
-function renderJournal(){
-  const search=(document.getElementById('journal-search')?.value||'').toLowerCase();
-  const srcFilter=document.getElementById('journal-source-filter')?.value||'';
-  const tb=document.getElementById('journal-tbody');
-  const filtered=entries.filter(e=>{
-    const ms=!search||(e.description||'').toLowerCase().includes(search)||(e.reference||'').toLowerCase().includes(search);
-    const msrc=!srcFilter||(srcFilter==='reversal'&&((e.source||'').includes('reversal')||e.source==='credit_note'))||(srcFilter!=='reversal'&&e.source===srcFilter);
-    return ms&&msrc;
+/* ── STATS ── */
+function renderStats() {
+  let totalDr = 0, totalCr = 0;
+  entries.forEach(e => {
+    // Exclude reversed entries AND their reversal counterparts — they net to zero
+    if(e.status === 'reversed') return;
+    if((e.source||'').includes('reversal')) return;
+    if(e.source === 'credit_note') return;
+    if((e.reference||'').startsWith('REV-')) return;
+    (e.journal_lines || []).forEach(l => {
+      totalDr += l.debit  || 0;
+      totalCr += l.credit || 0;
+    });
   });
-  if(!filtered.length){tb.innerHTML=`<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا توجد قيود بعد':'No entries yet'}</td></tr>`;return;}
-  const rows=[];
-  filtered.forEach((entry,idx)=>{
-    const lines=entry.journal_lines||[];
-    const isReversed=entry.status==='reversed';
-    const isReversalEntry=(entry.source||'').includes('reversal')||entry.source==='credit_note'||(entry.reference||'').startsWith('REV-');
-    const entryDr=lines.reduce((s,l)=>s+(l.debit||0),0);
-    const entryCr=lines.reduce((s,l)=>s+(l.credit||0),0);
-    const gap=Math.round((entryDr-entryCr)*100)/100;
-    const isImbalanced=!isReversed&&!isReversalEntry&&Math.abs(gap)>0.01;
-    const grpId='jeg-'+idx;
-    const srcBadges={invoice:'📄 Invoice',invoice_reversal:'↩️ Invoice Rev.',credit_note:'🚫 Credit Note',expense:'💸 Expense',expense_reversal:'↩️ Expense Rev.',payment:'💰 Payment',supplier_invoice:'🏭 Supplier Inv.',inventory:'📦 Stock'};
-    const srcLabel=srcBadges[entry.source]||'✏️ Manual';
-    const statusCell=isReversed?`<span style="font-size:10px;opacity:.6">${srcLabel}<br>Reversed</span>`:isImbalanced?`<span style="font-size:10px;">${srcLabel}</span><br><span style="font-size:9px;color:var(--red);font-weight:700;">⚠ Imbalanced SAR ${fmt(Math.abs(gap))}</span>`:`<span style="font-size:10px;">${srcLabel}</span>`;
-    const actionsCell=isReversed||isReversalEntry?'—':isImbalanced?`<div style="display:flex;flex-direction:column;gap:4px;"><button onclick="event.stopPropagation();reverseJournalEntry('${entry.id}','${entry.reference||''}')" style="font-size:10px;padding:3px 10px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:5px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:600;">↩️ ${L==='ar'?'عكس':'Reverse'}</button></div>`:'—';
-    const rowBg=isImbalanced?'#fffbeb':isReversed?'#fafafa':'#fff';
-    rows.push(`<tr onclick="toggleJEGroup('${grpId}')" style="cursor:pointer;background:${rowBg};border-top:2px solid var(--border);${isReversed?'opacity:.5;':''}">
-      <td style="font-size:11px;color:var(--muted);white-space:nowrap;padding:9px 12px;"><span id="${grpId}-arrow" style="font-size:10px;color:var(--muted);margin-left:4px;">▶</span> ${entry.entry_date}</td>
+
+  set('s-entries', entries.length);
+  set('s-total-dr', 'SAR ' + fmt(totalDr));
+  set('s-total-cr', 'SAR ' + fmt(totalCr));
+
+  const diff = Math.round(Math.abs(totalDr - totalCr)*100)/100;
+  const balEl  = document.getElementById('s-balance');
+  const actEl  = document.getElementById('s-balance-action');
+  const cardEl = document.getElementById('stat-balance-card');
+
+  if (diff < 0.01) {
+    if(balEl) { balEl.textContent = L==='ar'?'✓ متوازن':'✓ Balanced'; balEl.className='stat-num c-green'; }
+    if(actEl) actEl.innerHTML = `<span style="font-size:11px;color:var(--muted);">${L==='ar'?'المدين = الدائن — ممتاز':'Debit = Credit — all good'}</span>`;
+    if(cardEl) { cardEl.style.borderColor='#86efac'; cardEl.style.background='#f0fdf4'; }
+  } else {
+    if(balEl) { balEl.textContent = 'SAR ' + fmt(diff); balEl.className='stat-num c-red'; }
+    if(actEl) actEl.innerHTML = `
+      <div style="font-size:11px;color:var(--red);margin-bottom:6px;">⚠ ${L==='ar'?'فجوة في الميزان':'Balance gap'}</div>
+      <button onclick="checkBalanceIssue()" style="font-size:10px;padding:4px 12px;background:var(--red);color:#fff;border:none;border-radius:5px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:600;">
+        🔍 ${L==='ar'?'عرض المشكلة':'Check Issue'}
+      </button>`;
+    if(cardEl) { cardEl.style.borderColor='#fca5a5'; cardEl.style.background='#fff5f5'; }
+  }
+}
+
+function updateSidebarSummary() {
+  let dr = 0, cr = 0;
+  entries.forEach(e => {
+    if(e.status === 'reversed') return;
+    if((e.source||'').includes('reversal')) return;
+    if(e.source === 'credit_note') return;
+    if((e.reference||'').startsWith('REV-')) return;
+    (e.journal_lines || []).forEach(l => {
+      dr += l.debit  || 0;
+      cr += l.credit || 0;
+    });
+  });
+  set('sb-total-dr', fmt(dr));
+  set('sb-total-cr', fmt(cr));
+}
+
+/* ── JOURNAL ENTRY LINES ── */
+function addJELine() {
+  jeLineCount++;
+  const id  = 'jel-' + jeLineCount;
+  const row = document.createElement('div');
+  row.id = id;
+  row.className = 'je-line';
+
+  const accOpts = '<option value="">— ' + (L==='ar'?'اختر حساباً':'Select account') + ' —</option>'
+    + COA.map(a => `<option value="${a.code}" data-name="${a.name}" data-name-en="${a.nameEn}">${a.code} — ${L==='ar'?a.name:a.nameEn}</option>`).join('');
+
+  row.innerHTML = `
+    <select onchange="jeAccChanged(this,'${id}')" style="padding:7px 8px;border:1px solid var(--border);border-radius:5px;font-family:'Tajawal',sans-serif;font-size:12px;">${accOpts}</select>
+    <input type="text" readonly id="jel-code-${jeLineCount}" style="padding:7px 8px;border:1px solid var(--tint);border-radius:5px;font-family:'DM Mono',monospace;font-size:11px;background:var(--tint);color:var(--blue);" placeholder="—">
+    <input type="number" placeholder="0.00" min="0" step="0.01" id="jel-dr-${jeLineCount}" oninput="calcJEBalance()" style="padding:7px 8px;border:1px solid var(--border);border-radius:5px;font-family:'DM Mono',monospace;font-size:12px;">
+    <input type="number" placeholder="0.00" min="0" step="0.01" id="jel-cr-${jeLineCount}" oninput="calcJEBalance()" style="padding:7px 8px;border:1px solid var(--border);border-radius:5px;font-family:'DM Mono',monospace;font-size:12px;">
+    <button class="je-del" onclick="document.getElementById('${id}').remove();calcJEBalance();">×</button>`;
+  document.getElementById('je-lines').appendChild(row);
+}
+
+function jeAccChanged(sel, rowId) {
+  const opt  = sel.options[sel.selectedIndex];
+  const code = sel.value;
+  const num  = rowId.replace('jel-', '');
+  const codeEl = document.getElementById('jel-code-' + num);
+  if (codeEl) codeEl.value = code || '';
+}
+
+function calcJEBalance() {
+  let dr = 0, cr = 0;
+  document.getElementById('je-lines').querySelectorAll('.je-line').forEach(row => {
+    const ins = row.querySelectorAll('input[type="number"]');
+    dr += parseFloat(ins[0]?.value) || 0;
+    cr += parseFloat(ins[1]?.value) || 0;
+  });
+
+  set('bal-dr', fmt(dr));
+  set('bal-cr', fmt(cr));
+
+  const bar      = document.getElementById('balance-bar');
+  const label    = document.getElementById('balance-label');
+  const balanced = Math.abs(dr - cr) < 0.01 && dr > 0;
+
+  bar.className = 'balance-bar ' + (balanced ? 'balanced' : 'unbalanced');
+  label.textContent = balanced
+    ? (L==='ar'?'✓ القيد متوازن':'✓ Entry balanced')
+    : (L==='ar'?'⚠ القيد غير متوازن':'⚠ Entry not balanced');
+}
+
+/* ── SAVE ENTRY ── */
+async function saveEntry() {
+  const date = gval('je-date');
+  const ref  = gval('je-ref');
+  const desc = gval('je-desc');
+
+  if (!date) { notify(L==='ar'?'أدخل تاريخ القيد':'Enter entry date', 'r'); return; }
+
+  // Collect lines
+  const lines = [];
+  document.getElementById('je-lines').querySelectorAll('.je-line').forEach(row => {
+    const sel  = row.querySelector('select');
+    const ins  = row.querySelectorAll('input[type="number"]');
+    const code = sel?.value;
+    const dr   = parseFloat(ins[0]?.value) || 0;
+    const cr   = parseFloat(ins[1]?.value) || 0;
+    const acc  = COA.find(a => a.code === code);
+    if (code && (dr > 0 || cr > 0)) {
+      lines.push({
+        account_code: code,
+        account_name: L==='ar' ? (acc?.name||code) : (acc?.nameEn||code),
+        debit:  dr,
+        credit: cr
+      });
+    }
+  });
+
+  if (lines.length < 2) { notify(L==='ar'?'يجب إدخال سطرين على الأقل':'Minimum 2 lines required', 'r'); return; }
+
+  const totalDr = lines.reduce((s, l) => s + l.debit,  0);
+  const totalCr = lines.reduce((s, l) => s + l.credit, 0);
+
+  if (Math.abs(totalDr - totalCr) > 0.01) {
+    notify(L==='ar'?'القيد غير متوازن — المدين لا يساوي الدائن':'Entry not balanced — debit ≠ credit', 'r');
+    return;
+  }
+
+  const statusEl = document.getElementById('entry-save-status');
+  statusEl.className = 'save-status saving';
+  statusEl.textContent = L==='ar'?'جارٍ الحفظ...':'Saving...';
+  statusEl.style.display = 'inline-block';
+
+  // Save entry
+  const { data: entry, error } = await sb.from('journal_entries').insert({
+    user_id:     currentUser.id,
+    business_id: currentBiz?.id,
+    entry_date:  date,
+    reference:   ref,
+    description: desc,
+    is_balanced: true
+  }).select().single();
+
+  if (error) { notify(error.message, 'r'); statusEl.style.display = 'none'; return; }
+
+  // Save lines
+  const lineRows = lines.map(l => ({ ...l, entry_id: entry.id }));
+  await sb.from('journal_lines').insert(lineRows);
+
+  // Auto-increment ref
+  const refMatch = ref.match(/(\d+)$/);
+  if (refMatch) {
+    const next = String(parseInt(refMatch[1]) + 1).padStart(3, '0');
+    document.getElementById('je-ref').value = ref.replace(/\d+$/, next);
+  }
+
+  statusEl.className = 'save-status saved';
+  statusEl.textContent = '✓ ' + (L==='ar'?'تم الحفظ':'Saved');
+  setTimeout(() => { statusEl.style.display = 'none'; }, 3000);
+
+  clearEntry(false);
+  await loadEntries();
+  notify(L==='ar'?'تم حفظ القيد المحاسبي ✓':'Journal entry saved ✓', 'g');
+  goTab('journal'); // return to journal after save
+}
+
+function clearEntry(resetRef = true) {
+  document.getElementById('je-desc').value = '';
+  document.getElementById('je-date').value = today();
+  if (resetRef) document.getElementById('je-ref').value = 'JE-' + new Date().getFullYear() + '-001';
+  document.getElementById('je-lines').innerHTML = '';
+  jeLineCount = 0;
+  addJELine(); addJELine();
+  calcJEBalance();
+}
+
+/* ── RENDER JOURNAL ── */
+function renderJournal() {
+  const search  = (document.getElementById('journal-search')?.value || '').toLowerCase();
+  const srcFilter = document.getElementById('journal-source-filter')?.value || '';
+  const fromDate  = document.getElementById('journal-from')?.value || '';
+  const toDate    = document.getElementById('journal-to')?.value || '';
+  const tb = document.getElementById('journal-tbody');
+
+  const filtered = entries.filter(e => {
+    const ms = !search || (e.description||'').toLowerCase().includes(search) || (e.reference||'').toLowerCase().includes(search);
+    const mf = !fromDate || e.entry_date >= fromDate;
+    const mt = !toDate   || e.entry_date <= toDate;
+    const msrc = !srcFilter
+      || (srcFilter === 'reversal' && (e.source||'').includes('reversal') || e.source === 'credit_note')
+      || (srcFilter !== 'reversal' && e.source === srcFilter)
+      || (srcFilter === 'manual' && !e.source);
+    return ms && mf && mt && msrc;
+  });
+
+  if (!filtered.length) {
+    tb.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا توجد قيود بعد':'No entries yet'}</td></tr>`;
+    return;
+  }
+
+  const rows = [];
+  filtered.forEach((entry, entryIdx) => {
+    const lines = entry.journal_lines || [];
+    const isReversed = entry.status === 'reversed';
+    const isReversalEntry = (entry.source||'').includes('reversal') || entry.source==='credit_note' || (entry.reference||'').startsWith('REV-');
+    const entryDr = lines.reduce((s,l)=>s+(l.debit||0),0);
+    const entryCr = lines.reduce((s,l)=>s+(l.credit||0),0);
+    const gap = Math.round((entryDr-entryCr)*100)/100;
+    const isImbalanced = !isReversed && !isReversalEntry && Math.abs(gap) > 0.01;
+    const grpId = 'jeg-' + entryIdx;
+
+    const srcBadge = {
+      invoice:          `<span style="background:#dbeafe;color:#1d4ed8;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">📄 ${L==='ar'?'فاتورة':'Invoice'}</span>`,
+      invoice_reversal: `<span style="background:#fce7f3;color:#9d174d;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">↩️ ${L==='ar'?'عكس فاتورة':'Invoice Rev.'}</span>`,
+      credit_note:      `<span style="background:#fce7f3;color:#9d174d;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">🚫 ${L==='ar'?'إشعار دائن':'Credit Note'}</span>`,
+      expense:          `<span style="background:#fff1f2;color:#be123c;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">💸 ${L==='ar'?'مصروف':'Expense'}</span>`,
+      expense_reversal: `<span style="background:#fce7f3;color:#9d174d;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">↩️ ${L==='ar'?'عكس مصروف':'Expense Rev.'}</span>`,
+      payment:          `<span style="background:#dcfce7;color:#166534;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">💰 ${L==='ar'?'دفعة':'Payment'}</span>`,
+      supplier_invoice: `<span style="background:#fef3c7;color:#92400e;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">🏭 ${L==='ar'?'فاتورة مورد':'Supplier Inv.'}</span>`,
+      inventory:        `<span style="background:#dcfce7;color:#166534;font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">📦 ${L==='ar'?'مخزون':'Stock'}</span>`,
+    }[entry.source] || `<span style="background:var(--tint);color:var(--muted);font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;white-space:nowrap;display:inline-block;">✏️ ${L==='ar'?'يدوي':'Manual'}</span>`;
+
+    const statusCell = isReversed
+      ? `${srcBadge}<br><span style="font-size:9px;color:var(--muted);margin-top:2px;display:inline-block;">${L==='ar'?'مُعكَس':'Reversed'}</span>`
+      : isImbalanced
+      ? `${srcBadge}<br><span style="font-size:9px;color:var(--red);font-weight:700;margin-top:2px;display:inline-block;">⚠ ${L==='ar'?'غير متوازن':'Imbalanced'}</span><br><span style="font-size:9px;color:var(--muted);">SAR ${fmt(Math.abs(gap))}</span>`
+      : srcBadge;
+
+    const actionsCell = isReversed || isReversalEntry ? '—' :
+      isImbalanced
+      ? `<div style="display:flex;flex-direction:column;gap:4px;">
+           <button onclick="event.stopPropagation();reverseJournalEntry('${entry.id}','${entry.reference||''}')" style="font-size:10px;padding:3px 10px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:5px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:600;white-space:nowrap;">↩️ ${L==='ar'?'عكس':'Reverse'}</button>
+           <button onclick="event.stopPropagation();adjustJournalEntry('${entry.id}','${entry.reference||''}',${gap})" style="font-size:10px;padding:3px 10px;background:#fffbeb;color:var(--amber);border:1px solid #fde68a;border-radius:5px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:600;white-space:nowrap;">✏️ ${L==='ar'?'تعديل موجّه':'Guided Fix'}</button>
+         </div>`
+      : '—';
+
+    const drTotal = fmt(entryDr);
+    const crTotal = fmt(entryCr);
+    const rowBg = isImbalanced ? '#fffbeb' : isReversed ? '#fafafa' : '#fff';
+
+    // SUMMARY ROW — always visible, click to expand
+    rows.push(`<tr onclick="toggleJEGroup('${grpId}')" style="cursor:pointer;background:${rowBg};border-top:2px solid var(--border);${isReversed?'opacity:.5;':''}" class="jeg-summary">
+      <td style="font-size:11px;color:var(--muted);white-space:nowrap;padding:9px 12px;">
+        <span id="${grpId}-arrow" style="font-size:10px;color:var(--muted);margin-left:4px;">▶</span>
+        ${entry.entry_date}
+      </td>
       <td style="padding:9px 12px;"><span class="acc-code">${entry.reference||'—'}</span></td>
       <td style="padding:9px 12px;font-size:12px;font-weight:500;">${entry.description||'—'}</td>
-      <td style="padding:9px 12px;font-size:11px;color:var(--muted);">${lines.length} lines</td>
-      <td style="padding:9px 12px;" class="mono dr">SAR ${fmt(entryDr)}</td>
-      <td style="padding:9px 12px;" class="mono cr">SAR ${fmt(entryCr)}</td>
+      <td style="padding:9px 12px;font-size:11px;color:var(--muted);">${lines.length} ${L==='ar'?'سطر':'lines'}</td>
+      <td style="padding:9px 12px;" class="mono dr">SAR ${drTotal}</td>
+      <td style="padding:9px 12px;" class="mono cr">SAR ${crTotal}</td>
       <td style="padding:9px 12px;">${statusCell}</td>
       <td style="padding:9px 12px;">${actionsCell}</td>
     </tr>`);
-    lines.forEach((line,i)=>{
+
+    // DETAIL ROWS — hidden by default
+    lines.forEach((line, idx) => {
       rows.push(`<tr class="${grpId}" style="display:none;background:#f8fbff;${isReversed?'opacity:.5;text-decoration:line-through;':''}">
-        <td colspan="3" style="padding:5px 12px;font-size:10px;color:var(--muted);">${i===0?'Entry details':''}</td>
-        <td style="padding:5px 12px;"><span class="acc-code">${line.account_code}</span> <span style="font-size:11px;color:var(--muted);">${line.account_name||''}</span></td>
-        <td style="padding:5px 12px;" class="mono dr">${line.debit>0?'SAR '+fmt(line.debit):'—'}</td>
-        <td style="padding:5px 12px;" class="mono cr">${line.credit>0?'SAR '+fmt(line.credit):'—'}</td>
+        <td style="padding:5px 12px;font-size:11px;color:var(--muted);padding-right:24px;" colspan="3">
+          ${idx===0?'<span style="font-size:10px;color:var(--muted);font-style:italic;">'+(L==='ar'?'تفاصيل القيد:':'Entry details:')+'</span>':''}
+        </td>
+        <td style="padding:5px 12px;">
+          <span class="acc-code">${line.account_code}</span>
+          <span style="font-size:11px;color:var(--muted);margin-right:6px;">${line.account_name||''}</span>
+        </td>
+        <td style="padding:5px 12px;" class="mono dr">${line.debit  > 0 ? 'SAR ' + fmt(line.debit)  : '—'}</td>
+        <td style="padding:5px 12px;" class="mono cr">${line.credit > 0 ? 'SAR ' + fmt(line.credit) : '—'}</td>
         <td colspan="2"></td>
       </tr>`);
     });
   });
-  tb.innerHTML=rows.join('');
+  tb.innerHTML = rows.join('');
 }
 
-function toggleJEGroup(grpId){
-  const rows=document.querySelectorAll('.'+grpId);
-  const arrow=document.getElementById(grpId+'-arrow');
-  const isOpen=rows.length&&rows[0].style.display!=='none';
-  rows.forEach(r=>r.style.display=isOpen?'none':'');
-  if(arrow)arrow.textContent=isOpen?'▶':'▼';
-}
+/* ── TRIAL BALANCE ── */
+async function calcTrialBalance() {
+  const from = document.getElementById('tb-from').value;
+  const to   = document.getElementById('tb-to').value;
+  if (!from || !to) { notify(L==='ar'?'اختر الفترة':'Select period', 'r'); return; }
 
-function addJELine(){
-  jeLineCount++;
-  const id='jel-'+jeLineCount;
-  const row=document.createElement('div');row.id=id;row.className='je-line';
-  const opts='<option value="">— '+(L==='ar'?'اختر حساباً':'Select account')+' —</option>'+COA.map(a=>`<option value="${a.code}" data-name="${a.name}" data-name-en="${a.nameEn}">${a.code} — ${L==='ar'?a.name:a.nameEn}</option>`).join('');
-  row.innerHTML=`<select onchange="jeAccChanged(this,'${id}')" style="padding:7px 8px;border:1px solid var(--border);border-radius:5px;font-family:'Tajawal',sans-serif;font-size:12px;">${opts}</select><input type="text" readonly id="jel-code-${jeLineCount}" style="padding:7px 8px;border:1px solid var(--tint);border-radius:5px;font-family:'DM Mono',monospace;font-size:11px;background:var(--tint);color:var(--blue);" placeholder="—"><input type="number" placeholder="0.00" min="0" step="0.01" id="jel-dr-${jeLineCount}" oninput="calcJEBalance()" style="padding:7px 8px;border:1px solid var(--border);border-radius:5px;font-family:'DM Mono',monospace;font-size:12px;"><input type="number" placeholder="0.00" min="0" step="0.01" id="jel-cr-${jeLineCount}" oninput="calcJEBalance()" style="padding:7px 8px;border:1px solid var(--border);border-radius:5px;font-family:'DM Mono',monospace;font-size:12px;"><button class="je-del" onclick="document.getElementById('${id}').remove();calcJEBalance();">×</button>`;
-  document.getElementById('je-lines').appendChild(row);
-}
+  const { data: lines } = await sb.from('journal_lines')
+    .select('*, journal_entries(entry_date, user_id, status, source, reference)')
+    .filter('journal_entries.user_id', 'eq', currentUser.id)
+    .filter('journal_entries.entry_date', 'gte', from)
+    .filter('journal_entries.entry_date', 'lte', to);
 
-function jeAccChanged(sel,rowId){const num=rowId.replace('jel-','');const el=document.getElementById('jel-code-'+num);if(el)el.value=sel.value||'';}
+  // Aggregate by account code — exclude reversed entries and their reversal counterparts
+  const accounts = {};
+  (lines || []).forEach(l => {
+    const je = l.journal_entries;
+    if (!je) return;
+    // Same exclusion logic as renderStats
+    if(je.status === 'reversed') return;
+    if((je.source||'').includes('reversal')) return;
+    if(je.source === 'credit_note') return;
+    if((je.reference||'').startsWith('REV-')) return;
 
-function calcJEBalance(){
-  let dr=0,cr=0;
-  document.getElementById('je-lines').querySelectorAll('.je-line').forEach(row=>{const ins=row.querySelectorAll('input[type="number"]');dr+=parseFloat(ins[0]?.value)||0;cr+=parseFloat(ins[1]?.value)||0;});
-  set('bal-dr',fmt(dr));set('bal-cr',fmt(cr));
-  const bar=document.getElementById('balance-bar');const label=document.getElementById('balance-label');
-  const balanced=Math.abs(dr-cr)<0.01&&dr>0;
-  bar.className='balance-bar '+(balanced?'balanced':'unbalanced');
-  label.textContent=balanced?(L==='ar'?'✓ القيد متوازن':'✓ Entry balanced'):(L==='ar'?'⚠ القيد غير متوازن':'⚠ Entry not balanced');
-}
-
-async function saveEntry(){
-  const date=document.getElementById('je-date').value;const ref=document.getElementById('je-ref').value;const desc=document.getElementById('je-desc').value;
-  if(!date){notify(L==='ar'?'أدخل تاريخ القيد':'Enter entry date','r');return;}
-  const lines=[];
-  document.getElementById('je-lines').querySelectorAll('.je-line').forEach(row=>{
-    const sel=row.querySelector('select');const ins=row.querySelectorAll('input[type="number"]');
-    const code=sel?.value;const dr=parseFloat(ins[0]?.value)||0;const cr=parseFloat(ins[1]?.value)||0;
-    const acc=COA.find(a=>a.code===code);
-    if(code&&(dr>0||cr>0))lines.push({account_code:code,account_name:L==='ar'?(acc?.name||code):(acc?.nameEn||code),debit:dr,credit:cr});
+    if (!accounts[l.account_code]) {
+      accounts[l.account_code] = {
+        code: l.account_code,
+        name: l.account_name || l.account_code,
+        dr: 0, cr: 0
+      };
+    }
+    accounts[l.account_code].dr += l.debit  || 0;
+    accounts[l.account_code].cr += l.credit || 0;
   });
-  if(lines.length<2){notify(L==='ar'?'يجب إدخال سطرين على الأقل':'Minimum 2 lines required','r');return;}
-  const totalDr=lines.reduce((s,l)=>s+l.debit,0);const totalCr=lines.reduce((s,l)=>s+l.credit,0);
-  if(Math.abs(totalDr-totalCr)>0.01){notify(L==='ar'?'القيد غير متوازن':'Entry not balanced','r');return;}
-  const statusEl=document.getElementById('entry-save-status');
-  statusEl.className='save-status saving';statusEl.textContent=L==='ar'?'جارٍ الحفظ...':'Saving...';statusEl.style.display='inline-block';
-  const {data:entry,error}=await sb.from('journal_entries').insert({user_id:currentUser.id,business_id:currentBiz?.id,entry_date:date,reference:ref,description:desc,is_balanced:true,status:'posted',source:'manual'}).select().single();
-  if(error){notify(error.message,'r');statusEl.style.display='none';return;}
-  await sb.from('journal_lines').insert(lines.map(l=>{return{...l,entry_id:entry.id,user_id:currentUser.id}; }));
-  const refMatch=ref.match(/(\d+)$/);
-  if(refMatch){const next=String(parseInt(refMatch[1])+1).padStart(3,'0');document.getElementById('je-ref').value=ref.replace(/\d+$/,next);}
-  statusEl.className='save-status saved';statusEl.textContent='✓ '+(L==='ar'?'تم الحفظ':'Saved');
-  setTimeout(()=>{statusEl.style.display='none';},3000);
-  clearEntry(false);await loadEntries();notify(L==='ar'?'تم حفظ القيد ✓':'Journal entry saved ✓','g');goTab('journal');
+
+  const accList = Object.values(accounts).sort((a, b) => a.code.localeCompare(b.code));
+  const totalDr = accList.reduce((s, a) => s + a.dr, 0);
+  const totalCr = accList.reduce((s, a) => s + a.cr, 0);
+  const balanced = Math.abs(totalDr - totalCr) < 0.01;
+
+  if (!accList.length) {
+    document.getElementById('trial-balance-result').innerHTML =
+      `<div style="text-align:center;padding:20px;color:var(--muted);">${L==='ar'?'لا توجد قيود في هذه الفترة':'No entries in this period'}</div>`;
+    return;
+  }
+
+  const dir = L==='ar'?'rtl':'ltr';
+  const tdAlign = L==='ar'?'right':'left';
+  const numAlign = L==='ar'?'left':'right';
+
+  document.getElementById('trial-balance-result').innerHTML = `
+    <div style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;">
+      <span style="font-size:12px;color:var(--muted);">${L==='ar'?'الفترة من':'Period'} ${from} ${L==='ar'?'إلى':'to'} ${to}</span>
+      <span style="font-size:12px;font-weight:700;color:${balanced?'var(--green)':'var(--red)'};">${balanced?(L==='ar'?'✓ الميزان متوازن':'✓ Balanced'):(L==='ar'?'⚠ الميزان غير متوازن':'⚠ Not balanced')}</span>
+    </div>
+    <div style="overflow-x:auto;">
+    <table style="width:100%;border-collapse:collapse;font-size:12px;" dir="${dir}">
+      <thead><tr style="background:var(--navy);color:#fff;">
+        <th style="padding:9px 12px;text-align:${tdAlign};">${L==='ar'?'كود الحساب':'Code'}</th>
+        <th style="padding:9px 12px;text-align:${tdAlign};">${L==='ar'?'اسم الحساب':'Account'}</th>
+        <th style="padding:9px 12px;text-align:${numAlign};">${L==='ar'?'مدين':'Debit'}</th>
+        <th style="padding:9px 12px;text-align:${numAlign};">${L==='ar'?'دائن':'Credit'}</th>
+      </tr></thead>
+      <tbody>
+        ${accList.map(a => `<tr style="border-bottom:1px solid var(--tint);">
+          <td style="padding:8px 12px;text-align:${tdAlign};"><span class="acc-code">${a.code}</span></td>
+          <td style="padding:8px 12px;font-size:12px;text-align:${tdAlign};">${a.name}</td>
+          <td style="padding:8px 12px;font-family:'DM Mono',monospace;color:var(--green);text-align:${numAlign};">${a.dr > 0 ? 'SAR ' + fmt(a.dr) : '—'}</td>
+          <td style="padding:8px 12px;font-family:'DM Mono',monospace;color:var(--red);text-align:${numAlign};">${a.cr > 0 ? 'SAR ' + fmt(a.cr) : '—'}</td>
+        </tr>`).join('')}
+      </tbody>
+      <tfoot>
+        <tr style="background:var(--tint);font-weight:700;font-size:13px;">
+          <td colspan="2" style="padding:10px 12px;text-align:${tdAlign};">${L==='ar'?'الإجمالي':'Total'}</td>
+          <td style="padding:10px 12px;font-family:'DM Mono',monospace;color:var(--green);text-align:${numAlign};">SAR ${fmt(totalDr)}</td>
+          <td style="padding:10px 12px;font-family:'DM Mono',monospace;color:var(--red);text-align:${numAlign};">SAR ${fmt(totalCr)}</td>
+        </tr>
+      </tfoot>
+    </table>
+    </div>`;
 }
 
-function clearEntry(resetRef=true){
-  document.getElementById('je-desc').value='';document.getElementById('je-date').value=today();
-  if(resetRef)document.getElementById('je-ref').value='JE-'+new Date().getFullYear()+'-001';
-  document.getElementById('je-lines').innerHTML='';jeLineCount=0;addJELine();addJELine();calcJEBalance();
-}
+/* ── CHART OF ACCOUNTS ── */
+function renderCOA() {
+  const search = (document.getElementById('coa-search')?.value||'').toLowerCase();
+  const typeFilter = document.getElementById('coa-type-filter')?.value||'';
+  const tb = document.getElementById('coa-tbody');
+  const typeColors = {
+    'أصول':'var(--blue)','خصوم':'var(--red)',
+    'حقوق الملكية':'#6d28d9','إيرادات':'var(--green)','مصاريف':'var(--amber)'
+  };
+  const typeLabels = {
+    'أصول':{ar:'أصول',en:'Assets'},'خصوم':{ar:'خصوم',en:'Liabilities'},
+    'حقوق الملكية':{ar:'حقوق الملكية',en:'Equity'},
+    'إيرادات':{ar:'إيرادات',en:'Revenue'},'مصاريف':{ar:'مصاريف',en:'Expenses'}
+  };
 
-function openNewEntry(){
-  const et=document.getElementById('tc-entry');const jt=document.getElementById('tc-journal');
-  if(!et)return;
-  if(et.classList.contains('active')){et.classList.remove('active');jt?.classList.add('active');document.getElementById('sb-journal')?.classList.add('active');return;}
-  ['journal','trial','accounts'].forEach(t=>{document.getElementById('tc-'+t)?.classList.remove('active');document.getElementById('sb-'+t)?.classList.remove('active');});
-  et.classList.add('active');window.scrollTo(0,0);
-}
-
-function checkBalanceIssue(){
-  goTab('journal');
-  const unbalanced=entries.filter(e=>{
-    if(e.status==='reversed')return false;
-    if((e.source||'').includes('reversal')||e.source==='credit_note'||(e.reference||'').startsWith('REV-'))return false;
-    const lines=e.journal_lines||[];const dr=lines.reduce((s,l)=>s+(l.debit||0),0);const cr=lines.reduce((s,l)=>s+(l.credit||0),0);
-    return Math.abs(dr-cr)>0.01;
+  let filtered = COA.filter(a => {
+    const ms = !search || a.code.includes(search) || a.name.includes(search) || a.nameEn.toLowerCase().includes(search) || a.cat.includes(search);
+    const mt = !typeFilter || a.type === typeFilter;
+    return ms && mt;
   });
-  if(!unbalanced.length){notify(L==='ar'?'✓ لا توجد قيود غير متوازنة':'✓ No unbalanced entries','g');return;}
-  const s=document.getElementById('journal-search');if(s)s.value='';
-  renderJournal();
-  notify(L==='ar'?`⚠ ${unbalanced.length} قيد غير متوازن — مُظلَّل باللون الأصفر`:`⚠ ${unbalanced.length} unbalanced entr${unbalanced.length>1?'ies':'y'} — highlighted in yellow`,'r');
+
+  if(!filtered.length) {
+    tb.innerHTML = `<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted);">${L==='ar'?'لا توجد نتائج':'No results'}</td></tr>`;
+    return;
+  }
+
+  tb.innerHTML = filtered.map(a => `<tr>
+    <td><span class="acc-code">${a.code}</span></td>
+    <td>
+      <strong style="font-size:13px;">${L==='ar'?a.name:a.nameEn}</strong>
+      <div style="font-size:10px;color:var(--muted);">${L==='ar'?a.nameEn:a.name}</div>
+    </td>
+    <td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:rgba(0,0,0,0.06);color:${typeColors[a.type]||'var(--muted)'};">${L==='ar'?(typeLabels[a.type]?.ar||a.type):(typeLabels[a.type]?.en||a.type)}</span></td>
+    <td style="font-size:11px;color:var(--muted);">${a.cat}</td>
+    <td><span style="font-size:11px;font-weight:700;color:${a.normal==='مدين'?'var(--green)':'var(--red)'};">${a.normal==='مدين'?(L==='ar'?'مدين':'Debit'):(L==='ar'?'دائن':'Credit')}</span></td>
+  </tr>`).join('');
 }
 
-async function reverseJournalEntry(entryId,ref){
-  if(!confirm(L==='ar'?`عكس القيد ${ref}؟`:`Reverse entry ${ref}?`))return;
-  const entry=entries.find(e=>e.id===entryId);if(!entry)return;
-  const origLines=entry.journal_lines||[];
-  const revLines=origLines.map(l=>{const gap=origLines.reduce((s,l2)=>s+(l2.debit||0)-(l2.credit||0),0);return{account_code:l.account_code,account_name:l.account_name,debit:Math.round((l.credit||0)*100)/100,credit:Math.round((l.debit||0)*100)/100,description:(L==='ar'?'عكس: ':'Rev: ')+(l.description||'')};} );
-  const {data:re,error}=await sb.from('journal_entries').insert({user_id:currentUser.id,business_id:currentBiz?.id,entry_date:today(),reference:'REV-'+ref,description:(L==='ar'?'عكس — ':'Reversal of — ')+entry.description,source:'expense_reversal',status:'posted',is_balanced:true}).select().single();
-  if(error||!re){notify((L==='ar'?'خطأ: ':'Error: ')+error?.message,'r');return;}
-  await sb.from('journal_lines').insert(revLines.map(l=>{return{...l,entry_id:re.id,user_id:currentUser.id}; }));
+function toggleJEGroup(grpId) {
+  const detailRows = document.querySelectorAll('.' + grpId);
+  const arrow = document.getElementById(grpId + '-arrow');
+  const isOpen = detailRows.length && detailRows[0].style.display !== 'none';
+  detailRows.forEach(r => r.style.display = isOpen ? 'none' : '');
+  if(arrow) arrow.textContent = isOpen ? '▶' : '▼';
+}
+
+/* ── NAVIGATION ── */
+function goTab(name) {
+  ['journal','trial','accounts'].forEach(t => {
+    document.getElementById('tc-'+t)?.classList.toggle('active', t===name);
+    const sb = document.getElementById('sb-'+t);
+    if (sb) sb.classList.toggle('active', t===name);
+  });
+  // entry tab is shown as overlay — not a nav tab
+}
+
+function openNewEntry() {
+  // Show the entry tab as an overlay panel
+  const entryTab = document.getElementById('tc-entry');
+  const journalTab = document.getElementById('tc-journal');
+  if(!entryTab) return;
+
+  // Toggle — if already open, go back to journal
+  if(entryTab.classList.contains('active')) {
+    entryTab.classList.remove('active');
+    journalTab?.classList.add('active');
+    document.getElementById('sb-journal')?.classList.add('active');
+    return;
+  }
+
+  // Hide all tabs, show entry
+  ['journal','trial','accounts'].forEach(t => {
+    document.getElementById('tc-'+t)?.classList.remove('active');
+    document.getElementById('sb-'+t)?.classList.remove('active');
+  });
+  entryTab.classList.add('active');
+  window.scrollTo(0,0);
+}
+
+/* ── REVERSE / ADJUST JOURNAL ENTRY ── */
+async function reverseJournalEntry(entryId, ref) {
+  if(!confirm(L==='ar'
+    ?`عكس القيد ${ref}؟ سيتم ترحيل قيد عكسي متوازن لإلغاء هذا القيد.`
+    :`Reverse entry ${ref}? A balanced reversing entry will be posted.`)) return;
+
+  const entry = entries.find(e=>e.id===entryId);
+  if(!entry){notify(L==='ar'?'لم يتم العثور على القيد':'Entry not found','r');return;}
+
+  const origLines = entry.journal_lines||[];
+
+  // Calculate totals of original entry
+  const origDr = origLines.reduce((s,l)=>s+(l.debit||0),0);
+  const origCr = origLines.reduce((s,l)=>s+(l.credit||0),0);
+
+  // Build reversal lines — flip each line
+  let revLines = origLines.map(l=>({
+    account_code: l.account_code,
+    account_name: l.account_name,
+    debit:  Math.round((l.credit||0)*100)/100,
+    credit: Math.round((l.debit||0)*100)/100,
+    description: (L==='ar'?'عكس: ':'Rev: ')+(l.description||l.account_name||'')
+  }));
+
+  // Verify the reversal is balanced — if not, add a plug line
+  const revDr = revLines.reduce((s,l)=>s+(l.debit||0),0);
+  const revCr = revLines.reduce((s,l)=>s+(l.credit||0),0);
+  const gap   = Math.round((revDr-revCr)*100)/100;
+
+  if(Math.abs(gap) > 0.01) {
+    // Add a suspense/plug line to force balance
+    revLines.push({
+      account_code: gap > 0 ? '2400' : '1400', // Accrued expenses or Prepaid
+      account_name: gap > 0
+        ? (L==='ar'?'مصاريف مستحقة (تسوية عكس)':'Accrued Expenses (reversal plug)')
+        : (L==='ar'?'مدفوعات مقدمة (تسوية عكس)':'Prepaid (reversal plug)'),
+      debit:  gap > 0 ? 0 : Math.abs(gap),
+      credit: gap > 0 ? Math.abs(gap) : 0,
+      description: L==='ar'?'تسوية توازن العكس':'Reversal balance plug'
+    });
+  }
+
+  const {data:revEntry,error} = await sb.from('journal_entries').insert({
+    user_id:currentUser.id, business_id:currentBiz?.id,
+    entry_date:today(),
+    reference:'REV-'+ref,
+    description:(L==='ar'?'عكس — ':'Reversal of — ')+entry.description,
+    source:'expense_reversal', status:'posted', is_balanced:true
+  }).select().single();
+
+  if(error||!revEntry){
+    notify((L==='ar'?'فشل إنشاء القيد العكسي: ':'Failed to create reversal: ')+error?.message,'r');
+    return;
+  }
+
+  await sb.from('journal_lines').insert(
+    revLines.map(l=>({...l, entry_id:revEntry.id, user_id:currentUser.id}))
+  );
+
+  // Mark original as reversed
   await sb.from('journal_entries').update({status:'reversed'}).eq('id',entryId);
-  notify(L==='ar'?`✅ تم عكس القيد ${ref}`:`✅ Entry ${ref} reversed`,'g');
+
+  notify(L==='ar'
+    ?`✅ تم عكس القيد ${ref} — القيد العكسي متوازن`
+    :`✅ Entry ${ref} reversed — reversal is balanced`,'g');
   await loadEntries();
 }
 
-async function calcTrialBalance(){
-  const from=document.getElementById('tb-from').value;const to=document.getElementById('tb-to').value;
-  if(!from||!to){notify(L==='ar'?'اختر الفترة':'Select period','r');return;}
-  const {data:lines}=await sb.from('journal_lines').select('*,journal_entries(entry_date,user_id,status,source,reference)').filter('journal_entries.user_id','eq',currentUser.id).filter('journal_entries.entry_date','gte',from).filter('journal_entries.entry_date','lte',to);
-  const accounts={};
-  (lines||[]).forEach(l=>{
-    const je=l.journal_entries;if(!je)return;
-    if(je.status==='reversed')return;if((je.source||'').includes('reversal'))return;if(je.source==='credit_note')return;if((je.reference||'').startsWith('REV-'))return;
-    if(!accounts[l.account_code])accounts[l.account_code]={code:l.account_code,name:l.account_name||l.account_code,dr:0,cr:0};
-    accounts[l.account_code].dr+=l.debit||0;accounts[l.account_code].cr+=l.credit||0;
+function adjustJournalEntry(entryId, ref, gap) {
+  // Open guided new entry form with explanation
+  openNewEntry();
+
+  const absGap = Math.abs(gap).toFixed(2);
+  const needsDebit = gap < 0;  // Cr > Dr → need to add a debit line
+  const needsCredit = gap > 0; // Dr > Cr → need to add a credit line
+
+  // Pre-fill header
+  document.getElementById('je-date').value = today();
+  document.getElementById('je-ref').value  = 'ADJ-' + ref;
+  document.getElementById('je-desc').value = (L==='ar'?'قيد تعديل — ':'Adjusting entry — ') + ref;
+
+  // Clear lines and add 1 pre-filled line
+  document.getElementById('je-lines').innerHTML = '';
+  jeLineCount = 0;
+  addJELine();
+
+  // Pre-fill the gap amount in the right column
+  setTimeout(() => {
+    const row = document.getElementById('je-lines').querySelector('.je-line');
+    if(!row) return;
+    const [drInput, crInput] = row.querySelectorAll('input[type="number"]');
+    if(needsDebit  && drInput) { drInput.value = absGap; drInput.dispatchEvent(new Event('input')); }
+    if(needsCredit && crInput) { crInput.value = absGap; crInput.dispatchEvent(new Event('input')); }
+    calcJEBalance();
+  }, 100);
+
+  // Show guided instruction below the form
+  const noteBox = document.querySelector('#tc-entry .note-box');
+  if(noteBox) {
+    noteBox.className = 'note-box amber';
+    noteBox.innerHTML = `
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      <div>
+        <div style="font-weight:700;margin-bottom:4px;">${L==='ar'?'إرشادات التعديل':'Adjustment Guide'}</div>
+        <div style="font-size:11px;line-height:1.7;">
+          ${L==='ar'
+            ? `القيد <strong>${ref}</strong> يحتاج ${needsDebit?'مدين':'دائن'} إضافي بمبلغ <strong>SAR ${absGap}</strong><br>
+               — الحساب المناسب عادةً: اختر الحساب الذي يكمّل القيد الأصلي<br>
+               — مثال: إذا كانت الفجوة في ضريبة المدخلات، اختر <strong>2220</strong>`
+            : `Entry <strong>${ref}</strong> needs an additional ${needsDebit?'debit':'credit'} of <strong>SAR ${absGap}</strong><br>
+               — Select the account that completes the original entry<br>
+               — Example: if the gap is VAT input, choose account <strong>2220</strong>`}
+        </div>
+      </div>`;
+  }
+}
+
+function checkBalanceIssue() {
+  goTab('journal');
+
+  const unbalanced = entries.filter(e => {
+    if(e.status === 'reversed') return false;
+    if((e.source||'').includes('reversal') || e.source==='credit_note' || (e.reference||'').startsWith('REV-')) return false;
+    const lines = e.journal_lines || [];
+    const dr = lines.reduce((s,l) => s+(l.debit||0), 0);
+    const cr = lines.reduce((s,l) => s+(l.credit||0), 0);
+    return Math.abs(dr - cr) > 0.01;
   });
-  const accList=Object.values(accounts).sort((a,b)=>a.code.localeCompare(b.code));
-  const totalDr=accList.reduce((s,a)=>s+a.dr,0);const totalCr=accList.reduce((s,a)=>s+a.cr,0);
-  const balanced=Math.abs(totalDr-totalCr)<0.01;
-  const dir=L==='ar'?'rtl':'ltr';const tdAlign=L==='ar'?'right':'left';const numAlign=L==='ar'?'left':'right';
-  document.getElementById('trial-balance-result').innerHTML=`
-    <div style="margin-bottom:12px;display:flex;align-items:center;justify-content:space-between;"><span style="font-size:12px;color:var(--muted);">${from} → ${to}</span><span style="font-size:12px;font-weight:700;color:${balanced?'var(--green)':'var(--red)'}">${balanced?(L==='ar'?'✓ الميزان متوازن':'✓ Balanced'):(L==='ar'?'⚠ غير متوازن':'⚠ Not balanced')}</span></div>
-    <div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;" dir="${dir}">
-    <thead><tr style="background:var(--navy);color:#fff;"><th style="padding:9px 12px;text-align:${tdAlign};">${L==='ar'?'كود':'Code'}</th><th style="padding:9px 12px;text-align:${tdAlign};">${L==='ar'?'اسم الحساب':'Account'}</th><th style="padding:9px 12px;text-align:${numAlign};">${L==='ar'?'مدين':'Debit'}</th><th style="padding:9px 12px;text-align:${numAlign};">${L==='ar'?'دائن':'Credit'}</th></tr></thead>
-    <tbody>${accList.map(a=>`<tr style="border-bottom:1px solid var(--tint);"><td style="padding:8px 12px;text-align:${tdAlign};"><span class="acc-code">${a.code}</span></td><td style="padding:8px 12px;text-align:${tdAlign};">${a.name}</td><td style="padding:8px 12px;font-family:'DM Mono',monospace;color:var(--green);text-align:${numAlign};">${a.dr>0?'SAR '+fmt(a.dr):'—'}</td><td style="padding:8px 12px;font-family:'DM Mono',monospace;color:var(--red);text-align:${numAlign};">${a.cr>0?'SAR '+fmt(a.cr):'—'}</td></tr>`).join('')}</tbody>
-    <tfoot><tr style="background:var(--tint);font-weight:700;font-size:13px;"><td colspan="2" style="padding:10px 12px;text-align:${tdAlign};">${L==='ar'?'الإجمالي':'Total'}</td><td style="padding:10px 12px;font-family:'DM Mono',monospace;color:var(--green);text-align:${numAlign};">SAR ${fmt(totalDr)}</td><td style="padding:10px 12px;font-family:'DM Mono',monospace;color:var(--red);text-align:${numAlign};">SAR ${fmt(totalCr)}</td></tr></tfoot>
-    </table></div>`;
+
+  if(!unbalanced.length) {
+    // Clear any search filter and show all
+    const searchEl = document.getElementById('journal-search');
+    if(searchEl) { searchEl.value = ''; }
+    renderJournal();
+    notify(L==='ar'?'✓ لا توجد قيود غير متوازنة — الدفتر سليم':'✓ No unbalanced entries — ledger is clean','g');
+    return;
+  }
+
+  // Clear all filters so all entries show — unbalanced ones highlighted in yellow
+  const searchEl = document.getElementById('journal-search');
+  const srcEl    = document.getElementById('journal-source-filter');
+  if(searchEl) searchEl.value = '';
+  if(srcEl)    srcEl.value    = '';
+  renderJournal();
+
+  notify(
+    L==='ar'
+      ? `⚠ يوجد ${unbalanced.length} قيد غير متوازن — مُظلَّلة باللون الأصفر في الجدول`
+      : `⚠ ${unbalanced.length} unbalanced entr${unbalanced.length>1?'ies':'y'} — highlighted in yellow below`,
+    'r'
+  );
+  document.getElementById('tc-journal')?.scrollIntoView({behavior:'smooth'});
 }
 
-function renderCOA(){
-  const search=(document.getElementById('coa-search')?.value||'').toLowerCase();
-  const typeFilter=document.getElementById('coa-type-filter')?.value||'';
-  const tb=document.getElementById('coa-tbody');
-  const typeColors={'أصول':'var(--blue)','خصوم':'var(--red)','حقوق الملكية':'#6d28d9','إيرادات':'var(--green)','مصاريف':'var(--amber)'};
-  const typeLabels={'أصول':{ar:'أصول',en:'Assets'},'خصوم':{ar:'خصوم',en:'Liabilities'},'حقوق الملكية':{ar:'حقوق الملكية',en:'Equity'},'إيرادات':{ar:'إيرادات',en:'Revenue'},'مصاريف':{ar:'مصاريف',en:'Expenses'}};
-  const filtered=COA.filter(a=>{const ms=!search||a.code.includes(search)||a.name.includes(search)||a.nameEn.toLowerCase().includes(search);const mt=!typeFilter||a.type===typeFilter;return ms&&mt;});
-  if(!filtered.length){tb.innerHTML=`<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted);">${L==='ar'?'لا توجد نتائج':'No results'}</td></tr>`;return;}
-  tb.innerHTML=filtered.map(a=>`<tr><td><span class="acc-code">${a.code}</span></td><td><strong style="font-size:13px;">${L==='ar'?a.name:a.nameEn}</strong><div style="font-size:10px;color:var(--muted);">${L==='ar'?a.nameEn:a.name}</div></td><td><span style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:6px;background:rgba(0,0,0,0.06);color:${typeColors[a.type]||'var(--muted)'};">${L==='ar'?(typeLabels[a.type]?.ar||a.type):(typeLabels[a.type]?.en||a.type)}</span></td><td style="font-size:11px;color:var(--muted);">${a.cat}</td><td><span style="font-size:11px;font-weight:700;color:${a.normal==='مدين'?'var(--green)':'var(--red)'}">${a.normal==='مدين'?(L==='ar'?'مدين':'Debit'):(L==='ar'?'دائن':'Credit')}</span></td></tr>`).join('');
+/* ── EXPENSE CATEGORIES ── */
+const EXP_CATS = {
+  '5200': { ar:'رواتب وأجور',          en:'Salaries & Wages' },
+  '5300': { ar:'إيجار',                en:'Rent' },
+  '5400': { ar:'مرافق',                en:'Utilities' },
+  '5500': { ar:'تسويق وإعلان',         en:'Marketing & Ads' },
+  '5750': { ar:'سفر ومواصلات',         en:'Travel & Transport' },
+  '5700': { ar:'رسوم بنكية',           en:'Bank Charges' },
+  '5800': { ar:'أتعاب مهنية',          en:'Professional Fees' },
+  '5900': { ar:'مصاريف متنوعة',        en:'Miscellaneous' },
+};
+
+function updateExpRef() {
+  const cat = document.getElementById('exp-category')?.value;
+  const desc = document.getElementById('exp-desc');
+  if (desc && !desc.value && cat && EXP_CATS[cat]) {
+    desc.placeholder = EXP_CATS[cat][L==='ar'?'ar':'en'] + ' — ' + today().substring(0,7);
+  }
 }
 
-function goTab(name){
-  ['journal','trial','accounts'].forEach(t=>{document.getElementById('tc-'+t)?.classList.toggle('active',t===name);const s=document.getElementById('sb-'+t);if(s)s.classList.toggle('active',t===name);});
-  const et=document.getElementById('tc-entry');if(et)et.classList.remove('active');
+function toggleExpVAT() {
+  const hasVat = document.getElementById('exp-has-vat')?.checked;
+  const row    = document.getElementById('exp-vat-row');
+  if (row) row.style.display = hasVat ? 'block' : 'none';
+  if (hasVat) {
+    const amt = parseFloat(document.getElementById('exp-amount')?.value) || 0;
+    const vat = Math.round(amt / 1.15 * 0.15 * 100) / 100;
+    const el  = document.getElementById('exp-vat-amount');
+    if (el) el.textContent = vat.toFixed(2);
+  }
 }
 
-function setLang(lang){L=lang;applyLang(lang);renderCOA();renderStats();renderJournal();}
-function applyLang(lang){localStorage.setItem('gl_lang',lang);document.getElementById('btn-ar')?.classList.toggle('on',lang==='ar');document.getElementById('btn-en')?.classList.toggle('on',lang==='en');document.documentElement.setAttribute('lang',lang);document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));document.querySelectorAll('select option[data-ar]').forEach(o=>o.text=o.getAttribute('data-'+lang)||o.text);document.querySelectorAll('[data-placeholder-ar][data-placeholder-en]').forEach(el=>el.placeholder=el.getAttribute('data-placeholder-'+lang));}
-function set(id,v){const e=document.getElementById(id);if(e)e.textContent=v;}
-function fmt(n){return(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');}
-function today(){return new Date().toISOString().split('T')[0];}
-async function logout(){await sb.auth.signOut();window.location.href='login.html';}
-function notify(msg,type){const d=document.createElement('div');d.style.cssText='position:fixed;top:20px;left:50%;transform:translateX(-50%);background:'+(type==='g'?'var(--green)':'var(--red)')+';color:#fff;padding:10px 24px;border-radius:8px;font-family:Tajawal,sans-serif;font-size:13px;z-index:9999;';d.textContent=msg;document.body.appendChild(d);setTimeout(()=>{if(d.parentNode)d.parentNode.removeChild(d);},type==='g'?4000:3000);}
-function toggleGLSidebar(){var s=document.getElementById('gl-sidebar');if(window.innerWidth<=768){s.classList.toggle('mob-open');var o=document.getElementById('gl-sb-overlay');if(o)o.style.display=s.classList.contains('mob-open')?'block':'none';var b=document.getElementById('gl-mob-btn');if(b)b.textContent=s.classList.contains('mob-open')?'×':'☰';}else{s.classList.toggle('collapsed');document.body.classList.toggle('gl-collapsed');localStorage.setItem('gl_sb_collapsed',s.classList.contains('collapsed')?'1':'0');}}
-function closeSidebar(){var s=document.getElementById('gl-sidebar');s.classList.remove('mob-open');var o=document.getElementById('gl-sb-overlay');if(o)o.style.display='none';var b=document.getElementById('gl-mob-btn');if(b)b.textContent='☰';}
-function initSidebarState(){if(localStorage.getItem('gl_sb_collapsed')==='1'){var s=document.getElementById('gl-sidebar');if(s){s.classList.add('collapsed');document.body.classList.add('gl-collapsed');}}}
-(function(){function fixDates(){document.querySelectorAll('input[type="date"]').forEach(function(el){if(!el.getAttribute('data-gf')){el.setAttribute('lang','en-SA-u-ca-gregory');el.setAttribute('data-gf','1');}});}fixDates();new MutationObserver(fixDates).observe(document.body,{childList:true,subtree:true});} )();
+async function saveExpense() {
+  const catCode = document.getElementById('exp-category')?.value;
+  const amount  = parseFloat(document.getElementById('exp-amount')?.value) || 0;
+  const date    = document.getElementById('exp-date')?.value || today();
+  const payCode = document.getElementById('exp-payment')?.value || '1100';
+  const desc    = document.getElementById('exp-desc')?.value?.trim() || '';
+  const hasVat  = document.getElementById('exp-has-vat')?.checked;
+
+  if (!amount || amount <= 0) { notify(L==='ar'?'أدخل المبلغ':'Enter amount', 'r'); return; }
+
+  const catName = EXP_CATS[catCode]?.[L==='ar'?'ar':'en'] || catCode;
+  const payName = payCode === '2100'
+    ? (L==='ar'?'ذمم دائنة':'Accounts Payable')
+    : (L==='ar'?'النقد / البنك':'Cash / Bank');
+
+  // Calculate amounts
+  let expenseAmt = amount;
+  let vatAmt = 0;
+  if (hasVat) {
+    expenseAmt = Math.round(amount / 1.15 * 100) / 100;
+    vatAmt     = Math.round(amount - expenseAmt * 100) / 100;
+    vatAmt     = Math.round((amount - expenseAmt) * 100) / 100;
+  }
+
+  const ref = 'EXP-' + date.replace(/-/g,'') + '-' + catCode;
+
+  // Create journal entry
+  const { data: entry, error } = await sb.from('journal_entries').insert({
+    user_id:     currentUser.id,
+    business_id: currentBiz?.id,
+    entry_date:  date,
+    reference:   ref + '-' + String(Date.now()).slice(-4),
+    description: (desc || catName) + (hasVat ? ' (شامل VAT)' : ''),
+    source:      'expense',
+    status:      'posted',
+    is_balanced: true
+  }).select().single();
+
+  if (error) { notify(error.message, 'r'); return; }
+
+  // Build journal lines
+  const lines = [
+    // Dr Expense account
+    {
+      entry_id:     entry.id,
+      user_id:      currentUser.id,
+      account_code: catCode,
+      account_name: EXP_CATS[catCode]?.ar || catCode,
+      debit:        expenseAmt,
+      credit:       0,
+      description:  desc || catName
+    }
+  ];
+
+  // If has VAT — Dr Input VAT 2220
+  if (hasVat && vatAmt > 0) {
+    lines.push({
+      entry_id:     entry.id,
+      user_id:      currentUser.id,
+      account_code: '2220',
+      account_name: 'ضريبة القيمة المضافة — مدخلات',
+      debit:        vatAmt,
+      credit:       0,
+      description:  'VAT مدخلات — ' + catName
+    });
+  }
+
+  // Cr Cash/Bank or Payables
+  lines.push({
+    entry_id:     entry.id,
+    user_id:      currentUser.id,
+    account_code: payCode,
+    account_name: payCode === '2100' ? 'ذمم دائنة تجارية' : 'النقد وما في حكمه',
+    debit:        0,
+    credit:       amount,
+    description:  payName + ' — ' + (desc || catName)
+  });
+
+  await sb.from('journal_lines').insert(lines);
+
+  notify((L==='ar'?'تم تسجيل المصروف وترحيله للدفتر ✓ ':'Expense saved & posted to ledger ✓ ') + 'SAR ' + fmt(amount), 'g');
+  clearExpForm();
+  renderExpenses();
+  await loadEntries(); // refresh journal
+}
+
+function clearExpForm() {
+  document.getElementById('exp-amount').value = '';
+  document.getElementById('exp-desc').value   = '';
+  document.getElementById('exp-date').value   = today();
+  document.getElementById('exp-has-vat').checked = false;
+  document.getElementById('exp-vat-row').style.display = 'none';
+  document.getElementById('exp-payment').value = '1100';
+}
+
+async function renderExpenses() {
+  const tb  = document.getElementById('exp-tbody');
+  const cat = document.getElementById('exp-filter-cat')?.value || '';
+
+  // Load expense entries from journal
+  const { data } = await sb.from('journal_entries')
+    .select('*, journal_lines(*)')
+    .eq('user_id', currentUser.id)
+    .eq('source', 'expense')
+    .order('entry_date', { ascending: false })
+    .limit(100);
+
+  if (!data || !data.length) {
+    tb.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted);">${L==='ar'?'لا توجد مصاريف مسجّلة بعد':'No expenses recorded yet'}</td></tr>`;
+    set('exp-total-label', '');
+    return;
+  }
+
+  // Get the expense line from each entry (the debit line on 5xxx account)
+  let rows = [];
+  data.forEach(e => {
+    const expLine = (e.journal_lines||[]).find(l => l.account_code?.startsWith('5') && l.debit > 0);
+    const crLine  = (e.journal_lines||[]).find(l => l.credit > 0 && !l.account_code?.startsWith('2210'));
+    const vatLine = (e.journal_lines||[]).find(l => l.account_code === '2210' && l.debit > 0);
+    if (!expLine) return;
+    if (cat && expLine.account_code !== cat) return;
+    rows.push({
+      date:     e.entry_date,
+      catCode:  expLine.account_code,
+      catName:  EXP_CATS[expLine.account_code]?.[L==='ar'?'ar':'en'] || expLine.account_name,
+      desc:     e.description,
+      amount:   crLine?.credit || expLine.debit,
+      vat:      vatLine?.debit || 0,
+      payCode:  crLine?.account_code || '1100',
+      ref:      e.reference
+    });
+  });
+
+  const totalExp = rows.reduce((s,r) => s + (r.amount||0), 0);
+  set('exp-total-label', (L==='ar'?'الإجمالي: SAR ':'Total: SAR ') + fmt(totalExp));
+
+  if (!rows.length) {
+    tb.innerHTML = `<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted);">${L==='ar'?'لا توجد نتائج':'No results'}</td></tr>`;
+    return;
+  }
+
+  tb.innerHTML = rows.map(r => {
+    const payLabel = r.payCode === '2100'
+      ? `<span style="font-size:10px;background:#fff5f5;color:var(--red);padding:2px 7px;border-radius:5px;font-weight:700;">${L==='ar'?'آجل':'Credit'}</span>`
+      : `<span style="font-size:10px;background:var(--tint);color:var(--blue);padding:2px 7px;border-radius:5px;font-weight:700;">${L==='ar'?'نقداً':'Cash'}</span>`;
+    return `<tr>
+      <td style="font-size:11px;color:var(--muted);">${r.date}</td>
+      <td><span style="font-size:10px;background:var(--tint);color:var(--navy);padding:2px 8px;border-radius:6px;font-weight:600;">${r.catName}</span></td>
+      <td style="font-size:12px;">${r.desc||'—'}</td>
+      <td class="mono" style="color:var(--red);font-weight:600;">SAR ${fmt(r.amount)}</td>
+      <td class="mono" style="color:var(--amber);">${r.vat>0?'SAR '+fmt(r.vat):'—'}</td>
+      <td>${payLabel}</td>
+      <td style="font-size:10px;color:var(--muted);">${r.ref||'—'}</td>
+    </tr>`;
+  }).join('');
+}
+
+/* ── LANGUAGE ── */
+function setLang(lang){
+  L=lang;
+  applyLang(lang);
+  renderCOA();
+  renderStats();
+  renderJournal();
+}
+
+/* ── HELPERS ── */
+function gval(id)      { const e=document.getElementById(id); return e?e.value.trim():''; }
+function set(id,v)     { const e=document.getElementById(id); if(e) e.textContent=v; }
+function fmt(n)        { return (n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
+function today()       { return new Date().toISOString().split('T')[0]; }
+async function logout(){ await sb.auth.signOut(); window.location.href='login.html'; }
+
+function notify(msg, type) {
+  const d = document.createElement('div');
+  d.style.cssText = 'position:fixed;top:80px;left:50%;transform:translateX(-50%);background:'+(type==='g'?'var(--green)':'var(--red)')+';color:#fff;padding:10px 24px;border-radius:8px;font-family:Tajawal,sans-serif;font-size:13px;z-index:9999;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,0.2);';
+  d.textContent = msg;
+  document.body.appendChild(d);
+  setTimeout(() => { if(d.parentNode) d.parentNode.removeChild(d); }, type==='g'?4000:3000);
+}
+
+
+function toggleMobSidebar(){
+  const sb=document.querySelector('.sidebar');
+  const ov=document.getElementById('mob-overlay');
+  if(!sb)return;
+  const open=sb.classList.toggle('mob-open');
+  if(ov)ov.style.display=open?'block':'none';
+  document.getElementById('mob-sb-btn').textContent=open?'×':'☰';
+}
+function closeMobSidebar(){
+  const sb=document.querySelector('.sidebar');
+  const ov=document.getElementById('mob-overlay');
+  if(sb)sb.classList.remove('mob-open');
+  if(ov)ov.style.display='none';
+  const btn=document.getElementById('mob-sb-btn');
+  if(btn)btn.textContent='☰';
+}
+
 init();
-</script></body></html>
+
+// Force Gregorian dates — prevents Hijri calendar on Arabic devices
+(function(){
+  function fixDates(){
+    document.querySelectorAll('input[type="date"]').forEach(function(el){
+      if(!el.getAttribute('data-gregorian-fixed')){
+        el.setAttribute('lang','en-SA-u-ca-gregory');
+        el.setAttribute('data-gregorian-fixed','1');
+      }
+    });
+  }
+  fixDates();
+  // Also fix any dynamically added date inputs
+  var obs = new MutationObserver(fixDates);
+  obs.observe(document.body, {childList:true, subtree:true});
+})();
+
+
+/* ── PERSISTENT LANGUAGE ── */
+function getStoredLang(){return localStorage.getItem('gl_lang')||'ar';}
+function applyLang(lang){
+  localStorage.setItem('gl_lang',lang);
+  document.getElementById('btn-ar')?.classList.toggle('on',lang==='ar');
+  document.getElementById('btn-en')?.classList.toggle('on',lang==='en');
+  document.documentElement.setAttribute('lang',lang);
+  document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
+  document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));
+  document.querySelectorAll('select option[data-ar]').forEach(o=>o.text=o.getAttribute('data-'+lang)||o.text);
+  document.querySelectorAll('[data-placeholder-ar][data-placeholder-en]').forEach(el=>{
+    el.placeholder=el.getAttribute('data-placeholder-'+lang);
+  });
+}
+
+</script>
+</div><!-- /gl-page-content -->
+<script>
+
+function toggleGLSB(){var s=document.getElementById('gl-sidebar');if(window.innerWidth<=768){s.classList.toggle('mob-open');var o=document.getElementById('sb-overlay');if(o)o.style.display=s.classList.contains('mob-open')?'block':'none';var b=document.getElementById('sb-mob-btn');if(b)b.textContent=s.classList.contains('mob-open')?'\u00d7':'\u2630';}else{s.classList.toggle('collapsed');document.body.classList.toggle('gl-collapsed');localStorage.setItem('gl_sb_collapsed',s.classList.contains('collapsed')?'1':'0');}}
+function closeGLSB(){var s=document.getElementById('gl-sidebar');s.classList.remove('mob-open');var o=document.getElementById('sb-overlay');if(o)o.style.display='none';var b=document.getElementById('sb-mob-btn');if(b)b.textContent='\u2630';}
+(function(){if(localStorage.getItem('gl_sb_collapsed')==='1'){var s=document.getElementById('gl-sidebar');if(s){s.classList.add('collapsed');document.body.classList.add('gl-collapsed');}}})();
+document.addEventListener('click',function(e){var m=document.getElementById('gl-qa-menu');if(m&&!e.target.closest('.gl-h-add')&&!e.target.closest('.gl-qa-menu'))m.classList.remove('open');});
+</script>
+<script>
+(function(){
+  var origSet = window._origBizSet;
+  var obs = new MutationObserver(function(){
+    var bn = document.getElementById('biz-name');
+    var gbn = document.getElementById('gl-biz-name');
+    if(bn && gbn && bn.textContent !== '...') gbn.textContent = bn.textContent;
+    var un = document.getElementById('gl-user-name');
+    if(un && bn && bn.textContent !== '...') un.textContent = bn.textContent.substring(0,10);
+  });
+  obs.observe(document.body, {childList:true, subtree:true, characterData:true});
+})();
+</script>
+<script>
+(function(){
+  var origSetLang = window.setLang;
+  if(typeof setLang === 'function'){
+    var _origSL = setLang;
+    window.setLang = function(lang){
+      _origSL(lang);
+      var a=document.getElementById('gl-btn-ar'),e=document.getElementById('gl-btn-en');
+      if(a)a.classList.toggle('on',lang==='ar');
+      if(e)e.classList.toggle('on',lang==='en');
+    };
+  }
+  // Init
+  var l=localStorage.getItem('gl_lang')||'ar';
+  var a=document.getElementById('gl-btn-ar'),e=document.getElementById('gl-btn-en');
+  if(a)a.classList.toggle('on',l==='ar');
+  if(e)e.classList.toggle('on',l==='en');
+})();
+</script>
+</body>
+</html>

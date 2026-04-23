@@ -1,184 +1,1102 @@
-<!DOCTYPE html><html>
+<!DOCTYPE html>
+<html>
 <head>
 <meta charset="UTF-8">
-<script>(function(){var l=localStorage.getItem('gl_lang')||'ar';document.documentElement.setAttribute('lang',l);document.documentElement.setAttribute('dir',l==='ar'?'rtl':'ltr');})();</script>
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GulfLedger — التقارير</title>
-<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&family=Playfair+Display:wght@700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script>
+/* Language flash prevention */
+(function(){
+  var l=localStorage.getItem('gl_lang')||'ar';
+  document.documentElement.setAttribute('lang',l);
+  document.documentElement.setAttribute('dir',l==='ar'?'rtl':'ltr');
+})();
+</script>
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>GulfLedger — Reports</title>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Tajawal:wght@400;700&family=DM+Mono&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
-:root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#C62828;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--border:#d4e6f7;--bg:#f7fafd;--white:#ffffff;--purple:#6d28d9;}
+:root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#DC2626;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--white:#fff;--bg:#f0f6fd;--border:#d4e6f7;}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);}
-.topnav,.app-nav{display:none!important;}
+body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;}
+/* NAV */
+.topnav{background:var(--navy);padding:0 20px;height:44px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:300;}
+.nav-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
+.nav-bars{display:flex;gap:3px;height:20px;align-items:flex-end;}
+.nav-bar{width:3px;border-radius:2px;}
+.nav-logo-text{display:flex;align-items:baseline;gap:1px;}
+.logo-gulf{font-family:'Playfair Display',serif;font-size:15px;color:#fff;font-weight:700;}
+.logo-ledger{font-family:'DM Mono',monospace;font-size:10px;color:var(--light);letter-spacing:2px;}
+.nav-right{display:flex;align-items:center;gap:8px;}
+.lang-btn{padding:4px 10px;font-size:11px;cursor:pointer;border:none;background:transparent;color:rgba(255,255,255,0.6);font-family:'Tajawal',sans-serif;font-weight:500;}
+.lang-btn.on{background:var(--sky);color:#fff;border-radius:4px;}
+.nav-biz{font-size:12px;color:var(--light);max-width:150px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.btn-logout{padding:5px 14px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
+.app-nav{background:var(--navy);padding:0 16px;display:flex;gap:2px;overflow-x:auto;border-top:1px solid rgba(255,255,255,0.08);position:sticky;top:44px;z-index:299;}
+.app-nav-link{padding:8px 14px;color:rgba(255,255,255,0.65);text-decoration:none;font-size:12px;font-weight:600;white-space:nowrap;border-bottom:2px solid transparent;transition:all .2s;}
+.app-nav-link:hover{color:#fff;background:rgba(255,255,255,0.08);}
+.app-nav-link.active{color:#fff;border-bottom-color:var(--sky);}
+/* PAGE */
+.page{max-width:1100px;margin:0 auto;padding:24px 20px;}
+.page-title{font-family:'Playfair Display',serif;font-size:24px;color:var(--navy);margin-bottom:4px;}
+.page-sub{font-size:13px;color:var(--muted);margin-bottom:24px;}
+/* REPORT GROUPS */
+.report-group{margin-bottom:32px;}
+.report-group-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:12px;padding-bottom:8px;border-bottom:1px solid var(--border);}
+.report-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:12px;}
+.report-card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:18px 20px;cursor:pointer;transition:all .15s;display:flex;flex-direction:column;gap:6px;}
+.report-card:hover{border-color:var(--sky);box-shadow:0 4px 16px rgba(55,138,221,0.12);transform:translateY(-1px);}
+.report-card-icon{font-size:24px;margin-bottom:4px;}
+.report-card-title{font-size:14px;font-weight:700;color:var(--navy);}
+.report-card-desc{font-size:11px;color:var(--muted);line-height:1.6;}
+.report-card-tag{display:inline-block;font-size:9px;font-weight:700;padding:2px 8px;border-radius:8px;margin-top:4px;width:fit-content;}
+.tag-compliance{background:#fef3c7;color:#92400e;}
+.tag-financial{background:#e0f2fe;color:#0369a1;}
+.tag-business{background:#f0fdf4;color:#166534;}
+.tag-pro{background:#f5f3ff;color:#6d28d9;}
+/* REPORT PANEL */
+.report-panel{background:var(--white);border:1px solid var(--border);border-radius:14px;padding:24px;margin-top:20px;display:none;}
+.report-panel.active{display:block;}
+.report-panel-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;}
+.report-panel-title{font-size:18px;font-weight:700;color:var(--navy);}
+.report-actions{display:flex;gap:8px;}
+.btn-primary{padding:8px 18px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;}
+.btn-secondary{padding:8px 14px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
+.filter-row{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:18px;}
+.filter-row select,.filter-row input{padding:7px 12px;border:1.5px solid var(--border);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;background:#fff;}
+/* TABLES */
+.r-table{width:100%;border-collapse:collapse;font-size:12px;}
+.r-table th{padding:9px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;text-align:right;}
+.r-table td{padding:9px 12px;border-bottom:1px solid var(--tint);vertical-align:middle;}
+.r-table tr:last-child td{border-bottom:none;}
+.r-table tr:hover td{background:#f8fbff;}
+.mono{font-family:'DM Mono',monospace;}
+.c-green{color:var(--green);}
+.c-red{color:var(--red);}
+.c-navy{color:var(--navy);}
+.c-muted{color:var(--muted);}
+/* SUMMARY CARDS */
+.summary-row{display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;margin-bottom:20px;}
+.summary-card{background:var(--tint);border-radius:10px;padding:14px 16px;}
+.summary-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:6px;}
+.summary-val{font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:var(--navy);}
+/* STATEMENT OF ACCOUNT */
+.soa-header{background:var(--navy);color:#fff;padding:16px 20px;border-radius:10px 10px 0 0;display:flex;justify-content:space-between;align-items:center;}
+.soa-body{border:1px solid var(--border);border-top:none;border-radius:0 0 10px 10px;overflow:hidden;}
+/* VAT SUMMARY */
+.vat-box{border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:16px;}
+.vat-box-hdr{background:var(--navy);color:#fff;padding:10px 16px;font-weight:700;font-size:13px;}
+.vat-row{display:flex;justify-content:space-between;padding:10px 16px;border-bottom:1px solid var(--tint);font-size:12px;}
+.vat-row:last-child{border-bottom:none;}
+.vat-row.total{background:var(--tint);font-weight:700;font-size:14px;}
+/* PRINT */
+@media print{
+  .topnav,.app-nav,.report-grid,.report-group-title,.report-actions,.filter-row,.back-btn{display:none!important;}
+  .report-panel{display:block!important;border:none;padding:0;}
+  body{background:#fff;}
+  @page{margin:15mm;}
+  *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
+}
+@media(max-width:600px){
+  .report-grid{grid-template-columns:1fr;}
+  .summary-row{grid-template-columns:1fr 1fr;}
+}
+
+/* ═══════════════════════════════════════
+   GULFLEDGER SHARED UX — consistent across all pages
+   ═══════════════════════════════════════ */
+.sidebar{background:var(--white);border-left:1px solid var(--border);padding:14px 0;overflow-y:auto;}
+[dir="ltr"] .sidebar{border-left:none;border-right:1px solid var(--border);}
+.layout{display:grid;grid-template-columns:210px 1fr;min-height:calc(100vh - 88px);}
+.sb-sec{padding:0 12px;margin-bottom:6px;}
+.sb-lbl{font-size:13px;font-weight:700;color:var(--navy);padding:12px 6px 6px;display:block;letter-spacing:.01em;}
+.sb-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px;color:var(--ink);margin-bottom:2px;user-select:none;transition:background .15s;}
+.sb-item:hover{background:var(--tint);color:var(--blue);}
+.sb-item.active{background:var(--tint);color:var(--blue);font-weight:600;border-right:3px solid var(--blue);}
+[dir="ltr"] .sb-item.active{border-right:none;border-left:3px solid var(--blue);}
+.sb-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.sb-stat{font-size:11px;color:var(--muted);padding:4px 10px;display:flex;justify-content:space-between;}
+.sb-stat-val{font-family:'DM Mono',monospace;font-weight:700;font-size:11px;}
+.main{padding:20px;overflow-y:auto;}
 .stats{display:grid;gap:12px;margin-bottom:20px;}
 .stat{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
 .stat-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px;}
 .stat-num{font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:var(--navy);}
 .stat-sub{font-size:11px;color:var(--muted);margin-top:3px;}
 .stat.s-green{border-color:#86efac;background:#f0fdf4;}
-.stat.s-red{border-color:#fca5a5;background:#fff5f5;}
 .stat.s-amber{border-color:#fde68a;background:#fffbeb;}
+.stat.s-red{border-color:#fca5a5;background:#fff5f5;}
 .c-navy{color:var(--navy)!important;}.c-green{color:var(--green)!important;}.c-red{color:var(--red)!important;}.c-amber{color:var(--amber)!important;}
 .card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px;}
 .card-hdr{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;}
 .card-ttl{font-size:14px;font-weight:700;color:var(--navy);}
 .card-bdy{padding:18px;}
+.section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);display:block;}
 .fg{display:grid;gap:12px;margin-bottom:14px;}
 .fg-2{grid-template-columns:1fr 1fr;}
 .fg-3{grid-template-columns:1fr 1fr 1fr;}
 .fld{display:flex;flex-direction:column;gap:4px;}
 .fld label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
 .fld input,.fld select,.fld textarea{padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:13px;color:var(--ink);background:var(--white);width:100%;}
-.fld input:focus,.fld select:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(55,138,221,0.1);}
+.fld input:focus,.fld select:focus,.fld textarea:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(55,138,221,0.1);}
 .hint{font-size:10px;color:var(--muted);margin-top:2px;}
 .btn-p{padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;}
 .btn-p:hover{background:var(--navy);}
 .btn-s{padding:7px 14px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;font-weight:600;cursor:pointer;}
-.btn-s:hover{border-color:var(--blue);}
+.btn-s:hover{border-color:var(--blue);background:#dbeafe;}
 .btn-d{padding:5px 10px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;}
 .btn-row{display:flex;gap:8px;flex-wrap:wrap;}
 .tbl{width:100%;border-collapse:collapse;font-size:12px;}
 .tbl th{padding:9px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-align:right;white-space:nowrap;letter-spacing:.04em;text-transform:uppercase;}
-.tbl td{padding:9px 12px;border-bottom:1px solid var(--tint);vertical-align:middle;text-align:right;}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--tint);vertical-align:middle;}
 [dir="ltr"] .tbl th,[dir="ltr"] .tbl td{text-align:left;}
 .tbl tr:last-child td{border-bottom:none;}
-.tbl tr:hover td{background:#fafcff;}
+.tbl tr:hover td{background:#fafcff;cursor:pointer;}
 .mono{font-family:'DM Mono',monospace;font-size:12px;}
 .bdg{font-size:10px;font-weight:700;padding:2px 9px;border-radius:8px;display:inline-block;}
+.note-box{display:flex;align-items:flex-start;gap:8px;padding:10px 13px;border-radius:8px;margin-bottom:13px;font-size:12px;line-height:1.5;}
+.note-box.blue{background:var(--tint);border:1px solid var(--light);color:var(--navy);}
+.note-box.amber{background:#fffbeb;border:1px solid #fde68a;color:var(--amber);}
 .tc{display:none;}.tc.active{display:block;}
-.section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);display:block;}
-.main{padding:20px;}
-input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
-@media(max-width:768px){.stats{grid-template-columns:1fr 1fr!important;}.fg-2,.fg-3{grid-template-columns:1fr 1fr!important;}.main{padding:12px!important;}}
-@media(max-width:480px){.stats{grid-template-columns:1fr!important;}}
-.report-card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:16px;} .report-title{font-size:15px;font-weight:700;color:var(--navy);margin-bottom:4px;} .report-sub{font-size:12px;color:var(--muted);margin-bottom:16px;}
+@media(max-width:768px){
+  .layout{grid-template-columns:1fr!important;}
+  .sidebar{display:none!important;}
+  .stats{grid-template-columns:1fr 1fr!important;}
+  .fg-2,.fg-3{grid-template-columns:1fr 1fr!important;}
+  .main{padding:12px!important;}
+  .card-bdy{padding:12px!important;}
+  .card-hdr{flex-direction:column;align-items:flex-start!important;}
+}
+@media(max-width:480px){
+  .stats{grid-template-columns:1fr!important;}
+  .fg-2,.fg-3{grid-template-columns:1fr!important;}
+}
 
-/* PERSISTENT SIDEBAR */
+/* ── SIDEBAR + HEADER (added, original design untouched) ── */
 .topnav,.app-nav{display:none!important;}
 .gl-sidebar{width:220px;height:100vh;position:fixed;top:0;right:0;background:var(--navy);display:flex;flex-direction:column;z-index:500;transition:width .25s ease;overflow:hidden;}
 [dir="ltr"] .gl-sidebar{right:auto;left:0;}
-.gl-sidebar.collapsed{width:56px;}
-.gl-sidebar.collapsed .gl-sb-show{display:none!important;}
-.gl-sidebar.collapsed #gl-sb-arrow{transform:rotate(180deg);}
+.gl-sidebar.collapsed{width:54px;}
+.gl-sidebar.collapsed .sb-hide{display:none!important;}
+.gl-sidebar.collapsed .sb-link{justify-content:center;padding:10px 0;}
+.gl-sidebar.collapsed .sb-link span:last-child{display:none;}
+.gl-sidebar.collapsed .sb-biz{display:none;}
+.gl-sidebar.collapsed #sb-arrow{transform:rotate(180deg);}
+[dir="ltr"] .gl-sidebar.collapsed #sb-arrow{transform:rotate(0deg);}
+.sb-top{padding:14px 14px 8px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.sb-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
+.sb-logo-bars{display:flex;gap:3px;height:20px;flex-shrink:0;}
+.sb-logo-bar{width:3px;border-radius:2px;}
+.sb-logo-bar:first-child{height:100%;background:#fff;}
+.sb-logo-bar:last-child{height:60%;margin-top:40%;background:rgba(255,255,255,0.45);}
+.sb-logo-name{font-family:'Playfair Display',serif;font-size:15px;color:#fff;white-space:nowrap;}
+.sb-logo-name span{color:var(--light);}
+.sb-collapse{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:5px;color:rgba(255,255,255,0.5);cursor:pointer;font-size:10px;padding:4px 7px;flex-shrink:0;}
+.sb-collapse:hover{background:rgba(255,255,255,0.15);color:#fff;}
+.sb-biz{margin:4px 12px 10px;padding:6px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08);border-radius:6px;font-size:11px;color:rgba(255,255,255,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;}
+.sb-nav{flex:1;overflow-y:auto;padding:6px 8px;display:flex;flex-direction:column;gap:1px;}
+.sb-nav::-webkit-scrollbar{width:0;}
+.sb-sec-label{font-size:9px;font-weight:700;color:rgba(255,255,255,0.25);text-transform:uppercase;letter-spacing:.08em;padding:12px 10px 4px;}
+.sb-link{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:6px;text-decoration:none;color:rgba(255,255,255,0.6);font-size:13px;font-weight:500;transition:all .12s;white-space:nowrap;border:none;background:transparent;cursor:pointer;width:100%;text-align:right;}
+[dir="ltr"] .sb-link{text-align:left;}
+.sb-link:hover{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.9);}
+.sb-link.active{background:rgba(255,255,255,0.12);color:#fff;font-weight:700;border-right:3px solid var(--sky);}
+[dir="ltr"] .sb-link.active{border-right:none;border-left:3px solid var(--sky);}
+.sb-link-icon{font-size:14px;flex-shrink:0;width:20px;text-align:center;opacity:.7;}
+.sb-link.active .sb-link-icon{opacity:1;}
+.sb-bottom{padding:6px 8px 12px;flex-shrink:0;display:flex;flex-direction:column;gap:1px;}
+.sb-hr{height:1px;background:rgba(255,255,255,0.08);margin:6px 4px;}
+.sb-logout{color:rgba(255,255,255,0.4);}
+.sb-logout:hover{color:#f87171;background:rgba(248,113,113,0.1);}
+/* Header */
+.gl-header{height:48px;background:var(--white);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 20px;position:sticky;top:0;z-index:400;}
+.gl-h-title{font-size:15px;font-weight:700;color:var(--navy);}
+.gl-h-right{display:flex;align-items:center;gap:8px;}
+.gl-h-add{display:flex;align-items:center;gap:4px;padding:6px 14px;background:var(--blue);color:#fff;border:none;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;font-weight:700;cursor:pointer;}
+.gl-h-add:hover{background:var(--navy);}
+.gl-h-lang{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;}
+.gl-h-lang-btn{padding:4px 10px;font-size:11px;cursor:pointer;border:none;background:transparent;color:var(--muted);font-family:'Tajawal',sans-serif;font-weight:500;}
+.gl-h-lang-btn.on{background:var(--sky);color:#fff;}
+.gl-h-user{display:flex;align-items:center;gap:6px;padding:3px 10px 3px 4px;background:var(--tint);border:1px solid var(--border);border-radius:16px;font-size:12px;color:var(--ink);}
+.gl-h-av{width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;}
+/* Page content wrapper */
 .gl-page-content{margin-right:220px;min-height:100vh;transition:margin-right .25s ease;}
 [dir="ltr"] .gl-page-content{margin-right:0;margin-left:220px;}
-body.gl-collapsed .gl-page-content{margin-right:56px;}
-[dir="ltr"] body.gl-collapsed .gl-page-content{margin-right:0;margin-left:56px;}
-.gl-sb-header{display:flex;align-items:center;justify-content:space-between;padding:16px 14px 10px;flex-shrink:0;}
-.gl-sb-logo{display:flex;align-items:center;gap:8px;text-decoration:none;overflow:hidden;}
-.gl-sb-logo-bars{display:flex;gap:3px;height:20px;flex-shrink:0;}
-.gl-sb-bar{width:3px;border-radius:2px;}
-.gl-sb-bar:first-child{height:100%;}
-.gl-sb-bar:last-child{height:60%;margin-top:40%;}
-.gl-sb-logo-name{font-family:'Playfair Display',serif;font-size:15px;color:#fff;white-space:nowrap;}
-.gl-sb-collapse-btn{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:rgba(255,255,255,0.6);cursor:pointer;font-size:10px;padding:4px 7px;flex-shrink:0;}
-.gl-sb-biz{margin:0 12px 12px;padding:6px 10px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:7px;font-size:11px;color:var(--light);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;}
-.gl-sb-nav{flex:1;overflow-y:auto;padding:4px 8px;display:flex;flex-direction:column;gap:2px;}
-.gl-sb-link{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;text-decoration:none;color:rgba(255,255,255,0.65);font-family:'Tajawal',sans-serif;font-size:13px;font-weight:500;transition:background .15s,color .15s;white-space:nowrap;border:none;background:transparent;cursor:pointer;width:100%;text-align:right;}
-[dir="ltr"] .gl-sb-link{text-align:left;}
-.gl-sb-link:hover{background:rgba(255,255,255,0.1);color:#fff;}
-.gl-sb-link.active{background:rgba(255,255,255,0.15);color:#fff;font-weight:700;border-right:3px solid var(--sky);}
-[dir="ltr"] .gl-sb-link.active{border-right:none;border-left:3px solid var(--sky);}
-.gl-sb-icon{font-size:15px;flex-shrink:0;width:20px;text-align:center;}
-.gl-sb-bottom{padding:8px 8px 12px;flex-shrink:0;display:flex;flex-direction:column;gap:2px;}
-.gl-sb-divider{height:1px;background:rgba(255,255,255,0.1);margin:6px 4px 8px;}
-.gl-sb-lang{display:flex;gap:4px;padding:4px 10px 8px;}
-.gl-lang-btn{padding:4px 12px;font-size:11px;cursor:pointer;border:1px solid rgba(255,255,255,0.2);border-radius:5px;background:transparent;color:rgba(255,255,255,0.6);font-family:'Tajawal',sans-serif;}
-.gl-lang-btn.on{background:var(--sky);color:#fff;border-color:var(--sky);}
-.gl-sb-logout{color:rgba(255,255,255,0.5);}
-.gl-sb-logout:hover{color:#fca5a5;background:rgba(220,38,38,0.15);}
-.gl-sb-mob-btn{display:none;position:fixed;top:12px;right:12px;z-index:600;background:var(--navy);color:#fff;border:none;border-radius:8px;width:40px;height:40px;font-size:18px;cursor:pointer;align-items:center;justify-content:center;}
-[dir="ltr"] .gl-sb-mob-btn{right:auto;left:12px;}
-.gl-sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:490;}
-@media(max-width:768px){.gl-sidebar{width:240px!important;transform:translateX(100%);transition:transform .25s ease;}[dir="ltr"] .gl-sidebar{transform:translateX(-100%);}.gl-sidebar.mob-open{transform:translateX(0)!important;}.gl-page-content{margin-right:0!important;margin-left:0!important;}.gl-sb-mob-btn{display:flex;}}
+body.gl-collapsed .gl-page-content{margin-right:54px;}
+[dir="ltr"] body.gl-collapsed .gl-page-content{margin-right:0;margin-left:54px;}
+/* Quick-add dropdown */
+.gl-qa-menu{display:none;position:absolute;top:46px;right:0;background:var(--white);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,0.12);padding:6px;min-width:180px;z-index:450;}
+[dir="ltr"] .gl-qa-menu{right:auto;left:0;}
+.gl-qa-menu.open{display:block;}
+.gl-qa-item{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--ink);text-decoration:none;}
+.gl-qa-item:hover{background:var(--tint);}
+/* Mobile */
+.sb-mob-btn{display:none;position:fixed;top:10px;right:10px;z-index:600;background:var(--navy);color:#fff;border:none;border-radius:8px;width:40px;height:40px;font-size:18px;cursor:pointer;align-items:center;justify-content:center;}
+[dir="ltr"] .sb-mob-btn{right:auto;left:10px;}
+.sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:490;}
+@media(max-width:768px){.gl-sidebar{width:240px!important;transform:translateX(100%);transition:transform .25s ease;}[dir="ltr"] .gl-sidebar{transform:translateX(-100%);}.gl-sidebar.mob-open{transform:translateX(0)!important;}.gl-page-content{margin-right:0!important;margin-left:0!important;}.sb-mob-btn{display:flex;}.sb-collapse{display:none;}}
 
 </style>
 </head>
 <body>
+<!-- GL SIDEBAR -->
 <div class="gl-sidebar" id="gl-sidebar">
-  <div class="gl-sb-header">
-    <a href="dashboard.html" class="gl-sb-logo"><div class="gl-sb-logo-bars"><div class="gl-sb-bar" style="background:#fff;"></div><div class="gl-sb-bar" style="background:rgba(255,255,255,0.45);"></div></div><span class="gl-sb-logo-name gl-sb-show">Gulf<span style="color:var(--light);">Ledger</span></span></a>
-    <button class="gl-sb-collapse-btn" onclick="toggleGLSidebar()"><span id="gl-sb-arrow">◀</span></button>
+  <div class="sb-top">
+    <a href="dashboard.html" class="sb-logo">
+      <div class="sb-logo-bars"><div class="sb-logo-bar"></div><div class="sb-logo-bar"></div></div>
+      <span class="sb-logo-name sb-hide">Gulf<span>Ledger</span></span>
+    </a>
+    <button class="sb-collapse" onclick="toggleGLSB()"><span id="sb-arrow">&#9664;</span></button>
   </div>
-  <div class="gl-sb-biz gl-sb-show"><span id="biz-name">...</span></div>
-  <nav class="gl-sb-nav">    <a href="dashboard.html" class="gl-sb-link"><span class="gl-sb-icon">⊞</span><span class="gl-sb-show" data-ar="الرئيسية" data-en="Dashboard">الرئيسية</span></a>
-    <a href="inventory.html" class="gl-sb-link"><span class="gl-sb-icon">📦</span><span class="gl-sb-show" data-ar="المنتجات والمخزون" data-en="Products & Stock">المنتجات والمخزون</span></a>
-    <a href="invoices.html" class="gl-sb-link"><span class="gl-sb-icon">🧾</span><span class="gl-sb-show" data-ar="المبيعات والفواتير" data-en="Sales & Invoices">المبيعات والفواتير</span></a>
-    <a href="expenses.html" class="gl-sb-link"><span class="gl-sb-icon">💸</span><span class="gl-sb-show" data-ar="المصاريف" data-en="Expenses">المصاريف</span></a>
-    <a href="ledger.html" class="gl-sb-link"><span class="gl-sb-icon">📒</span><span class="gl-sb-show" data-ar="المحاسبة" data-en="Accounting">المحاسبة</span></a>
-    <a href="vat.html" class="gl-sb-link"><span class="gl-sb-icon">🧮</span><span class="gl-sb-show" data-ar="ضريبة القيمة المضافة" data-en="VAT">ضريبة القيمة المضافة</span></a>
-    <a href="reports.html" class="gl-sb-link active"><span class="gl-sb-icon">📊</span><span class="gl-sb-show" data-ar="التقارير" data-en="Reports">التقارير</span></a></nav>
-  <div class="gl-sb-bottom">
-    <div class="gl-sb-divider"></div>
-    <div class="gl-sb-lang gl-sb-show"><button class="gl-lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button><button class="gl-lang-btn" id="btn-en" onclick="setLang('en')">EN</button></div>
-    <a href="settings.html" class="gl-sb-link"><span class="gl-sb-icon">⚙️</span><span class="gl-sb-show" data-ar="الإعدادات" data-en="Settings">الإعدادات</span></a>
-    <button class="gl-sb-link gl-sb-logout" onclick="logout()"><span class="gl-sb-icon">↩</span><span class="gl-sb-show" data-ar="خروج" data-en="Sign Out">خروج</span></button>
-  </div>
-</div>
-<div class="gl-sb-overlay" id="gl-sb-overlay" onclick="closeSidebar()"></div>
-<button class="gl-sb-mob-btn" id="gl-mob-btn" onclick="toggleGLSidebar()">☰</button>
-<div class="gl-page-content">
-<div class="main">
-  <div class="stats" style="grid-template-columns:repeat(3,1fr);">
-    <div class="stat"><div class="stat-lbl" data-ar="إجمالي المبيعات" data-en="Total Sales">Total Sales</div><div class="stat-num c-navy" id="r-sales">SAR 0</div><div class="stat-sub" data-ar="هذا العام" data-en="this year">this year</div></div>
-    <div class="stat s-red"><div class="stat-lbl" data-ar="إجمالي المصاريف" data-en="Total Expenses">Total Expenses</div><div class="stat-num c-red" id="r-expenses">SAR 0</div><div class="stat-sub" data-ar="هذا العام" data-en="this year">this year</div></div>
-    <div class="stat s-green"><div class="stat-lbl" data-ar="صافي الربح" data-en="Net Profit">Net Profit</div><div class="stat-num c-green" id="r-profit">SAR 0</div><div class="stat-sub" data-ar="هذا العام" data-en="this year">this year</div></div>
-  </div>
-  <div class="card"><div class="card-hdr"><span class="card-ttl" data-ar="تقرير المبيعات" data-en="Sales Report">Sales Report</span><div style="display:flex;gap:8px;"><input type="date" lang="en" id="r-from" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;"><input type="date" lang="en" id="r-to" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-size:12px;"><button class="btn-p" onclick="loadReport()" style="font-size:12px;padding:6px 14px;" data-ar="احتساب" data-en="Calculate">Calculate</button></div></div>
-  <div style="overflow-x:auto;"><table class="tbl"><thead><tr><th data-ar="رقم الفاتورة" data-en="Invoice No.">Invoice No.</th><th data-ar="التاريخ" data-en="Date">Date</th><th data-ar="المشتري" data-en="Buyer">Buyer</th><th data-ar="المبلغ قبل الضريبة" data-en="Subtotal">Subtotal</th><th data-ar="الضريبة" data-en="VAT">VAT</th><th data-ar="الإجمالي" data-en="Total">Total</th><th data-ar="الحالة" data-en="Status">Status</th></tr></thead><tbody id="r-tbody"><tr><td colspan="7" style="text-align:center;padding:24px;color:var(--muted);" data-ar="اختر الفترة واضغط احتساب" data-en="Select period and click Calculate">Select period and click Calculate</td></tr></tbody></table></div></div>
-  <div class="card"><div class="card-hdr"><span class="card-ttl" data-ar="تقرير المصاريف" data-en="Expenses Report">Expenses Report</span></div>
-  <div style="overflow-x:auto;"><table class="tbl"><thead><tr><th data-ar="التاريخ" data-en="Date">Date</th><th data-ar="الوصف" data-en="Description">Description</th><th data-ar="الفئة" data-en="Category">Category</th><th data-ar="المبلغ" data-en="Amount">Amount</th><th data-ar="الضريبة" data-en="VAT">VAT</th></tr></thead><tbody id="r-exp-tbody"><tr><td colspan="5" style="text-align:center;padding:24px;color:var(--muted);">Select period above</td></tr></tbody></table></div></div>
-</div>
-</div>
-<script>
+  <div class="sb-biz sb-hide" id="gl-biz-name">...</div>
+  <nav class="sb-nav">
+    <div class="sb-sec-label sb-hide" data-ar="القائمة الرئيسية" data-en="Main Menu">القائمة الرئيسية</div>
+    <a href="dashboard.html" class="sb-link" data-ar="الرئيسية" data-en="Dashboard"><span class="sb-link-icon">⊞</span><span>الرئيسية</span></a>
+    <a href="inventory.html" class="sb-link" data-ar="المنتجات والمخزون" data-en="Products & Stock"><span class="sb-link-icon">📦</span><span>المنتجات والمخزون</span></a>
+    <a href="invoices.html" class="sb-link" data-ar="المبيعات والفواتير" data-en="Sales & Invoices"><span class="sb-link-icon">🧾</span><span>المبيعات والفواتير</span></a>
+    <a href="expenses.html" class="sb-link" data-ar="المصاريف" data-en="Expenses"><span class="sb-link-icon">💸</span><span>المصاريف</span></a>
+    <a href="ledger.html" class="sb-link" data-ar="المحاسبة" data-en="Accounting"><span class="sb-link-icon">📒</span><span>المحاسبة</span></a>
+    <a href="vat.html" class="sb-link" data-ar="ضريبة القيمة المضافة" data-en="VAT"><span class="sb-link-icon">🧮</span><span>ضريبة القيمة المضافة</span></a>
+    <a href="reports.html" class="sb-link active" data-ar="التقارير" data-en="Reports"><span class="sb-link-icon">📊</span><span>التقارير</span></a>
 
+    <div class="sb-sec-label sb-hide" data-ar="التقارير المالية" data-en="Financial">التقارير المالية</div>
+    <a href="statements.html" class="sb-link" data-ar="القوائم المالية" data-en="Statements"><span class="sb-link-icon">📑</span><span>القوائم المالية</span></a>
+    <a href="purchasing.html" class="sb-link" data-ar="المشتريات" data-en="Purchasing"><span class="sb-link-icon">🛒</span><span>المشتريات</span></a>
+  </nav>
+  <div class="sb-bottom">
+    <div class="sb-hr"></div>
+    <a href="settings.html" class="sb-link" data-ar="الإعدادات" data-en="Settings"><span class="sb-link-icon">⚙️</span><span class="sb-hide">الإعدادات</span></a>
+    <button class="sb-link sb-logout" onclick="logout()" data-ar="خروج" data-en="Sign Out"><span class="sb-link-icon">↩</span><span class="sb-hide">خروج</span></button>
+  </div>
+</div>
+<div class="sb-overlay" id="sb-overlay" onclick="closeGLSB()"></div>
+<button class="sb-mob-btn" id="sb-mob-btn" onclick="toggleGLSB()">&#9776;</button>
+
+<div class="gl-page-content">
+<!-- GL HEADER -->
+<div class="gl-header">
+  <span class="gl-h-title" data-ar="التقارير" data-en="Reports">التقارير</span>
+  <div class="gl-h-right" style="position:relative;">
+    <button class="gl-h-add" onclick="document.getElementById('gl-qa-menu').classList.toggle('open')"><span style="font-size:16px;font-weight:300;">+</span> إضافة</button>
+    <div class="gl-qa-menu" id="gl-qa-menu">
+      <a href="invoices.html" class="gl-qa-item">🧾 فاتورة جديدة</a>
+      <a href="expenses.html" class="gl-qa-item">💸 مصروف جديد</a>
+      <a href="inventory.html" class="gl-qa-item">📦 منتج جديد</a>
+    </div>
+    <div class="gl-h-lang">
+      <button class="gl-h-lang-btn" id="gl-btn-ar" onclick="setLang('ar')">ع</button>
+      <button class="gl-h-lang-btn" id="gl-btn-en" onclick="setLang('en')">EN</button>
+    </div>
+    <div class="gl-h-user"><div class="gl-h-av" id="gl-user-av">م</div><span id="gl-user-name">...</span></div>
+  </div>
+</div>
+
+
+
+<div class="topnav">
+  <a href="dashboard.html" class="nav-logo">
+    <div class="nav-bars">
+      <div class="nav-bar" style="height:8px;background:#fff;"></div>
+      <div class="nav-bar" style="height:14px;background:rgba(255,255,255,0.5);"></div>
+      <div class="nav-bar" style="height:20px;background:#378ADD;"></div>
+    </div>
+    <div class="nav-logo-text">
+      <span class="logo-gulf">Gulf</span>
+      <span class="logo-ledger">LEDGER</span>
+    </div>
+  </a>
+  <div class="nav-right">
+    <div style="display:flex;gap:2px;background:rgba(255,255,255,0.1);border-radius:6px;padding:2px;">
+      <button class="lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button>
+      <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
+    </div>
+    <div class="nav-divider" style="width:1px;height:20px;background:rgba(255,255,255,0.15);"></div>
+    <span class="nav-biz" id="biz-name">...</span>
+    <button class="btn-logout" onclick="logout()" data-ar="خروج" data-en="Sign Out">خروج</button>
+  </div>
+</div>
+
+<div class="app-nav" id="app-nav">
+  <a href="dashboard.html"  class="app-nav-link"  data-ar="الرئيسية"             data-en="Dashboard">الرئيسية</a>
+  <a href="inventory.html"  class="app-nav-link"  data-ar="المنتجات والمخزون"    data-en="Products & Stock">المنتجات والمخزون</a>
+  <a href="invoices.html"   class="app-nav-link"   data-ar="المبيعات والفواتير"   data-en="Sales & Invoices">المبيعات والفواتير</a>
+  <a href="expenses.html"   class="app-nav-link"   data-ar="المصاريف"             data-en="Expenses">المصاريف</a>
+  <a href="ledger.html"     class="app-nav-link"     data-ar="المحاسبة"             data-en="Accounting">المحاسبة</a>
+  <a href="vat.html"        class="app-nav-link"        data-ar="ضريبة القيمة المضافة" data-en="VAT">ضريبة القيمة المضافة</a>
+  <a href="reports.html"    class="app-nav-link active"    data-ar="التقارير"             data-en="Reports">التقارير</a>
+  <a href="accounting.html" class="app-nav-link" id="nav-accounting" data-ar="محاسبة متقدمة" data-en="Advanced" style="display:none;">محاسبة متقدمة</a>
+</div>
+
+<script>
+(function(){
+  var mode = localStorage.getItem('gl_accountant_mode');
+  if(mode === 'true'){
+    var el = document.getElementById('nav-accounting');
+    if(el) el.style.display = 'inline-block';
+  }
+})();
+</script>
+
+<div class="page">
+  <h1 class="page-title" data-ar="التقارير" data-en="Reports">التقارير</h1>
+  <p class="page-sub" data-ar="جميع تقاريرك المالية والضريبية في مكان واحد" data-en="All your financial and tax reports in one place">جميع تقاريرك المالية والضريبية في مكان واحد</p>
+
+  <!-- Report Cards Grid -->
+  <div id="reports-grid">
+    <!-- Rendered by JS based on plan -->
+  </div>
+
+  <!-- Report Panels (shown when card clicked) -->
+
+  <!-- VAT RETURN -->
+  <div class="report-panel" id="panel-vat">
+    <div class="report-panel-header">
+      <div>
+        <button class="back-btn btn-secondary" onclick="closeReport()" style="margin-bottom:10px;font-size:11px;">← <span data-ar="العودة" data-en="Back">العودة</span></button>
+        <div class="report-panel-title" data-ar="إقرار ضريبة القيمة المضافة — نموذج 201" data-en="VAT Return — Form 201">إقرار ضريبة القيمة المضافة</div>
+      </div>
+      <div class="report-actions">
+        <select id="vat-quarter" onchange="loadVATReport()" style="padding:7px 12px;border:1.5px solid var(--border);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;"></select>
+        <button class="btn-secondary" onclick="window.print()" data-ar="🖨 طباعة" data-en="🖨 Print">🖨 طباعة</button>
+      </div>
+    </div>
+    <div id="vat-content"></div>
+  </div>
+
+  <!-- INCOME STATEMENT -->
+  <div class="report-panel" id="panel-income">
+    <div class="report-panel-header">
+      <div>
+        <button class="back-btn btn-secondary" onclick="closeReport()" style="margin-bottom:10px;font-size:11px;">← <span data-ar="العودة" data-en="Back">العودة</span></button>
+        <div class="report-panel-title" data-ar="قائمة الدخل" data-en="Income Statement">قائمة الدخل</div>
+      </div>
+      <div class="report-actions">
+        <select id="income-year" onchange="loadIncomeStatement()" style="padding:7px 12px;border:1.5px solid var(--border);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;"></select>
+        <button class="btn-secondary" onclick="window.print()" data-ar="🖨 طباعة" data-en="🖨 Print">🖨 طباعة</button>
+      </div>
+    </div>
+    <div id="income-content"></div>
+  </div>
+
+  <!-- BALANCE SHEET -->
+  <div class="report-panel" id="panel-balance">
+    <div class="report-panel-header">
+      <div>
+        <button class="back-btn btn-secondary" onclick="closeReport()" style="margin-bottom:10px;font-size:11px;">← <span data-ar="العودة" data-en="Back">العودة</span></button>
+        <div class="report-panel-title" data-ar="الميزانية العمومية" data-en="Balance Sheet">الميزانية العمومية</div>
+      </div>
+      <div class="report-actions">
+        <select id="balance-year" onchange="loadBalanceSheet()" style="padding:7px 12px;border:1.5px solid var(--border);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;"></select>
+        <button class="btn-secondary" onclick="window.print()" data-ar="🖨 طباعة" data-en="🖨 Print">🖨 طباعة</button>
+      </div>
+    </div>
+    <div id="balance-content"></div>
+  </div>
+
+  <!-- SALES BY CUSTOMER -->
+  <div class="report-panel" id="panel-sales-customer">
+    <div class="report-panel-header">
+      <div>
+        <button class="back-btn btn-secondary" onclick="closeReport()" style="margin-bottom:10px;font-size:11px;">← <span data-ar="العودة" data-en="Back">العودة</span></button>
+        <div class="report-panel-title" data-ar="المبيعات حسب العميل" data-en="Sales by Customer">المبيعات حسب العميل</div>
+      </div>
+      <div class="report-actions">
+        <select id="sc-year" onchange="loadSalesByCustomer()" style="padding:7px 12px;border:1.5px solid var(--border);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;"></select>
+        <button class="btn-secondary" onclick="window.print()" data-ar="🖨 طباعة" data-en="🖨 Print">🖨 طباعة</button>
+      </div>
+    </div>
+    <div id="sc-content"></div>
+  </div>
+
+  <!-- STATEMENT OF ACCOUNT -->
+  <div class="report-panel" id="panel-soa">
+    <div class="report-panel-header">
+      <div>
+        <button class="back-btn btn-secondary" onclick="closeReport()" style="margin-bottom:10px;font-size:11px;">← <span data-ar="العودة" data-en="Back">العودة</span></button>
+        <div class="report-panel-title" data-ar="كشف حساب العميل" data-en="Statement of Account">كشف حساب العميل</div>
+      </div>
+      <div class="report-actions">
+        <button class="btn-secondary" onclick="shareSOA()" data-ar="📲 واتساب" data-en="📲 WhatsApp">📲 واتساب</button>
+        <button class="btn-secondary" onclick="window.print()" data-ar="🖨 طباعة" data-en="🖨 Print">🖨 طباعة</button>
+      </div>
+    </div>
+    <div class="filter-row">
+      <select id="soa-customer" onchange="loadSOA()" style="flex:1;min-width:200px;padding:7px 12px;border:1.5px solid var(--border);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;">
+        <option value="" data-ar="اختر عميل..." data-en="Select customer...">اختر عميل...</option>
+      </select>
+      <select id="soa-year" onchange="loadSOA()" style="padding:7px 12px;border:1.5px solid var(--border);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;"></select>
+    </div>
+    <div id="soa-content"></div>
+  </div>
+
+  <!-- SALES BY PERIOD -->
+  <div class="report-panel" id="panel-sales-period">
+    <div class="report-panel-header">
+      <div>
+        <button class="back-btn btn-secondary" onclick="closeReport()" style="margin-bottom:10px;font-size:11px;">← <span data-ar="العودة" data-en="Back">العودة</span></button>
+        <div class="report-panel-title" data-ar="المبيعات حسب الفترة" data-en="Sales by Period">المبيعات حسب الفترة</div>
+      </div>
+      <div class="report-actions">
+        <select id="sp-year" onchange="loadSalesByPeriod()" style="padding:7px 12px;border:1.5px solid var(--border);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;"></select>
+        <button class="btn-secondary" onclick="window.print()" data-ar="🖨 طباعة" data-en="🖨 Print">🖨 طباعة</button>
+      </div>
+    </div>
+    <div id="sp-content"></div>
+  </div>
+
+  <!-- EXPENSE SUMMARY -->
+  <div class="report-panel" id="panel-expenses">
+    <div class="report-panel-header">
+      <div>
+        <button class="back-btn btn-secondary" onclick="closeReport()" style="margin-bottom:10px;font-size:11px;">← <span data-ar="العودة" data-en="Back">العودة</span></button>
+        <div class="report-panel-title" data-ar="ملخص المصاريف" data-en="Expense Summary">ملخص المصاريف</div>
+      </div>
+      <div class="report-actions">
+        <select id="exp-year" onchange="loadExpenseSummary()" style="padding:7px 12px;border:1.5px solid var(--border);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;"></select>
+        <button class="btn-secondary" onclick="window.print()" data-ar="🖨 طباعة" data-en="🖨 Print">🖨 طباعة</button>
+      </div>
+    </div>
+    <div id="exp-content"></div>
+  </div>
+
+  <!-- STOCK BY SUPPLIER (Business+) -->
+  <div class="report-panel" id="panel-stock-supplier">
+    <div class="report-panel-header">
+      <div>
+        <button class="back-btn btn-secondary" onclick="closeReport()" style="margin-bottom:10px;font-size:11px;">← <span data-ar="العودة" data-en="Back">العودة</span></button>
+        <div class="report-panel-title" data-ar="المخزون حسب المورد" data-en="Stock by Supplier">المخزون حسب المورد</div>
+      </div>
+      <div class="report-actions">
+        <button class="btn-secondary" onclick="window.print()" data-ar="🖨 طباعة" data-en="🖨 Print">🖨 طباعة</button>
+      </div>
+    </div>
+    <div id="stock-supplier-content"></div>
+  </div>
+
+  <!-- ZAKAT -->
+  <div class="report-panel" id="panel-zakat">
+    <div class="report-panel-header">
+      <div>
+        <button class="back-btn btn-secondary" onclick="closeReport()" style="margin-bottom:10px;font-size:11px;">← <span data-ar="العودة" data-en="Back">العودة</span></button>
+        <div class="report-panel-title" data-ar="تقرير الزكاة" data-en="Zakat Report">تقرير الزكاة</div>
+      </div>
+      <div class="report-actions">
+        <select id="zakat-year" onchange="loadZakatReport()" style="padding:7px 12px;border:1.5px solid var(--border);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;"></select>
+        <button class="btn-secondary" onclick="window.print()" data-ar="🖨 طباعة" data-en="🖨 Print">🖨 طباعة</button>
+      </div>
+    </div>
+    <div id="zakat-content"></div>
+  </div>
+
+</div>
+
+<script>
 const SUPABASE_URL='https://ykzivnasjwtuhvjxfxzf.supabase.co';
 const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
-let currentUser=null,currentBiz=null,L=localStorage.getItem('gl_lang')||'ar';
-function set(id,v){const e=document.getElementById(id);if(e)e.textContent=v;}
-function fmt(n){return(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');}
-function today(){return new Date().toISOString().split('T')[0];}
-async function logout(){await sb.auth.signOut();window.location.href='login.html';}
-function notify(msg,type){const d=document.createElement('div');d.style.cssText='position:fixed;top:20px;left:50%;transform:translateX(-50%);background:'+(type==='g'?'var(--green)':'var(--red)')+';color:#fff;padding:10px 24px;border-radius:8px;font-family:Tajawal,sans-serif;font-size:13px;z-index:9999;';d.textContent=msg;document.body.appendChild(d);setTimeout(()=>{if(d.parentNode)d.parentNode.removeChild(d);},type==='g'?4000:3000);}
-function applyLang(lang){localStorage.setItem('gl_lang',lang);document.getElementById('btn-ar')?.classList.toggle('on',lang==='ar');document.getElementById('btn-en')?.classList.toggle('on',lang==='en');document.documentElement.setAttribute('lang',lang);document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));document.querySelectorAll('select option[data-ar]').forEach(o=>o.text=o.getAttribute('data-'+lang)||o.text);}
-function toggleGLSidebar(){var s=document.getElementById('gl-sidebar');if(window.innerWidth<=768){s.classList.toggle('mob-open');var o=document.getElementById('gl-sb-overlay');if(o)o.style.display=s.classList.contains('mob-open')?'block':'none';var b=document.getElementById('gl-mob-btn');if(b)b.textContent=s.classList.contains('mob-open')?'×':'☰';}else{s.classList.toggle('collapsed');document.body.classList.toggle('gl-collapsed');localStorage.setItem('gl_sb_collapsed',s.classList.contains('collapsed')?'1':'0');}}
-function closeSidebar(){var s=document.getElementById('gl-sidebar');s.classList.remove('mob-open');var o=document.getElementById('gl-sb-overlay');if(o)o.style.display='none';var b=document.getElementById('gl-mob-btn');if(b)b.textContent='☰';}
-function initSidebarState(){if(localStorage.getItem('gl_sb_collapsed')==='1'){var s=document.getElementById('gl-sidebar');if(s){s.classList.add('collapsed');document.body.classList.add('gl-collapsed');}}}
+let currentUser=null,currentBiz=null,L=localStorage.getItem('gl_lang')||'ar',userPlan='starter';
 
+const fmt = n => parseFloat(n||0).toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2});
+const today = () => new Date().toISOString().split('T')[0];
+const currentYear = () => new Date().getFullYear();
+
+/* ── REPORT DEFINITIONS ── */
+const REPORTS = [
+  // Compliance
+  {id:'vat',       group:'compliance', icon:'🧾', plan:'starter',  tag:'compliance',
+   title_ar:'إقرار VAT — نموذج 201',      title_en:'VAT Return — Form 201',
+   desc_ar:'احسب VAT المستحق وأعد نموذج 201 للتقديم لزاتكا',
+   desc_en:'Calculate VAT due and prepare Form 201 for ZATCA submission'},
+  {id:'zakat',     group:'compliance', icon:'☪️',  plan:'starter',  tag:'compliance',
+   title_ar:'تقرير الزكاة',               title_en:'Zakat Report',
+   desc_ar:'احتساب وعاء الزكاة بطريقة رأس المال العامل 2.5%',
+   desc_en:'Calculate Zakat base using working capital method 2.5%'},
+  // Financial
+  {id:'income',    group:'financial',  icon:'📈', plan:'starter',  tag:'financial',
+   title_ar:'قائمة الدخل',               title_en:'Income Statement',
+   desc_ar:'الإيرادات والمصاريف وصافي الربح للفترة المحددة',
+   desc_en:'Revenue, expenses, and net profit for the period'},
+  {id:'balance',   group:'financial',  icon:'⚖️',  plan:'starter',  tag:'financial',
+   title_ar:'الميزانية العمومية',          title_en:'Balance Sheet',
+   desc_ar:'الأصول والخصوم وحقوق الملكية في تاريخ محدد',
+   desc_en:'Assets, liabilities, and equity at a specific date'},
+  // Business
+  {id:'sales-customer', group:'business', icon:'👥', plan:'starter', tag:'business',
+   title_ar:'المبيعات حسب العميل',        title_en:'Sales by Customer',
+   desc_ar:'إجمالي المبيعات والمبالغ المحصلة لكل عميل',
+   desc_en:'Total sales and collected amounts per customer'},
+  {id:'soa',       group:'business',   icon:'📋', plan:'starter',  tag:'business',
+   title_ar:'كشف حساب العميل',            title_en:'Statement of Account',
+   desc_ar:'جميع الفواتير والمدفوعات والرصيد المستحق لعميل محدد',
+   desc_en:'All invoices, payments, and outstanding balance per customer'},
+  {id:'sales-period', group:'business', icon:'📅', plan:'starter', tag:'business',
+   title_ar:'المبيعات حسب الفترة',        title_en:'Sales by Period',
+   desc_ar:'اتجاه الإيرادات الشهري والفصلي خلال السنة',
+   desc_en:'Monthly and quarterly revenue trend throughout the year'},
+  {id:'expenses',  group:'business',   icon:'💸', plan:'starter',  tag:'business',
+   title_ar:'ملخص المصاريف',              title_en:'Expense Summary',
+   desc_ar:'تفصيل المصاريف حسب النوع والفترة',
+   desc_en:'Expenses breakdown by category and period'},
+  // Business plan only
+  {id:'stock-supplier', group:'inventory', icon:'📦', plan:'business', tag:'business',
+   title_ar:'المخزون حسب المورد',         title_en:'Stock by Supplier',
+   desc_ar:'قيمة المخزون المشترى من كل مورد والكميات المتبقية',
+   desc_en:'Inventory value and quantities purchased per supplier'},
+];
+
+const GROUPS = {
+  compliance: {ar:'الامتثال الضريبي', en:'Tax Compliance'},
+  financial:  {ar:'القوائم المالية',  en:'Financial Statements'},
+  business:   {ar:'تقارير الأعمال',   en:'Business Reports'},
+  inventory:  {ar:'تقارير المخزون',   en:'Inventory Reports'},
+};
+
+/* ── PLAN CHECK ── */
+const PLAN_ORDER = {starter:0, business:1, pro:2};
+function canAccess(requiredPlan){
+  return (PLAN_ORDER[userPlan]||0) >= (PLAN_ORDER[requiredPlan]||0);
+}
+
+/* ── RENDER REPORT CARDS ── */
+function renderReportCards(){
+  const grid = document.getElementById('reports-grid');
+  const grouped = {};
+  REPORTS.forEach(r=>{
+    if(!canAccess(r.plan)) return; // hide completely if plan insufficient
+    if(!grouped[r.group]) grouped[r.group]=[];
+    grouped[r.group].push(r);
+  });
+
+  if(!Object.keys(grouped).length){
+    grid.innerHTML=`<div style="text-align:center;padding:40px;color:var(--muted);">${L==='ar'?'لا توجد تقارير متاحة':'No reports available'}</div>`;
+    return;
+  }
+
+  grid.innerHTML = Object.entries(grouped).map(([grp, reports])=>`
+    <div class="report-group">
+      <div class="report-group-title">${L==='ar'?GROUPS[grp].ar:GROUPS[grp].en}</div>
+      <div class="report-grid">
+        ${reports.map(r=>`
+          <div class="report-card" onclick="openReport('${r.id}')">
+            <div class="report-card-icon">${r.icon}</div>
+            <div class="report-card-title">${L==='ar'?r.title_ar:r.title_en}</div>
+            <div class="report-card-desc">${L==='ar'?r.desc_ar:r.desc_en}</div>
+            <span class="report-card-tag tag-${r.tag}">${L==='ar'?GROUPS[r.group].ar:GROUPS[r.group].en}</span>
+          </div>`).join('')}
+      </div>
+    </div>`).join('');
+}
+
+/* ── OPEN / CLOSE REPORT ── */
+function openReport(id){
+  document.querySelectorAll('.report-panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('reports-grid').style.display='none';
+  document.querySelector('.page-sub').style.display='none';
+  const panel = document.getElementById('panel-'+id);
+  if(panel){
+    panel.classList.add('active');
+    panel.scrollIntoView({behavior:'smooth',block:'start'});
+  }
+  // Load report data
+  const loaders = {
+    'vat':            loadVATReport,
+    'zakat':          loadZakatReport,
+    'income':         loadIncomeStatement,
+    'balance':        loadBalanceSheet,
+    'sales-customer': loadSalesByCustomer,
+    'soa':            loadSOA,
+    'sales-period':   loadSalesByPeriod,
+    'expenses':       loadExpenseSummary,
+    'stock-supplier': loadStockBySupplier,
+  };
+  if(loaders[id]) loaders[id]();
+}
+
+function closeReport(){
+  document.querySelectorAll('.report-panel').forEach(p=>p.classList.remove('active'));
+  document.getElementById('reports-grid').style.display='block';
+  document.querySelector('.page-sub').style.display='block';
+}
+
+/* ── YEAR / QUARTER SELECTORS ── */
+function populateYearSelect(id, onchange){
+  const sel=document.getElementById(id); if(!sel)return;
+  const yr=currentYear();
+  sel.innerHTML=[yr,yr-1,yr-2].map(y=>`<option value="${y}">${y}</option>`).join('');
+  if(onchange) sel.onchange=onchange;
+}
+function populateQuarterSelect(){
+  const sel=document.getElementById('vat-quarter'); if(!sel)return;
+  const yr=currentYear(); const q=Math.floor(new Date().getMonth()/3)+1;
+  const opts=[];
+  for(let y=yr;y>=yr-1;y--) for(let qi=4;qi>=1;qi--){
+    if(y===yr&&qi>q) continue;
+    opts.push(`<option value="${y}-Q${qi}">${y} Q${qi}</option>`);
+  }
+  sel.innerHTML=opts.join('');
+}
+
+/* ── VAT REPORT ── */
+async function loadVATReport(){
+  const val=document.getElementById('vat-quarter')?.value||`${currentYear()}-Q1`;
+  const [yr,qi]=val.split('-Q'); const q=parseInt(qi)-1;
+  const qStart=`${yr}-${String(q*3+1).padStart(2,'0')}-01`;
+  const qEnd=`${yr}-${String(q*3+3).padStart(2,'0')}-31`;
+
+  const [{data:invs},{data:exps}]=await Promise.all([
+    sb.from('invoices').select('subtotal,vat_amount').eq('user_id',currentUser.id).gte('issue_date',qStart).lte('issue_date',qEnd),
+    sb.from('journal_entries').select('journal_lines(debit,credit,account_code)').eq('user_id',currentUser.id).eq('source','expense').gte('entry_date',qStart).lte('entry_date',qEnd)
+  ]);
+
+  const outputBase=( invs||[]).reduce((s,i)=>s+(i.subtotal||0),0);
+  const outputVAT =(invs||[]).reduce((s,i)=>s+(i.vat_amount||0),0);
+  let inputVAT=0;
+  (exps||[]).forEach(e=>(e.journal_lines||[]).forEach(l=>{if(l.account_code==='2210')inputVAT+=l.debit||0;}));
+  const netVAT=outputVAT-inputVAT;
+
+  document.getElementById('vat-content').innerHTML=`
+    <div class="vat-box">
+      <div class="vat-box-hdr">📤 ${L==='ar'?'ضريبة المخرجات (على المبيعات)':'Output VAT (on Sales)'}</div>
+      <div class="vat-row"><span data-ar="الإيرادات الخاضعة للضريبة" data-en="Taxable Revenue">${L==='ar'?'الإيرادات الخاضعة للضريبة':'Taxable Revenue'}</span><span class="mono">SAR ${fmt(outputBase)}</span></div>
+      <div class="vat-row"><span data-ar="ضريبة المخرجات 15%" data-en="Output VAT 15%">${L==='ar'?'ضريبة المخرجات 15%':'Output VAT 15%'}</span><span class="mono c-navy">SAR ${fmt(outputVAT)}</span></div>
+    </div>
+    <div class="vat-box">
+      <div class="vat-box-hdr">📥 ${L==='ar'?'ضريبة المدخلات (على المشتريات)':'Input VAT (on Purchases)'}</div>
+      <div class="vat-row"><span>${L==='ar'?'ضريبة المدخلات المستردة':'Reclaimable Input VAT'}</span><span class="mono">SAR ${fmt(inputVAT)}</span></div>
+    </div>
+    <div class="vat-box">
+      <div class="vat-box-hdr" style="background:${netVAT>=0?'#0C447C':'#166534'};">📊 ${L==='ar'?'صافي الضريبة المستحقة':'Net VAT Payable'}</div>
+      <div class="vat-row total"><span>${L==='ar'?'صافي الضريبة':'Net VAT'}</span><span class="mono" style="font-size:18px;color:${netVAT>=0?'var(--red)':'var(--green)'};">SAR ${fmt(Math.abs(netVAT))}</span></div>
+      <div class="vat-row"><span style="font-size:11px;color:var(--muted);">${netVAT>=0?(L==='ar'?'مستحق للدفع لزاتكا':'Payable to ZATCA'):(L==='ar'?'مستحق الاسترداد':'Refundable')}</span></div>
+    </div>`;
+  applyLang(L);
+}
+
+/* ── INCOME STATEMENT ── */
+async function loadIncomeStatement(){
+  const yr=document.getElementById('income-year')?.value||currentYear();
+  const [{data:invs},{data:exps}]=await Promise.all([
+    sb.from('invoices').select('subtotal,vat_amount').eq('user_id',currentUser.id).gte('issue_date',`${yr}-01-01`).lte('issue_date',`${yr}-12-31`),
+    sb.from('journal_entries').select('description,journal_lines(debit,account_code,account_name)').eq('user_id',currentUser.id).eq('source','expense').gte('entry_date',`${yr}-01-01`).lte('entry_date',`${yr}-12-31`)
+  ]);
+  const revenue=(invs||[]).reduce((s,i)=>s+(i.subtotal||0),0);
+  const expMap={};
+  (exps||[]).forEach(e=>(e.journal_lines||[]).forEach(l=>{
+    if(l.account_code?.startsWith('5')&&l.debit>0){
+      const k=l.account_name||l.account_code;
+      expMap[k]=(expMap[k]||0)+l.debit;
+    }
+  }));
+  const totalExp=Object.values(expMap).reduce((s,v)=>s+v,0);
+  const netProfit=revenue-totalExp;
+
+  document.getElementById('income-content').innerHTML=`
+    <div class="summary-row">
+      <div class="summary-card"><div class="summary-label">${L==='ar'?'الإيرادات':'Revenue'}</div><div class="summary-val">SAR ${fmt(revenue)}</div></div>
+      <div class="summary-card"><div class="summary-label">${L==='ar'?'المصاريف':'Expenses'}</div><div class="summary-val">SAR ${fmt(totalExp)}</div></div>
+      <div class="summary-card" style="background:${netProfit>=0?'#dcfce7':'#fff1f2'}"><div class="summary-label">${L==='ar'?'صافي الربح':'Net Profit'}</div><div class="summary-val" style="color:${netProfit>=0?'var(--green)':'var(--red)'}">SAR ${fmt(Math.abs(netProfit))}</div></div>
+    </div>
+    <table class="r-table">
+      <thead><tr><th>${L==='ar'?'البند':'Item'}</th><th style="text-align:left;">${L==='ar'?'المبلغ':'Amount'}</th></tr></thead>
+      <tbody>
+        <tr><td style="font-weight:700;color:var(--green);">${L==='ar'?'الإيرادات':'Revenue'}</td><td class="mono c-green">SAR ${fmt(revenue)}</td></tr>
+        ${Object.entries(expMap).map(([k,v])=>`<tr><td style="padding-right:24px;">— ${k}</td><td class="mono c-red">SAR ${fmt(v)}</td></tr>`).join('')}
+        <tr style="border-top:2px solid var(--border);font-weight:700;"><td>${L==='ar'?'صافي الربح':'Net Profit'}</td><td class="mono" style="color:${netProfit>=0?'var(--green)':'var(--red)'}">SAR ${fmt(Math.abs(netProfit))}</td></tr>
+      </tbody>
+    </table>`;
+}
+
+/* ── BALANCE SHEET ── */
+async function loadBalanceSheet(){
+  const yr=document.getElementById('balance-year')?.value||currentYear();
+  const {data:lines}=await sb.from('journal_lines').select('account_code,account_name,debit,credit').eq('user_id',currentUser.id);
+  const bal={};
+  (lines||[]).forEach(l=>{
+    const k=l.account_code;
+    if(!bal[k]) bal[k]={name:l.account_name,code:k,net:0};
+    bal[k].net+=(l.debit||0)-(l.credit||0);
+  });
+  const assets=Object.values(bal).filter(a=>a.code?.startsWith('1')).sort((a,b)=>a.code.localeCompare(b.code));
+  const liabilities=Object.values(bal).filter(a=>a.code?.startsWith('2')).sort((a,b)=>a.code.localeCompare(b.code));
+  const equity=Object.values(bal).filter(a=>a.code?.startsWith('3')).sort((a,b)=>a.code.localeCompare(b.code));
+  const totalAssets=assets.reduce((s,a)=>s+a.net,0);
+  const totalLiab=liabilities.reduce((s,a)=>s+Math.abs(a.net),0);
+  const totalEquity=equity.reduce((s,a)=>s+Math.abs(a.net),0);
+
+  const renderSection=(title,items,total)=>`
+    <div style="margin-bottom:16px;">
+      <div style="font-weight:700;color:var(--navy);padding:8px 12px;background:var(--tint);border-radius:6px;margin-bottom:8px;">${title}</div>
+      ${items.map(i=>`<div style="display:flex;justify-content:space-between;padding:6px 12px;font-size:12px;border-bottom:1px solid var(--tint);">
+        <span>${i.name||i.code}</span><span class="mono">SAR ${fmt(Math.abs(i.net))}</span>
+      </div>`).join('')}
+      <div style="display:flex;justify-content:space-between;padding:8px 12px;font-weight:700;border-top:1.5px solid var(--border);">
+        <span>${L==='ar'?'الإجمالي':'Total'}</span><span class="mono">SAR ${fmt(total)}</span>
+      </div>
+    </div>`;
+
+  document.getElementById('balance-content').innerHTML=`
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:20px;">
+      <div>${renderSection(L==='ar'?'الأصول':'Assets',assets,totalAssets)}</div>
+      <div>
+        ${renderSection(L==='ar'?'الخصوم':'Liabilities',liabilities,totalLiab)}
+        ${renderSection(L==='ar'?'حقوق الملكية':'Equity',equity,totalEquity)}
+      </div>
+    </div>`;
+}
+
+/* ── SALES BY CUSTOMER ── */
+async function loadSalesByCustomer(){
+  const yr=document.getElementById('sc-year')?.value||currentYear();
+  const {data:invs}=await sb.from('invoices').select('buyer_name,subtotal,vat_amount,total,payment_status').eq('user_id',currentUser.id).gte('issue_date',`${yr}-01-01`).lte('issue_date',`${yr}-12-31`);
+  const map={};
+  (invs||[]).forEach(i=>{
+    const k=i.buyer_name||'—';
+    if(!map[k]) map[k]={name:k,invoices:0,subtotal:0,vat:0,total:0,paid:0};
+    map[k].invoices++;
+    map[k].subtotal+=i.subtotal||0;
+    map[k].vat+=i.vat_amount||0;
+    map[k].total+=i.total||0;
+    if(i.payment_status==='paid') map[k].paid+=i.total||0;
+  });
+  const rows=Object.values(map).sort((a,b)=>b.total-a.total);
+  const grandTotal=rows.reduce((s,r)=>s+r.total,0);
+
+  document.getElementById('sc-content').innerHTML=`
+    <div class="summary-row">
+      <div class="summary-card"><div class="summary-label">${L==='ar'?'إجمالي العملاء':'Total Customers'}</div><div class="summary-val">${rows.length}</div></div>
+      <div class="summary-card"><div class="summary-label">${L==='ar'?'إجمالي المبيعات':'Total Sales'}</div><div class="summary-val">SAR ${fmt(grandTotal)}</div></div>
+    </div>
+    <table class="r-table">
+      <thead><tr>
+        <th>${L==='ar'?'العميل':'Customer'}</th>
+        <th>${L==='ar'?'عدد الفواتير':'Invoices'}</th>
+        <th>${L==='ar'?'قبل الضريبة':'Excl. VAT'}</th>
+        <th>${L==='ar'?'الإجمالي':'Total'}</th>
+        <th>${L==='ar'?'المحصّل':'Collected'}</th>
+        <th>${L==='ar'?'المستحق':'Outstanding'}</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r=>`<tr>
+          <td style="font-weight:600;">${r.name}</td>
+          <td class="mono">${r.invoices}</td>
+          <td class="mono">SAR ${fmt(r.subtotal)}</td>
+          <td class="mono c-navy">SAR ${fmt(r.total)}</td>
+          <td class="mono c-green">SAR ${fmt(r.paid)}</td>
+          <td class="mono ${r.total-r.paid>0?'c-red':'c-green'}">SAR ${fmt(r.total-r.paid)}</td>
+        </tr>`).join('')}
+        <tr style="font-weight:700;border-top:2px solid var(--border);">
+          <td>${L==='ar'?'الإجمالي':'Total'}</td><td></td><td></td>
+          <td class="mono">SAR ${fmt(grandTotal)}</td>
+          <td class="mono c-green">SAR ${fmt(rows.reduce((s,r)=>s+r.paid,0))}</td>
+          <td class="mono c-red">SAR ${fmt(rows.reduce((s,r)=>s+(r.total-r.paid),0))}</td>
+        </tr>
+      </tbody>
+    </table>`;
+}
+
+/* ── STATEMENT OF ACCOUNT ── */
+async function loadSOACustomers(){
+  const {data}=await sb.from('customers').select('id,name,mobile').eq('user_id',currentUser.id).order('name');
+  const sel=document.getElementById('soa-customer');
+  if(!sel||!data) return;
+  sel.innerHTML=`<option value="">${L==='ar'?'اختر عميل...':'Select customer...'}</option>`+
+    data.map(c=>`<option value="${c.id}">${c.name} — ${c.mobile||''}</option>`).join('');
+}
+
+async function loadSOA(){
+  const custId=document.getElementById('soa-customer')?.value;
+  const yr=document.getElementById('soa-year')?.value||currentYear();
+  const cont=document.getElementById('soa-content');
+  if(!custId){cont.innerHTML=`<div style="text-align:center;padding:24px;color:var(--muted);">${L==='ar'?'اختر عميل أولاً':'Select a customer first'}</div>`;return;}
+
+  const {data:cust}=await sb.from('customers').select('*').eq('id',custId).single();
+  const {data:invs}=await sb.from('invoices').select('*').eq('user_id',currentUser.id).eq('customer_id',custId).order('issue_date');
+
+  if(!invs?.length){cont.innerHTML=`<div style="text-align:center;padding:24px;color:var(--muted);">${L==='ar'?'لا توجد فواتير لهذا العميل':'No invoices for this customer'}</div>`;return;}
+
+  let balance=0;
+  const rows=invs.map(inv=>{
+    balance+=inv.total||0;
+    const paid=inv.amount_paid||0;
+    if(paid>0) balance-=paid;
+    return {date:inv.issue_date,ref:inv.invoice_number,desc:L==='ar'?'فاتورة':'Invoice',debit:inv.total||0,credit:0,balance};
+  });
+
+  const totalDebit=rows.reduce((s,r)=>s+r.debit,0);
+  const finalBalance=rows[rows.length-1]?.balance||0;
+
+  cont.innerHTML=`
+    <div class="soa-header">
+      <div>
+        <div style="font-size:16px;font-weight:700;">${cust?.name||'—'}</div>
+        <div style="font-size:11px;opacity:0.7;">${cust?.mobile||''} ${cust?.company_name?'| '+cust.company_name:''}</div>
+      </div>
+      <div style="text-align:left;">
+        <div style="font-size:11px;opacity:0.7;">${L==='ar'?'تاريخ الكشف':'Statement Date'}</div>
+        <div class="mono" style="font-size:13px;">${today()}</div>
+      </div>
+    </div>
+    <div class="soa-body">
+      <table class="r-table" style="margin:0;">
+        <thead><tr>
+          <th>${L==='ar'?'التاريخ':'Date'}</th>
+          <th>${L==='ar'?'المرجع':'Reference'}</th>
+          <th>${L==='ar'?'البيان':'Description'}</th>
+          <th>${L==='ar'?'مدين':'Debit'}</th>
+          <th>${L==='ar'?'دائن':'Credit'}</th>
+          <th>${L==='ar'?'الرصيد':'Balance'}</th>
+        </tr></thead>
+        <tbody>
+          ${rows.map(r=>`<tr>
+            <td class="mono" style="font-size:11px;">${r.date}</td>
+            <td class="mono" style="font-size:11px;">${r.ref}</td>
+            <td>${r.desc}</td>
+            <td class="mono">${r.debit>0?'SAR '+fmt(r.debit):''}</td>
+            <td class="mono c-green">${r.credit>0?'SAR '+fmt(r.credit):''}</td>
+            <td class="mono c-navy" style="font-weight:600;">SAR ${fmt(r.balance)}</td>
+          </tr>`).join('')}
+          <tr style="font-weight:700;background:var(--tint);">
+            <td colspan="3">${L==='ar'?'الرصيد المستحق':'Outstanding Balance'}</td>
+            <td class="mono">SAR ${fmt(totalDebit)}</td>
+            <td></td>
+            <td class="mono" style="font-size:15px;color:${finalBalance>0?'var(--red)':'var(--green)'};">SAR ${fmt(finalBalance)}</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>`;
+}
+
+function shareSOA(){
+  const custSel=document.getElementById('soa-customer');
+  const custName=custSel?.options[custSel.selectedIndex]?.text?.split('—')[0]?.trim()||'';
+  const msg=encodeURIComponent(`${L==='ar'?'السلام عليكم،\nيرجى الاطلاع على كشف حسابكم المرفق.\nللاستفسار تواصلوا معنا.':'Dear Customer,\nPlease find your statement of account below.\nContact us for any queries.'}`);
+  window.open('https://wa.me/?text='+msg,'_blank');
+}
+
+/* ── SALES BY PERIOD ── */
+async function loadSalesByPeriod(){
+  const yr=document.getElementById('sp-year')?.value||currentYear();
+  const {data:invs}=await sb.from('invoices').select('issue_date,subtotal,total').eq('user_id',currentUser.id).gte('issue_date',`${yr}-01-01`).lte('issue_date',`${yr}-12-31`);
+  const months=Array.from({length:12},(_,i)=>({
+    month:i+1,label:new Date(yr,i,1).toLocaleString(L==='ar'?'ar-SA':'en',{month:'long'}),
+    revenue:0,total:0,count:0
+  }));
+  (invs||[]).forEach(i=>{
+    const m=parseInt(i.issue_date?.split('-')[1])-1;
+    if(m>=0&&m<12){months[m].revenue+=i.subtotal||0;months[m].total+=i.total||0;months[m].count++;}
+  });
+  const maxRev=Math.max(...months.map(m=>m.revenue),1);
+
+  document.getElementById('sp-content').innerHTML=`
+    <table class="r-table">
+      <thead><tr>
+        <th>${L==='ar'?'الشهر':'Month'}</th>
+        <th>${L==='ar'?'عدد الفواتير':'Invoices'}</th>
+        <th>${L==='ar'?'الإيرادات (قبل VAT)':'Revenue (excl. VAT)'}</th>
+        <th>${L==='ar'?'الإجمالي (شامل VAT)':'Total (incl. VAT)'}</th>
+        <th style="width:120px;">${L==='ar'?'نسبة':'%'}</th>
+      </tr></thead>
+      <tbody>
+        ${months.map(m=>`<tr>
+          <td style="font-weight:600;">${m.label}</td>
+          <td class="mono">${m.count}</td>
+          <td class="mono ${m.revenue>0?'c-navy':'c-muted'}">SAR ${fmt(m.revenue)}</td>
+          <td class="mono">SAR ${fmt(m.total)}</td>
+          <td><div style="background:var(--tint);border-radius:4px;height:8px;overflow:hidden;"><div style="background:var(--blue);height:8px;width:${Math.round(m.revenue/maxRev*100)}%;border-radius:4px;"></div></div></td>
+        </tr>`).join('')}
+        <tr style="font-weight:700;border-top:2px solid var(--border);">
+          <td>${L==='ar'?'الإجمالي':'Total'}</td>
+          <td class="mono">${months.reduce((s,m)=>s+m.count,0)}</td>
+          <td class="mono c-navy">SAR ${fmt(months.reduce((s,m)=>s+m.revenue,0))}</td>
+          <td class="mono">SAR ${fmt(months.reduce((s,m)=>s+m.total,0))}</td>
+          <td></td>
+        </tr>
+      </tbody>
+    </table>`;
+}
+
+/* ── EXPENSE SUMMARY ── */
+async function loadExpenseSummary(){
+  const yr=document.getElementById('exp-year')?.value||currentYear();
+  const {data:exps}=await sb.from('journal_entries').select('description,entry_date,journal_lines(debit,account_code,account_name)').eq('user_id',currentUser.id).eq('source','expense').gte('entry_date',`${yr}-01-01`).lte('entry_date',`${yr}-12-31`);
+  const map={};
+  (exps||[]).forEach(e=>(e.journal_lines||[]).forEach(l=>{
+    if(l.account_code?.startsWith('5')&&l.debit>0){
+      const k=l.account_name||l.account_code;
+      if(!map[k]) map[k]={name:k,total:0,count:0};
+      map[k].total+=l.debit; map[k].count++;
+    }
+  }));
+  const rows=Object.values(map).sort((a,b)=>b.total-a.total);
+  const grandTotal=rows.reduce((s,r)=>s+r.total,0);
+
+  document.getElementById('exp-content').innerHTML=`
+    <div class="summary-row">
+      <div class="summary-card"><div class="summary-label">${L==='ar'?'إجمالي المصاريف':'Total Expenses'}</div><div class="summary-val c-red">SAR ${fmt(grandTotal)}</div></div>
+      <div class="summary-card"><div class="summary-label">${L==='ar'?'عدد الفئات':'Categories'}</div><div class="summary-val">${rows.length}</div></div>
+    </div>
+    <table class="r-table">
+      <thead><tr><th>${L==='ar'?'الفئة':'Category'}</th><th>${L==='ar'?'عدد المعاملات':'Transactions'}</th><th>${L==='ar'?'الإجمالي':'Total'}</th><th>${L==='ar'?'النسبة':'%'}</th></tr></thead>
+      <tbody>
+        ${rows.map(r=>`<tr>
+          <td style="font-weight:600;">${r.name}</td>
+          <td class="mono">${r.count}</td>
+          <td class="mono c-red">SAR ${fmt(r.total)}</td>
+          <td class="mono c-muted">${grandTotal>0?Math.round(r.total/grandTotal*100):0}%</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+/* ── STOCK BY SUPPLIER ── */
+async function loadStockBySupplier(){
+  const {data:items}=await sb.from('inventory_items').select('name,supplier_name,current_qty,cost_price,unit').eq('user_id',currentUser.id);
+  const map={};
+  (items||[]).forEach(i=>{
+    const k=i.supplier_name||L==='ar'?'غير محدد':'Unknown';
+    if(!map[k]) map[k]={name:k,items:[],totalValue:0,totalQty:0};
+    const val=(i.current_qty||0)*(i.cost_price||0);
+    map[k].items.push(i); map[k].totalValue+=val; map[k].totalQty+=i.current_qty||0;
+  });
+  const rows=Object.values(map).sort((a,b)=>b.totalValue-a.totalValue);
+
+  document.getElementById('stock-supplier-content').innerHTML=`
+    <table class="r-table">
+      <thead><tr>
+        <th>${L==='ar'?'المورد':'Supplier'}</th>
+        <th>${L==='ar'?'عدد الأصناف':'Items'}</th>
+        <th>${L==='ar'?'إجمالي الكمية':'Total Qty'}</th>
+        <th>${L==='ar'?'قيمة المخزون':'Stock Value'}</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r=>`<tr>
+          <td style="font-weight:600;">${r.name}</td>
+          <td class="mono">${r.items.length}</td>
+          <td class="mono">${r.totalQty}</td>
+          <td class="mono c-navy">SAR ${fmt(r.totalValue)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+/* ── ZAKAT REPORT ── */
+async function loadZakatReport(){
+  const yr=document.getElementById('zakat-year')?.value||currentYear();
+  const {data:lines}=await sb.from('journal_lines').select('account_code,debit,credit').eq('user_id',currentUser.id);
+  const bal={};
+  (lines||[]).forEach(l=>{if(!bal[l.account_code])bal[l.account_code]=0;bal[l.account_code]+=(l.debit||0)-(l.credit||0);});
+  const cash=Math.max(0,bal['1100']||0);
+  const bank=Math.max(0,bal['1101']||0);
+  const receivables=Math.max(0,bal['1200']||0);
+  const inventory=Math.max(0,bal['1300']||0);
+  const payables=Math.abs(Math.min(0,bal['2100']||0));
+  const workingCapital=Math.max(0,(cash+bank+receivables+inventory)-payables);
+  const zakatDue=workingCapital*0.025;
+
+  document.getElementById('zakat-content').innerHTML=`
+    <div class="summary-row">
+      <div class="summary-card"><div class="summary-label">${L==='ar'?'وعاء الزكاة':'Zakat Base'}</div><div class="summary-val">SAR ${fmt(workingCapital)}</div></div>
+      <div class="summary-card" style="background:#fef3c7;"><div class="summary-label">${L==='ar'?'الزكاة المستحقة 2.5%':'Zakat Due 2.5%'}</div><div class="summary-val" style="color:var(--amber);">SAR ${fmt(zakatDue)}</div></div>
+    </div>
+    <table class="r-table">
+      <thead><tr><th>${L==='ar'?'البند':'Item'}</th><th>${L==='ar'?'المبلغ':'Amount'}</th></tr></thead>
+      <tbody>
+        <tr><td>${L==='ar'?'النقدية':'Cash'}</td><td class="mono">SAR ${fmt(cash)}</td></tr>
+        <tr><td>${L==='ar'?'الرصيد البنكي':'Bank Balance'}</td><td class="mono">SAR ${fmt(bank)}</td></tr>
+        <tr><td>${L==='ar'?'الذمم المدينة':'Receivables'}</td><td class="mono">SAR ${fmt(receivables)}</td></tr>
+        <tr><td>${L==='ar'?'المخزون':'Inventory'}</td><td class="mono">SAR ${fmt(inventory)}</td></tr>
+        <tr><td style="color:var(--red);">— ${L==='ar'?'الذمم الدائنة':'Payables'}</td><td class="mono c-red">SAR ${fmt(payables)}</td></tr>
+        <tr style="font-weight:700;border-top:2px solid var(--border);">
+          <td>${L==='ar'?'رأس المال العامل (وعاء الزكاة)':'Working Capital (Zakat Base)'}</td>
+          <td class="mono c-navy">SAR ${fmt(workingCapital)}</td>
+        </tr>
+        <tr style="font-weight:700;background:var(--tint);">
+          <td>${L==='ar'?'الزكاة المستحقة (2.5%)':'Zakat Due (2.5%)'}</td>
+          <td class="mono" style="color:var(--amber);font-size:16px;">SAR ${fmt(zakatDue)}</td>
+        </tr>
+      </tbody>
+    </table>`;
+}
+
+/* ── LANGUAGE ── */
+function applyLang(lang){
+  localStorage.setItem('gl_lang',lang);
+  L=lang;
+  document.getElementById('btn-ar')?.classList.toggle('on',lang==='ar');
+  document.getElementById('btn-en')?.classList.toggle('on',lang==='en');
+  document.documentElement.setAttribute('lang',lang);
+  document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
+  document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));
+  renderReportCards();
+}
+function setLang(lang){ applyLang(lang); }
+
+/* ── INIT ── */
 async function init(){
   const {data:{session}}=await sb.auth.getSession();
   if(!session){window.location.href='login.html';return;}
   currentUser=session.user;
   const {data:biz}=await sb.from('businesses').select('*').eq('user_id',currentUser.id).single();
-  if(biz){currentBiz=biz;document.getElementById('biz-name').textContent=biz.name_ar||biz.name||'';}
-  const now=new Date();
-  document.getElementById('r-from').value=`${now.getFullYear()}-01-01`;
-  document.getElementById('r-to').value=today();
-  await loadYearStats();
-  const storedL=localStorage.getItem('gl_lang')||'ar';L=storedL;setLang(storedL);
-  initSidebarState();
+  if(biz){
+    currentBiz=biz;
+    userPlan=biz.plan||'starter';
+    document.getElementById('biz-name').textContent=biz.name_ar||biz.name||'';
+  }
+  // Populate year selectors
+  ['income-year','balance-year','sc-year','sp-year','exp-year','zakat-year','soa-year'].forEach(id=>populateYearSelect(id));
+  populateQuarterSelect();
+  // Load customers for SOA
+  await loadSOACustomers();
+  // Apply language and render cards
+  applyLang(L);
 }
-async function loadYearStats(){
-  const now=new Date();const yearStart=`${now.getFullYear()}-01-01`;
-  const {data:inv}=await sb.from('invoices').select('total,subtotal,vat_amount').eq('user_id',currentUser.id).gte('issue_date',yearStart).neq('status','voided');
-  const {data:exp}=await sb.from('expenses').select('total').eq('user_id',currentUser.id).gte('expense_date',yearStart).neq('status','reversed');
-  const sales=(inv||[]).reduce((s,i)=>s+(i.total||0),0);
-  const expenses=(exp||[]).reduce((s,e)=>s+(e.total||0),0);
-  set('r-sales','SAR '+fmt(sales));set('r-expenses','SAR '+fmt(expenses));set('r-profit','SAR '+fmt(Math.max(0,sales-expenses)));
-}
-async function loadReport(){
-  const from=document.getElementById('r-from').value;
-  const to=document.getElementById('r-to').value;
-  if(!from||!to){notify(L==='ar'?'اختر الفترة':'Select period','r');return;}
-  const {data:inv}=await sb.from('invoices').select('*').eq('user_id',currentUser.id).gte('issue_date',from).lte('issue_date',to).neq('status','voided').order('issue_date');
-  const {data:exp}=await sb.from('expenses').select('*').eq('user_id',currentUser.id).gte('expense_date',from).lte('expense_date',to).neq('status','reversed').order('expense_date');
-  const tb=document.getElementById('r-tbody');
-  tb.innerHTML=(inv||[]).length?(inv||[]).map(i=>{const p=i.payment_status==='paid';return`<tr><td class="mono" style="font-size:11px;">${i.invoice_number}</td><td style="font-size:11px;color:var(--muted);">${i.issue_date}</td><td style="font-size:12px;">${i.buyer_name||'—'}</td><td class="mono">SAR ${fmt(i.subtotal)}</td><td class="mono" style="color:var(--green);">SAR ${fmt(i.vat_amount)}</td><td class="mono" style="font-weight:700;">SAR ${fmt(i.total)}</td><td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;background:${p?'#dcfce7':'#fff1f2'};color:${p?'var(--green)':'var(--red)'};">${p?(L==='ar'?'مدفوع':'Paid'):(L==='ar'?'غير مدفوع':'Unpaid')}</span></td></tr>`;}).join(''):`<tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted);">${L==='ar'?'لا توجد فواتير في هذه الفترة':'No invoices in this period'}</td></tr>`;
-  const etb=document.getElementById('r-exp-tbody');
-  etb.innerHTML=(exp||[]).length?(exp||[]).map(e=>`<tr><td style="font-size:11px;color:var(--muted);">${e.expense_date}</td><td style="font-size:12px;">${e.description||'—'}</td><td style="font-size:11px;">${e.category_name||'—'}</td><td class="mono" style="font-weight:700;color:var(--red);">SAR ${fmt(e.total)}</td><td class="mono" style="color:var(--amber);">SAR ${fmt(e.vat_amount||0)}</td></tr>`).join(''):`<tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted);">${L==='ar'?'لا توجد مصاريف':'No expenses'}</td></tr>`;
-}
-function setLang(lang){L=lang;applyLang(lang);}
+
+async function logout(){ await sb.auth.signOut(); window.location.href='login.html'; }
+
+document.addEventListener('DOMContentLoaded',function(){
+  L=localStorage.getItem('gl_lang')||'ar';
+  applyLang(L);
+});
 init();
-</script></body></html>
+</script>
+</div><!-- /gl-page-content -->
+<script>
+
+function toggleGLSB(){var s=document.getElementById('gl-sidebar');if(window.innerWidth<=768){s.classList.toggle('mob-open');var o=document.getElementById('sb-overlay');if(o)o.style.display=s.classList.contains('mob-open')?'block':'none';var b=document.getElementById('sb-mob-btn');if(b)b.textContent=s.classList.contains('mob-open')?'\u00d7':'\u2630';}else{s.classList.toggle('collapsed');document.body.classList.toggle('gl-collapsed');localStorage.setItem('gl_sb_collapsed',s.classList.contains('collapsed')?'1':'0');}}
+function closeGLSB(){var s=document.getElementById('gl-sidebar');s.classList.remove('mob-open');var o=document.getElementById('sb-overlay');if(o)o.style.display='none';var b=document.getElementById('sb-mob-btn');if(b)b.textContent='\u2630';}
+(function(){if(localStorage.getItem('gl_sb_collapsed')==='1'){var s=document.getElementById('gl-sidebar');if(s){s.classList.add('collapsed');document.body.classList.add('gl-collapsed');}}})();
+document.addEventListener('click',function(e){var m=document.getElementById('gl-qa-menu');if(m&&!e.target.closest('.gl-h-add')&&!e.target.closest('.gl-qa-menu'))m.classList.remove('open');});
+</script>
+<script>
+(function(){
+  var origSet = window._origBizSet;
+  var obs = new MutationObserver(function(){
+    var bn = document.getElementById('biz-name');
+    var gbn = document.getElementById('gl-biz-name');
+    if(bn && gbn && bn.textContent !== '...') gbn.textContent = bn.textContent;
+    var un = document.getElementById('gl-user-name');
+    if(un && bn && bn.textContent !== '...') un.textContent = bn.textContent.substring(0,10);
+  });
+  obs.observe(document.body, {childList:true, subtree:true, characterData:true});
+})();
+</script>
+<script>
+(function(){
+  var origSetLang = window.setLang;
+  if(typeof setLang === 'function'){
+    var _origSL = setLang;
+    window.setLang = function(lang){
+      _origSL(lang);
+      var a=document.getElementById('gl-btn-ar'),e=document.getElementById('gl-btn-en');
+      if(a)a.classList.toggle('on',lang==='ar');
+      if(e)e.classList.toggle('on',lang==='en');
+    };
+  }
+  // Init
+  var l=localStorage.getItem('gl_lang')||'ar';
+  var a=document.getElementById('gl-btn-ar'),e=document.getElementById('gl-btn-en');
+  if(a)a.classList.toggle('on',l==='ar');
+  if(e)e.classList.toggle('on',l==='en');
+})();
+</script>
+</body>
+</html>

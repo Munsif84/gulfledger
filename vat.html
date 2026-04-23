@@ -1,411 +1,1042 @@
-<!DOCTYPE html><html>
+<!DOCTYPE html>
+<html>
 <head>
 <meta charset="UTF-8">
-<script>(function(){var l=localStorage.getItem('gl_lang')||'ar';document.documentElement.setAttribute('lang',l);document.documentElement.setAttribute('dir',l==='ar'?'rtl':'ltr');})();</script>
+<script>
+/* Language flash prevention — runs before render */
+(function(){
+  var l=localStorage.getItem('gl_lang')||'ar';
+  document.documentElement.setAttribute('lang',l);
+  document.documentElement.setAttribute('dir',l==='ar'?'rtl':'ltr');
+})();
+</script>
+<script>
+/* Apply language before render to prevent flash */
+(function(){
+  var lang = localStorage.getItem('gl_lang') || 'ar';
+  document.documentElement.setAttribute('lang', lang);
+  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+})();
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>GulfLedger — ضريبة القيمة المضافة</title>
+<title>GulfLedger — إقرار ضريبة القيمة المضافة</title>
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&family=Playfair+Display:wght@700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <style>
 :root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#C62828;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--border:#d4e6f7;--bg:#f7fafd;--white:#ffffff;}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);}
-.topnav,.app-nav{display:none!important;}
-.page{padding:24px;}
+body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;}
+.topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;}
+.nav-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
+.nav-bars{display:flex;gap:3px;height:22px;}
+.nav-bar{width:3px;border-radius:2px;}
+.nav-name{font-family:'Playfair Display',serif;font-size:16px;color:#fff;}
+.nav-right{display:flex;align-items:center;gap:8px;}
+.nav-divider{width:1px;height:20px;background:rgba(255,255,255,0.2);}
+.nav-biz{font-size:12px;color:var(--light);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 10px;background:rgba(255,255,255,0.08);border-radius:6px;border:1px solid rgba(255,255,255,0.15);}
+.btn-logout{padding:5px 14px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
+.btn-logout:hover{background:rgba(255,255,255,0.2);}
+.nav-settings-btn{display:flex;align-items:center;justify-content:center;width:32px;height:32px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:#fff;text-decoration:none;font-size:15px;flex-shrink:0;}
+.nav-settings-btn:hover{background:rgba(255,255,255,0.2);}
+.lang-switch{display:flex;border:1px solid rgba(255,255,255,0.2);border-radius:6px;overflow:hidden;}
+.lang-btn{padding:4px 10px;font-size:11px;cursor:pointer;border:none;background:transparent;color:rgba(255,255,255,0.6);font-family:'Tajawal',sans-serif;}
+.lang-btn.on{background:var(--sky);color:#fff;}
+.app-nav{background:var(--blue);padding:8px 20px;display:flex;gap:4px;align-items:center;overflow-x:auto;}
+.app-nav-link{padding:5px 14px;font-size:12px;font-weight:500;color:rgba(255,255,255,0.7);text-decoration:none;border-radius:6px;white-space:nowrap;}
+.app-nav-link:hover{background:rgba(255,255,255,0.12);color:#fff;}
+.app-nav-link.active{background:rgba(255,255,255,0.18);color:#fff;}
+
+/* PAGE */
+.page{max-width:900px;margin:0 auto;padding:24px 20px;}
+.page-header{display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:24px;gap:16px;flex-wrap:wrap;}
+.page-title{font-family:'Playfair Display',serif;font-size:22px;color:var(--navy);margin-bottom:4px;}
+.page-sub{font-size:13px;color:var(--muted);}
+
+/* PERIOD SELECTOR */
+.period-bar{background:var(--white);border:1px solid var(--border);border-radius:10px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;gap:14px;flex-wrap:wrap;}
+.period-bar label{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+.period-bar select,.period-bar input{padding:7px 11px;border:1px solid var(--border);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;color:var(--ink);background:var(--white);}
+.period-bar select:focus,.period-bar input:focus{outline:none;border-color:var(--sky);}
+.btn-calc{padding:9px 22px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;}
+.btn-calc:hover{background:var(--navy);}
+
+/* WARNING */
+.zatca-warn{background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:12px 16px;font-size:12px;color:var(--amber);margin-bottom:20px;display:flex;align-items:flex-start;gap:8px;line-height:1.6;}
+
+/* FORM 201 */
+.form201{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:20px;}
+.form201-header{background:var(--navy);padding:16px 22px;display:flex;align-items:center;justify-content:space-between;}
+.form201-title{font-family:'Playfair Display',serif;font-size:18px;color:#fff;}
+.form201-sub{font-size:11px;color:var(--light);margin-top:2px;}
+.form201-zatca{font-size:10px;color:rgba(255,255,255,0.5);letter-spacing:1px;}
+.form201-body{padding:0;}
+
+/* SECTION */
+.f201-section{border-bottom:1px solid var(--border);}
+.f201-section:last-child{border-bottom:none;}
+.f201-section-title{background:var(--tint);padding:10px 22px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--navy);}
+.f201-row{display:grid;grid-template-columns:1fr 160px 160px;align-items:center;padding:12px 22px;border-bottom:1px solid var(--tint);}
+.f201-row:last-child{border-bottom:none;}
+.f201-row.highlight{background:#fffbeb;}
+.f201-row.total{background:var(--navy);color:#fff;}
+.f201-row.total .f201-label{color:#fff;font-weight:700;font-size:14px;}
+.f201-row.payable{background:var(--red);color:#fff;}
+.f201-row.refund{background:var(--green);color:#fff;}
+.f201-label{font-size:13px;color:var(--ink);}
+.f201-box-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:3px;}
+.f201-val{font-family:'DM Mono',monospace;font-size:14px;font-weight:700;color:var(--navy);text-align:left;}
+.f201-val.green{color:var(--green);}
+.f201-val.red{color:var(--red);}
+.f201-val.white{color:#fff;}
+.f201-input{width:100%;padding:7px 10px;border:1.5px solid var(--border);border-radius:6px;font-family:'DM Mono',monospace;font-size:13px;color:var(--ink);text-align:left;background:var(--white);}
+.f201-input:focus{outline:none;border-color:var(--sky);}
+.f201-note{font-size:10px;color:var(--muted);margin-top:2px;}
+.f201-col-header{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);padding:8px 22px;display:grid;grid-template-columns:1fr 160px 160px;border-bottom:1px solid var(--border);}
+
+/* STATS */
+.vat-stats{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:20px;}
+.vat-stat{background:var(--white);border:1px solid var(--border);border-radius:10px;padding:13px 15px;}
+.vat-stat-lbl{font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;}
+.vat-stat-val{font-size:18px;font-weight:700;font-family:'DM Mono',monospace;}
+.c-navy{color:var(--navy);}.c-green{color:var(--green);}.c-red{color:var(--red);}.c-amber{color:var(--amber);}
+
+/* ACTIONS */
+.actions-bar{display:flex;gap:10px;flex-wrap:wrap;margin-bottom:20px;}
+.btn-p{padding:10px 22px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;}
+.btn-p:hover{background:var(--navy);}
+.btn-s{padding:9px 18px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
+.btn-s:hover{border-color:var(--blue);}
+
+/* HISTORY */
+.history-card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+.history-header{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;}
+.history-title{font-size:14px;font-weight:700;color:var(--navy);}
+.tbl{width:100%;border-collapse:collapse;font-size:12px;}
+.tbl th{padding:9px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-align:right;white-space:nowrap;}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--tint);vertical-align:middle;}
+.tbl tr:last-child td{border-bottom:none;}
+.mono{font-family:'DM Mono',monospace;font-size:12px;}
+.bdg{font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;display:inline-block;}
+
+/* NOTE */
+.note-box{display:flex;align-items:flex-start;gap:8px;padding:10px 13px;border-radius:8px;margin-bottom:13px;font-size:12px;line-height:1.5;}
+.note-box.blue{background:var(--tint);border:1px solid var(--light);color:var(--navy);}
+.note-box.amber{background:#fffbeb;border:1px solid #fde68a;color:var(--amber);}
+.note-box.green{background:#f0fdf4;border:1px solid #86efac;color:#085041;}
+
+@media print{
+  .topnav,.app-nav,.period-bar,.actions-bar,.zatca-warn,.history-card{display:none!important;}
+  .page{padding:0;max-width:100%;}
+  .form201{border:1px solid #000;border-radius:0;}
+}
+@media(max-width:700px){
+  .vat-stats{grid-template-columns:1fr 1fr;}
+  .f201-row,.f201-col-header{grid-template-columns:1fr 120px;}
+  .f201-row>div:last-child{display:none;}
+  .f201-col-header>span:last-child{display:none;}
+}
+
+/* Force Gregorian calendar on all devices — prevents Hijri on Arabic locale */
+input[type="date"]::-webkit-calendar-picker-indicator { filter: none; }
+input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family: 'DM Mono', monospace; }
+
+/* ═══════════════════════════════════════
+   GULFLEDGER MOBILE RESPONSIVE — ALL PAGES
+   Breakpoint: 768px
+   ═══════════════════════════════════════ */
+@media(max-width:768px){
+  /* NAV */
+  .topnav{padding:8px 12px;gap:6px;}
+  .nav-biz{max-width:100px;}
+  .lang-switch .lang-btn{padding:3px 8px;font-size:10px;}
+  .btn-logout{padding:4px 10px;font-size:11px;}
+
+  /* APP NAV — scrollable, compact */
+  .app-nav{padding:6px 10px;gap:2px;}
+  .app-nav-link{padding:5px 9px;font-size:11px;}
+
+  /* SIDEBAR LAYOUTS — hide sidebar, full width main */
+  .layout{grid-template-columns:1fr !important;}
+  .sidebar{display:none !important;}
+
+  /* STATS GRIDS */
+  .stats{grid-template-columns:1fr 1fr !important;}
+
+  /* MODULE CARDS */
+  .modules{grid-template-columns:1fr !important;}
+
+  /* INVOICE — stack panels */
+  .app{grid-template-columns:1fr !important;}
+  .form-panel{border-left:none;border-bottom:1px solid var(--border);}
+  .invoice-doc{margin-top:12px;}
+
+  /* FORM GRIDS — all single column */
+  .fg-2,.fg-3,.fg-4,.fg-5{grid-template-columns:1fr !important;}
+  .field-row.double,.field-row.triple{grid-template-columns:1fr !important;}
+
+  /* ITEM ROW — description on its own line */
+  .item-row{grid-template-columns:20px 1fr 40px 58px 46px 58px 22px !important;}
+
+  /* PERIOD BAR — stack */
+  .period-bar{flex-direction:column;align-items:stretch;gap:8px;}
+  .period-bar select,.period-bar input{width:100%;}
+
+  /* PAGE HEADER */
+  .page-header{flex-direction:column;gap:10px;}
+
+  /* TABLES — horizontal scroll */
+  .tbl-wrap, .overflow-x-auto, [style*="overflow-x:auto"]{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .tbl{min-width:520px;}
+  .inv-items{min-width:480px;}
+
+  /* INVOICE PARTIES — stack on very small */
+  .inv-parties{grid-template-columns:1fr !important;}
+  .inv-parties > div:first-child{border-right:none;border-bottom:1px solid var(--border);}
+
+  /* CARDS */
+  .card-hdr{flex-direction:column;align-items:flex-start !important;}
+
+  /* SETTINGS TABS */
+  .section-tabs{flex-wrap:wrap;gap:4px;}
+  .stab{padding:6px 10px;font-size:11px;}
+
+  /* VAT FORM */
+  .f201-row{flex-direction:column;gap:8px;}
+  .f201-row > div{flex:none;width:100%;}
+  .f201-stats{grid-template-columns:1fr 1fr !important;}
+
+  /* STATEMENTS */
+  .stmt-row{font-size:12px;}
+
+  /* PADDING */
+  .main{padding:12px !important;}
+  .page{padding:14px 12px !important;}
+  .card-bdy{padding:12px !important;}
+}
+
+@media(max-width:480px){
+  .stats{grid-template-columns:1fr !important;}
+  .nav-name span{display:none;}
+  .item-row{grid-template-columns:16px 1fr 36px 52px 44px 52px 20px !important;}
+  .f201-stats{grid-template-columns:1fr !important;}
+}
+
+
+/* ── STICKY NAV ── */
+.topnav{position:sticky;top:0;z-index:300;box-shadow:0 2px 8px rgba(0,0,0,0.15);}
+.app-nav{position:sticky;top:44px;z-index:299;box-shadow:0 2px 6px rgba(0,0,0,0.1);}
+
+
+/* ═══════════════════════════════════════
+   GULFLEDGER SHARED UX — consistent across all pages
+   ═══════════════════════════════════════ */
+.sidebar{background:var(--white);border-left:1px solid var(--border);padding:14px 0;overflow-y:auto;}
+[dir="ltr"] .sidebar{border-left:none;border-right:1px solid var(--border);}
+.layout{display:grid;grid-template-columns:210px 1fr;min-height:calc(100vh - 88px);}
+.sb-sec{padding:0 12px;margin-bottom:6px;}
+.sb-lbl{font-size:13px;font-weight:700;color:var(--navy);padding:12px 6px 6px;display:block;letter-spacing:.01em;}
+.sb-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:13px;color:var(--ink);margin-bottom:2px;user-select:none;transition:background .15s;}
+.sb-item:hover{background:var(--tint);color:var(--blue);}
+.sb-item.active{background:var(--tint);color:var(--blue);font-weight:600;border-right:3px solid var(--blue);}
+[dir="ltr"] .sb-item.active{border-right:none;border-left:3px solid var(--blue);}
+.sb-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.sb-stat{font-size:11px;color:var(--muted);padding:4px 10px;display:flex;justify-content:space-between;}
+.sb-stat-val{font-family:'DM Mono',monospace;font-weight:700;font-size:11px;}
+.main{padding:20px;overflow-y:auto;}
+.stats{display:grid;gap:12px;margin-bottom:20px;}
+.stat{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
+.stat-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px;}
+.stat-num{font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:var(--navy);}
+.stat-sub{font-size:11px;color:var(--muted);margin-top:3px;}
+.stat.s-green{border-color:#86efac;background:#f0fdf4;}
+.stat.s-amber{border-color:#fde68a;background:#fffbeb;}
+.stat.s-red{border-color:#fca5a5;background:#fff5f5;}
+.c-navy{color:var(--navy)!important;}.c-green{color:var(--green)!important;}.c-red{color:var(--red)!important;}.c-amber{color:var(--amber)!important;}
 .card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px;}
 .card-hdr{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;}
 .card-ttl{font-size:14px;font-weight:700;color:var(--navy);}
 .card-bdy{padding:18px;}
+.section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);display:block;}
+.fg{display:grid;gap:12px;margin-bottom:14px;}
+.fg-2{grid-template-columns:1fr 1fr;}
+.fg-3{grid-template-columns:1fr 1fr 1fr;}
 .fld{display:flex;flex-direction:column;gap:4px;}
 .fld label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
-.fld select,.fld input{padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:13px;color:var(--ink);background:var(--white);}
-.btn-p{padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;text-decoration:none;}
+.fld input,.fld select,.fld textarea{padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:13px;color:var(--ink);background:var(--white);width:100%;}
+.fld input:focus,.fld select:focus,.fld textarea:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(55,138,221,0.1);}
+.hint{font-size:10px;color:var(--muted);margin-top:2px;}
+.btn-p{padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;}
 .btn-p:hover{background:var(--navy);}
-.btn-s{padding:7px 14px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;font-weight:600;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;}
-.stat{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
-.stat-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px;}
-.stat-num{font-family:'DM Mono',monospace;font-size:20px;font-weight:700;}
-.stat-sub{font-size:11px;color:var(--muted);margin-top:3px;}
-.stat.s-green{border-color:#86efac;background:#f0fdf4;}
-.stat.s-red{border-color:#fca5a5;background:#fff5f5;}
-.c-navy{color:var(--navy)!important;}.c-green{color:var(--green)!important;}.c-red{color:var(--red)!important;}
-.mono{font-family:'DM Mono',monospace;font-size:12px;}
+.btn-s{padding:7px 14px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;font-weight:600;cursor:pointer;}
+.btn-s:hover{border-color:var(--blue);background:#dbeafe;}
+.btn-d{padding:5px 10px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;}
 .tbl{width:100%;border-collapse:collapse;font-size:12px;}
-.tbl th{padding:9px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-align:right;white-space:nowrap;text-transform:uppercase;}
-.tbl td{padding:9px 12px;border-bottom:1px solid var(--tint);vertical-align:middle;text-align:right;}
+.tbl th{padding:9px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-align:right;white-space:nowrap;letter-spacing:.04em;text-transform:uppercase;}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--tint);vertical-align:middle;}
 [dir="ltr"] .tbl th,[dir="ltr"] .tbl td{text-align:left;}
 .tbl tr:last-child td{border-bottom:none;}
-.wiz-step-item{display:flex;align-items:center;flex:1;}
-.wiz-step-circle{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;flex-shrink:0;}
-.wiz-step-circle.done{background:var(--green);color:#fff;}
-.wiz-step-circle.active{background:var(--blue);color:#fff;box-shadow:0 0 0 4px rgba(24,95,165,0.15);}
-.wiz-step-circle.pending{background:var(--tint);color:var(--muted);border:2px solid var(--border);}
-.wiz-step-label{font-size:10px;font-weight:600;margin-top:4px;color:var(--muted);white-space:nowrap;}
-.wiz-step-label.active{color:var(--blue);}
-.wiz-step-label.done{color:var(--green);}
-.wiz-connector{flex:1;height:2px;background:var(--border);margin:0 6px;}
-.wiz-connector.done{background:var(--green);}
-.wizard-step{animation:fadeIn .2s ease;}
-@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
-.f201-section{border-bottom:1px solid var(--border);}
-.f201-section:last-child{border-bottom:none;}
-.f201-section-title{background:var(--tint);padding:10px 22px;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--navy);}
-.f201-col-header{display:grid;grid-template-columns:3fr 2fr 2fr;padding:8px 22px;border-bottom:1px solid var(--border);gap:12px;}
-.f201-col-header span{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;}
-.f201-row{display:grid;grid-template-columns:3fr 2fr 2fr;padding:10px 22px;border-bottom:1px solid var(--tint);gap:12px;align-items:center;}
-.f201-row:last-child{border-bottom:none;}
-.f201-row.highlight{background:var(--tint);}
-.f201-row.total{background:var(--navy);}
-.f201-label{font-size:12px;font-weight:600;color:var(--ink);}
-.f201-note{font-size:10px;color:var(--muted);margin-top:2px;}
-.f201-box-label{font-size:9px;font-weight:600;color:var(--muted);text-transform:uppercase;margin-bottom:2px;}
-.f201-val{font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:var(--navy);}
-.f201-val.green{color:var(--green);}
-.f201-val.red{color:var(--red);}
-.f201-val.white{color:#fff;}
-.f201-input{width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:5px;font-family:'DM Mono',monospace;font-size:12px;font-weight:600;background:var(--white);color:var(--ink);}
+.tbl tr:hover td{background:#fafcff;cursor:pointer;}
+.mono{font-family:'DM Mono',monospace;font-size:12px;}
+.bdg{font-size:10px;font-weight:700;padding:2px 9px;border-radius:8px;display:inline-block;}
+.note-box{display:flex;align-items:flex-start;gap:8px;padding:10px 13px;border-radius:8px;margin-bottom:13px;font-size:12px;line-height:1.5;}
+.note-box.blue{background:var(--tint);border:1px solid var(--light);color:var(--navy);}
+.note-box.amber{background:#fffbeb;border:1px solid #fde68a;color:var(--amber);}
+.tc{display:none;}.tc.active{display:block;}
+@media(max-width:768px){
+  .layout{grid-template-columns:1fr!important;}
+  .sidebar{display:none!important;}
+  .stats{grid-template-columns:1fr 1fr!important;}
+  .fg-2,.fg-3{grid-template-columns:1fr 1fr!important;}
+  .main{padding:12px!important;}
+  .card-bdy{padding:12px!important;}
+  .card-hdr{flex-direction:column;align-items:flex-start!important;}
+}
+@media(max-width:480px){
+  .stats{grid-template-columns:1fr!important;}
+  .fg-2,.fg-3{grid-template-columns:1fr!important;}
+}
+
+/* ── SIDEBAR + HEADER (added, original design untouched) ── */
+.topnav,.app-nav{display:none!important;}
 .gl-sidebar{width:220px;height:100vh;position:fixed;top:0;right:0;background:var(--navy);display:flex;flex-direction:column;z-index:500;transition:width .25s ease;overflow:hidden;}
 [dir="ltr"] .gl-sidebar{right:auto;left:0;}
-.gl-sidebar.collapsed{width:56px;}
-.gl-sidebar.collapsed .gl-sb-show{display:none!important;}
-.gl-sidebar.collapsed #gl-sb-arrow{transform:rotate(180deg);}
+.gl-sidebar.collapsed{width:54px;}
+.gl-sidebar.collapsed .sb-hide{display:none!important;}
+.gl-sidebar.collapsed .sb-link{justify-content:center;padding:10px 0;}
+.gl-sidebar.collapsed .sb-link span:last-child{display:none;}
+.gl-sidebar.collapsed .sb-biz{display:none;}
+.gl-sidebar.collapsed #sb-arrow{transform:rotate(180deg);}
+[dir="ltr"] .gl-sidebar.collapsed #sb-arrow{transform:rotate(0deg);}
+.sb-top{padding:14px 14px 8px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.sb-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
+.sb-logo-bars{display:flex;gap:3px;height:20px;flex-shrink:0;}
+.sb-logo-bar{width:3px;border-radius:2px;}
+.sb-logo-bar:first-child{height:100%;background:#fff;}
+.sb-logo-bar:last-child{height:60%;margin-top:40%;background:rgba(255,255,255,0.45);}
+.sb-logo-name{font-family:'Playfair Display',serif;font-size:15px;color:#fff;white-space:nowrap;}
+.sb-logo-name span{color:var(--light);}
+.sb-collapse{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:5px;color:rgba(255,255,255,0.5);cursor:pointer;font-size:10px;padding:4px 7px;flex-shrink:0;}
+.sb-collapse:hover{background:rgba(255,255,255,0.15);color:#fff;}
+.sb-biz{margin:4px 12px 10px;padding:6px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08);border-radius:6px;font-size:11px;color:rgba(255,255,255,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;}
+.sb-nav{flex:1;overflow-y:auto;padding:6px 8px;display:flex;flex-direction:column;gap:1px;}
+.sb-nav::-webkit-scrollbar{width:0;}
+.sb-sec-label{font-size:9px;font-weight:700;color:rgba(255,255,255,0.25);text-transform:uppercase;letter-spacing:.08em;padding:12px 10px 4px;}
+.sb-link{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:6px;text-decoration:none;color:rgba(255,255,255,0.6);font-size:13px;font-weight:500;transition:all .12s;white-space:nowrap;border:none;background:transparent;cursor:pointer;width:100%;text-align:right;}
+[dir="ltr"] .sb-link{text-align:left;}
+.sb-link:hover{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.9);}
+.sb-link.active{background:rgba(255,255,255,0.12);color:#fff;font-weight:700;border-right:3px solid var(--sky);}
+[dir="ltr"] .sb-link.active{border-right:none;border-left:3px solid var(--sky);}
+.sb-link-icon{font-size:14px;flex-shrink:0;width:20px;text-align:center;opacity:.7;}
+.sb-link.active .sb-link-icon{opacity:1;}
+.sb-bottom{padding:6px 8px 12px;flex-shrink:0;display:flex;flex-direction:column;gap:1px;}
+.sb-hr{height:1px;background:rgba(255,255,255,0.08);margin:6px 4px;}
+.sb-logout{color:rgba(255,255,255,0.4);}
+.sb-logout:hover{color:#f87171;background:rgba(248,113,113,0.1);}
+/* Header */
+.gl-header{height:48px;background:var(--white);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 20px;position:sticky;top:0;z-index:400;}
+.gl-h-title{font-size:15px;font-weight:700;color:var(--navy);}
+.gl-h-right{display:flex;align-items:center;gap:8px;}
+.gl-h-add{display:flex;align-items:center;gap:4px;padding:6px 14px;background:var(--blue);color:#fff;border:none;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;font-weight:700;cursor:pointer;}
+.gl-h-add:hover{background:var(--navy);}
+.gl-h-lang{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;}
+.gl-h-lang-btn{padding:4px 10px;font-size:11px;cursor:pointer;border:none;background:transparent;color:var(--muted);font-family:'Tajawal',sans-serif;font-weight:500;}
+.gl-h-lang-btn.on{background:var(--sky);color:#fff;}
+.gl-h-user{display:flex;align-items:center;gap:6px;padding:3px 10px 3px 4px;background:var(--tint);border:1px solid var(--border);border-radius:16px;font-size:12px;color:var(--ink);}
+.gl-h-av{width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;}
+/* Page content wrapper */
 .gl-page-content{margin-right:220px;min-height:100vh;transition:margin-right .25s ease;}
 [dir="ltr"] .gl-page-content{margin-right:0;margin-left:220px;}
-body.gl-collapsed .gl-page-content{margin-right:56px;}
-[dir="ltr"] body.gl-collapsed .gl-page-content{margin-right:0;margin-left:56px;}
-.gl-sb-header{display:flex;align-items:center;justify-content:space-between;padding:16px 14px 10px;flex-shrink:0;}
-.gl-sb-logo{display:flex;align-items:center;gap:8px;text-decoration:none;overflow:hidden;}
-.gl-sb-logo-bars{display:flex;gap:3px;height:20px;flex-shrink:0;}
-.gl-sb-bar{width:3px;border-radius:2px;}
-.gl-sb-bar:first-child{height:100%;}
-.gl-sb-bar:last-child{height:60%;margin-top:40%;}
-.gl-sb-logo-name{font-family:'Playfair Display',serif;font-size:15px;color:#fff;white-space:nowrap;}
-.gl-sb-collapse-btn{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:rgba(255,255,255,0.6);cursor:pointer;font-size:10px;padding:4px 7px;flex-shrink:0;}
-.gl-sb-biz{margin:0 12px 12px;padding:6px 10px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:7px;font-size:11px;color:var(--light);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;}
-.gl-sb-nav{flex:1;overflow-y:auto;padding:4px 8px;display:flex;flex-direction:column;gap:2px;}
-.gl-sb-link{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;text-decoration:none;color:rgba(255,255,255,0.65);font-family:'Tajawal',sans-serif;font-size:13px;font-weight:500;transition:background .15s,color .15s;white-space:nowrap;border:none;background:transparent;cursor:pointer;width:100%;text-align:right;}
-[dir="ltr"] .gl-sb-link{text-align:left;}
-.gl-sb-link:hover{background:rgba(255,255,255,0.1);color:#fff;}
-.gl-sb-link.active{background:rgba(255,255,255,0.15);color:#fff;font-weight:700;border-right:3px solid var(--sky);}
-[dir="ltr"] .gl-sb-link.active{border-right:none;border-left:3px solid var(--sky);}
-.gl-sb-icon{font-size:15px;flex-shrink:0;width:20px;text-align:center;}
-.gl-sb-bottom{padding:8px 8px 12px;flex-shrink:0;display:flex;flex-direction:column;gap:2px;}
-.gl-sb-divider{height:1px;background:rgba(255,255,255,0.1);margin:6px 4px 8px;}
-.gl-sb-lang{display:flex;gap:4px;padding:4px 10px 8px;}
-.gl-lang-btn{padding:4px 12px;font-size:11px;cursor:pointer;border:1px solid rgba(255,255,255,0.2);border-radius:5px;background:transparent;color:rgba(255,255,255,0.6);font-family:'Tajawal',sans-serif;}
-.gl-lang-btn.on{background:var(--sky);color:#fff;border-color:var(--sky);}
-.gl-sb-logout{color:rgba(255,255,255,0.5);}
-.gl-sb-logout:hover{color:#fca5a5;background:rgba(220,38,38,0.15);}
-.gl-sb-mob-btn{display:none;position:fixed;top:12px;right:12px;z-index:600;background:var(--navy);color:#fff;border:none;border-radius:8px;width:40px;height:40px;font-size:18px;cursor:pointer;align-items:center;justify-content:center;}
-[dir="ltr"] .gl-sb-mob-btn{right:auto;left:12px;}
-.gl-sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:490;}
-@media(max-width:768px){.gl-sidebar{width:240px!important;transform:translateX(100%);transition:transform .25s ease;}[dir="ltr"] .gl-sidebar{transform:translateX(-100%);}.gl-sidebar.mob-open{transform:translateX(0)!important;}.gl-page-content{margin-right:0!important;margin-left:0!important;}.gl-sb-mob-btn{display:flex;}.page{padding:12px!important;}}
-input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
+body.gl-collapsed .gl-page-content{margin-right:54px;}
+[dir="ltr"] body.gl-collapsed .gl-page-content{margin-right:0;margin-left:54px;}
+/* Quick-add dropdown */
+.gl-qa-menu{display:none;position:absolute;top:46px;right:0;background:var(--white);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,0.12);padding:6px;min-width:180px;z-index:450;}
+[dir="ltr"] .gl-qa-menu{right:auto;left:0;}
+.gl-qa-menu.open{display:block;}
+.gl-qa-item{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--ink);text-decoration:none;}
+.gl-qa-item:hover{background:var(--tint);}
+/* Mobile */
+.sb-mob-btn{display:none;position:fixed;top:10px;right:10px;z-index:600;background:var(--navy);color:#fff;border:none;border-radius:8px;width:40px;height:40px;font-size:18px;cursor:pointer;align-items:center;justify-content:center;}
+[dir="ltr"] .sb-mob-btn{right:auto;left:10px;}
+.sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:490;}
+@media(max-width:768px){.gl-sidebar{width:240px!important;transform:translateX(100%);transition:transform .25s ease;}[dir="ltr"] .gl-sidebar{transform:translateX(-100%);}.gl-sidebar.mob-open{transform:translateX(0)!important;}.gl-page-content{margin-right:0!important;margin-left:0!important;}.sb-mob-btn{display:flex;}.sb-collapse{display:none;}}
+
 </style>
 </head>
 <body>
-
+<!-- GL SIDEBAR -->
 <div class="gl-sidebar" id="gl-sidebar">
-  <div class="gl-sb-header">
-    <a href="dashboard.html" class="gl-sb-logo"><div class="gl-sb-logo-bars"><div class="gl-sb-bar" style="background:#fff;"></div><div class="gl-sb-bar" style="background:rgba(255,255,255,0.45);"></div></div><span class="gl-sb-logo-name gl-sb-show">Gulf<span style="color:var(--light);">Ledger</span></span></a>
-    <button class="gl-sb-collapse-btn" onclick="toggleGLSidebar()"><span id="gl-sb-arrow">&#9668;</span></button>
+  <div class="sb-top">
+    <a href="dashboard.html" class="sb-logo">
+      <div class="sb-logo-bars"><div class="sb-logo-bar"></div><div class="sb-logo-bar"></div></div>
+      <span class="sb-logo-name sb-hide">Gulf<span>Ledger</span></span>
+    </a>
+    <button class="sb-collapse" onclick="toggleGLSB()"><span id="sb-arrow">&#9664;</span></button>
   </div>
-  <div class="gl-sb-biz gl-sb-show"><span id="biz-name">...</span></div>
-  <nav class="gl-sb-nav">
-    <a href="dashboard.html" class="gl-sb-link"><span class="gl-sb-icon">&#10864;</span><span class="gl-sb-show" data-ar="&#1575;&#1604;&#1585;&#1574;&#1610;&#1587;&#1610;&#1577;" data-en="Dashboard">&#1575;&#1604;&#1585;&#1574;&#1610;&#1587;&#1610;&#1577;</span></a>
-    <a href="inventory.html" class="gl-sb-link"><span class="gl-sb-icon">&#128230;</span><span class="gl-sb-show" data-ar="&#1575;&#1604;&#1605;&#1606;&#1578;&#1580;&#1575;&#1578; &#1608;&#1575;&#1604;&#1605;&#1582;&#1586;&#1608;&#1606;" data-en="Products &amp; Stock">&#1575;&#1604;&#1605;&#1606;&#1578;&#1580;&#1575;&#1578; &#1608;&#1575;&#1604;&#1605;&#1582;&#1586;&#1608;&#1606;</span></a>
-    <a href="invoices.html" class="gl-sb-link"><span class="gl-sb-icon">&#128190;</span><span class="gl-sb-show" data-ar="&#1575;&#1604;&#1605;&#1576;&#1610;&#1593;&#1575;&#1578; &#1608;&#1575;&#1604;&#1601;&#1608;&#1575;&#1578;&#1610;&#1585;" data-en="Sales &amp; Invoices">&#1575;&#1604;&#1605;&#1576;&#1610;&#1593;&#1575;&#1578; &#1608;&#1575;&#1604;&#1601;&#1608;&#1575;&#1578;&#1610;&#1585;</span></a>
-    <a href="expenses.html" class="gl-sb-link"><span class="gl-sb-icon">&#128184;</span><span class="gl-sb-show" data-ar="&#1575;&#1604;&#1605;&#1589;&#1575;&#1585;&#1610;&#1601;" data-en="Expenses">&#1575;&#1604;&#1605;&#1589;&#1575;&#1585;&#1610;&#1601;</span></a>
-    <a href="ledger.html" class="gl-sb-link"><span class="gl-sb-icon">&#128210;</span><span class="gl-sb-show" data-ar="&#1575;&#1604;&#1605;&#1581;&#1575;&#1587;&#1576;&#1577;" data-en="Accounting">&#1575;&#1604;&#1605;&#1581;&#1575;&#1587;&#1576;&#1577;</span></a>
-    <a href="vat.html" class="gl-sb-link active"><span class="gl-sb-icon">&#129518;</span><span class="gl-sb-show" data-ar="&#1590;&#1585;&#1610;&#1576;&#1577; &#1575;&#1604;&#1602;&#1610;&#1605;&#1577; &#1575;&#1604;&#1605;&#1590;&#1575;&#1601;&#1577;" data-en="VAT">&#1590;&#1585;&#1610;&#1576;&#1577; &#1575;&#1604;&#1602;&#1610;&#1605;&#1577; &#1575;&#1604;&#1605;&#1590;&#1575;&#1601;&#1577;</span></a>
-    <a href="reports.html" class="gl-sb-link"><span class="gl-sb-icon">&#128202;</span><span class="gl-sb-show" data-ar="&#1575;&#1604;&#1578;&#1602;&#1575;&#1585;&#1610;&#1585;" data-en="Reports">&#1575;&#1604;&#1578;&#1602;&#1575;&#1585;&#1610;&#1585;</span></a>
+  <div class="sb-biz sb-hide" id="gl-biz-name">...</div>
+  <nav class="sb-nav">
+    <div class="sb-sec-label sb-hide" data-ar="القائمة الرئيسية" data-en="Main Menu">القائمة الرئيسية</div>
+    <a href="dashboard.html" class="sb-link" data-ar="الرئيسية" data-en="Dashboard"><span class="sb-link-icon">⊞</span><span>الرئيسية</span></a>
+    <a href="inventory.html" class="sb-link" data-ar="المنتجات والمخزون" data-en="Products & Stock"><span class="sb-link-icon">📦</span><span>المنتجات والمخزون</span></a>
+    <a href="invoices.html" class="sb-link" data-ar="المبيعات والفواتير" data-en="Sales & Invoices"><span class="sb-link-icon">🧾</span><span>المبيعات والفواتير</span></a>
+    <a href="expenses.html" class="sb-link" data-ar="المصاريف" data-en="Expenses"><span class="sb-link-icon">💸</span><span>المصاريف</span></a>
+    <a href="ledger.html" class="sb-link" data-ar="المحاسبة" data-en="Accounting"><span class="sb-link-icon">📒</span><span>المحاسبة</span></a>
+    <a href="vat.html" class="sb-link active" data-ar="ضريبة القيمة المضافة" data-en="VAT"><span class="sb-link-icon">🧮</span><span>ضريبة القيمة المضافة</span></a>
+    <a href="reports.html" class="sb-link" data-ar="التقارير" data-en="Reports"><span class="sb-link-icon">📊</span><span>التقارير</span></a>
+
+    <div class="sb-sec-label sb-hide" data-ar="التقارير المالية" data-en="Financial">التقارير المالية</div>
+    <a href="statements.html" class="sb-link" data-ar="القوائم المالية" data-en="Statements"><span class="sb-link-icon">📑</span><span>القوائم المالية</span></a>
+    <a href="purchasing.html" class="sb-link" data-ar="المشتريات" data-en="Purchasing"><span class="sb-link-icon">🛒</span><span>المشتريات</span></a>
   </nav>
-  <div class="gl-sb-bottom">
-    <div class="gl-sb-divider"></div>
-    <div class="gl-sb-lang gl-sb-show"><button class="gl-lang-btn" id="btn-ar" onclick="setLang('ar')">&#1593;</button><button class="gl-lang-btn" id="btn-en" onclick="setLang('en')">EN</button></div>
-    <a href="settings.html" class="gl-sb-link"><span class="gl-sb-icon">&#9881;&#65039;</span><span class="gl-sb-show" data-ar="&#1575;&#1604;&#1573;&#1593;&#1583;&#1575;&#1583;&#1575;&#1578;" data-en="Settings">&#1575;&#1604;&#1573;&#1593;&#1583;&#1575;&#1583;&#1575;&#1578;</span></a>
-    <button class="gl-sb-link gl-sb-logout" onclick="logout()"><span class="gl-sb-icon">&#8617;</span><span class="gl-sb-show" data-ar="&#1582;&#1585;&#1608;&#1580;" data-en="Sign Out">&#1582;&#1585;&#1608;&#1580;</span></button>
+  <div class="sb-bottom">
+    <div class="sb-hr"></div>
+    <a href="settings.html" class="sb-link" data-ar="الإعدادات" data-en="Settings"><span class="sb-link-icon">⚙️</span><span class="sb-hide">الإعدادات</span></a>
+    <button class="sb-link sb-logout" onclick="logout()" data-ar="خروج" data-en="Sign Out"><span class="sb-link-icon">↩</span><span class="sb-hide">خروج</span></button>
   </div>
 </div>
-<div class="gl-sb-overlay" id="gl-sb-overlay" onclick="closeSidebar()"></div>
-<button class="gl-sb-mob-btn" id="gl-mob-btn" onclick="toggleGLSidebar()">&#9776;</button>
+<div class="sb-overlay" id="sb-overlay" onclick="closeGLSB()"></div>
+<button class="sb-mob-btn" id="sb-mob-btn" onclick="toggleGLSB()">&#9776;</button>
 
 <div class="gl-page-content">
-<div class="page">
-
-  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:20px;flex-wrap:wrap;gap:12px;">
-    <div>
-      <div style="font-size:20px;font-weight:700;color:var(--navy);" data-ar="&#1573;&#1602;&#1585;&#1575;&#1585; &#1590;&#1585;&#1610;&#1576;&#1577; &#1575;&#1604;&#1602;&#1610;&#1605;&#1577; &#1575;&#1604;&#1605;&#1590;&#1575;&#1601;&#1577;" data-en="VAT Return - Form 201">VAT Return - Form 201</div>
-      <div style="font-size:12px;color:var(--muted);margin-top:3px;" data-ar="&#1575;&#1578;&#1576;&#1593; &#1575;&#1604;&#1582;&#1591;&#1608;&#1575;&#1578; &#1604;&#1604;&#1608;&#1589;&#1608;&#1604; &#1573;&#1604;&#1609; &#1573;&#1602;&#1585;&#1575;&#1585; &#1605;&#1578;&#1608;&#1575;&#1601;&#1602; &#1605;&#1593; &#1586;&#1575;&#1578;&#1603;&#1575;" data-en="Follow the steps to a ZATCA-compliant return">Follow the steps</div>
+<!-- GL HEADER -->
+<div class="gl-header">
+  <span class="gl-h-title" data-ar="ضريبة القيمة المضافة" data-en="VAT">ضريبة القيمة المضافة</span>
+  <div class="gl-h-right" style="position:relative;">
+    <button class="gl-h-add" onclick="document.getElementById('gl-qa-menu').classList.toggle('open')"><span style="font-size:16px;font-weight:300;">+</span> إضافة</button>
+    <div class="gl-qa-menu" id="gl-qa-menu">
+      <a href="invoices.html" class="gl-qa-item">🧾 فاتورة جديدة</a>
+      <a href="expenses.html" class="gl-qa-item">💸 مصروف جديد</a>
+      <a href="inventory.html" class="gl-qa-item">📦 منتج جديد</a>
     </div>
-    <div style="background:var(--tint);border:1px solid var(--border);border-radius:10px;padding:10px 18px;text-align:center;">
-      <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:4px;" data-ar="&#1605;&#1608;&#1593;&#1583; &#1575;&#1604;&#1573;&#1602;&#1585;&#1575;&#1585; &#1575;&#1604;&#1578;&#1575;&#1604;&#1610;" data-en="Next Filing Due">Next Filing Due</div>
-      <div style="font-size:16px;font-weight:700;color:var(--navy);" id="next-due">-</div>
-      <div style="font-size:11px;color:var(--muted);" id="days-left"></div>
+    <div class="gl-h-lang">
+      <button class="gl-h-lang-btn" id="gl-btn-ar" onclick="setLang('ar')">ع</button>
+      <button class="gl-h-lang-btn" id="gl-btn-en" onclick="setLang('en')">EN</button>
     </div>
+    <div class="gl-h-user"><div class="gl-h-av" id="gl-user-av">م</div><span id="gl-user-name">...</span></div>
   </div>
-
-  <div style="display:flex;align-items:flex-start;gap:10px;background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;font-size:11px;color:var(--amber);margin-bottom:20px;">
-    <span>&#9888;</span>
-    <span data-ar="&#1610;&#1580;&#1576; &#1578;&#1602;&#1583;&#1610;&#1605; &#1607;&#1584;&#1575; &#1575;&#1604;&#1573;&#1602;&#1585;&#1575;&#1585; &#1610;&#1583;&#1608;&#1610;&#1575;&#1611; &#1593;&#1604;&#1609; &#1576;&#1608;&#1575;&#1576;&#1577; &#1586;&#1575;&#1578;&#1603;&#1575;: gazt.gov.sa" data-en="Must be filed manually at ZATCA portal: gazt.gov.sa - Late filing penalty from 5% of tax due.">Must be filed manually at: gazt.gov.sa - Late filing penalty from 5% of tax due.</span>
-  </div>
-
-  <div id="wizard-progress" style="display:flex;align-items:center;margin-bottom:24px;"></div>
-
-  <!-- STEP 1 -->
-  <div class="wizard-step" id="step-1">
-    <div class="card">
-      <div class="card-hdr"><div><span style="font-size:11px;font-weight:700;color:var(--sky);text-transform:uppercase;" data-ar="&#1575;&#1604;&#1582;&#1591;&#1608;&#1577; 1 &#1605;&#1606; 5" data-en="Step 1 of 5">Step 1 of 5</span><div class="card-ttl" style="margin-top:2px;" data-ar="&#1575;&#1582;&#1578;&#1585; &#1575;&#1604;&#1601;&#1578;&#1585;&#1577; &#1575;&#1604;&#1590;&#1585;&#1610;&#1576;&#1610;&#1577;" data-en="Select Tax Period">Select Tax Period</div></div></div>
-      <div class="card-bdy">
-        <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr auto;gap:12px;align-items:end;">
-          <div class="fld"><label data-ar="&#1575;&#1604;&#1585;&#1576;&#1593;" data-en="Quarter">Quarter</label>
-            <select id="quarter-select" onchange="setQuarterDates()">
-              <option value="Q1" data-ar="Q1 - &#1610;&#1606;&#1575;&#1610;&#1585; &#1573;&#1604;&#1609; &#1605;&#1575;&#1585;&#1587;" data-en="Q1 - Jan to Mar">Q1 - Jan to Mar</option>
-              <option value="Q2" data-ar="Q2 - &#1571;&#1576;&#1585;&#1610;&#1604; &#1573;&#1604;&#1609; &#1610;&#1608;&#1606;&#1610;&#1608;" data-en="Q2 - Apr to Jun">Q2 - Apr to Jun</option>
-              <option value="Q3" data-ar="Q3 - &#1610;&#1608;&#1604;&#1610;&#1608; &#1573;&#1604;&#1609; &#1587;&#1576;&#1578;&#1605;&#1576;&#1585;" data-en="Q3 - Jul to Sep">Q3 - Jul to Sep</option>
-              <option value="Q4" data-ar="Q4 - &#1571;&#1603;&#1578;&#1608;&#1576;&#1585; &#1573;&#1604;&#1609; &#1583;&#1610;&#1587;&#1605;&#1576;&#1585;" data-en="Q4 - Oct to Dec">Q4 - Oct to Dec</option>
-            </select>
-          </div>
-          <div class="fld"><label data-ar="&#1575;&#1604;&#1587;&#1606;&#1577;" data-en="Year">Year</label>
-            <select id="year-select" onchange="setQuarterDates()"><option value="2026">2026</option><option value="2025">2025</option><option value="2024">2024</option></select>
-          </div>
-          <div class="fld"><label data-ar="&#1605;&#1606;" data-en="From">From</label><input type="date" lang="en" id="vat-from"></div>
-          <div class="fld"><label data-ar="&#1573;&#1604;&#1609;" data-en="To">To</label><input type="date" lang="en" id="vat-to"></div>
-          <button class="btn-p" onclick="runStep1()" data-ar="&#1575;&#1604;&#1578;&#1575;&#1604;&#1610; &#8592;" data-en="Next ->">Next -&gt;</button>
-        </div>
-      </div>
-    </div>
-  </div>
-
-  <!-- STEP 2 -->
-  <div class="wizard-step" id="step-2" style="display:none;">
-    <div class="card">
-      <div class="card-hdr"><div><span style="font-size:11px;font-weight:700;color:var(--sky);text-transform:uppercase;" data-ar="&#1575;&#1604;&#1582;&#1591;&#1608;&#1577; 2 &#1605;&#1606; 5" data-en="Step 2 of 5">Step 2 of 5</span><div class="card-ttl" style="margin-top:2px;" data-ar="&#1605;&#1585;&#1575;&#1580;&#1593;&#1577; &#1575;&#1604;&#1605;&#1576;&#1610;&#1593;&#1575;&#1578; &#1608;&#1590;&#1585;&#1610;&#1576;&#1577; &#1575;&#1604;&#1605;&#1582;&#1585;&#1580;&#1575;&#1578;" data-en="Review Sales and Output VAT">Review Sales &amp; Output VAT</div></div><span id="step2-period-label" style="font-size:11px;color:var(--muted);"></span></div>
-      <div class="card-bdy">
-        <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;">
-          <div class="stat"><div class="stat-lbl" data-ar="&#1601;&#1608;&#1575;&#1578;&#1610;&#1585; &#1575;&#1604;&#1601;&#1578;&#1585;&#1577;" data-en="Period Invoices">Period Invoices</div><div class="stat-num c-navy" id="vs-count">0</div></div>
-          <div class="stat"><div class="stat-lbl" data-ar="&#1573;&#1580;&#1605;&#1575;&#1604;&#1610; &#1575;&#1604;&#1605;&#1576;&#1610;&#1593;&#1575;&#1578;" data-en="Total Sales">Total Sales</div><div class="stat-num c-navy" id="vs-sales">SAR 0</div></div>
-          <div class="stat s-green"><div class="stat-lbl" data-ar="&#1590;&#1585;&#1610;&#1576;&#1577; &#1575;&#1604;&#1605;&#1582;&#1585;&#1580;&#1575;&#1578;" data-en="Output VAT">Output VAT</div><div class="stat-num c-green" id="vs-output">SAR 0</div></div>
-        </div>
-        <div id="step2-issues" style="display:none;margin-bottom:14px;padding:10px 14px;background:#fff1f2;border:1px solid #fca5a5;border-radius:8px;font-size:12px;color:var(--red);">&#9888; <span id="step2-issues-text"></span></div>
-        <div style="overflow-x:auto;"><table class="tbl">
-          <thead><tr>
-            <th data-ar="&#1585;&#1602;&#1605; &#1575;&#1604;&#1601;&#1575;&#1578;&#1608;&#1585;&#1577;" data-en="Invoice No.">Invoice No.</th>
-            <th data-ar="&#1575;&#1604;&#1578;&#1575;&#1585;&#1610;&#1582;" data-en="Date">Date</th>
-            <th data-ar="&#1575;&#1604;&#1605;&#1588;&#1578;&#1585;&#1610;" data-en="Buyer">Buyer</th>
-            <th data-ar="&#1575;&#1604;&#1605;&#1576;&#1604;&#1594; &#1602;&#1576;&#1604; &#1575;&#1604;&#1590;&#1585;&#1610;&#1576;&#1577;" data-en="Amount ex VAT">Amount ex VAT</th>
-            <th data-ar="&#1575;&#1604;&#1590;&#1585;&#1610;&#1576;&#1577; 15%" data-en="VAT 15%">VAT 15%</th>
-            <th data-ar="&#1575;&#1604;&#1573;&#1580;&#1605;&#1575;&#1604;&#1610;" data-en="Total">Total</th>
-          </tr></thead>
-          <tbody id="inv-tbody"><tr><td colspan="6" style="text-align:center;padding:20px;color:var(--muted);">Loading...</td></tr></tbody>
-        </table></div>
-      </div>
-      <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;">
-        <button class="btn-s" onclick="goStep(1)" data-ar="&#8594; &#1575;&#1604;&#1587;&#1575;&#1576;&#1602;" data-en="Back">&#8592; Back</button>
-        <button class="btn-p" onclick="goStep(3)" data-ar="&#1575;&#1604;&#1578;&#1575;&#1604;&#1610; &#8592;" data-en="Next ->">Next -&gt;</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- STEP 3 -->
-  <div class="wizard-step" id="step-3" style="display:none;">
-    <div class="card">
-      <div class="card-hdr"><div><span style="font-size:11px;font-weight:700;color:var(--sky);text-transform:uppercase;" data-ar="&#1575;&#1604;&#1582;&#1591;&#1608;&#1577; 3 &#1605;&#1606; 5" data-en="Step 3 of 5">Step 3 of 5</span><div class="card-ttl" style="margin-top:2px;" data-ar="&#1605;&#1585;&#1575;&#1580;&#1593;&#1577; &#1575;&#1604;&#1605;&#1588;&#1578;&#1585;&#1610;&#1575;&#1578; &#1608;&#1590;&#1585;&#1610;&#1576;&#1577; &#1575;&#1604;&#1605;&#1583;&#1582;&#1604;&#1575;&#1578;" data-en="Review Purchases and Input VAT">Review Purchases &amp; Input VAT</div></div></div>
-      <div class="card-bdy">
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
-          <div class="stat"><div class="stat-lbl" data-ar="&#1573;&#1580;&#1605;&#1575;&#1604;&#1610; &#1575;&#1604;&#1605;&#1588;&#1578;&#1585;&#1610;&#1575;&#1578;" data-en="Total Purchases">Total Purchases</div><div class="stat-num c-navy" id="vs-purchases">SAR 0</div></div>
-          <div class="stat s-red"><div class="stat-lbl" data-ar="&#1590;&#1585;&#1610;&#1576;&#1577; &#1575;&#1604;&#1605;&#1583;&#1582;&#1604;&#1575;&#1578;" data-en="Input VAT">Input VAT</div><div class="stat-num c-red" id="vs-input">SAR 0</div></div>
-        </div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
-          <div class="fld"><label data-ar="4. &#1575;&#1604;&#1605;&#1588;&#1578;&#1585;&#1610;&#1575;&#1578; &#1575;&#1604;&#1605;&#1581;&#1604;&#1610;&#1577; (SAR)" data-en="4. Local purchases (SAR)">4. Local purchases (SAR)</label><input type="number" id="f4-amount" value="0" oninput="recalcVAT();updateStep3Stats()" min="0" step="0.01"><div style="font-size:10px;color:var(--green);margin-top:3px;" id="f4-auto-note"></div></div>
-          <div class="fld"><label data-ar="5. &#1605;&#1588;&#1578;&#1585;&#1610;&#1575;&#1578; &#1605;&#1587;&#1578;&#1608;&#1585;&#1583;&#1577; (SAR)" data-en="5. Imports (SAR)">5. Imports (SAR)</label><input type="number" id="f5-amount" value="0" oninput="recalcVAT();updateStep3Stats()" min="0" step="0.01"></div>
-        </div>
-      </div>
-      <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;">
-        <button class="btn-s" onclick="goStep(2)" data-ar="&#8592; &#1575;&#1604;&#1587;&#1575;&#1576;&#1602;" data-en="Back">&#8592; Back</button>
-        <button class="btn-p" onclick="goStep(4)" data-ar="&#1575;&#1604;&#1578;&#1575;&#1604;&#1610; &#8592;" data-en="Next ->">Next -&gt;</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- STEP 4: FORM 201 -->
-  <div class="wizard-step" id="step-4" style="display:none;">
-    <div class="card">
-      <div class="card-hdr"><div><span style="font-size:11px;font-weight:700;color:var(--sky);text-transform:uppercase;" data-ar="&#1575;&#1604;&#1582;&#1591;&#1608;&#1577; 4 &#1605;&#1606; 5" data-en="Step 4 of 5">Step 4 of 5</span><div class="card-ttl" style="margin-top:2px;" data-ar="&#1606;&#1605;&#1608;&#1584;&#1580; &#1575;&#1604;&#1573;&#1602;&#1585;&#1575;&#1585; &#1575;&#1604;&#1590;&#1585;&#1610;&#1576;&#1610; - 201" data-en="VAT Return Form 201">VAT Return Form 201</div></div><div style="text-align:left;"><span style="font-size:12px;font-weight:700;color:var(--navy);background:var(--tint);padding:3px 10px;border-radius:6px;">ZATCA FORM 201</span><div style="font-size:10px;color:var(--muted);margin-top:3px;" id="form-biz-name"></div><div style="font-size:10px;color:var(--muted);" id="form-trn"></div></div></div>
-      <div style="padding:6px 18px;font-size:11px;color:var(--muted);border-bottom:1px solid var(--border);" id="form-period-label"></div>
-      <div class="f201-col-header"><span data-ar="&#1575;&#1604;&#1576;&#1610;&#1575;&#1606;" data-en="Description">Description</span><span data-ar="&#1575;&#1604;&#1605;&#1576;&#1575;&#1604;&#1594; (SAR)" data-en="Amount (SAR)">Amount (SAR)</span><span data-ar="&#1575;&#1604;&#1590;&#1585;&#1610;&#1576;&#1577; (SAR)" data-en="VAT (SAR)">VAT (SAR)</span></div>
-      <div class="f201-section">
-        <div class="f201-section-title" data-ar="&#1571; - &#1590;&#1585;&#1610;&#1576;&#1577; &#1575;&#1604;&#1605;&#1576;&#1610;&#1593;&#1575;&#1578;" data-en="A - Output VAT">A - Output VAT (Sales)</div>
-        <div class="f201-row"><div><div class="f201-label" data-ar="1. &#1575;&#1604;&#1605;&#1576;&#1610;&#1593;&#1575;&#1578; &#1575;&#1604;&#1605;&#1581;&#1604;&#1610;&#1577; 15%" data-en="1. Standard rated (15%)">1. Standard rated domestic (15%)</div></div><div><div class="f201-box-label" data-ar="&#1575;&#1604;&#1605;&#1576;&#1604;&#1594;" data-en="Amount">Amount</div><div class="f201-val" id="f1-amount">0.00</div></div><div><div class="f201-box-label" data-ar="&#1575;&#1604;&#1590;&#1585;&#1610;&#1576;&#1577;" data-en="VAT">VAT</div><div class="f201-val green" id="f1-vat">0.00</div></div></div>
-        <div class="f201-row"><div><div class="f201-label" data-ar="2. &#1605;&#1576;&#1610;&#1593;&#1575;&#1578; &#1589;&#1601;&#1585; &#1608;&#1578;&#1589;&#1583;&#1610;&#1585;" data-en="2. Zero-rated and exports">2. Zero-rated &amp; exports (0%)</div></div><div><input type="number" class="f201-input" id="f2-amount" value="0" oninput="recalcVAT()" min="0" step="0.01"></div><div><div class="f201-val">0.00</div></div></div>
-        <div class="f201-row"><div><div class="f201-label" data-ar="3. &#1605;&#1576;&#1610;&#1593;&#1575;&#1578; &#1605;&#1593;&#1601;&#1575;&#1577;" data-en="3. Exempt supplies">3. Exempt supplies</div></div><div><input type="number" class="f201-input" id="f3-amount" value="0" oninput="recalcVAT()" min="0" step="0.01"></div><div><div class="f201-val">0.00</div></div></div>
-        <div class="f201-row highlight"><div><div class="f201-label" style="font-weight:700;" data-ar="&#1573;&#1580;&#1605;&#1575;&#1604;&#1610; &#1575;&#1604;&#1605;&#1576;&#1610;&#1593;&#1575;&#1578;" data-en="Total Sales">Total Sales</div></div><div><div class="f201-val c-navy" id="fa-total-amount">0.00</div></div><div><div class="f201-val green" id="fa-total-vat">0.00</div></div></div>
-      </div>
-      <div class="f201-section">
-        <div class="f201-section-title" data-ar="&#1576; - &#1590;&#1585;&#1610;&#1576;&#1577; &#1575;&#1604;&#1605;&#1588;&#1578;&#1585;&#1610;&#1575;&#1578;" data-en="B - Input VAT">B - Input VAT (Purchases)</div>
-        <div class="f201-row"><div><div class="f201-label" data-ar="4. &#1575;&#1604;&#1605;&#1588;&#1578;&#1585;&#1610;&#1575;&#1578; &#1575;&#1604;&#1605;&#1581;&#1604;&#1610;&#1577;" data-en="4. Standard rated purchases">4. Standard rated purchases</div></div><div><div class="f201-val" id="f4-display">0.00</div></div><div><div class="f201-val red" id="f4-vat">0.00</div></div></div>
-        <div class="f201-row"><div><div class="f201-label" data-ar="5. &#1605;&#1588;&#1578;&#1585;&#1610;&#1575;&#1578; &#1605;&#1587;&#1578;&#1608;&#1585;&#1583;&#1577;" data-en="5. Imports">5. Imports</div></div><div><div class="f201-val" id="f5-display">0.00</div></div><div><div class="f201-val red" id="f5-vat">0.00</div></div></div>
-        <div class="f201-row highlight"><div><div class="f201-label" style="font-weight:700;" data-ar="&#1573;&#1580;&#1605;&#1575;&#1604;&#1610; &#1590;&#1585;&#1610;&#1576;&#1577; &#1575;&#1604;&#1605;&#1583;&#1582;&#1604;&#1575;&#1578;" data-en="Total Input VAT">Total Deductible Input VAT</div></div><div></div><div><div class="f201-val red" id="fb-total-vat">0.00</div></div></div>
-      </div>
-      <div class="f201-section">
-        <div class="f201-section-title" data-ar="&#1580; - &#1589;&#1575;&#1601;&#1610; &#1575;&#1604;&#1590;&#1585;&#1610;&#1576;&#1577;" data-en="C - Net VAT">C - Net VAT Payable</div>
-        <div class="f201-row"><div><div class="f201-label" data-ar="&#1590;&#1585;&#1610;&#1576;&#1577; &#1575;&#1604;&#1605;&#1582;&#1585;&#1580;&#1575;&#1578; (&#1571;)" data-en="Output VAT (A)">Output VAT (A)</div></div><div></div><div><div class="f201-val green" id="fc-output">0.00</div></div></div>
-        <div class="f201-row"><div><div class="f201-label" data-ar="&#1610;&#1615;&#1591;&#1585;&#1581;: &#1590;&#1585;&#1610;&#1576;&#1577; &#1575;&#1604;&#1605;&#1583;&#1582;&#1604;&#1575;&#1578; (&#1576;)" data-en="Less: Input VAT (B)">Less: Input VAT (B)</div></div><div></div><div><div class="f201-val red" id="fc-input">( 0.00 )</div></div></div>
-        <div class="f201-row total" id="net-row"><div><div class="f201-label" style="color:#fff;" data-ar="&#1589;&#1575;&#1601;&#1610; &#1575;&#1604;&#1590;&#1585;&#1610;&#1576;&#1577; &#1575;&#1604;&#1605;&#1587;&#1578;&#1581;&#1602;&#1577;" data-en="Net VAT Payable">Net VAT Payable</div></div><div></div><div><div class="f201-val white" id="fc-net">0.00</div></div></div>
-      </div>
-      <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;">
-        <button class="btn-s" onclick="goStep(3)" data-ar="&#8592; &#1575;&#1604;&#1587;&#1575;&#1576;&#1602;" data-en="Back">&#8592; Back</button>
-        <button class="btn-p" onclick="goStep(5)" data-ar="&#1575;&#1604;&#1578;&#1575;&#1604;&#1610;" data-en="Next ->">Next -&gt;</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- STEP 5 -->
-  <div class="wizard-step" id="step-5" style="display:none;">
-    <div class="card">
-      <div class="card-hdr"><div><span style="font-size:11px;font-weight:700;color:var(--sky);text-transform:uppercase;" data-ar="&#1575;&#1604;&#1582;&#1591;&#1608;&#1577; 5 &#1605;&#1606; 5" data-en="Step 5 of 5">Step 5 of 5</span><div class="card-ttl" style="margin-top:2px;" data-ar="&#1575;&#1604;&#1578;&#1602;&#1583;&#1610;&#1605; &#1608;&#1575;&#1604;&#1575;&#1605;&#1578;&#1579;&#1575;&#1604;" data-en="Submit and Compliance">Submit &amp; Compliance</div></div></div>
-      <div class="card-bdy">
-        <div id="step5-summary" style="border-radius:12px;padding:20px 24px;margin-bottom:20px;text-align:center;border:2px solid var(--border);">
-          <div style="font-size:12px;font-weight:700;text-transform:uppercase;color:var(--muted);margin-bottom:8px;" data-ar="&#1589;&#1575;&#1601;&#1610; &#1575;&#1604;&#1590;&#1585;&#1610;&#1576;&#1577;" data-en="Net VAT Payable">Net VAT Payable</div>
-          <div style="font-size:32px;font-weight:700;font-family:'DM Mono',monospace;" id="vs-net">SAR 0</div>
-          <div style="font-size:12px;color:var(--muted);margin-top:6px;" id="step5-net-label"></div>
-        </div>
-        <div style="margin-bottom:20px;"><div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:10px;" data-ar="&#1602;&#1575;&#1574;&#1605;&#1577; &#1575;&#1604;&#1578;&#1581;&#1602;&#1602;" data-en="Pre-submission checklist">Pre-submission checklist</div><div id="step5-checklist" style="display:flex;flex-direction:column;gap:8px;"></div></div>
-        <div style="display:flex;gap:10px;flex-wrap:wrap;">
-          <button class="btn-p" onclick="window.print()" data-ar="&#1591;&#1576;&#1575;&#1593;&#1577; &#1575;&#1604;&#1573;&#1602;&#1585;&#1575;&#1585;" data-en="Print Return">&#128424; Print Return</button>
-          <a href="https://gazt.gov.sa" target="_blank" class="btn-p" style="background:var(--green);" data-ar="&#1578;&#1602;&#1583;&#1610;&#1605; &#1593;&#1604;&#1609; &#1576;&#1608;&#1575;&#1576;&#1577; &#1586;&#1575;&#1578;&#1603;&#1575;" data-en="File on ZATCA Portal">File on ZATCA Portal</a>
-          <button class="btn-s" onclick="markFiled()" data-ar="&#10003; &#1578;&#1571;&#1603;&#1610;&#1583; &#1575;&#1604;&#1578;&#1602;&#1583;&#1610;&#1605;" data-en="Mark as Filed">&#10003; Mark as Filed</button>
-        </div>
-      </div>
-      <div style="padding:12px 18px;border-top:1px solid var(--border);display:flex;gap:8px;">
-        <button class="btn-s" onclick="goStep(4)" data-ar="&#8592; &#1575;&#1604;&#1587;&#1575;&#1576;&#1602;" data-en="Back">&#8592; Back</button>
-        <button class="btn-s" onclick="startOver()" data-ar="&#8634; &#1573;&#1602;&#1585;&#1575;&#1585; &#1580;&#1583;&#1610;&#1583;" data-en="New Return">&#8634; New Return</button>
-      </div>
-    </div>
-  </div>
-
 </div>
+
+
+
+<div class="topnav">
+  <a href="dashboard.html" class="nav-logo">
+    <div class="nav-bars">
+      <div class="nav-bar" style="background:#fff;"></div>
+      <div class="nav-bar" style="background:rgba(255,255,255,0.45);"></div>
+    </div>
+    <span class="nav-name">Gulf<span style="color:var(--light);">Ledger</span></span>
+  </a>
+    <div class="nav-right">
+    <a href="settings.html" class="nav-settings-btn" title="الإعدادات">⚙️</a>
+    <div class="lang-switch">
+      <button class="lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button>
+      <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
+    </div>
+    <div class="nav-divider"></div>
+    <span class="nav-biz" id="biz-name">...</span>
+    <button class="btn-logout" onclick="logout()" data-ar="خروج" data-en="Sign Out">خروج</button>
+  </div>
+</div>
+
+<div class="app-nav" id="app-nav">
+  <a href="dashboard.html"  class="app-nav-link"  data-ar="الرئيسية"             data-en="Dashboard">الرئيسية</a>
+  <a href="inventory.html"  class="app-nav-link"  data-ar="المنتجات والمخزون"    data-en="Products & Stock">المنتجات والمخزون</a>
+  <a href="invoices.html"   class="app-nav-link"   data-ar="المبيعات والفواتير"   data-en="Sales & Invoices">المبيعات والفواتير</a>
+  <a href="expenses.html"   class="app-nav-link"   data-ar="المصاريف"             data-en="Expenses">المصاريف</a>
+  <a href="ledger.html"     class="app-nav-link"     data-ar="المحاسبة"             data-en="Accounting">المحاسبة</a>
+  <a href="vat.html"        class="app-nav-link active"        data-ar="ضريبة القيمة المضافة" data-en="VAT">ضريبة القيمة المضافة</a>
+  <a href="reports.html"    class="app-nav-link"    data-ar="التقارير"             data-en="Reports">التقارير</a>
+  <a href="accounting.html" class="app-nav-link" id="nav-accounting" data-ar="محاسبة متقدمة" data-en="Advanced" style="display:none;">محاسبة متقدمة</a>
 </div>
 
 <script>
-const SUPABASE_URL='https://ykzivnasjwtuhvjxfxzf.supabase.co';
-const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
-const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
-let currentUser=null,currentBiz=null,L=localStorage.getItem('gl_lang')||'ar';
-let currentInvoices=[],currentStep=1;
-const STEP_LABELS={ar:['\u0627\u062e\u062a\u0631 \u0627\u0644\u0641\u062a\u0631\u0629','\u0627\u0644\u0645\u0628\u064a\u0639\u0627\u062a','\u0627\u0644\u0645\u0634\u062a\u0631\u064a\u0627\u062a','\u0646\u0645\u0648\u0630\u062c 201','\u0627\u0644\u062a\u0642\u062f\u064a\u0645'],en:['Period','Sales','Purchases','Form 201','Submit']};
+(function(){
+  var mode = localStorage.getItem('gl_accountant_mode');
+  if(mode === 'true'){
+    var el = document.getElementById('nav-accounting');
+    if(el) el.style.display = 'inline-block';
+  }
+})();
+</script>
 
-async function init(){
-  const {data:{session}}=await sb.auth.getSession();
-  if(!session){window.location.href='login.html';return;}
-  currentUser=session.user;
-  const {data:biz}=await sb.from('businesses').select('*').eq('user_id',currentUser.id).single();
-  if(biz){currentBiz=biz;document.getElementById('biz-name').textContent=biz.name_ar||biz.name||'';const fb=document.getElementById('form-biz-name');if(fb)fb.textContent=biz.name_ar||biz.name||'';const ft=document.getElementById('form-trn');if(ft)ft.textContent='TRN: '+(biz.trn||'--');}
-  setCurrentQuarter();calcNextDueDate();renderProgress();goStep(1);
-  const storedL=localStorage.getItem('gl_lang')||'ar';L=storedL;setLang(storedL);
-  initSidebarState();
+<div class="page">
+
+  <!-- PAGE HEADER -->
+  <div class="page-header">
+    <div>
+      <div class="page-title" data-ar="إقرار ضريبة القيمة المضافة" data-en="VAT Return — Form 201">إقرار ضريبة القيمة المضافة</div>
+      <div class="page-sub" data-ar="نموذج 201 — مُحتسب تلقائياً من الفواتير المسجّلة" data-en="Form 201 — auto-calculated from registered invoices">نموذج 201 — مُحتسب تلقائياً من الفواتير المسجّلة</div>
+    </div>
+    <div style="text-align:center;background:var(--tint);border:1px solid var(--light);border-radius:10px;padding:10px 16px;">
+      <div style="font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;" data-ar="موعد الإقرار التالي" data-en="Next Filing Due">موعد الإقرار التالي</div>
+      <div style="font-size:16px;font-weight:700;color:var(--navy);" id="next-due">—</div>
+      <div style="font-size:10px;color:var(--muted);" id="days-left"></div>
+    </div>
+  </div>
+
+  <!-- ZATCA WARNING -->
+  <div class="zatca-warn">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px;"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+    <span data-ar="هذا الإقرار مُحتسب تلقائياً من فواتيرك المسجّلة. يجب تقديمه يدوياً على بوابة زاتكا: gazt.gov.sa — التأخير يُعرّضك لغرامة تبدأ من 5% من الضريبة المستحقة." data-en="This return is auto-calculated from your invoices. Must be filed manually at ZATCA portal: gazt.gov.sa — Late filing incurs a penalty starting from 5% of tax due.">هذا الإقرار مُحتسب تلقائياً من فواتيرك. يجب تقديمه يدوياً على بوابة زاتكا: gazt.gov.sa</span>
+  </div>
+
+  <!-- PERIOD SELECTOR -->
+  <div class="period-bar">
+    <div>
+      <label data-ar="اختر الربع" data-en="Select Quarter">اختر الربع</label>
+      <select id="quarter-select" onchange="setQuarterDates()">
+        <option value="Q1">Q1 — يناير إلى مارس</option>
+        <option value="Q2">Q2 — أبريل إلى يونيو</option>
+        <option value="Q3">Q3 — يوليو إلى سبتمبر</option>
+        <option value="Q4">Q4 — أكتوبر إلى ديسمبر</option>
+      </select>
+    </div>
+    <div>
+      <label data-ar="السنة" data-en="Year">السنة</label>
+      <select id="year-select" onchange="setQuarterDates()">
+        <option value="2026">2026</option>
+        <option value="2025">2025</option>
+        <option value="2024">2024</option>
+      </select>
+    </div>
+    <div>
+      <label data-ar="من" data-en="From">من</label>
+      <input type="date" lang="en" id="vat-from">
+    </div>
+    <div>
+      <label data-ar="إلى" data-en="To">إلى</label>
+      <input type="date" lang="en" id="vat-to">
+    </div>
+    <button class="btn-calc" onclick="calcVAT()" data-ar="احتساب الإقرار" data-en="Calculate Return">احتساب الإقرار</button>
+  </div>
+
+  <!-- STATS -->
+  <div class="vat-stats">
+    <div class="vat-stat">
+      <div class="vat-stat-lbl" data-ar="فواتير الفترة" data-en="Period Invoices">فواتير الفترة</div>
+      <div class="vat-stat-val c-navy" id="vs-count">0</div>
+      <div style="font-size:11px;color:var(--muted);" data-ar="فاتورة" data-en="invoices">فاتورة</div>
+    </div>
+    <div class="vat-stat">
+      <div class="vat-stat-lbl" data-ar="إجمالي المبيعات" data-en="Total Sales">إجمالي المبيعات</div>
+      <div class="vat-stat-val c-navy" id="vs-sales">SAR 0</div>
+      <div style="font-size:11px;color:var(--muted);" data-ar="قبل الضريبة" data-en="before VAT">قبل الضريبة</div>
+    </div>
+    <div class="vat-stat">
+      <div class="vat-stat-lbl" data-ar="ضريبة المخرجات" data-en="Output VAT">ضريبة المخرجات</div>
+      <div class="vat-stat-val c-green" id="vs-output">SAR 0</div>
+      <div style="font-size:11px;color:var(--muted);" data-ar="15% من المبيعات" data-en="15% of sales">15% من المبيعات</div>
+    </div>
+    <div class="vat-stat">
+      <div class="vat-stat-lbl" data-ar="صافي الضريبة المستحقة" data-en="Net VAT Due">صافي الضريبة المستحقة</div>
+      <div class="vat-stat-val" id="vs-net" style="color:var(--navy);">SAR 0</div>
+      <div style="font-size:11px;color:var(--muted);" data-ar="للسداد لزاتكا" data-en="payable to ZATCA">للسداد لزاتكا</div>
+    </div>
+  </div>
+
+  <!-- FORM 201 -->
+  <div class="form201" id="form201">
+    <div class="form201-header">
+      <div>
+        <div class="form201-title" data-ar="نموذج الإقرار الضريبي" data-en="VAT Return Form">نموذج الإقرار الضريبي</div>
+        <div class="form201-sub" id="form-period-label">الربع: — | الفترة: —</div>
+      </div>
+      <div style="text-align:left;">
+        <div class="form201-zatca">ZATCA FORM 201</div>
+        <div style="font-size:11px;color:rgba(255,255,255,0.6);margin-top:2px;" id="form-biz-name">—</div>
+        <div style="font-size:10px;color:rgba(255,255,255,0.4);" id="form-trn">TRN: —</div>
+      </div>
+    </div>
+
+    <div class="form201-body">
+
+      <!-- Column Headers -->
+      <div class="f201-col-header">
+        <span data-ar="البيان" data-en="Description">البيان</span>
+        <span data-ar="المبالغ الخاضعة للضريبة (SAR)" data-en="Taxable Amount (SAR)">المبالغ الخاضعة (SAR)</span>
+        <span data-ar="الضريبة المستحقة (SAR)" data-en="VAT Amount (SAR)">الضريبة المستحقة (SAR)</span>
+      </div>
+
+      <!-- PART A: Output VAT -->
+      <div class="f201-section">
+        <div class="f201-section-title" data-ar="أ — ضريبة المبيعات (المخرجات)" data-en="A — Output VAT (Sales)">أ — ضريبة المبيعات (المخرجات)</div>
+
+        <div class="f201-row">
+          <div>
+            <div class="f201-label" data-ar="1. المبيعات المحلية الخاضعة للضريبة بنسبة 15%" data-en="1. Standard rated domestic supplies (15%)">1. المبيعات المحلية الخاضعة للضريبة بنسبة 15%</div>
+            <div class="f201-note" data-ar="فواتير B2B وB2C" data-en="B2B and B2C invoices">فواتير B2B وB2C</div>
+          </div>
+          <div>
+            <div class="f201-box-label">المبلغ</div>
+            <div class="f201-val" id="f1-amount">0.00</div>
+          </div>
+          <div>
+            <div class="f201-box-label">الضريبة</div>
+            <div class="f201-val green" id="f1-vat">0.00</div>
+          </div>
+        </div>
+
+        <div class="f201-row">
+          <div>
+            <div class="f201-label" data-ar="2. المبيعات للمناطق الخاصة والتصدير (0%)" data-en="2. Zero-rated supplies & exports (0%)">2. المبيعات بنسبة صفر والتصدير (0%)</div>
+          </div>
+          <div>
+            <div class="f201-box-label">المبلغ</div>
+            <input type="number" class="f201-input" id="f2-amount" value="0" oninput="recalcVAT()" min="0" step="0.01">
+          </div>
+          <div>
+            <div class="f201-box-label">الضريبة</div>
+            <div class="f201-val">0.00</div>
+          </div>
+        </div>
+
+        <div class="f201-row">
+          <div>
+            <div class="f201-label" data-ar="3. المبيعات المعفاة من الضريبة" data-en="3. Exempt supplies">3. المبيعات المعفاة</div>
+          </div>
+          <div>
+            <div class="f201-box-label">المبلغ</div>
+            <input type="number" class="f201-input" id="f3-amount" value="0" oninput="recalcVAT()" min="0" step="0.01">
+          </div>
+          <div>
+            <div class="f201-box-label">الضريبة</div>
+            <div class="f201-val">0.00</div>
+          </div>
+        </div>
+
+        <div class="f201-row highlight">
+          <div>
+            <div class="f201-label" style="font-weight:700;" data-ar="إجمالي المبيعات" data-en="Total Sales">إجمالي المبيعات</div>
+          </div>
+          <div>
+            <div class="f201-box-label">الإجمالي</div>
+            <div class="f201-val c-navy" id="fa-total-amount">0.00</div>
+          </div>
+          <div>
+            <div class="f201-box-label">إجمالي الضريبة</div>
+            <div class="f201-val green" id="fa-total-vat">0.00</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- PART B: Input VAT -->
+      <div class="f201-section">
+        <div class="f201-section-title" data-ar="ب — ضريبة المشتريات (المدخلات)" data-en="B — Input VAT (Purchases)">ب — ضريبة المشتريات (المدخلات)</div>
+
+        <div class="f201-row">
+          <div>
+            <div class="f201-label" data-ar="4. المشتريات المحلية الخاضعة للضريبة" data-en="4. Standard rated purchases">4. المشتريات المحلية بنسبة 15%</div>
+            <div class="f201-note" data-ar="يُحسب تلقائياً من استلامات المخزون — يمكن تعديله يدوياً" data-en="Auto-calculated from inventory receipts — can be edited manually">يُحسب تلقائياً من استلامات المخزون — يمكن تعديله</div>
+            <div id="f4-auto-note" style="display:none;font-size:10px;color:var(--green);font-weight:600;margin-top:3px;"></div>
+          </div>
+          <div>
+            <div class="f201-box-label">المبلغ</div>
+            <input type="number" class="f201-input" id="f4-amount" value="0" oninput="recalcVAT()" min="0" step="0.01">
+          </div>
+          <div>
+            <div class="f201-box-label">الضريبة القابلة للخصم</div>
+            <div class="f201-val red" id="f4-vat">0.00</div>
+          </div>
+        </div>
+
+        <div class="f201-row">
+          <div>
+            <div class="f201-label" data-ar="5. مشتريات من خارج المملكة" data-en="5. Imports">5. مشتريات مستوردة</div>
+          </div>
+          <div>
+            <div class="f201-box-label">المبلغ</div>
+            <input type="number" class="f201-input" id="f5-amount" value="0" oninput="recalcVAT()" min="0" step="0.01">
+          </div>
+          <div>
+            <div class="f201-box-label">الضريبة</div>
+            <div class="f201-val red" id="f5-vat">0.00</div>
+          </div>
+        </div>
+
+        <div class="f201-row highlight">
+          <div>
+            <div class="f201-label" style="font-weight:700;" data-ar="إجمالي ضريبة المدخلات القابلة للخصم" data-en="Total Deductible Input VAT">إجمالي ضريبة المدخلات</div>
+          </div>
+          <div></div>
+          <div>
+            <div class="f201-box-label">إجمالي المدخلات</div>
+            <div class="f201-val red" id="fb-total-vat">0.00</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- NET VAT -->
+      <div class="f201-section">
+        <div class="f201-section-title" data-ar="ج — صافي الضريبة المستحقة" data-en="C — Net VAT Payable">ج — صافي الضريبة المستحقة</div>
+
+        <div class="f201-row">
+          <div>
+            <div class="f201-label" data-ar="ضريبة المخرجات (أ)" data-en="Output VAT (A)">ضريبة المخرجات (أ)</div>
+          </div>
+          <div></div>
+          <div>
+            <div class="f201-val green" id="fc-output">0.00</div>
+          </div>
+        </div>
+
+        <div class="f201-row">
+          <div>
+            <div class="f201-label" data-ar="يُطرح: ضريبة المدخلات (ب)" data-en="Less: Input VAT (B)">يُطرح: ضريبة المدخلات (ب)</div>
+          </div>
+          <div></div>
+          <div>
+            <div class="f201-val red" id="fc-input">( 0.00 )</div>
+          </div>
+        </div>
+
+        <!-- NET RESULT -->
+        <div class="f201-row total" id="net-row">
+          <div>
+            <div class="f201-label" data-ar="صافي الضريبة المستحقة للسداد" data-en="Net VAT Payable">صافي الضريبة المستحقة للسداد</div>
+          </div>
+          <div></div>
+          <div>
+            <div class="f201-val white" id="fc-net">0.00</div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ACTIONS -->
+  <div class="actions-bar">
+    <button class="btn-p" onclick="window.print()" data-ar="🖨 طباعة الإقرار" data-en="🖨 Print Return">🖨 طباعة الإقرار</button>
+    <a href="https://gazt.gov.sa" target="_blank" class="btn-s" style="text-decoration:none;display:inline-flex;align-items:center;gap:6px;" data-ar="تقديم على بوابة زاتكا ←" data-en="File on ZATCA Portal →">تقديم على بوابة زاتكا ←</a>
+    <a href="statements.html" class="btn-s" style="text-decoration:none;" data-ar="القوائم المالية ←" data-en="Statements →">القوائم المالية ←</a>
+  </div>
+
+  <!-- HISTORY -->
+  <div class="history-card">
+    <div class="history-header">
+      <div class="history-title" data-ar="سجل الفواتير في الفترة" data-en="Invoices in Period">سجل الفواتير في الفترة</div>
+      <span id="inv-period-count" style="font-size:12px;color:var(--muted);">0</span>
+    </div>
+    <div style="overflow-x:auto;"><table class="tbl">
+      <thead><tr>
+        <th data-ar="رقم الفاتورة" data-en="Invoice No.">رقم الفاتورة</th>
+        <th data-ar="التاريخ"      data-en="Date">التاريخ</th>
+        <th data-ar="المشتري"      data-en="Buyer">المشتري</th>
+        <th data-ar="النوع"        data-en="Type">النوع</th>
+        <th data-ar="المبلغ قبل الضريبة" data-en="Amount ex VAT">المبلغ قبل الضريبة</th>
+        <th data-ar="الضريبة 15%"  data-en="VAT 15%">الضريبة 15%</th>
+        <th data-ar="الإجمالي"     data-en="Total">الإجمالي</th>
+      </tr></thead>
+      <tbody id="inv-tbody">
+        <tr><td colspan="7" style="text-align:center;padding:20px;color:var(--muted);">احتسب الإقرار أولاً</td></tr>
+      </tbody>
+    </table></div>
+  </div>
+
+</div>
+
+<script>
+const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let currentUser = null;
+let currentBiz  = null;
+let L = localStorage.getItem('gl_lang')||'ar';
+let currentInvoices = [];
+
+/* ── INIT ── */
+async function init() {
+  const { data: { session } } = await sb.auth.getSession();
+  if (!session) { window.location.href = 'login.html'; return; }
+  currentUser = session.user;
+
+  const { data: biz } = await sb.from('businesses').select('*').eq('user_id', currentUser.id).single();
+  if (biz) {
+    currentBiz = biz;
+    document.getElementById('biz-name').textContent     = biz.name;
+    document.getElementById('form-biz-name').textContent = biz.name;
+    document.getElementById('form-trn').textContent      = 'TRN: ' + (biz.trn || '—');
+  }
+
+  // Set current quarter
+  setCurrentQuarter();
+  calcNextDueDate();
+  const storedL=getStoredLang(); L=storedL; setLang(storedL);
 }
 
-function renderProgress(){
-  const prog=document.getElementById('wizard-progress');if(!prog)return;
-  const labels=STEP_LABELS[L==='ar'?'ar':'en'];let html='';
-  for(let i=1;i<=5;i++){const s=i<currentStep?'done':i===currentStep?'active':'pending';const ic=i<currentStep?'\u2713':i;html+=`<div class="wiz-step-item"><div style="display:flex;flex-direction:column;align-items:center;gap:4px;"><div class="wiz-step-circle ${s}">${ic}</div><div class="wiz-step-label ${s}">${labels[i-1]}</div></div>${i<5?`<div class="wiz-connector ${i<currentStep?'done':''}"></div>`:''}</div>`;}
-  prog.innerHTML=html;
+/* ── QUARTER LOGIC ── */
+function setCurrentQuarter() {
+  const now = new Date();
+  const q   = Math.ceil((now.getMonth() + 1) / 3);
+  const yr  = now.getFullYear();
+  document.getElementById('quarter-select').value = 'Q' + q;
+  document.getElementById('year-select').value    = yr;
+  setQuarterDates();
 }
 
-function goStep(n){
-  currentStep=n;
-  document.querySelectorAll('.wizard-step').forEach(el=>el.style.display='none');
-  const el=document.getElementById('step-'+n);if(el){el.style.display='block';el.scrollIntoView({behavior:'smooth',block:'start'});}
-  renderProgress();if(n===5)renderStep5();
+function setQuarterDates() {
+  const q  = document.getElementById('quarter-select').value;
+  const yr = parseInt(document.getElementById('year-select').value);
+  const ranges = {
+    Q1: [`${yr}-01-01`, `${yr}-03-31`],
+    Q2: [`${yr}-04-01`, `${yr}-06-30`],
+    Q3: [`${yr}-07-01`, `${yr}-09-30`],
+    Q4: [`${yr}-10-01`, `${yr}-12-31`]
+  };
+  document.getElementById('vat-from').value = ranges[q][0];
+  document.getElementById('vat-to').value   = ranges[q][1];
 }
 
-async function runStep1(){
-  await calcVAT();goStep(2);
-  const from=document.getElementById('vat-from').value,to=document.getElementById('vat-to').value;
-  const q=document.getElementById('quarter-select').value,yr=document.getElementById('year-select').value;
-  const lbl=document.getElementById('step2-period-label');if(lbl)lbl.textContent=`${q} ${yr} - ${from} to ${to}`;
-  checkStep2Issues();
+function calcNextDueDate() {
+  const now = new Date();
+  const q   = Math.ceil((now.getMonth() + 1) / 3);
+  const yr  = now.getFullYear();
+  // Due date = last day of month following quarter end
+  const dueDates = { 1: `${yr}-04-30`, 2: `${yr}-07-31`, 3: `${yr}-10-31`, 4: `${yr+1}-01-31` };
+  const due = new Date(dueDates[q]);
+  const diff = Math.ceil((due - now) / (1000*60*60*24));
+
+  document.getElementById('next-due').textContent  = due.toLocaleDateString('en-SA', {year:'numeric',month:'long',day:'numeric',calendar:'gregory'});
+  document.getElementById('days-left').textContent = diff > 0
+    ? (L==='ar'?`متبقي ${diff} يوم`:`${diff} days left`)
+    : (L==='ar'?'انتهى الموعد':'Overdue');
+  document.getElementById('days-left').style.color = diff <= 14 ? 'var(--red)' : diff <= 30 ? 'var(--amber)' : 'var(--muted)';
 }
 
-function checkStep2Issues(){
-  const unpaid=(currentInvoices||[]).filter(i=>i.payment_status!=='paid').length;
-  const ie=document.getElementById('step2-issues'),it=document.getElementById('step2-issues-text');
-  if(unpaid>0&&ie&&it){ie.style.display='block';it.textContent=L==='ar'?`${unpaid} \u0641\u0627\u062a\u0648\u0631\u0629 \u063a\u064a\u0631 \u0645\u0633\u062f\u062f\u0629`:`${unpaid} unpaid invoice(s) - VAT still due`;}
-  else if(ie)ie.style.display='none';
+/* ── CALCULATE VAT ── */
+async function calcVAT() {
+  const from = document.getElementById('vat-from').value;
+  const to   = document.getElementById('vat-to').value;
+  const q    = document.getElementById('quarter-select').value;
+  const yr   = document.getElementById('year-select').value;
+
+  if (!from || !to) { notify(L==='ar'?'اختر الفترة':'Select period', 'r'); return; }
+
+  // ── OUTPUT VAT: Load invoices in period ──
+  const { data: invoices } = await sb.from('invoices')
+    .select('*')
+    .eq('user_id', currentUser.id)
+    .gte('issue_date', from)
+    .lte('issue_date', to)
+    .order('issue_date');
+
+  currentInvoices = invoices || [];
+  const totalSales  = currentInvoices.reduce((s, i) => s + (i.subtotal   || 0), 0);
+  const totalVATOut = currentInvoices.reduce((s, i) => s + (i.vat_amount || 0), 0);
+
+  set('vs-count',  currentInvoices.length);
+  set('vs-sales',  'SAR ' + fmt(totalSales));
+  set('vs-output', 'SAR ' + fmt(totalVATOut));
+  set('f1-amount', fmt(totalSales));
+  set('f1-vat',    fmt(totalVATOut));
+
+  // ── INPUT VAT: Auto-pull from inventory receipts ──
+  const { data: receipts } = await sb.from('inventory_movements')
+    .select('quantity, unit_cost, inventory_items(cost_price)')
+    .eq('business_id', currentBiz?.id)
+    .eq('movement_type', 'in')
+    .gte('movement_date', from)
+    .lte('movement_date', to)
+    .neq('reference', 'OPENING');  // exclude opening stock
+
+  let purchasesTotal = 0;
+  (receipts || []).forEach(m => {
+    const cost = m.unit_cost || m.inventory_items?.cost_price || 0;
+    purchasesTotal += (m.quantity || 0) * cost;
+  });
+  purchasesTotal = Math.round(purchasesTotal * 100) / 100;
+
+  // Pre-fill field 4 with auto-calculated purchases
+  const f4Input = document.getElementById('f4-amount');
+  if (f4Input) {
+    f4Input.value = purchasesTotal.toFixed(2);
+    // Mark as auto-filled
+    f4Input.style.background = '#f0fdf4';
+    f4Input.style.borderColor = 'var(--green)';
+    f4Input.title = L==='ar'
+      ? 'تم الحساب تلقائياً من استلامات المخزون — يمكن تعديله'
+      : 'Auto-calculated from inventory receipts — can be edited';
+  }
+
+  // Show purchases summary note
+  const f4Note = document.getElementById('f4-auto-note');
+  if (f4Note) {
+    f4Note.textContent = (L==='ar'
+      ? `تم جلبه تلقائياً من ${(receipts||[]).length} استلام مخزون`
+      : `Auto-pulled from ${(receipts||[]).length} inventory receipts`);
+    f4Note.style.display = 'block';
+  }
+
+  // Period label
+  const qNames = {
+    ar: { Q1:'الربع الأول', Q2:'الربع الثاني', Q3:'الربع الثالث', Q4:'الربع الرابع' },
+    en: { Q1:'Q1', Q2:'Q2', Q3:'Q3', Q4:'Q4' }
+  };
+  document.getElementById('form-period-label').textContent =
+    (L==='ar'?'الربع: ':'Quarter: ') + (qNames[L][q]||q) +
+    ' ' + yr + ' | ' +
+    (L==='ar'?'الفترة: ':'Period: ') + from + ' — ' + to;
+
+  recalcVAT();
+  renderInvoiceList();
 }
 
-async function calcVAT(){
-  const from=document.getElementById('vat-from').value,to=document.getElementById('vat-to').value;
-  if(!from||!to){notify(L==='ar'?'\u0627\u062e\u062a\u0631 \u0627\u0644\u0641\u062a\u0631\u0629':'Select period','r');return;}
-  const {data:invoices}=await sb.from('invoices').select('*').eq('user_id',currentUser.id).gte('issue_date',from).lte('issue_date',to).neq('status','voided').order('issue_date');
-  currentInvoices=invoices||[];
-  const totalSales=currentInvoices.reduce((s,i)=>s+(i.subtotal||0),0);
-  const totalVATOut=currentInvoices.reduce((s,i)=>s+(i.vat_amount||0),0);
-  set('vs-count',currentInvoices.length);set('vs-sales','SAR '+fmt(totalSales));set('vs-output','SAR '+fmt(totalVATOut));
-  set('f1-amount',fmt(totalSales));set('f1-vat',fmt(totalVATOut));
-  const {data:expenses}=await sb.from('expenses').select('amount').eq('user_id',currentUser.id).gte('expense_date',from).lte('expense_date',to).neq('status','reversed');
-  let pt=0;(expenses||[]).forEach(e=>{pt+=parseFloat(e.amount)||0;});pt=Math.round(pt*100)/100;
-  const f4i=document.getElementById('f4-amount');if(f4i){f4i.value=pt.toFixed(2);f4i.style.borderColor='var(--green)';}
-  const f4n=document.getElementById('f4-auto-note');if(f4n)f4n.textContent=L==='ar'?`\u062a\u0644\u0642\u0627\u0626\u064a\u0627\u064b \u0645\u0646 ${(expenses||[]).length} \u0645\u0635\u0631\u0648\u0641`:`Auto-pulled from ${(expenses||[]).length} expenses`;
-  const q=document.getElementById('quarter-select').value,yr=document.getElementById('year-select').value;
-  const pl=document.getElementById('form-period-label');if(pl)pl.textContent=q+' '+yr+' | '+from+' - '+to;
-  recalcVAT();renderInvoiceList();
+/* ── RECALCULATE ── */
+function recalcVAT() {
+  // Output VAT
+  const f1vat = parseFloat(document.getElementById('f1-vat')?.textContent) || 0;
+  const f2amt = parseFloat(document.getElementById('f2-amount')?.value) || 0;
+  const f3amt = parseFloat(document.getElementById('f3-amount')?.value) || 0;
+  const f1amt = parseFloat(document.getElementById('f1-amount')?.textContent) || 0;
+
+  const totalOutAmt = f1amt + f2amt + f3amt;
+  const totalOutVAT = f1vat;
+
+  set('fa-total-amount', fmt(totalOutAmt));
+  set('fa-total-vat',    fmt(totalOutVAT));
+  set('fc-output',       fmt(totalOutVAT));
+
+  // Input VAT
+  const f4amt = parseFloat(document.getElementById('f4-amount')?.value) || 0;
+  const f5amt = parseFloat(document.getElementById('f5-amount')?.value) || 0;
+  const f4vat = f4amt * 0.15;
+  const f5vat = f5amt * 0.15;
+  const totalInVAT = f4vat + f5vat;
+
+  set('f4-vat',       fmt(f4vat));
+  set('f5-vat',       fmt(f5vat));
+  set('fb-total-vat', fmt(totalInVAT));
+  set('fc-input',    '( ' + fmt(totalInVAT) + ' )');
+
+  // Net VAT
+  const netVAT = totalOutVAT - totalInVAT;
+  set('fc-net', fmt(Math.abs(netVAT)));
+  set('vs-net', 'SAR ' + fmt(Math.abs(netVAT)));
+
+  const netRow = document.getElementById('net-row');
+  const netEl  = document.getElementById('vs-net');
+  if (netVAT >= 0) {
+    netRow.className = 'f201-row payable';
+    netEl.className  = 'vat-stat-val c-red';
+    document.getElementById('fc-net').className = 'f201-val white';
+  } else {
+    netRow.className = 'f201-row refund';
+    netEl.className  = 'vat-stat-val c-green';
+    document.getElementById('fc-net').className = 'f201-val white';
+    set('fc-net', '(' + fmt(Math.abs(netVAT)) + ') ' + (L==='ar'?'استرداد':'Refund'));
+  }
 }
 
-function recalcVAT(){
-  const f1v=parseFloat(document.getElementById('f1-vat')?.textContent)||0;
-  const f2a=parseFloat(document.getElementById('f2-amount')?.value)||0;
-  const f3a=parseFloat(document.getElementById('f3-amount')?.value)||0;
-  const f1a=parseFloat(document.getElementById('f1-amount')?.textContent)||0;
-  set('fa-total-amount',fmt(f1a+f2a+f3a));set('fa-total-vat',fmt(f1v));set('fc-output',fmt(f1v));
-  const f4a=parseFloat(document.getElementById('f4-amount')?.value)||0;
-  const f5a=parseFloat(document.getElementById('f5-amount')?.value)||0;
-  const f4v=Math.round(f4a*0.15*100)/100,f5v=Math.round(f5a*0.15*100)/100,tiv=f4v+f5v;
-  set('f4-vat',fmt(f4v));set('f5-vat',fmt(f5v));set('fb-total-vat',fmt(tiv));set('fc-input','( '+fmt(tiv)+' )');
-  const fd4=document.getElementById('f4-display');if(fd4)fd4.textContent=fmt(f4a);
-  const fd5=document.getElementById('f5-display');if(fd5)fd5.textContent=fmt(f5a);
-  const net=f1v-tiv;set('fc-net',net<0?'('+fmt(Math.abs(net))+') Refund':fmt(net));set('vs-net','SAR '+fmt(Math.abs(net)));
-  set('vs-purchases','SAR '+fmt(f4a+f5a));set('vs-input','SAR '+fmt(tiv));
+/* ── INVOICE LIST ── */
+function renderInvoiceList() {
+  const tb = document.getElementById('inv-tbody');
+  set('inv-period-count', currentInvoices.length + (L==='ar'?' فاتورة':' invoices'));
+
+  if (!currentInvoices.length) {
+    tb.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا توجد فواتير في هذه الفترة':'No invoices in this period'}</td></tr>`;
+    return;
+  }
+
+  tb.innerHTML = currentInvoices.map(inv => `<tr>
+    <td style="font-family:'DM Mono',monospace;font-size:11px;">${inv.invoice_number}</td>
+    <td style="font-size:11px;color:var(--muted);">${inv.issue_date}</td>
+    <td style="font-size:12px;">${inv.buyer_name||'—'}</td>
+    <td><span style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:var(--tint);color:var(--blue);">${(inv.invoice_type||'').toUpperCase()}</span></td>
+    <td class="mono">SAR ${fmt(inv.subtotal)}</td>
+    <td class="mono" style="color:var(--green);">SAR ${fmt(inv.vat_amount)}</td>
+    <td class="mono" style="font-weight:700;">SAR ${fmt(inv.total)}</td>
+  </tr>`).join('');
 }
 
-function updateStep3Stats(){recalcVAT();}
+/* ── LANGUAGE ── */
+function setLang(lang){ L=lang; applyLang(lang); if(typeof onBusinessTypeChange==='function')onBusinessTypeChange(); if(typeof renderStock==='function')renderStock(); if(typeof renderSuppliers==='function')renderSuppliers(); if(typeof renderPartners==='function')renderPartners(); }
 
-function renderInvoiceList(){
-  const tb=document.getElementById('inv-tbody');
-  if(!currentInvoices.length){tb.innerHTML=`<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'\u0644\u0627 \u062a\u0648\u062c\u062f \u0641\u0648\u0627\u062a\u064a\u0631':'No invoices in this period'}</td></tr>`;return;}
-  tb.innerHTML=currentInvoices.map(i=>`<tr><td style="font-family:'DM Mono',monospace;font-size:11px;">${i.invoice_number}</td><td style="font-size:11px;color:var(--muted);">${i.issue_date}</td><td style="font-size:12px;">${i.buyer_name||'--'}</td><td class="mono">SAR ${fmt(i.subtotal)}</td><td class="mono" style="color:var(--green);">SAR ${fmt(i.vat_amount)}</td><td class="mono" style="font-weight:700;">SAR ${fmt(i.total)}</td></tr>`).join('');
+/* ── HELPERS ── */
+function set(id,v)     { const e=document.getElementById(id); if(e) e.textContent=v; }
+function fmt(n)        { return (n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
+function today()       { return new Date().toISOString().split('T')[0]; }
+async function logout(){ await sb.auth.signOut(); window.location.href='login.html'; }
+
+function notify(msg, type) {
+  const d = document.createElement('div');
+  d.style.cssText = 'position:fixed;top:80px;left:50%;transform:translateX(-50%);background:'+(type==='g'?'var(--green)':'var(--red)')+';color:#fff;padding:10px 24px;border-radius:8px;font-family:Tajawal,sans-serif;font-size:13px;z-index:9999;text-align:center;';
+  d.textContent = msg;
+  document.body.appendChild(d);
+  setTimeout(()=>{ if(d.parentNode) d.parentNode.removeChild(d); }, 3000);
 }
 
-function renderStep5(){
-  const out=parseFloat(document.getElementById('fc-output')?.textContent)||0;
-  const inp=parseFloat(document.getElementById('fb-total-vat')?.textContent)||0;
-  const net=out-inp,isRef=net<0;
-  const sb5=document.getElementById('step5-summary');if(sb5){sb5.style.borderColor=isRef?'var(--green)':'var(--red)';sb5.style.background=isRef?'#f0fdf4':'#fff5f5';}
-  const nl=document.getElementById('step5-net-label');if(nl)nl.textContent=isRef?(L==='ar'?'\u0645\u0628\u0644\u063a \u0645\u0633\u062a\u0631\u062f':'Refund from ZATCA'):(L==='ar'?'\u0645\u0633\u062a\u062d\u0642 \u0644\u0632\u0627\u062a\u0643\u0627':'Payable to ZATCA');
-  const ic=(currentInvoices||[]).length,up=(currentInvoices||[]).filter(i=>i.payment_status!=='paid').length,f4v=parseFloat(document.getElementById('f4-amount')?.value)||0;
-  const items=[{ok:ic>0,ar:`${ic} \u0641\u0627\u062a\u0648\u0631\u0629 \u0645\u0636\u0645\u0646\u0629`,en:`${ic} invoice(s) included`},{ok:up===0,ar:up===0?'\u062c\u0645\u064a\u0639 \u0627\u0644\u0641\u0648\u0627\u062a\u064a\u0631 \u0645\u0633\u062f\u062f\u0629':`${up} \u063a\u064a\u0631 \u0645\u0633\u062f\u062f\u0629`,en:up===0?'All paid':`${up} unpaid`},{ok:f4v>0,ar:'\u062a\u0645 \u0625\u062f\u062e\u0627\u0644 \u0627\u0644\u0645\u0634\u062a\u0631\u064a\u0627\u062a',en:'Purchases entered'},{ok:true,ar:'\u062a\u0645 \u0645\u0631\u0627\u062c\u0639\u0629 \u0627\u0644\u0646\u0645\u0648\u0630\u062c 201',en:'Form 201 reviewed'}];
-  const cl=document.getElementById('step5-checklist');if(cl)cl.innerHTML=items.map(it=>`<div style="display:flex;align-items:center;gap:10px;padding:8px 12px;background:${it.ok?'#f0fdf4':'#fff5f5'};border-radius:7px;border:1px solid ${it.ok?'#86efac':'#fca5a5'};"><span style="font-size:14px;">${it.ok?'\u2705':'\u26a0\ufe0f'}</span><span style="font-size:12px;color:${it.ok?'var(--green)':'var(--red)'};">${L==='ar'?it.ar:it.en}</span></div>`).join('');
-}
-
-function markFiled(){const q=document.getElementById('quarter-select')?.value,yr=document.getElementById('year-select')?.value;localStorage.setItem(`vat_filed_${yr}_${q}`,new Date().toISOString());notify(L==='ar'?`\u2705 \u062a\u0645 \u062a\u0623\u0643\u064a\u062f \u062a\u0642\u062f\u064a\u0645 ${q} ${yr}`:`\u2705 ${q} ${yr} filed`,'g');}
-function startOver(){goStep(1);currentInvoices=[];}
-function setCurrentQuarter(){const n=new Date(),m=n.getMonth(),q=m<3?'Q1':m<6?'Q2':m<9?'Q3':'Q4';const qs=document.getElementById('quarter-select'),ys=document.getElementById('year-select');if(qs)qs.value=q;if(ys)ys.value=n.getFullYear();setQuarterDates();}
-function setQuarterDates(){const q=document.getElementById('quarter-select')?.value||'Q1',yr=parseInt(document.getElementById('year-select')?.value)||2026;const d={Q1:[`${yr}-01-01`,`${yr}-03-31`],Q2:[`${yr}-04-01`,`${yr}-06-30`],Q3:[`${yr}-07-01`,`${yr}-09-30`],Q4:[`${yr}-10-01`,`${yr}-12-31`]};const [f,t]=d[q]||d.Q1;const fe=document.getElementById('vat-from'),te=document.getElementById('vat-to');if(fe)fe.value=f;if(te)te.value=t;}
-function calcNextDueDate(){const n=new Date(),m=n.getMonth();let dm,dy=n.getFullYear();if(m<3)dm=3;else if(m<6)dm=6;else if(m<9)dm=9;else{dm=0;dy++;}const due=new Date(dy,dm,30);const days=Math.ceil((due-n)/(1000*60*60*24));set('next-due',due.toLocaleDateString('en-SA',{day:'2-digit',month:'short',year:'numeric'}));set('days-left',L==='ar'?`${days} \u064a\u0648\u0645 \u0645\u062a\u0628\u0642\u064a`:`${days} days left`);}
-
-function toggleGLSidebar(){var s=document.getElementById('gl-sidebar');if(window.innerWidth<=768){s.classList.toggle('mob-open');var o=document.getElementById('gl-sb-overlay');if(o)o.style.display=s.classList.contains('mob-open')?'block':'none';var b=document.getElementById('gl-mob-btn');if(b)b.textContent=s.classList.contains('mob-open')?'x':'\u2630';}else{s.classList.toggle('collapsed');document.body.classList.toggle('gl-collapsed');localStorage.setItem('gl_sb_collapsed',s.classList.contains('collapsed')?'1':'0');}}
-function closeSidebar(){var s=document.getElementById('gl-sidebar');s.classList.remove('mob-open');var o=document.getElementById('gl-sb-overlay');if(o)o.style.display='none';var b=document.getElementById('gl-mob-btn');if(b)b.textContent='\u2630';}
-function initSidebarState(){if(localStorage.getItem('gl_sb_collapsed')==='1'){var s=document.getElementById('gl-sidebar');if(s){s.classList.add('collapsed');document.body.classList.add('gl-collapsed');}}}
-function setLang(lang){L=lang;applyLang(lang);renderProgress();calcNextDueDate();}
-function applyLang(lang){localStorage.setItem('gl_lang',lang);document.getElementById('btn-ar')?.classList.toggle('on',lang==='ar');document.getElementById('btn-en')?.classList.toggle('on',lang==='en');document.documentElement.setAttribute('lang',lang);document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));document.querySelectorAll('select option[data-ar]').forEach(o=>o.text=o.getAttribute('data-'+lang)||o.text);}
-function set(id,v){const e=document.getElementById(id);if(e)e.textContent=v;}
-function fmt(n){return(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');}
-function today(){return new Date().toISOString().split('T')[0];}
-async function logout(){await sb.auth.signOut();window.location.href='login.html';}
-function notify(msg,type){const d=document.createElement('div');d.style.cssText='position:fixed;top:20px;left:50%;transform:translateX(-50%);background:'+(type==='g'?'var(--green)':'var(--red)')+';color:#fff;padding:10px 24px;border-radius:8px;font-family:Tajawal,sans-serif;font-size:13px;z-index:9999;';d.textContent=msg;document.body.appendChild(d);setTimeout(()=>{if(d.parentNode)d.parentNode.removeChild(d);},type==='g'?4000:3000);}
-(function(){if(localStorage.getItem('gl_sb_collapsed')==='1'){var s=document.getElementById('gl-sidebar');if(s){s.classList.add('collapsed');document.body.classList.add('gl-collapsed');}}})(  );
 init();
+
+// Force Gregorian dates — prevents Hijri calendar on Arabic devices
+(function(){
+  function fixDates(){
+    document.querySelectorAll('input[type="date"]').forEach(function(el){
+      if(!el.getAttribute('data-gregorian-fixed')){
+        el.setAttribute('lang','en-SA-u-ca-gregory');
+        el.setAttribute('data-gregorian-fixed','1');
+      }
+    });
+  }
+  fixDates();
+  // Also fix any dynamically added date inputs
+  var obs = new MutationObserver(fixDates);
+  obs.observe(document.body, {childList:true, subtree:true});
+})();
+
+
+/* ── PERSISTENT LANGUAGE ── */
+function getStoredLang(){return localStorage.getItem('gl_lang')||'ar';}
+function applyLang(lang){
+  localStorage.setItem('gl_lang',lang);
+  document.getElementById('btn-ar')?.classList.toggle('on',lang==='ar');
+  document.getElementById('btn-en')?.classList.toggle('on',lang==='en');
+  document.documentElement.setAttribute('lang',lang);
+  document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
+  document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));
+  document.querySelectorAll('select option[data-ar]').forEach(o=>o.text=o.getAttribute('data-'+lang)||o.text);
+}
+
+</script>
+</div><!-- /gl-page-content -->
+<script>
+
+function toggleGLSB(){var s=document.getElementById('gl-sidebar');if(window.innerWidth<=768){s.classList.toggle('mob-open');var o=document.getElementById('sb-overlay');if(o)o.style.display=s.classList.contains('mob-open')?'block':'none';var b=document.getElementById('sb-mob-btn');if(b)b.textContent=s.classList.contains('mob-open')?'\u00d7':'\u2630';}else{s.classList.toggle('collapsed');document.body.classList.toggle('gl-collapsed');localStorage.setItem('gl_sb_collapsed',s.classList.contains('collapsed')?'1':'0');}}
+function closeGLSB(){var s=document.getElementById('gl-sidebar');s.classList.remove('mob-open');var o=document.getElementById('sb-overlay');if(o)o.style.display='none';var b=document.getElementById('sb-mob-btn');if(b)b.textContent='\u2630';}
+(function(){if(localStorage.getItem('gl_sb_collapsed')==='1'){var s=document.getElementById('gl-sidebar');if(s){s.classList.add('collapsed');document.body.classList.add('gl-collapsed');}}})();
+document.addEventListener('click',function(e){var m=document.getElementById('gl-qa-menu');if(m&&!e.target.closest('.gl-h-add')&&!e.target.closest('.gl-qa-menu'))m.classList.remove('open');});
+</script>
+<script>
+(function(){
+  var origSet = window._origBizSet;
+  var obs = new MutationObserver(function(){
+    var bn = document.getElementById('biz-name');
+    var gbn = document.getElementById('gl-biz-name');
+    if(bn && gbn && bn.textContent !== '...') gbn.textContent = bn.textContent;
+    var un = document.getElementById('gl-user-name');
+    if(un && bn && bn.textContent !== '...') un.textContent = bn.textContent.substring(0,10);
+  });
+  obs.observe(document.body, {childList:true, subtree:true, characterData:true});
+})();
+</script>
+<script>
+(function(){
+  var origSetLang = window.setLang;
+  if(typeof setLang === 'function'){
+    var _origSL = setLang;
+    window.setLang = function(lang){
+      _origSL(lang);
+      var a=document.getElementById('gl-btn-ar'),e=document.getElementById('gl-btn-en');
+      if(a)a.classList.toggle('on',lang==='ar');
+      if(e)e.classList.toggle('on',lang==='en');
+    };
+  }
+  // Init
+  var l=localStorage.getItem('gl_lang')||'ar';
+  var a=document.getElementById('gl-btn-ar'),e=document.getElementById('gl-btn-en');
+  if(a)a.classList.toggle('on',l==='ar');
+  if(e)e.classList.toggle('on',l==='en');
+})();
 </script>
 </body>
 </html>

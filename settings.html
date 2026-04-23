@@ -1,203 +1,802 @@
-<!DOCTYPE html><html>
+<!DOCTYPE html>
+<html>
 <head>
 <meta charset="UTF-8">
-<script>(function(){var l=localStorage.getItem('gl_lang')||'ar';document.documentElement.setAttribute('lang',l);document.documentElement.setAttribute('dir',l==='ar'?'rtl':'ltr');})();</script>
+<script>
+/* Language flash prevention — runs before render */
+(function(){
+  var l=localStorage.getItem('gl_lang')||'ar';
+  document.documentElement.setAttribute('lang',l);
+  document.documentElement.setAttribute('dir',l==='ar'?'rtl':'ltr');
+})();
+</script>
+<script>
+/* Apply language before render to prevent flash */
+(function(){
+  var lang = localStorage.getItem('gl_lang') || 'ar';
+  document.documentElement.setAttribute('lang', lang);
+  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+})();
+</script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GulfLedger — الإعدادات</title>
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700&family=Playfair+Display:wght@700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <style>
-:root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#C62828;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--border:#d4e6f7;--bg:#f7fafd;--white:#ffffff;--purple:#6d28d9;}
+:root{--navy:#0C447C;--blue:#185FA5;--sky:#378ADD;--light:#B5D4F4;--tint:#E6F1FB;--green:#1D9E75;--red:#C62828;--amber:#B45309;--ink:#0d1a2a;--muted:#5a7a99;--border:#d4e6f7;--bg:#f7fafd;--white:#ffffff;}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);}
-.topnav,.app-nav{display:none!important;}
-.stats{display:grid;gap:12px;margin-bottom:20px;}
-.stat{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
-.stat-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px;}
-.stat-num{font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:var(--navy);}
-.stat-sub{font-size:11px;color:var(--muted);margin-top:3px;}
-.stat.s-green{border-color:#86efac;background:#f0fdf4;}
-.stat.s-red{border-color:#fca5a5;background:#fff5f5;}
-.stat.s-amber{border-color:#fde68a;background:#fffbeb;}
-.c-navy{color:var(--navy)!important;}.c-green{color:var(--green)!important;}.c-red{color:var(--red)!important;}.c-amber{color:var(--amber)!important;}
-.card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px;}
-.card-hdr{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;}
-.card-ttl{font-size:14px;font-weight:700;color:var(--navy);}
-.card-bdy{padding:18px;}
-.fg{display:grid;gap:12px;margin-bottom:14px;}
-.fg-2{grid-template-columns:1fr 1fr;}
-.fg-3{grid-template-columns:1fr 1fr 1fr;}
-.fld{display:flex;flex-direction:column;gap:4px;}
-.fld label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
-.fld input,.fld select,.fld textarea{padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:13px;color:var(--ink);background:var(--white);width:100%;}
-.fld input:focus,.fld select:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(55,138,221,0.1);}
-.hint{font-size:10px;color:var(--muted);margin-top:2px;}
-.btn-p{padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;}
-.btn-p:hover{background:var(--navy);}
-.btn-s{padding:7px 14px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;font-weight:600;cursor:pointer;}
-.btn-s:hover{border-color:var(--blue);}
-.btn-d{padding:5px 10px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;}
-.btn-row{display:flex;gap:8px;flex-wrap:wrap;}
+body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;}
+.topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;}
+.nav-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
+.nav-bars{display:flex;gap:3px;height:22px;}
+.nav-bar{width:3px;border-radius:2px;}
+.nav-name{font-family:'Playfair Display',serif;font-size:16px;color:#fff;}
+.nav-right{display:flex;align-items:center;gap:8px;}
+.nav-divider{width:1px;height:20px;background:rgba(255,255,255,0.2);}
+.nav-biz{font-size:12px;color:var(--light);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 10px;background:rgba(255,255,255,0.08);border-radius:6px;border:1px solid rgba(255,255,255,0.15);}
+.btn-logout{padding:5px 14px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
+.btn-logout:hover{background:rgba(255,255,255,0.2);}
+.nav-settings-btn{display:flex;align-items:center;justify-content:center;width:32px;height:32px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:#fff;text-decoration:none;font-size:15px;flex-shrink:0;}
+.nav-settings-btn:hover{background:rgba(255,255,255,0.2);}
+.lang-switch{display:flex;border:1px solid rgba(255,255,255,0.2);border-radius:6px;overflow:hidden;}
+.lang-btn{padding:4px 10px;font-size:11px;cursor:pointer;border:none;background:transparent;color:rgba(255,255,255,0.6);font-family:'Tajawal',sans-serif;font-weight:500;}
+.lang-btn.on{background:var(--sky);color:#fff;}
+.app-nav{background:var(--blue);padding:8px 20px;display:flex;gap:4px;align-items:center;overflow-x:auto;}
+.app-nav-link{padding:5px 14px;font-size:12px;font-weight:500;color:rgba(255,255,255,0.7);text-decoration:none;border-radius:6px;white-space:nowrap;}
+.app-nav-link:hover{background:rgba(255,255,255,0.12);color:#fff;}
+.app-nav-link.active{background:rgba(255,255,255,0.18);color:#fff;}
+.page{max-width:780px;margin:0 auto;padding:28px 20px;}
+.page-title{font-family:'Playfair Display',serif;font-size:22px;color:var(--navy);margin-bottom:4px;}
+.page-sub{font-size:13px;color:var(--muted);margin-bottom:20px;}
+.section-tabs{display:flex;gap:4px;margin-bottom:20px;flex-wrap:wrap;}
+.stab{padding:7px 16px;font-size:12px;font-weight:600;border-radius:7px;cursor:pointer;border:1.5px solid var(--border);background:var(--white);color:var(--muted);font-family:'Tajawal',sans-serif;transition:all .15s;}
+.stab.active{background:var(--blue);color:#fff;border-color:var(--blue);}
+.section{display:none;}.section.active{display:block;}
+.card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:22px;margin-bottom:14px;}
+.card-title{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:14px;padding-bottom:8px;border-bottom:1px solid var(--tint);display:flex;align-items:center;gap:7px;}
 .tbl{width:100%;border-collapse:collapse;font-size:12px;}
-.tbl th{padding:9px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-align:right;white-space:nowrap;letter-spacing:.04em;text-transform:uppercase;}
-.tbl td{padding:9px 12px;border-bottom:1px solid var(--tint);vertical-align:middle;text-align:right;}
-[dir="ltr"] .tbl th,[dir="ltr"] .tbl td{text-align:left;}
+.tbl th{padding:9px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-align:right;white-space:nowrap;}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--tint);vertical-align:middle;}
 .tbl tr:last-child td{border-bottom:none;}
 .tbl tr:hover td{background:#fafcff;}
-.mono{font-family:'DM Mono',monospace;font-size:12px;}
-.bdg{font-size:10px;font-weight:700;padding:2px 9px;border-radius:8px;display:inline-block;}
-.tc{display:none;}.tc.active{display:block;}
-.section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);display:block;}
-.main{padding:20px;}
-input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
-@media(max-width:768px){.stats{grid-template-columns:1fr 1fr!important;}.fg-2,.fg-3{grid-template-columns:1fr 1fr!important;}.main{padding:12px!important;}}
-@media(max-width:480px){.stats{grid-template-columns:1fr!important;}}
-.stab{{padding:7px 16px;font-size:12px;font-weight:600;border-radius:7px;cursor:pointer;border:1.5px solid var(--border);background:var(--white);color:var(--muted);font-family:"Tajawal",sans-serif;transition:all .15s;}}
-.stab.active{{background:var(--blue);color:#fff;border-color:var(--blue);}}
-.section{{display:none;}}
-.section.active{{display:block;}}
-.card-title{{font-size:13px;font-weight:700;color:var(--navy);margin-bottom:12px;}}
-.toggle-btn{{width:48px;height:26px;border-radius:13px;background:var(--border);cursor:pointer;position:relative;transition:background .2s;flex-shrink:0;border:none;}}
-.toggle-btn.on{{background:var(--blue);}}
-.toggle-knob{{width:22px;height:22px;border-radius:50%;background:#fff;position:absolute;top:2px;right:2px;transition:right .2s;box-shadow:0 1px 4px rgba(0,0,0,0.2);}}
-[dir="ltr"] .toggle-knob{{right:auto;left:2px;}}
-.toggle-btn.on .toggle-knob{{right:2px!important;}}
-[dir="ltr"] .toggle-btn.on .toggle-knob{{right:auto!important;left:2px!important;}}
-.page{{padding:20px;}}
-.section-tabs{{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:20px;}}
+.card-badge{font-size:10px;font-weight:700;padding:2px 8px;border-radius:6px;background:var(--tint);color:var(--blue);}
+.fg{display:grid;gap:12px;margin-bottom:12px;}
+.fg-2{grid-template-columns:1fr 1fr;}
+.fg-3{grid-template-columns:1fr 1fr 1fr;}
+.fg-4{grid-template-columns:repeat(4,1fr);}
+.fld{display:flex;flex-direction:column;gap:4px;}
+.fld label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+.fld input,.fld select,.fld textarea{padding:8px 11px;border:1.5px solid var(--border);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;color:var(--ink);background:var(--white);width:100%;}
+.fld input:focus,.fld select:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(55,138,221,0.1);}
+.hint{font-size:10px;color:var(--muted);margin-top:2px;}
+.radio-group{display:flex;gap:8px;flex-wrap:wrap;}
+.radio-opt{display:flex;align-items:center;gap:6px;padding:8px 14px;border:1.5px solid var(--border);border-radius:8px;cursor:pointer;transition:all .15s;font-size:13px;}
+.radio-opt.selected{border-color:var(--blue);background:var(--tint);color:var(--blue);font-weight:600;}
+.own-table{width:100%;border-collapse:collapse;font-size:12px;margin-top:10px;}
+.own-table th{padding:8px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-align:right;}
+.own-table td{padding:7px 10px;border-bottom:1px solid var(--tint);}
+.own-table input,.own-table select{padding:5px 7px;border:1px solid var(--border);border-radius:5px;font-family:'Tajawal',sans-serif;font-size:12px;width:100%;}
+.own-total{padding:8px 12px;font-weight:700;}
+.own-total.ok{color:var(--green);}
+.own-total.err{color:var(--red);}
+.tax-result{background:var(--tint);border-radius:9px;padding:14px 16px;margin-top:12px;}
+.tax-result-row{display:flex;justify-content:space-between;padding:5px 0;font-size:12px;border-bottom:1px solid var(--light);}
+.tax-result-row:last-child{border-bottom:none;font-weight:700;font-size:13px;color:var(--navy);}
+.tax-val{font-family:'DM Mono',monospace;font-weight:600;}
+.logo-zone{border:2px dashed var(--border);border-radius:10px;padding:20px;text-align:center;cursor:pointer;transition:border .2s;position:relative;min-height:90px;}
+.logo-zone:hover{border-color:var(--sky);}
+/* Color presets */
+.color-preset{width:28px;height:28px;border-radius:50%;border:2px solid transparent;cursor:pointer;transition:transform .15s,border-color .15s;}
+.color-preset:hover{transform:scale(1.15);border-color:#fff;box-shadow:0 0 0 2px var(--border);}
+/* Layout option cards */
+.layout-opt{border:2px solid var(--border);border-radius:10px;padding:10px;cursor:pointer;transition:all .15s;background:var(--white);}
+.layout-opt:hover{border-color:var(--sky);box-shadow:0 2px 8px rgba(55,138,221,0.1);}
+.layout-opt.selected{border-color:var(--blue);background:var(--tint);}
+.layout-opt-preview{height:100px;border-radius:6px;overflow:hidden;border:1px solid var(--border);margin-bottom:8px;background:#f8fafc;}
+.layout-opt-label{font-size:12px;font-weight:700;color:var(--navy);margin-bottom:2px;}
+.layout-opt-desc{font-size:10px;color:var(--muted);}
+/* Mini invoice previews */
+.lp-header{height:22px;width:100%;}
+.lp-header-modern{height:8px;background:#f1f5f9;width:100%;}
+.lp-header-minimal{height:14px;background:#fff;border-bottom:1px solid #e2e8f0;width:100%;display:flex;align-items:flex-end;}
+.lp-min-accent{height:3px;width:40%;margin-bottom:0;}
+.lp-body{padding:6px 7px;}
+.lp-accent-line{height:2px;border-radius:2px;margin-bottom:5px;width:100%;}
+.lp-row{height:5px;background:#e2e8f0;border-radius:2px;margin-bottom:3px;width:80%;}
+.lp-row.short{width:50%;}
+.lp-table{margin-top:5px;}
+.lp-thead{height:7px;margin-bottom:2px;border-radius:2px;}
+.lp-thead-light{opacity:0.5;}
+.lp-thead-line{height:2px!important;margin-bottom:4px;}
+.lp-trow{height:4px;background:#f1f5f9;border-radius:1px;margin-bottom:2px;}
+.lp-footer{margin-top:6px;display:flex;gap:4px;align-items:flex-end;}
+.lp-qr{width:16px;height:16px;background:#e2e8f0;border-radius:2px;flex-shrink:0;}
+.lp-totals{flex:1;}
+.lp-tot-row{height:3px;background:#e2e8f0;border-radius:1px;margin-bottom:2px;}
+.lp-tot-grand{height:4px;border-radius:1px;margin-top:2px;}
+.btn-save{padding:10px 28px;background:var(--blue);color:#fff;border:none;border-radius:8px;font-family:'Tajawal',sans-serif;font-size:14px;font-weight:700;cursor:pointer;}
+.btn-save:hover{background:var(--navy);}
+.btn-p{padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;}
+.btn-p:hover{background:var(--navy);}
+.btn-s{padding:7px 14px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
+.btn-s:hover{border-color:var(--blue);}
+.btn-d{padding:4px 10px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:5px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;}
+.msg{padding:10px 14px;border-radius:8px;font-size:13px;margin-top:12px;display:none;}
+.msg.success{background:#f0fdf4;border:1px solid #86efac;color:var(--green);display:block;}
+.msg.error{background:#fff5f5;border:1px solid #fca5a5;color:var(--red);display:block;}
+.note-box{display:flex;align-items:flex-start;gap:8px;padding:10px 13px;border-radius:8px;margin-bottom:12px;font-size:12px;line-height:1.6;}
+.note-box.blue{background:var(--tint);border:1px solid var(--light);color:var(--navy);}
+.note-box.amber{background:#fffbeb;border:1px solid #fde68a;color:var(--amber);}
+.note-box.green{background:#f0fdf4;border:1px solid #86efac;color:#085041;}
+.export-btn{padding:9px 16px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal',sans-serif;font-size:12px;cursor:pointer;}
+.export-btn:hover{border-color:var(--blue);}
+.rates-table{width:100%;border-collapse:collapse;font-size:12px;}
+.rates-table th{padding:8px 12px;background:var(--tint);color:var(--navy);font-size:10px;font-weight:700;text-align:right;}
+.rates-table td{padding:8px 12px;border-bottom:1px solid var(--tint);}
+.rate-val{font-family:'DM Mono',monospace;font-weight:700;color:var(--blue);}
+@media(max-width:600px){.fg-2,.fg-3,.fg-4{grid-template-columns:1fr;}.radio-group{flex-direction:column;}.section-tabs{gap:3px;}.stab{padding:6px 9px;font-size:11px;}}
+
+/* Force Gregorian calendar on all devices — prevents Hijri on Arabic locale */
+input[type="date"]::-webkit-calendar-picker-indicator { filter: none; }
+input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family: 'DM Mono', monospace; }
+
+/* ═══════════════════════════════════════
+   GULFLEDGER MOBILE RESPONSIVE — ALL PAGES
+   Breakpoint: 768px
+   ═══════════════════════════════════════ */
+@media(max-width:768px){
+  /* NAV */
+  .topnav{padding:8px 12px;gap:6px;}
+  .nav-biz{max-width:100px;}
+  .lang-switch .lang-btn{padding:3px 8px;font-size:10px;}
+  .btn-logout{padding:4px 10px;font-size:11px;}
+
+  /* APP NAV — scrollable, compact */
+  .app-nav{padding:6px 10px;gap:2px;}
+  .app-nav-link{padding:5px 9px;font-size:11px;}
+
+  /* SIDEBAR LAYOUTS — hide sidebar, full width main */
+  .layout{grid-template-columns:1fr !important;}
+  .sidebar{display:none !important;}
+
+  /* STATS GRIDS */
+  .stats{grid-template-columns:1fr 1fr !important;}
+
+  /* MODULE CARDS */
+  .modules{grid-template-columns:1fr !important;}
+
+  /* INVOICE — stack panels */
+  .app{grid-template-columns:1fr !important;}
+  .form-panel{border-left:none;border-bottom:1px solid var(--border);}
+  .invoice-doc{margin-top:12px;}
+
+  /* FORM GRIDS — all single column */
+  .fg-2,.fg-3,.fg-4,.fg-5{grid-template-columns:1fr !important;}
+  .field-row.double,.field-row.triple{grid-template-columns:1fr !important;}
+
+  /* ITEM ROW — description on its own line */
+  .item-row{grid-template-columns:20px 1fr 40px 58px 46px 58px 22px !important;}
+
+  /* PERIOD BAR — stack */
+  .period-bar{flex-direction:column;align-items:stretch;gap:8px;}
+  .period-bar select,.period-bar input{width:100%;}
+
+  /* PAGE HEADER */
+  .page-header{flex-direction:column;gap:10px;}
+
+  /* TABLES — horizontal scroll */
+  .tbl-wrap, .overflow-x-auto, [style*="overflow-x:auto"]{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .tbl{min-width:520px;}
+  .inv-items{min-width:480px;}
+
+  /* INVOICE PARTIES — stack on very small */
+  .inv-parties{grid-template-columns:1fr !important;}
+  .inv-parties > div:first-child{border-right:none;border-bottom:1px solid var(--border);}
+
+  /* CARDS */
+  .card-hdr{flex-direction:column;align-items:flex-start !important;}
+
+  /* SETTINGS TABS */
+  .section-tabs{flex-wrap:wrap;gap:4px;}
+  .stab{padding:6px 10px;font-size:11px;}
+
+  /* VAT FORM */
+  .f201-row{flex-direction:column;gap:8px;}
+  .f201-row > div{flex:none;width:100%;}
+  .f201-stats{grid-template-columns:1fr 1fr !important;}
+
+  /* STATEMENTS */
+  .stmt-row{font-size:12px;}
+
+  /* PADDING */
+  .main{padding:12px !important;}
+  .page{padding:14px 12px !important;}
+  .card-bdy{padding:12px !important;}
+}
+
+@media(max-width:480px){
+  .stats{grid-template-columns:1fr !important;}
+  .nav-name span{display:none;}
+  .item-row{grid-template-columns:16px 1fr 36px 52px 44px 52px 20px !important;}
+  .f201-stats{grid-template-columns:1fr !important;}
+}
 
 
-/* PERSISTENT SIDEBAR */
+/* ── STICKY NAV ── */
+.topnav{position:sticky;top:0;z-index:300;box-shadow:0 2px 8px rgba(0,0,0,0.15);}
+.app-nav{position:sticky;top:44px;z-index:299;box-shadow:0 2px 6px rgba(0,0,0,0.1);}
+
+
+/* ── SIDEBAR + HEADER (added, original design untouched) ── */
 .topnav,.app-nav{display:none!important;}
 .gl-sidebar{width:220px;height:100vh;position:fixed;top:0;right:0;background:var(--navy);display:flex;flex-direction:column;z-index:500;transition:width .25s ease;overflow:hidden;}
 [dir="ltr"] .gl-sidebar{right:auto;left:0;}
-.gl-sidebar.collapsed{width:56px;}
-.gl-sidebar.collapsed .gl-sb-show{display:none!important;}
-.gl-sidebar.collapsed #gl-sb-arrow{transform:rotate(180deg);}
+.gl-sidebar.collapsed{width:54px;}
+.gl-sidebar.collapsed .sb-hide{display:none!important;}
+.gl-sidebar.collapsed .sb-link{justify-content:center;padding:10px 0;}
+.gl-sidebar.collapsed .sb-link span:last-child{display:none;}
+.gl-sidebar.collapsed .sb-biz{display:none;}
+.gl-sidebar.collapsed #sb-arrow{transform:rotate(180deg);}
+[dir="ltr"] .gl-sidebar.collapsed #sb-arrow{transform:rotate(0deg);}
+.sb-top{padding:14px 14px 8px;display:flex;align-items:center;justify-content:space-between;flex-shrink:0;}
+.sb-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
+.sb-logo-bars{display:flex;gap:3px;height:20px;flex-shrink:0;}
+.sb-logo-bar{width:3px;border-radius:2px;}
+.sb-logo-bar:first-child{height:100%;background:#fff;}
+.sb-logo-bar:last-child{height:60%;margin-top:40%;background:rgba(255,255,255,0.45);}
+.sb-logo-name{font-family:'Playfair Display',serif;font-size:15px;color:#fff;white-space:nowrap;}
+.sb-logo-name span{color:var(--light);}
+.sb-collapse{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:5px;color:rgba(255,255,255,0.5);cursor:pointer;font-size:10px;padding:4px 7px;flex-shrink:0;}
+.sb-collapse:hover{background:rgba(255,255,255,0.15);color:#fff;}
+.sb-biz{margin:4px 12px 10px;padding:6px 10px;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.08);border-radius:6px;font-size:11px;color:rgba(255,255,255,0.6);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;}
+.sb-nav{flex:1;overflow-y:auto;padding:6px 8px;display:flex;flex-direction:column;gap:1px;}
+.sb-nav::-webkit-scrollbar{width:0;}
+.sb-sec-label{font-size:9px;font-weight:700;color:rgba(255,255,255,0.25);text-transform:uppercase;letter-spacing:.08em;padding:12px 10px 4px;}
+.sb-link{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:6px;text-decoration:none;color:rgba(255,255,255,0.6);font-size:13px;font-weight:500;transition:all .12s;white-space:nowrap;border:none;background:transparent;cursor:pointer;width:100%;text-align:right;}
+[dir="ltr"] .sb-link{text-align:left;}
+.sb-link:hover{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.9);}
+.sb-link.active{background:rgba(255,255,255,0.12);color:#fff;font-weight:700;border-right:3px solid var(--sky);}
+[dir="ltr"] .sb-link.active{border-right:none;border-left:3px solid var(--sky);}
+.sb-link-icon{font-size:14px;flex-shrink:0;width:20px;text-align:center;opacity:.7;}
+.sb-link.active .sb-link-icon{opacity:1;}
+.sb-bottom{padding:6px 8px 12px;flex-shrink:0;display:flex;flex-direction:column;gap:1px;}
+.sb-hr{height:1px;background:rgba(255,255,255,0.08);margin:6px 4px;}
+.sb-logout{color:rgba(255,255,255,0.4);}
+.sb-logout:hover{color:#f87171;background:rgba(248,113,113,0.1);}
+/* Header */
+.gl-header{height:48px;background:var(--white);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;padding:0 20px;position:sticky;top:0;z-index:400;}
+.gl-h-title{font-size:15px;font-weight:700;color:var(--navy);}
+.gl-h-right{display:flex;align-items:center;gap:8px;}
+.gl-h-add{display:flex;align-items:center;gap:4px;padding:6px 14px;background:var(--blue);color:#fff;border:none;border-radius:6px;font-family:'Tajawal',sans-serif;font-size:12px;font-weight:700;cursor:pointer;}
+.gl-h-add:hover{background:var(--navy);}
+.gl-h-lang{display:flex;border:1px solid var(--border);border-radius:6px;overflow:hidden;}
+.gl-h-lang-btn{padding:4px 10px;font-size:11px;cursor:pointer;border:none;background:transparent;color:var(--muted);font-family:'Tajawal',sans-serif;font-weight:500;}
+.gl-h-lang-btn.on{background:var(--sky);color:#fff;}
+.gl-h-user{display:flex;align-items:center;gap:6px;padding:3px 10px 3px 4px;background:var(--tint);border:1px solid var(--border);border-radius:16px;font-size:12px;color:var(--ink);}
+.gl-h-av{width:26px;height:26px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;}
+/* Page content wrapper */
 .gl-page-content{margin-right:220px;min-height:100vh;transition:margin-right .25s ease;}
 [dir="ltr"] .gl-page-content{margin-right:0;margin-left:220px;}
-body.gl-collapsed .gl-page-content{margin-right:56px;}
-[dir="ltr"] body.gl-collapsed .gl-page-content{margin-right:0;margin-left:56px;}
-.gl-sb-header{display:flex;align-items:center;justify-content:space-between;padding:16px 14px 10px;flex-shrink:0;}
-.gl-sb-logo{display:flex;align-items:center;gap:8px;text-decoration:none;overflow:hidden;}
-.gl-sb-logo-bars{display:flex;gap:3px;height:20px;flex-shrink:0;}
-.gl-sb-bar{width:3px;border-radius:2px;}
-.gl-sb-bar:first-child{height:100%;}
-.gl-sb-bar:last-child{height:60%;margin-top:40%;}
-.gl-sb-logo-name{font-family:'Playfair Display',serif;font-size:15px;color:#fff;white-space:nowrap;}
-.gl-sb-collapse-btn{background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:rgba(255,255,255,0.6);cursor:pointer;font-size:10px;padding:4px 7px;flex-shrink:0;}
-.gl-sb-biz{margin:0 12px 12px;padding:6px 10px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.12);border-radius:7px;font-size:11px;color:var(--light);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;flex-shrink:0;}
-.gl-sb-nav{flex:1;overflow-y:auto;padding:4px 8px;display:flex;flex-direction:column;gap:2px;}
-.gl-sb-link{display:flex;align-items:center;gap:10px;padding:9px 10px;border-radius:8px;text-decoration:none;color:rgba(255,255,255,0.65);font-family:'Tajawal',sans-serif;font-size:13px;font-weight:500;transition:background .15s,color .15s;white-space:nowrap;border:none;background:transparent;cursor:pointer;width:100%;text-align:right;}
-[dir="ltr"] .gl-sb-link{text-align:left;}
-.gl-sb-link:hover{background:rgba(255,255,255,0.1);color:#fff;}
-.gl-sb-link.active{background:rgba(255,255,255,0.15);color:#fff;font-weight:700;border-right:3px solid var(--sky);}
-[dir="ltr"] .gl-sb-link.active{border-right:none;border-left:3px solid var(--sky);}
-.gl-sb-icon{font-size:15px;flex-shrink:0;width:20px;text-align:center;}
-.gl-sb-bottom{padding:8px 8px 12px;flex-shrink:0;display:flex;flex-direction:column;gap:2px;}
-.gl-sb-divider{height:1px;background:rgba(255,255,255,0.1);margin:6px 4px 8px;}
-.gl-sb-lang{display:flex;gap:4px;padding:4px 10px 8px;}
-.gl-lang-btn{padding:4px 12px;font-size:11px;cursor:pointer;border:1px solid rgba(255,255,255,0.2);border-radius:5px;background:transparent;color:rgba(255,255,255,0.6);font-family:'Tajawal',sans-serif;}
-.gl-lang-btn.on{background:var(--sky);color:#fff;border-color:var(--sky);}
-.gl-sb-logout{color:rgba(255,255,255,0.5);}
-.gl-sb-logout:hover{color:#fca5a5;background:rgba(220,38,38,0.15);}
-.gl-sb-mob-btn{display:none;position:fixed;top:12px;right:12px;z-index:600;background:var(--navy);color:#fff;border:none;border-radius:8px;width:40px;height:40px;font-size:18px;cursor:pointer;align-items:center;justify-content:center;}
-[dir="ltr"] .gl-sb-mob-btn{right:auto;left:12px;}
-.gl-sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:490;}
-@media(max-width:768px){.gl-sidebar{width:240px!important;transform:translateX(100%);transition:transform .25s ease;}[dir="ltr"] .gl-sidebar{transform:translateX(-100%);}.gl-sidebar.mob-open{transform:translateX(0)!important;}.gl-page-content{margin-right:0!important;margin-left:0!important;}.gl-sb-mob-btn{display:flex;}}
+body.gl-collapsed .gl-page-content{margin-right:54px;}
+[dir="ltr"] body.gl-collapsed .gl-page-content{margin-right:0;margin-left:54px;}
+/* Quick-add dropdown */
+.gl-qa-menu{display:none;position:absolute;top:46px;right:0;background:var(--white);border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 30px rgba(0,0,0,0.12);padding:6px;min-width:180px;z-index:450;}
+[dir="ltr"] .gl-qa-menu{right:auto;left:0;}
+.gl-qa-menu.open{display:block;}
+.gl-qa-item{display:flex;align-items:center;gap:8px;padding:9px 12px;border-radius:6px;cursor:pointer;font-size:13px;color:var(--ink);text-decoration:none;}
+.gl-qa-item:hover{background:var(--tint);}
+/* Mobile */
+.sb-mob-btn{display:none;position:fixed;top:10px;right:10px;z-index:600;background:var(--navy);color:#fff;border:none;border-radius:8px;width:40px;height:40px;font-size:18px;cursor:pointer;align-items:center;justify-content:center;}
+[dir="ltr"] .sb-mob-btn{right:auto;left:10px;}
+.sb-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:490;}
+@media(max-width:768px){.gl-sidebar{width:240px!important;transform:translateX(100%);transition:transform .25s ease;}[dir="ltr"] .gl-sidebar{transform:translateX(-100%);}.gl-sidebar.mob-open{transform:translateX(0)!important;}.gl-page-content{margin-right:0!important;margin-left:0!important;}.sb-mob-btn{display:flex;}.sb-collapse{display:none;}}
 
 </style>
 </head>
 <body>
+<!-- GL SIDEBAR -->
 <div class="gl-sidebar" id="gl-sidebar">
-  <div class="gl-sb-header">
-    <a href="dashboard.html" class="gl-sb-logo"><div class="gl-sb-logo-bars"><div class="gl-sb-bar" style="background:#fff;"></div><div class="gl-sb-bar" style="background:rgba(255,255,255,0.45);"></div></div><span class="gl-sb-logo-name gl-sb-show">Gulf<span style="color:var(--light);">Ledger</span></span></a>
-    <button class="gl-sb-collapse-btn" onclick="toggleGLSidebar()"><span id="gl-sb-arrow">◀</span></button>
+  <div class="sb-top">
+    <a href="dashboard.html" class="sb-logo">
+      <div class="sb-logo-bars"><div class="sb-logo-bar"></div><div class="sb-logo-bar"></div></div>
+      <span class="sb-logo-name sb-hide">Gulf<span>Ledger</span></span>
+    </a>
+    <button class="sb-collapse" onclick="toggleGLSB()"><span id="sb-arrow">&#9664;</span></button>
   </div>
-  <div class="gl-sb-biz gl-sb-show"><span id="biz-name">...</span></div>
-  <nav class="gl-sb-nav">    <a href="dashboard.html" class="gl-sb-link"><span class="gl-sb-icon">⊞</span><span class="gl-sb-show" data-ar="الرئيسية" data-en="Dashboard">الرئيسية</span></a>
-    <a href="inventory.html" class="gl-sb-link"><span class="gl-sb-icon">📦</span><span class="gl-sb-show" data-ar="المنتجات والمخزون" data-en="Products & Stock">المنتجات والمخزون</span></a>
-    <a href="invoices.html" class="gl-sb-link"><span class="gl-sb-icon">🧾</span><span class="gl-sb-show" data-ar="المبيعات والفواتير" data-en="Sales & Invoices">المبيعات والفواتير</span></a>
-    <a href="expenses.html" class="gl-sb-link"><span class="gl-sb-icon">💸</span><span class="gl-sb-show" data-ar="المصاريف" data-en="Expenses">المصاريف</span></a>
-    <a href="ledger.html" class="gl-sb-link"><span class="gl-sb-icon">📒</span><span class="gl-sb-show" data-ar="المحاسبة" data-en="Accounting">المحاسبة</span></a>
-    <a href="vat.html" class="gl-sb-link"><span class="gl-sb-icon">🧮</span><span class="gl-sb-show" data-ar="ضريبة القيمة المضافة" data-en="VAT">ضريبة القيمة المضافة</span></a>
-    <a href="reports.html" class="gl-sb-link"><span class="gl-sb-icon">📊</span><span class="gl-sb-show" data-ar="التقارير" data-en="Reports">التقارير</span></a></nav>
-  <div class="gl-sb-bottom">
-    <div class="gl-sb-divider"></div>
-    <div class="gl-sb-lang gl-sb-show"><button class="gl-lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button><button class="gl-lang-btn" id="btn-en" onclick="setLang('en')">EN</button></div>
-    <a href="settings.html" class="gl-sb-link active"><span class="gl-sb-icon">⚙️</span><span class="gl-sb-show" data-ar="الإعدادات" data-en="Settings">الإعدادات</span></a>
-    <button class="gl-sb-link gl-sb-logout" onclick="logout()"><span class="gl-sb-icon">↩</span><span class="gl-sb-show" data-ar="خروج" data-en="Sign Out">خروج</span></button>
+  <div class="sb-biz sb-hide" id="gl-biz-name">...</div>
+  <nav class="sb-nav">
+    <div class="sb-sec-label sb-hide" data-ar="القائمة الرئيسية" data-en="Main Menu">القائمة الرئيسية</div>
+    <a href="dashboard.html" class="sb-link" data-ar="الرئيسية" data-en="Dashboard"><span class="sb-link-icon">⊞</span><span>الرئيسية</span></a>
+    <a href="inventory.html" class="sb-link" data-ar="المنتجات والمخزون" data-en="Products & Stock"><span class="sb-link-icon">📦</span><span>المنتجات والمخزون</span></a>
+    <a href="invoices.html" class="sb-link" data-ar="المبيعات والفواتير" data-en="Sales & Invoices"><span class="sb-link-icon">🧾</span><span>المبيعات والفواتير</span></a>
+    <a href="expenses.html" class="sb-link" data-ar="المصاريف" data-en="Expenses"><span class="sb-link-icon">💸</span><span>المصاريف</span></a>
+    <a href="ledger.html" class="sb-link" data-ar="المحاسبة" data-en="Accounting"><span class="sb-link-icon">📒</span><span>المحاسبة</span></a>
+    <a href="vat.html" class="sb-link" data-ar="ضريبة القيمة المضافة" data-en="VAT"><span class="sb-link-icon">🧮</span><span>ضريبة القيمة المضافة</span></a>
+    <a href="reports.html" class="sb-link" data-ar="التقارير" data-en="Reports"><span class="sb-link-icon">📊</span><span>التقارير</span></a>
+
+    <div class="sb-sec-label sb-hide" data-ar="التقارير المالية" data-en="Financial">التقارير المالية</div>
+    <a href="statements.html" class="sb-link" data-ar="القوائم المالية" data-en="Statements"><span class="sb-link-icon">📑</span><span>القوائم المالية</span></a>
+    <a href="purchasing.html" class="sb-link" data-ar="المشتريات" data-en="Purchasing"><span class="sb-link-icon">🛒</span><span>المشتريات</span></a>
+  </nav>
+  <div class="sb-bottom">
+    <div class="sb-hr"></div>
+    <a href="settings.html" class="sb-link active" data-ar="الإعدادات" data-en="Settings"><span class="sb-link-icon">⚙️</span><span class="sb-hide">الإعدادات</span></a>
+    <button class="sb-link sb-logout" onclick="logout()" data-ar="خروج" data-en="Sign Out"><span class="sb-link-icon">↩</span><span class="sb-hide">خروج</span></button>
   </div>
 </div>
-<div class="gl-sb-overlay" id="gl-sb-overlay" onclick="closeSidebar()"></div>
-<button class="gl-sb-mob-btn" id="gl-mob-btn" onclick="toggleGLSidebar()">☰</button>
+<div class="sb-overlay" id="sb-overlay" onclick="closeGLSB()"></div>
+<button class="sb-mob-btn" id="sb-mob-btn" onclick="toggleGLSB()">&#9776;</button>
+
 <div class="gl-page-content">
+<!-- GL HEADER -->
+<div class="gl-header">
+  <span class="gl-h-title" data-ar="الإعدادات" data-en="Settings">الإعدادات</span>
+  <div class="gl-h-right" style="position:relative;">
+    <button class="gl-h-add" onclick="document.getElementById('gl-qa-menu').classList.toggle('open')"><span style="font-size:16px;font-weight:300;">+</span> إضافة</button>
+    <div class="gl-qa-menu" id="gl-qa-menu">
+      <a href="invoices.html" class="gl-qa-item">🧾 فاتورة جديدة</a>
+      <a href="expenses.html" class="gl-qa-item">💸 مصروف جديد</a>
+      <a href="inventory.html" class="gl-qa-item">📦 منتج جديد</a>
+    </div>
+    <div class="gl-h-lang">
+      <button class="gl-h-lang-btn" id="gl-btn-ar" onclick="setLang('ar')">ع</button>
+      <button class="gl-h-lang-btn" id="gl-btn-en" onclick="setLang('en')">EN</button>
+    </div>
+    <div class="gl-h-user"><div class="gl-h-av" id="gl-user-av">م</div><span id="gl-user-name">...</span></div>
+  </div>
+</div>
+
+
+
+<div class="topnav">
+  <a href="dashboard.html" class="nav-logo">
+    <div class="nav-bars"><div class="nav-bar" style="background:#fff;"></div><div class="nav-bar" style="background:rgba(255,255,255,0.45);"></div></div>
+    <span class="nav-name">Gulf<span style="color:var(--light);">Ledger</span></span>
+  </a>
+    <div class="nav-right">
+    <a href="settings.html" class="nav-settings-btn" title="الإعدادات">⚙️</a>
+    <div class="lang-switch">
+      <button class="lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button>
+      <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
+    </div>
+    <div class="nav-divider"></div>
+    <span class="nav-biz" id="biz-name">...</span>
+    <button class="btn-logout" onclick="logout()" data-ar="خروج" data-en="Sign Out">خروج</button>
+  </div>
+</div>
+
+<div class="app-nav" id="app-nav">
+  <a href="dashboard.html" class="app-nav-link" data-ar="الرئيسية" data-en="Dashboard">الرئيسية</a>
+  <a href="inventory.html" class="app-nav-link" data-ar="المنتجات والمخزون" data-en="Products & Stock">المنتجات والمخزون</a>
+  <a href="invoices.html" class="app-nav-link" data-ar="المبيعات والفواتير" data-en="Sales & Invoices">المبيعات والفواتير</a>
+  <a href="expenses.html" class="app-nav-link" data-ar="المصاريف" data-en="Expenses">المصاريف</a>
+  <a href="vat.html" class="app-nav-link" data-ar="ضريبة القيمة المضافة" data-en="VAT">ضريبة القيمة المضافة</a>
+  <a href="reports.html" class="app-nav-link" data-ar="التقارير" data-en="Reports">التقارير</a>
+  <a href="settings.html" class="app-nav-link active" data-ar="الإعدادات" data-en="Settings">الإعدادات</a>
+  <a href="accounting.html" class="app-nav-link" id="nav-accounting" data-ar="المحاسبة" data-en="Accounting" style="display:none;">المحاسبة</a>
+</div>
+<script>
+(function(){
+  var mode = localStorage.getItem('gl_accountant_mode');
+  if(mode === 'true'){
+    var el = document.getElementById('nav-accounting');
+    if(el) el.style.display = 'inline-block';
+  }
+})();
+</script>
+
 <div class="page">
+  <h1 class="page-title" data-ar="إعدادات المنشأة" data-en="Business Settings">إعدادات المنشأة</h1>
+  <p class="page-sub" data-ar="هذه البيانات تُستخدم في الفواتير والقوائم المالية وحسابات الضرائب — أدخلها بدقة" data-en="Used in invoices, financial statements and tax calculations — enter accurately">هذه البيانات تُستخدم في الفواتير والقوائم المالية وحسابات الضرائب</p>
+
   <div class="section-tabs">
-    <button class="stab active" onclick="goSection('identity')" data-ar="الهوية التجارية" data-en="Business Identity">Business Identity</button>
-    <button class="stab" onclick="goSection('invoicing')" data-ar="إعدادات الفواتير" data-en="Invoice Settings">Invoice Settings</button>
-    <button class="stab" onclick="goSection('advanced')" data-ar="متقدم" data-en="Advanced">Advanced</button>
+    <button class="stab active" onclick="goSection('identity')"  data-ar="الهوية التجارية"  data-en="Business Identity">الهوية التجارية</button>
+    <button class="stab"        onclick="goSection('address')"   data-ar="العنوان والتواصل" data-en="Address & Contact">العنوان والتواصل</button>
+    <button class="stab"        onclick="goSection('ownership')" data-ar="الملكية والضرائب" data-en="Ownership & Tax">الملكية والضرائب</button>
+    <button class="stab"        onclick="goSection('branding')"  data-ar="الهوية البصرية"   data-en="Branding & Logo">الهوية البصرية</button>
+    <button class="stab"        onclick="goSection('team')"      data-ar="الفريق 🔷"         data-en="Team 🔷">الفريق 🔷</button>
+    <button class="stab"        onclick="goSection('security')"  data-ar="الأمان"            data-en="Security">الأمان</button>
+    <button class="stab"        onclick="goSection('advanced')"  data-ar="متقدم"             data-en="Advanced">متقدم</button>
+    <button class="stab"        onclick="goSection('data')"      data-ar="البيانات"          data-en="Data">البيانات</button>
   </div>
 
   <!-- IDENTITY -->
   <div class="section active" id="sec-identity">
     <div class="card">
-      <div class="card-hdr"><span class="card-ttl" data-ar="معلومات المنشأة" data-en="Business Information">Business Information</span></div>
-      <div class="card-bdy">
-        <div class="fg fg-2">
-          <div class="fld"><label data-ar="اسم المنشأة (عربي)" data-en="Business Name (Arabic)">Business Name (Arabic)</label><input type="text" id="s-name-ar" data-placeholder-ar="الاسم بالعربية" data-placeholder-en="Arabic name" placeholder="Arabic name"></div>
-          <div class="fld"><label data-ar="اسم المنشأة (إنجليزي)" data-en="Business Name (English)">Business Name (English)</label><input type="text" id="s-name" data-placeholder-ar="الاسم بالإنجليزية" data-placeholder-en="English name" placeholder="English name"></div>
+      <div class="card-title" data-ar="الاسم التجاري" data-en="Business Name">الاسم التجاري</div>
+      <div class="fg fg-2">
+        <div class="fld"><label data-ar="الاسم بالعربية *" data-en="Name in Arabic *">الاسم بالعربية *</label><input type="text" id="s-name-ar" placeholder="شركة النور للتجارة" dir="rtl"></div>
+        <div class="fld"><label data-ar="الاسم بالإنجليزية" data-en="Name in English">الاسم بالإنجليزية</label><input type="text" id="s-name" placeholder="Al-Noor Trading Co." dir="ltr"></div>
+      </div>
+      <div class="fg fg-3">
+        <div class="fld">
+          <label data-ar="الرقم الضريبي (TRN) *" data-en="VAT Number (TRN) *">الرقم الضريبي *</label>
+          <input type="text" id="s-trn" placeholder="300000000000003" maxlength="15" dir="ltr">
+          <span class="hint" data-ar="15 رقماً من شهادة زاتكا" data-en="15 digits from ZATCA certificate">15 رقماً من شهادة زاتكا</span>
         </div>
-        <div class="fg fg-2">
-          <div class="fld"><label data-ar="الرقم الضريبي (TRN)" data-en="Tax Registration No. (TRN)">Tax Registration No.</label><input type="text" id="s-trn" placeholder="300000000000003" maxlength="15"><span class="hint" data-ar="15 رقماً من شهادة زاتكا" data-en="15 digits from ZATCA">15 digits from ZATCA</span></div>
-          <div class="fld"><label data-ar="رقم السجل التجاري" data-en="Commercial Registration No.">Commercial Reg. No.</label><input type="text" id="s-cr" placeholder="1010000000"></div>
+        <div class="fld"><label data-ar="السجل التجاري (CR) *" data-en="CR Number *">السجل التجاري *</label><input type="text" id="s-cr" placeholder="1010000000" dir="ltr"></div>
+        <div class="fld">
+          <label data-ar="الشكل القانوني" data-en="Legal Form">الشكل القانوني</label>
+          <select id="s-legal-form" onchange="onLegalFormChange()">
+            <option value="establishment" data-ar="مؤسسة فردية"                     data-en="Sole Establishment">مؤسسة فردية</option>
+            <option value="llc"           data-ar="شركة ذات مسؤولية محدودة (LLC)"   data-en="LLC">شركة ذات مسؤولية محدودة</option>
+            <option value="jsc"           data-ar="شركة مساهمة"                      data-en="Joint Stock">شركة مساهمة</option>
+            <option value="branch"        data-ar="فرع شركة أجنبية"                  data-en="Foreign Branch">فرع شركة أجنبية</option>
+            <option value="professional"  data-ar="شركة مهنية"                       data-en="Professional Co.">شركة مهنية</option>
+          </select>
         </div>
-        <div class="fg fg-3">
-          <div class="fld"><label data-ar="المدينة" data-en="City">City</label><input type="text" id="s-city" data-placeholder-ar="الرياض" data-placeholder-en="Riyadh" placeholder="Riyadh"></div>
-          <div class="fld"><label data-ar="العنوان" data-en="Address">Address</label><input type="text" id="s-address" data-placeholder-ar="اسم الشارع" data-placeholder-en="Street name" placeholder="Street"></div>
-          <div class="fld"><label data-ar="الرمز البريدي" data-en="Postal Code">Postal Code</label><input type="text" id="s-postal" placeholder="12345"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" data-ar="النشاط التجاري" data-en="Business Activity">النشاط التجاري</div>
+      <div class="note-box blue">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+        <span data-ar="نوع النشاط يؤثر على: المخزون، تكلفة المبيعات، معاملة VAT، ودليل الحسابات المقترح" data-en="Business type affects: inventory, COGS, VAT treatment, and suggested chart of accounts">نوع النشاط يؤثر على: المخزون، VAT، دليل الحسابات</span>
+      </div>
+      <div class="fg fg-2">
+        <div class="fld">
+          <label data-ar="نوع النشاط" data-en="Business Type">نوع النشاط</label>
+          <select id="s-type" onchange="onBusinessTypeChange()">
+            <option value="services"    data-ar="خدمات / استشارات"       data-en="Services / Consulting">خدمات / استشارات</option>
+            <option value="trading"     data-ar="تجارة جملة / توزيع"      data-en="Trading / Wholesale">تجارة جملة / توزيع</option>
+            <option value="retail"      data-ar="تجزئة / بقالة"           data-en="Retail / Grocery">تجزئة / بقالة</option>
+            <option value="contracting" data-ar="مقاولات / إنشاءات"       data-en="Contracting">مقاولات</option>
+            <option value="restaurant"  data-ar="مطاعم / أغذية ومشروبات"  data-en="Restaurant / F&B">مطاعم</option>
+            <option value="healthcare"  data-ar="رعاية صحية"              data-en="Healthcare">رعاية صحية</option>
+            <option value="education"   data-ar="تعليم خاص"               data-en="Private Education">تعليم خاص</option>
+            <option value="real_estate" data-ar="عقارات / تأجير"          data-en="Real Estate">عقارات</option>
+            <option value="technology"  data-ar="تقنية المعلومات"          data-en="Technology">تقنية المعلومات</option>
+            <option value="transport"   data-ar="نقل ولوجستيات"           data-en="Transport">نقل ولوجستيات</option>
+            <option value="other"       data-ar="أخرى"                    data-en="Other">أخرى</option>
+          </select>
         </div>
-        <div class="fg fg-2">
-          <div class="fld"><label data-ar="الهاتف" data-en="Phone">Phone</label><input type="text" id="s-phone" placeholder="+966 5x xxx xxxx"></div>
-          <div class="fld"><label data-ar="البريد الإلكتروني" data-en="Email">Email</label><input type="text" id="s-email" placeholder="info@company.com"></div>
+        <div class="fld">
+          <label data-ar="تكرار إقرار VAT" data-en="VAT Filing Frequency">تكرار إقرار VAT</label>
+          <select id="s-vat-freq">
+            <option value="quarterly" data-ar="ربع سنوي (أقل من 40 مليون ريال)" data-en="Quarterly (under SAR 40M)">ربع سنوي</option>
+            <option value="monthly"   data-ar="شهري (أكثر من 40 مليون ريال)"    data-en="Monthly (over SAR 40M)">شهري</option>
+          </select>
         </div>
-        <button class="btn-p" onclick="saveBusiness()" data-ar="💾 حفظ البيانات" data-en="💾 Save">💾 Save</button>
+      </div>
+      <div id="biz-type-impact" style="padding:10px 13px;background:var(--tint);border-radius:7px;font-size:12px;color:var(--navy);line-height:1.7;margin-top:4px;"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" data-ar="السنة المالية" data-en="Fiscal Year">السنة المالية</div>
+      <div class="fg fg-2">
+        <div class="fld">
+          <label data-ar="نهاية السنة المالية" data-en="Fiscal Year End">نهاية السنة المالية</label>
+          <select id="s-fiscal-end">
+            <option value="12-31" data-ar="31 ديسمبر (الأكثر شيوعاً)" data-en="31 December (most common)">31 ديسمبر</option>
+            <option value="03-31" data-ar="31 مارس"   data-en="31 March">31 مارس</option>
+            <option value="06-30" data-ar="30 يونيو"  data-en="30 June">30 يونيو</option>
+            <option value="09-30" data-ar="30 سبتمبر" data-en="30 September">30 سبتمبر</option>
+          </select>
+        </div>
+        <div class="fld">
+          <label data-ar="تاريخ التأسيس" data-en="Establishment Date">تاريخ التأسيس</label>
+          <input type="date" lang="en" id="s-founded" dir="ltr">
+        </div>
+      </div>
+    </div>
+    <button class="btn-save" id="btn-save-settings" onclick="btnAction(this, saveSettings, L==='ar'?'تم الحفظ':'Saved')" data-ar="💾 حفظ الإعدادات" data-en="💾 Save Settings">💾 حفظ الإعدادات</button>
+    <div class="msg" id="identity-msg"></div>
+  </div>
+
+  <!-- ADDRESS -->
+  <div class="section" id="sec-address">
+    <div class="card">
+      <div class="card-title" data-ar="بيانات الاتصال" data-en="Contact Details">بيانات الاتصال</div>
+      <div class="fg fg-2">
+        <div class="fld"><label data-ar="البريد الإلكتروني" data-en="Email">البريد الإلكتروني</label><input type="email" id="s-email" placeholder="info@company.com" dir="ltr"></div>
+        <div class="fld"><label data-ar="رقم الهاتف" data-en="Phone">رقم الهاتف</label><input type="tel" id="s-phone" placeholder="0500000000" dir="ltr"></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-title" data-ar="العنوان الوطني (إلزامي في الفاتورة الضريبية)" data-en="National Address (mandatory on tax invoices)">العنوان الوطني</div>
+      <div class="note-box blue">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+        <span data-ar="العنوان الوطني إلزامي في الفاتورة الضريبية وفق زاتكا — يشمل رقم المبنى والحي والمدينة والرمز البريدي" data-en="National address mandatory on ZATCA tax invoices — building number, district, city, postal code">العنوان الوطني إلزامي في الفاتورة الضريبية وفق زاتكا</span>
+      </div>
+      <div class="fg fg-4">
+        <div class="fld"><label data-ar="رقم المبنى *" data-en="Building No. *">رقم المبنى *</label><input type="text" id="s-building" placeholder="1234" dir="ltr"></div>
+        <div class="fld"><label data-ar="اسم الشارع *" data-en="Street *">الشارع *</label><input type="text" id="s-address" placeholder="طريق الملك فهد"></div>
+        <div class="fld"><label data-ar="الحي *" data-en="District *">الحي *</label><input type="text" id="s-district" placeholder="العليا"></div>
+        <div class="fld"><label data-ar="المدينة *" data-en="City *">المدينة *</label><input type="text" id="s-city" placeholder="الرياض"></div>
+      </div>
+      <div class="fg fg-3">
+        <div class="fld"><label data-ar="الرمز البريدي *" data-en="Postal Code *">الرمز البريدي *</label><input type="text" id="s-postal" placeholder="12345" maxlength="5" dir="ltr"></div>
+        <div class="fld"><label data-ar="الرمز الإضافي" data-en="Additional Code">الرمز الإضافي</label><input type="text" id="s-additional-code" placeholder="6789" maxlength="4" dir="ltr"></div>
+        <div class="fld">
+          <label data-ar="الدولة" data-en="Country">الدولة</label>
+          <select id="s-country">
+            <option value="SA" data-ar="المملكة العربية السعودية" data-en="Saudi Arabia">المملكة العربية السعودية</option>
+            <option value="AE" data-ar="الإمارات" data-en="UAE">الإمارات</option>
+            <option value="KW" data-ar="الكويت"   data-en="Kuwait">الكويت</option>
+            <option value="BH" data-ar="البحرين"  data-en="Bahrain">البحرين</option>
+            <option value="QA" data-ar="قطر"      data-en="Qatar">قطر</option>
+            <option value="OM" data-ar="عُمان"    data-en="Oman">عُمان</option>
+          </select>
+        </div>
+      </div>
+    </div>
+    <button class="btn-save" id="btn-save-settings" onclick="btnAction(this, saveSettings, L==='ar'?'تم الحفظ':'Saved')" data-ar="💾 حفظ الإعدادات" data-en="💾 Save Settings">💾 حفظ الإعدادات</button>
+    <div class="msg" id="address-msg"></div>
+  </div>
+
+  <!-- OWNERSHIP & TAX -->
+  <div class="section" id="sec-ownership">
+    <div class="card">
+      <div class="card-title">
+        <span data-ar="هيكل الملكية" data-en="Ownership Structure">هيكل الملكية</span>
+        <span class="card-badge" data-ar="يحدد: زكاة أم ضريبة دخل أم كليهما" data-en="Determines: Zakat, CIT, or both">يحدد نوع الضريبة</span>
+      </div>
+      <div class="note-box amber">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span data-ar="سعودي/خليجي = زكاة 2.5% | أجنبي = ضريبة دخل 20% | مختلط = يُحسب بالتناسب منفصلاً — لا يتقاصّان" data-en="Saudi/GCC = Zakat 2.5% | Foreign = CIT 20% | Mixed = calculated proportionately and separately">سعودي/خليجي = زكاة 2.5% | أجنبي = ضريبة دخل 20% | مختلط = بالتناسب منفصلاً</span>
+      </div>
+      <div style="margin-bottom:14px;">
+        <label style="font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;display:block;margin-bottom:8px;" data-ar="نوع الملكية" data-en="Ownership Type">نوع الملكية</label>
+        <div class="radio-group">
+          <label class="radio-opt selected" id="opt-saudi"   onclick="setOwnershipType('saudi')"><span data-ar="🇸🇦 سعودي/خليجي 100%" data-en="🇸🇦 100% Saudi/GCC">🇸🇦 سعودي/خليجي 100%</span></label>
+          <label class="radio-opt"          id="opt-foreign" onclick="setOwnershipType('foreign')"><span data-ar="🌍 أجنبي 100%" data-en="🌍 100% Foreign">🌍 أجنبي 100%</span></label>
+          <label class="radio-opt"          id="opt-mixed"   onclick="setOwnershipType('mixed')"><span data-ar="🤝 ملكية مختلطة" data-en="🤝 Mixed Ownership">🤝 ملكية مختلطة</span></label>
+        </div>
+      </div>
+      <div id="partners-section" style="display:none;">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;" data-ar="تفاصيل الشركاء (من السجل التجاري)" data-en="Partner Details (from CR)">تفاصيل الشركاء</div>
+        <table class="own-table">
+          <thead><tr>
+            <th data-ar="اسم الشريك" data-en="Partner Name">اسم الشريك</th>
+            <th data-ar="الجنسية" data-en="Nationality">الجنسية</th>
+            <th data-ar="النوع" data-en="Type">النوع</th>
+            <th data-ar="نسبة %" data-en="% Share">نسبة %</th>
+            <th></th>
+          </tr></thead>
+          <tbody id="partners-tbody"></tbody>
+          <tfoot><tr>
+            <td colspan="3" style="padding:8px 12px;font-size:11px;font-weight:700;color:var(--muted);" data-ar="الإجمالي" data-en="Total">الإجمالي</td>
+            <td class="own-total" id="own-total">0%</td><td></td>
+          </tr></tfoot>
+        </table>
+        <button class="btn-s" onclick="addPartner()" style="margin-top:8px;" data-ar="+ إضافة شريك" data-en="+ Add Partner">+ إضافة شريك</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" data-ar="معاينة الالتزامات الضريبية" data-en="Tax Obligation Preview">معاينة الالتزامات الضريبية</div>
+      <div id="tax-preview"><div style="text-align:center;padding:16px;color:var(--muted);font-size:12px;" data-ar="احفظ هيكل الملكية لعرض الالتزامات" data-en="Save ownership to view obligations">احفظ هيكل الملكية لعرض الالتزامات</div></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" data-ar="معدلات الضرائب المعتمدة (زاتكا)" data-en="Current Tax Rates (ZATCA)">معدلات الضرائب المعتمدة</div>
+      <div class="note-box green">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+        <span data-ar="هذه المعدلات مُحدَّثة — عند تغيير أي معدل من زاتكا يُحدَّث تلقائياً ويؤثر على جميع حسابات النظام" data-en="Rates auto-update — any ZATCA rate change updates here and affects all system calculations">معدلات مُحدَّثة — أي تغيير من زاتكا يؤثر على جميع الحسابات تلقائياً</span>
+      </div>
+      <table class="rates-table">
+        <thead><tr>
+          <th data-ar="نوع الضريبة" data-en="Tax Type">نوع الضريبة</th>
+          <th data-ar="المعدل" data-en="Rate">المعدل</th>
+          <th data-ar="يُطبَّق على" data-en="Applies to">يُطبَّق على</th>
+        </tr></thead>
+        <tbody id="tax-rates-tbody"></tbody>
+      </table>
+    </div>
+
+    <button class="btn-save" onclick="btnAction(this, saveOwnership, L==='ar'?'تم الحفظ':'Saved')" data-ar="💾 حفظ هيكل الملكية" data-en="💾 Save Ownership">💾 حفظ هيكل الملكية</button>
+    <div class="msg" id="ownership-msg"></div>
+  </div>
+
+  <!-- BRANDING -->
+  <div class="section" id="sec-branding">
+
+    <!-- LOGO -->
+    <div class="card">
+      <div class="card-title" data-ar="شعار المنشأة" data-en="Business Logo">شعار المنشأة</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:12px;" data-ar="ارفع أي صورة بأي حجم أو شكل — سنقصّها تلقائياً لتناسب الفاتورة." data-en="Upload any image in any size or shape — we'll crop it automatically to fit the invoice.">ارفع أي صورة بأي حجم أو شكل — سنقصّها تلقائياً لتناسب الفاتورة.</p>
+
+      <!-- Upload zone -->
+      <div class="logo-zone" id="logo-zone" onclick="document.getElementById('logo-input').click()">
+        <img id="logo-preview" src="" alt="" style="display:none;width:80px;height:80px;object-fit:cover;border-radius:10px;margin:0 auto 8px;border:1px solid var(--border);">
+        <div id="logo-zone-text" style="color:var(--muted);">
+          <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="margin:0 auto 6px;display:block;"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/></svg>
+          <div style="font-size:12px;" data-ar="اضغط لرفع الشعار — أي حجم أو شكل" data-en="Click to upload — any size or shape">اضغط لرفع الشعار — أي حجم أو شكل</div>
+          <div style="font-size:10px;color:var(--muted);margin-top:4px;" data-ar="PNG أو JPG — سيتم القص التلقائي" data-en="PNG or JPG — auto-cropped">PNG أو JPG — سيتم القص التلقائي</div>
+        </div>
+        <input type="file" id="logo-input" accept="image/png,image/jpeg,image/webp,image/gif" style="display:none;" onchange="openLogoCropper(event)">
+      </div>
+      <div style="margin-top:10px;display:flex;gap:8px;">
+        <button class="btn-s" onclick="document.getElementById('logo-input').click()" data-ar="تغيير الشعار" data-en="Change Logo">تغيير الشعار</button>
+        <button class="btn-d" onclick="removeLogo()" id="btn-remove-logo" style="display:none;" data-ar="إزالة الشعار" data-en="Remove">إزالة الشعار</button>
+      </div>
+    </div>
+
+    <!-- BRAND COLOR -->
+    <div class="card">
+      <div class="card-title" data-ar="لون العلامة التجارية" data-en="Brand Color">لون العلامة التجارية</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:14px;" data-ar="يُطبَّق على رأس الفاتورة وجدول البنود وقسم QR." data-en="Applied to invoice header, table headers, and QR section.">يُطبَّق على رأس الفاتورة وجدول البنود.</p>
+      <div style="display:flex;align-items:center;gap:14px;flex-wrap:wrap;">
+        <input type="color" id="s-brand-color" value="#0C447C" oninput="previewBrandColor(this.value)" style="width:56px;height:40px;border:2px solid var(--border);border-radius:8px;cursor:pointer;padding:2px;">
+        <div style="display:flex;gap:8px;flex-wrap:wrap;" id="color-presets">
+          <button class="color-preset" style="background:#0C447C;" onclick="setColor('#0C447C')" title="Navy"></button>
+          <button class="color-preset" style="background:#1D9E75;" onclick="setColor('#1D9E75')" title="Green"></button>
+          <button class="color-preset" style="background:#B45309;" onclick="setColor('#B45309')" title="Amber"></button>
+          <button class="color-preset" style="background:#7C3AED;" onclick="setColor('#7C3AED')" title="Purple"></button>
+          <button class="color-preset" style="background:#C62828;" onclick="setColor('#C62828')" title="Red"></button>
+          <button class="color-preset" style="background:#0369A1;" onclick="setColor('#0369A1')" title="Sky"></button>
+          <button class="color-preset" style="background:#374151;" onclick="setColor('#374151')" title="Slate"></button>
+          <button class="color-preset" style="background:#000000;" onclick="setColor('#000000')" title="Black"></button>
+        </div>
+        <span id="color-hex-display" style="font-family:'DM Mono',monospace;font-size:13px;color:var(--navy);background:var(--tint);padding:5px 12px;border-radius:6px;">#0C447C</span>
+      </div>
+      <!-- Live color preview strip -->
+      <div id="color-preview-strip" style="margin-top:14px;border-radius:8px;overflow:hidden;border:1px solid var(--border);">
+        <div id="color-strip-header" style="background:#0C447C;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;">
+          <span style="color:#fff;font-family:'Playfair Display',serif;font-size:14px;">شركة النور للتجارة</span>
+          <span style="color:rgba(255,255,255,0.8);font-family:'DM Mono',monospace;font-size:12px;">INV-2026-001</span>
+        </div>
+        <div style="padding:10px 16px;background:#fff;font-size:11px;color:var(--muted);" data-ar="معاينة لون الرأس" data-en="Header color preview">معاينة لون الرأس</div>
+      </div>
+    </div>
+
+    <!-- INVOICE LAYOUT -->
+    <div class="card">
+      <div class="card-title" data-ar="تصميم الفاتورة" data-en="Invoice Layout">تصميم الفاتورة</div>
+      <p style="font-size:12px;color:var(--muted);margin-bottom:14px;" data-ar="اختر التصميم المناسب لعلامتك التجارية." data-en="Choose the layout that suits your brand.">اختر التصميم المناسب لعلامتك التجارية.</p>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;" id="layout-options">
+
+        <!-- Classic -->
+        <div class="layout-opt selected" id="layout-classic" onclick="selectLayout('classic')">
+          <div class="layout-opt-preview" id="preview-classic">
+            <div class="lp-header" style="background:#0C447C;"></div>
+            <div class="lp-body">
+              <div class="lp-row"></div><div class="lp-row short"></div>
+              <div class="lp-table"><div class="lp-thead"></div><div class="lp-trow"></div><div class="lp-trow"></div></div>
+              <div class="lp-footer"><div class="lp-qr"></div><div class="lp-totals"><div class="lp-tot-row"></div><div class="lp-tot-row"></div><div class="lp-tot-grand"></div></div></div>
+            </div>
+          </div>
+          <div class="layout-opt-label" data-ar="كلاسيكي" data-en="Classic">كلاسيكي</div>
+          <div class="layout-opt-desc" data-ar="رأس داكن، منظم" data-en="Dark header, structured">رأس داكن، منظم</div>
+        </div>
+
+        <!-- Modern -->
+        <div class="layout-opt" id="layout-modern" onclick="selectLayout('modern')">
+          <div class="layout-opt-preview" id="preview-modern">
+            <div class="lp-header-modern"></div>
+            <div class="lp-body">
+              <div class="lp-accent-line" id="lp-accent-modern"></div>
+              <div class="lp-row"></div><div class="lp-row short"></div>
+              <div class="lp-table"><div class="lp-thead lp-thead-light" id="lp-thead-modern"></div><div class="lp-trow"></div><div class="lp-trow"></div></div>
+              <div class="lp-footer"><div class="lp-qr"></div><div class="lp-totals"><div class="lp-tot-row"></div><div class="lp-tot-row"></div><div class="lp-tot-grand" id="lp-grand-modern"></div></div></div>
+            </div>
+          </div>
+          <div class="layout-opt-label" data-ar="عصري" data-en="Modern">عصري</div>
+          <div class="layout-opt-desc" data-ar="خفيف، خط لوني" data-en="Light, colored accent">خفيف، خط لوني</div>
+        </div>
+
+        <!-- Minimal -->
+        <div class="layout-opt" id="layout-minimal" onclick="selectLayout('minimal')">
+          <div class="layout-opt-preview" id="preview-minimal">
+            <div class="lp-header-minimal">
+              <div class="lp-min-accent" id="lp-accent-minimal"></div>
+            </div>
+            <div class="lp-body">
+              <div class="lp-row"></div><div class="lp-row short"></div>
+              <div class="lp-table"><div class="lp-thead lp-thead-line" id="lp-thead-minimal"></div><div class="lp-trow"></div><div class="lp-trow"></div></div>
+              <div class="lp-footer"><div class="lp-qr"></div><div class="lp-totals"><div class="lp-tot-row"></div><div class="lp-tot-row"></div><div class="lp-tot-grand" id="lp-grand-minimal"></div></div></div>
+            </div>
+          </div>
+          <div class="layout-opt-label" data-ar="مبسّط" data-en="Minimal">مبسّط</div>
+          <div class="layout-opt-desc" data-ar="أبيض نظيف، هادئ" data-en="Clean white, calm">أبيض نظيف، هادئ</div>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- INVOICE TEXT -->
+    <div class="card">
+      <div class="card-title" data-ar="نصوص الفاتورة" data-en="Invoice Text">نصوص الفاتورة</div>
+      <div class="fg fg-2">
+        <div class="fld"><label data-ar="الشعار النصي (أسفل الاسم)" data-en="Tagline (below name)">الشعار النصي</label><input type="text" id="s-tagline" placeholder="الجودة والثقة في كل فاتورة"></div>
+        <div class="fld"><label data-ar="نص ختامي في أسفل الفاتورة" data-en="Invoice footer text">النص الختامي</label><input type="text" id="s-invoice-footer" placeholder="شكراً لتعاملكم معنا — Thank you for your business"></div>
+      </div>
+    </div>
+
+    <button class="btn-save" onclick="btnAction(this, saveSettings, L==='ar'?'تم الحفظ':'Saved')" data-ar="💾 حفظ إعدادات الفاتورة" data-en="💾 Save Invoice Settings">💾 حفظ إعدادات الفاتورة</button>
+    <div class="msg" id="branding-msg"></div>
+  </div>
+
+  <!-- TEAM -->
+  <div class="section" id="sec-team">
+    <div class="card" style="margin-bottom:16px;">
+      <div class="card-title" data-ar="دعوة عضو جديد للفريق" data-en="Invite Team Member">دعوة عضو جديد للفريق</div>
+      <div style="background:var(--tint);border:1px solid var(--light);border-radius:8px;padding:11px 13px;margin-bottom:14px;font-size:12px;color:var(--navy);display:flex;gap:8px;">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;margin-top:1px;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+        <span data-ar="سيتلقى العضو رابطاً لإنشاء حسابه والانضمام تلقائياً للمنشأة بالصلاحية المحددة." data-en="The member will receive a link to create their account and automatically join with the assigned role.">سيتلقى العضو رابطاً لإنشاء حسابه والانضمام تلقائياً.</span>
+      </div>
+      <div class="fg fg-3">
+        <div class="fld">
+          <label data-ar="البريد الإلكتروني *" data-en="Email *">البريد الإلكتروني *</label>
+          <input type="email" id="inv-email" placeholder="accountant@company.com" dir="ltr">
+        </div>
+        <div class="fld">
+          <label data-ar="الدور *" data-en="Role *">الدور *</label>
+          <select id="inv-role">
+            <option value="accountant" data-ar="محاسب — دفتر الأستاذ + VAT + القوائم" data-en="Accountant — Ledger, VAT, Statements">محاسب — دفتر الأستاذ + VAT + القوائم</option>
+            <option value="sales"      data-ar="مبيعات — الفواتير فقط"                data-en="Sales — Invoices only">مبيعات — الفواتير فقط</option>
+            <option value="warehouse"  data-ar="مستودع — المخزون فقط"                data-en="Warehouse — Inventory only">مستودع — المخزون فقط</option>
+          </select>
+        </div>
+        <div style="display:flex;align-items:flex-end;">
+          <button class="btn-p" onclick="sendInvite()" style="width:100%;" data-ar="📨 إرسال دعوة" data-en="📨 Send Invite">📨 إرسال دعوة</button>
+        </div>
+      </div>
+      <!-- Invite result box -->
+      <div id="invite-result" style="display:none;margin-top:14px;background:#1a1a2e;border-radius:8px;padding:14px 16px;">
+        <div style="font-size:11px;color:rgba(255,255,255,0.5);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;" data-ar="رابط الدعوة — أرسله للعضو" data-en="Invite Link — Send to member">رابط الدعوة</div>
+        <div style="font-family:'DM Mono',monospace;font-size:11px;color:#7dd3fc;word-break:break-all;margin-bottom:10px;" id="invite-link-display"></div>
+        <div style="display:flex;gap:8px;">
+          <button onclick="copyInviteLink()" style="padding:5px 12px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:5px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;" data-ar="📋 نسخ الرابط" data-en="📋 Copy Link">📋 نسخ الرابط</button>
+          <button onclick="copyInviteWhatsApp()" style="padding:5px 12px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:5px;font-family:'Tajawal',sans-serif;font-size:11px;cursor:pointer;" data-ar="💬 نسخ رسالة واتساب" data-en="💬 Copy WhatsApp">💬 نسخ رسالة واتساب</button>
+        </div>
+      </div>
+      <div class="msg" id="invite-msg"></div>
+    </div>
+
+    <div class="card">
+      <div class="card-title" data-ar="أعضاء الفريق الحاليون" data-en="Current Team Members">أعضاء الفريق الحاليون</div>
+      <div style="overflow-x:auto;">
+        <table class="tbl">
+          <thead><tr>
+            <th data-ar="البريد الإلكتروني" data-en="Email">البريد الإلكتروني</th>
+            <th data-ar="الدور" data-en="Role">الدور</th>
+            <th data-ar="الحالة" data-en="Status">الحالة</th>
+            <th data-ar="تاريخ الانضمام" data-en="Joined">تاريخ الانضمام</th>
+            <th data-ar="إجراء" data-en="Action">إجراء</th>
+          </tr></thead>
+          <tbody id="team-tbody">
+            <tr><td colspan="5" style="text-align:center;padding:20px;color:var(--muted);">جارٍ التحميل...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div style="margin-top:14px;">
+        <div style="font-size:12px;font-weight:700;color:var(--muted);margin-bottom:8px;text-transform:uppercase;letter-spacing:.04em;" data-ar="دعوات معلقة" data-en="Pending Invites">دعوات معلقة</div>
+        <div id="pending-invites-list">
+          <div style="font-size:12px;color:var(--muted);">جارٍ التحميل...</div>
+        </div>
       </div>
     </div>
   </div>
 
-  <!-- INVOICE SETTINGS -->
-  <div class="section" id="sec-invoicing">
-    <div class="card" style="margin-bottom:16px;">
-      <div class="card-hdr"><span class="card-ttl" data-ar="نمط الأسعار والضريبة" data-en="Price & VAT Mode">Price & VAT Mode</span></div>
-      <div class="card-bdy">
-        <p style="font-size:13px;color:var(--muted);margin-bottom:16px;" data-ar="هل أسعارك شاملة الضريبة أم بدونها؟" data-en="Are your prices inclusive or exclusive of VAT?">Are your prices inclusive or exclusive of VAT?</p>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;">
-          <div id="vat-mode-exclusive" onclick="setVatMode('exclusive')" style="border:2px solid var(--blue);border-radius:10px;padding:16px;cursor:pointer;background:var(--tint);">
-            <div style="font-size:16px;margin-bottom:6px;">🏷️</div>
-            <div style="font-size:13px;font-weight:700;" data-ar="بدون ضريبة (الافتراضي)" data-en="Excluding VAT (default)">Excluding VAT (default)</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:4px;" data-ar="تُدخل 100 → الفاتورة 115" data-en="Enter 100 → invoice shows 115">Enter 100 → invoice shows 115</div>
-            <div id="vat-excl-badge" style="margin-top:8px;font-size:10px;font-weight:700;color:var(--blue);">✓ Active</div>
-          </div>
-          <div id="vat-mode-inclusive" onclick="setVatMode('inclusive')" style="border:2px solid var(--border);border-radius:10px;padding:16px;cursor:pointer;background:var(--white);">
-            <div style="font-size:16px;margin-bottom:6px;">💰</div>
-            <div style="font-size:13px;font-weight:700;" data-ar="شامل الضريبة" data-en="Including VAT">Including VAT</div>
-            <div style="font-size:11px;color:var(--muted);margin-top:4px;" data-ar="تُدخل 115 → صافي 100 + ضريبة 15" data-en="Enter 115 → net 100 + VAT 15">Enter 115 → net 100 + VAT 15</div>
-            <div id="vat-incl-badge" style="margin-top:8px;font-size:10px;font-weight:700;color:var(--muted);display:none;">✓ Active</div>
-          </div>
-        </div>
+  <!-- SECURITY -->
+  <div class="section" id="sec-security">
+    <div class="card">
+      <div class="card-title" data-ar="تغيير كلمة المرور" data-en="Change Password">تغيير كلمة المرور</div>
+      <div class="fg fg-2">
+        <div class="fld"><label data-ar="كلمة المرور الجديدة" data-en="New Password">كلمة المرور الجديدة</label><input type="password" id="new-pass" placeholder="••••••••" dir="ltr"></div>
+        <div class="fld"><label data-ar="تأكيد كلمة المرور" data-en="Confirm Password">تأكيد كلمة المرور</label><input type="password" id="confirm-pass" placeholder="••••••••" dir="ltr"></div>
       </div>
+      <button class="btn-save" onclick="btnAction(this, changePassword, L==='ar'?'تم التغيير':'Changed')" id="btn-change-pass" data-ar="🔑 تغيير كلمة المرور" data-en="🔑 Change Password">🔑 تغيير كلمة المرور</button>
+      <div class="msg" id="pass-msg"></div>
     </div>
     <div class="card">
-      <div class="card-hdr"><span class="card-ttl" data-ar="بادئة رقم الفاتورة" data-en="Invoice Number Prefix">Invoice Number Prefix</span></div>
-      <div class="card-bdy">
-        <div style="display:flex;gap:10px;align-items:center;">
-          <input type="text" id="inv-prefix" value="INV" maxlength="6" oninput="updatePrefixPreview()" style="width:100px;padding:8px 12px;border:1px solid var(--border);border-radius:7px;font-family:'DM Mono',monospace;font-size:14px;font-weight:700;text-transform:uppercase;">
-          <span style="font-size:13px;color:var(--muted);">→</span>
-          <span id="inv-prefix-preview" style="font-family:'DM Mono',monospace;font-size:13px;color:var(--navy);font-weight:700;">INV-2026-001</span>
-          <button class="btn-p" onclick="saveInvoiceSettings()" style="font-size:12px;padding:7px 16px;" data-ar="حفظ" data-en="Save">Save</button>
-        </div>
+      <div class="card-title" data-ar="بريدك الإلكتروني (اسم المستخدم)" data-en="Your Email (Username)">البريد الإلكتروني</div>
+      <div style="padding:10px 14px;background:var(--tint);border-radius:7px;font-family:'DM Mono',monospace;font-size:13px;color:var(--blue);" id="current-email">...</div>
+    </div>
+  </div>
+
+  <!-- DATA -->
+  <div class="section" id="sec-data">
+    <div class="card">
+      <div class="card-title" data-ar="تصدير البيانات" data-en="Data Export">تصدير البيانات</div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:14px;" data-ar="بياناتك ملكك — حمّلها في أي وقت." data-en="Your data belongs to you — download anytime.">بياناتك ملكك — حمّلها في أي وقت.</p>
+      <div style="display:flex;gap:10px;flex-wrap:wrap;">
+        <button class="export-btn" onclick="exportData('invoices')" data-ar="تصدير الفواتير" data-en="Export Invoices">تصدير الفواتير</button>
+        <button class="export-btn" onclick="exportData('inventory')" data-ar="تصدير المخزون" data-en="Export Inventory">تصدير المخزون</button>
+        <button class="export-btn" onclick="exportData('journal')" data-ar="تصدير دفتر الأستاذ" data-en="Export Ledger">تصدير دفتر الأستاذ</button>
       </div>
     </div>
   </div>
@@ -205,113 +804,807 @@ body.gl-collapsed .gl-page-content{margin-right:56px;}
   <!-- ADVANCED -->
   <div class="section" id="sec-advanced">
     <div class="card">
-      <div class="card-title" data-ar="وضع المحاسب" data-en="Accountant Mode">Accountant Mode</div>
-      <p style="font-size:13px;color:var(--muted);margin-bottom:18px;line-height:1.7;" data-ar="يُظهر أدوات المحاسبة المتقدمة — دفتر الأستاذ والقيود" data-en="Reveals advanced accounting tools — ledger and journal entries">Reveals advanced accounting tools</p>
+      <div class="card-title" data-ar="وضع المحاسب" data-en="Accountant Mode">وضع المحاسب</div>
+      <p style="font-size:13px;color:var(--muted);margin-bottom:18px;line-height:1.7;"
+         data-ar="يُظهر أدوات المحاسبة المتقدمة — دفتر الأستاذ، قيود اليومية، دليل الحسابات، والمشتريات. مخصص للمحاسبين والمستخدمين المتقدمين."
+         data-en="Reveals advanced accounting tools — ledger, journal entries, chart of accounts, and purchasing. Designed for accountants and power users.">
+        يُظهر أدوات المحاسبة المتقدمة — دفتر الأستاذ، قيود اليومية، دليل الحسابات، والمشتريات.
+      </p>
       <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 18px;background:var(--tint);border-radius:10px;border:1px solid var(--border);">
         <div>
-          <div style="font-size:13px;font-weight:700;color:var(--navy);" data-ar="تفعيل وضع المحاسب" data-en="Enable Accountant Mode">Enable Accountant Mode</div>
+          <div style="font-size:13px;font-weight:700;color:var(--navy);" data-ar="تفعيل وضع المحاسب" data-en="Enable Accountant Mode">تفعيل وضع المحاسب</div>
           <div id="accountant-mode-status" style="font-size:11px;color:var(--muted);margin-top:3px;"></div>
         </div>
-        <button onclick="toggleAccountantMode()" id="accountant-toggle" class="toggle-btn">
-          <div id="accountant-toggle-knob" class="toggle-knob"></div>
-        </button>
+        <div onclick="toggleAccountantMode()" id="accountant-toggle"
+          style="width:48px;height:26px;border-radius:13px;background:var(--border);cursor:pointer;position:relative;transition:background .2s;flex-shrink:0;">
+          <div id="accountant-toggle-knob"
+            style="width:22px;height:22px;border-radius:50%;background:#fff;position:absolute;top:2px;right:2px;transition:right .2s;box-shadow:0 1px 4px rgba(0,0,0,0.2);"></div>
+        </div>
       </div>
+      <p style="font-size:11px;color:var(--muted);margin-top:10px;"
+         data-ar="⚠ هذا الإعداد متاح فقط للمالك ومن لديه صلاحية إدارة المستخدمين."
+         data-en="⚠ This setting is only available to the owner and users with team management permission.">
+        ⚠ هذا الإعداد متاح فقط للمالك ومن لديه صلاحية إدارة المستخدمين.
+      </p>
     </div>
   </div>
-</div>
-</div>
-<script>
 
+</div>
+
+<script>
 const SUPABASE_URL='https://ykzivnasjwtuhvjxfxzf.supabase.co';
 const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
 const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
-let currentUser=null,currentBiz=null,currentBizId=null,L=localStorage.getItem('gl_lang')||'ar';
-function set(id,v){const e=document.getElementById(id);if(e)e.textContent=v;}
-function setVal(id,v){const e=document.getElementById(id);if(e)e.value=v;}
-function gval(id){const e=document.getElementById(id);return e?e.value.trim():'';}
-function fmt(n){return(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');}
-function today(){return new Date().toISOString().split('T')[0];}
-async function logout(){await sb.auth.signOut();window.location.href='login.html';}
-function notify(msg,type){const d=document.createElement('div');d.style.cssText='position:fixed;top:20px;left:50%;transform:translateX(-50%);background:'+(type==='g'?'var(--green)':'var(--red)')+';color:#fff;padding:10px 24px;border-radius:8px;font-family:Tajawal,sans-serif;font-size:13px;z-index:9999;';d.textContent=msg;document.body.appendChild(d);setTimeout(()=>{if(d.parentNode)d.parentNode.removeChild(d);},type==='g'?4000:3000);}
-function applyLang(lang){localStorage.setItem('gl_lang',lang);document.getElementById('btn-ar')?.classList.toggle('on',lang==='ar');document.getElementById('btn-en')?.classList.toggle('on',lang==='en');document.documentElement.setAttribute('lang',lang);document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));document.querySelectorAll('select option[data-ar]').forEach(o=>o.text=o.getAttribute('data-'+lang)||o.text);}
-function toggleGLSidebar(){var s=document.getElementById('gl-sidebar');if(window.innerWidth<=768){s.classList.toggle('mob-open');var o=document.getElementById('gl-sb-overlay');if(o)o.style.display=s.classList.contains('mob-open')?'block':'none';var b=document.getElementById('gl-mob-btn');if(b)b.textContent=s.classList.contains('mob-open')?'×':'☰';}else{s.classList.toggle('collapsed');document.body.classList.toggle('gl-collapsed');localStorage.setItem('gl_sb_collapsed',s.classList.contains('collapsed')?'1':'0');}}
-function closeSidebar(){var s=document.getElementById('gl-sidebar');s.classList.remove('mob-open');var o=document.getElementById('gl-sb-overlay');if(o)o.style.display='none';var b=document.getElementById('gl-mob-btn');if(b)b.textContent='☰';}
-function initSidebarState(){if(localStorage.getItem('gl_sb_collapsed')==='1'){var s=document.getElementById('gl-sidebar');if(s){s.classList.add('collapsed');document.body.classList.add('gl-collapsed');}}}
+let currentUser=null,currentBizId=null,L=localStorage.getItem('gl_lang')||'ar',ownershipType='saudi',partners=[],logoBase64=null,taxRates={};
+
+// Apply language immediately — don't wait for init/Supabase
+document.addEventListener('DOMContentLoaded', function(){
+  L = localStorage.getItem('gl_lang') || 'ar';
+  applyLang(L);
+});
 
 async function init(){
   const {data:{session}}=await sb.auth.getSession();
   if(!session){window.location.href='login.html';return;}
   currentUser=session.user;
+  document.getElementById('current-email').textContent=currentUser.email;
   const {data:biz}=await sb.from('businesses').select('*').eq('user_id',currentUser.id).single();
   if(biz){
-    currentBiz=biz;currentBizId=biz.id;
-    document.getElementById('biz-name').textContent=biz.name_ar||biz.name||'';
-    setVal('s-name-ar',biz.name_ar||'');setVal('s-name',biz.name||'');
-    setVal('s-trn',biz.trn||'');setVal('s-cr',biz.cr_number||'');
-    setVal('s-city',biz.city||'');setVal('s-address',biz.address||'');
-    setVal('s-postal',biz.postal_code||'');
-    setVal('s-phone',biz.phone||'');setVal('s-email',biz.email||'');
-    if(biz.vat_mode)localStorage.setItem('gl_vat_mode',biz.vat_mode);
-    if(biz.inv_prefix)localStorage.setItem('gl_inv_prefix',biz.inv_prefix);
+    currentBiz=biz;currentBizId=biz.id;populateForm(biz);
   }
-  initInvoiceSettings();
+  const {data:pts}=await sb.from('ownership_partners').select('*').eq('business_id',currentBizId).catch(()=>({data:null}));
+  partners=pts&&pts.length?pts:[{id:null,partner_name:'',nationality:'Saudi Arabia',nationality_type:'saudi',ownership_pct:100}];
+  const {data:rates}=await sb.from('tax_rates').select('*').catch(()=>({data:null}));
+  if(rates){rates.forEach(r=>taxRates[r.rate_key]=parseFloat(r.rate_value));renderTaxRates(rates);}
+  setOwnershipType(biz?.ownership_type||'saudi',true);
+  if(biz?.logo_base64){logoBase64=biz.logo_base64;showLogoPreview(biz.logo_base64);}
+  applyLang(L);
   initAccountantToggle();
-  const storedL=localStorage.getItem('gl_lang')||'ar';L=storedL;setLang(storedL);
-  initSidebarState();
 }
-async function saveBusiness(){
-  if(!currentBizId){notify(L==='ar'?'لم يتم تحميل بيانات المنشأة':'Business not loaded','r');return;}
-  const updates={name_ar:gval('s-name-ar'),name:gval('s-name'),trn:gval('s-trn'),cr_number:gval('s-cr'),city:gval('s-city'),address:gval('s-address'),postal_code:gval('s-postal'),phone:gval('s-phone'),email:gval('s-email'),updated_at:new Date().toISOString()};
+
+function populateForm(biz){
+  document.getElementById('biz-name').textContent=biz.name_ar||biz.name||'';
+  setVal('s-name-ar',biz.name_ar||'');setVal('s-name',biz.name||'');
+  setVal('s-trn',biz.trn||'');setVal('s-cr',biz.cr_number||'');
+  setVal('s-legal-form',biz.legal_form||'llc');setVal('s-type',biz.business_type||'services');
+  setVal('s-vat-freq',biz.vat_filing_frequency||'quarterly');setVal('s-fiscal-end',biz.fiscal_year_end||'12-31');
+  if(biz.founded)setVal('s-founded',biz.founded);
+  setVal('s-email',biz.email||'');setVal('s-phone',biz.phone||'');
+  setVal('s-building',biz.building_number||'');setVal('s-address',biz.address||'');
+  setVal('s-district',biz.district||'');setVal('s-city',biz.city||'');
+  setVal('s-postal',biz.postal_code||'');setVal('s-country',biz.country||'SA');
+  setVal('s-tagline',biz.tagline||'');setVal('s-invoice-note',biz.logo_url||'');
+  loadBrandingSettings(biz);
+  onBusinessTypeChange();
+}
+
+/* ── INVOICE CUSTOMIZATION ── */
+let selectedLayout = 'classic';
+let selectedColor  = '#0C447C';
+
+function setColor(hex){
+  selectedColor = hex;
+  document.getElementById('s-brand-color').value = hex;
+  previewBrandColor(hex);
+}
+
+function previewBrandColor(hex){
+  selectedColor = hex;
+  document.getElementById('color-hex-display').textContent = hex;
+  document.getElementById('color-strip-header').style.background = hex;
+  // Update layout preview accents
+  ['lp-accent-modern','lp-accent-minimal','lp-grand-modern','lp-grand-minimal'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el)el.style.background=hex;
+  });
+  ['lp-thead-modern'].forEach(id=>{
+    const el=document.getElementById(id);
+    if(el)el.style.background=hex;
+  });
+  document.getElementById('lp-thead-minimal').style.background=hex;
+  // Update classic preview header
+  document.querySelector('#preview-classic .lp-header').style.background=hex;
+  document.querySelector('#preview-classic .lp-tot-grand').style.background=hex;
+}
+
+function selectLayout(name){
+  selectedLayout = name;
+  ['classic','modern','minimal'].forEach(l=>{
+    document.getElementById('layout-'+l)?.classList.toggle('selected', l===name);
+  });
+}
+
+function loadBrandingSettings(biz){
+  if(biz.brand_color){
+    setColor(biz.brand_color);
+  }
+  if(biz.invoice_layout){
+    selectLayout(biz.invoice_layout);
+  }
+  setVal('s-invoice-footer', biz.invoice_footer||biz.logo_url||'');
+}
+
+async function saveSettings(){
+  const updates={
+    name_ar:gval('s-name-ar'),name:gval('s-name')||gval('s-name-ar'),
+    trn:gval('s-trn'),cr_number:gval('s-cr'),legal_form:gval('s-legal-form'),
+    business_type:gval('s-type'),vat_filing_frequency:gval('s-vat-freq'),
+    fiscal_year_end:gval('s-fiscal-end'),email:gval('s-email'),phone:gval('s-phone'),
+    building_number:gval('s-building'),address:gval('s-address'),district:gval('s-district'),
+    city:gval('s-city'),postal_code:gval('s-postal'),country:gval('s-country'),
+    tagline:gval('s-tagline'),
+    invoice_footer:gval('s-invoice-footer'),
+    brand_color:selectedColor||'#0C447C',
+    invoice_layout:selectedLayout||'classic',
+    logo_base64:logoBase64||null,updated_at:new Date().toISOString()
+  };
   const {error}=await sb.from('businesses').update(updates).eq('id',currentBizId);
-  if(error){notify(error.message,'r');return;}
-  document.getElementById('biz-name').textContent=updates.name_ar||updates.name||'';
-  notify(L==='ar'?'✅ تم حفظ بيانات المنشأة':'✅ Business info saved','g');
+  const activeSection=document.querySelector('.section.active')?.id?.replace('sec-','')||'identity';
+  const msgEl=document.getElementById(activeSection+'-msg')||document.getElementById('identity-msg');
+  if(error){msgEl.textContent=error.message;msgEl.className='msg error';}
+  else{
+    msgEl.textContent=L==='ar'?'✓ تم حفظ الإعدادات':'✓ Settings saved';
+    msgEl.className='msg success';
+    document.getElementById('biz-name').textContent=updates.name_ar||updates.name;
+    // Save branding to localStorage so invoices page picks it up immediately
+    localStorage.setItem('gl_brand_color',  updates.brand_color);
+    localStorage.setItem('gl_invoice_layout',updates.invoice_layout);
+    localStorage.setItem('gl_invoice_footer',updates.invoice_footer||'');
+    if(logoBase64) localStorage.setItem('gl_logo_base64', logoBase64);
+    setTimeout(()=>msgEl.className='msg',3000);
+  }
 }
+
+async function saveOwnership(){
+  let sp=0,fp=0;
+  if(ownershipType==='saudi'){sp=100;fp=0;}
+  else if(ownershipType==='foreign'){sp=0;fp=100;}
+  else{partners.forEach(p=>{if(p.nationality_type==='saudi')sp+=parseFloat(p.ownership_pct)||0;else fp+=parseFloat(p.ownership_pct)||0;});}
+  await sb.from('businesses').update({ownership_type:ownershipType,saudi_ownership_pct:sp,foreign_ownership_pct:fp,updated_at:new Date().toISOString()}).eq('id',currentBizId);
+  if(ownershipType==='mixed'){
+    await sb.from('ownership_partners').delete().eq('business_id',currentBizId).catch(()=>{});
+    const rows=partners.filter(p=>p.partner_name).map(p=>({business_id:currentBizId,user_id:currentUser.id,partner_name:p.partner_name,nationality:p.nationality,nationality_type:p.nationality_type,ownership_pct:parseFloat(p.ownership_pct)||0}));
+    if(rows.length)await sb.from('ownership_partners').insert(rows).catch(()=>{});
+  }
+  renderTaxPreview(sp,fp);
+  const msg=document.getElementById('ownership-msg');
+  msg.textContent=L==='ar'?'✓ تم حفظ هيكل الملكية':'✓ Ownership saved';msg.className='msg success';
+  setTimeout(()=>msg.className='msg',3000);
+}
+
+function setOwnershipType(type,silent=false){
+  ownershipType=type;
+  ['saudi','foreign','mixed'].forEach(t=>{const el=document.getElementById('opt-'+t);if(el)el.classList.toggle('selected',t===type);});
+  const ps=document.getElementById('partners-section');
+  if(ps)ps.style.display=type==='mixed'?'block':'none';
+  if(type==='mixed'&&!silent)renderPartners();
+  if(!silent)renderTaxPreview(type==='saudi'?100:type==='foreign'?0:null,type==='foreign'?100:type==='saudi'?0:null);
+}
+
+function renderPartners(){
+  const tb=document.getElementById('partners-tbody');if(!tb)return;
+  tb.innerHTML=partners.map((p,i)=>`<tr>
+    <td><input type="text" value="${p.partner_name||''}" placeholder="${L==='ar'?'اسم الشريك':'Partner name'}" onchange="partners[${i}].partner_name=this.value"></td>
+    <td><input type="text" value="${p.nationality||''}" placeholder="${L==='ar'?'الجنسية':'Nationality'}" onchange="partners[${i}].nationality=this.value"></td>
+    <td><select onchange="partners[${i}].nationality_type=this.value;calcOwnerTotal()">
+      <option value="saudi"   ${p.nationality_type==='saudi'  ?'selected':''} >${L==='ar'?'سعودي/خليجي':'Saudi/GCC'}</option>
+      <option value="foreign" ${p.nationality_type==='foreign'?'selected':''} >${L==='ar'?'أجنبي':'Foreign'}</option>
+    </select></td>
+    <td><input type="number" value="${p.ownership_pct||0}" min="0" max="100" step="0.01" style="width:75px;" onchange="partners[${i}].ownership_pct=parseFloat(this.value)||0;calcOwnerTotal()"></td>
+    <td><button class="btn-d" onclick="removePartner(${i})">${L==='ar'?'حذف':'Del'}</button></td>
+  </tr>`).join('');calcOwnerTotal();
+}
+function addPartner(){partners.push({id:null,partner_name:'',nationality:'',nationality_type:'saudi',ownership_pct:0});renderPartners();}
+function removePartner(i){partners.splice(i,1);renderPartners();}
+function calcOwnerTotal(){
+  const total=partners.reduce((s,p)=>s+(parseFloat(p.ownership_pct)||0),0);
+  const el=document.getElementById('own-total');if(!el)return;
+  el.textContent=total.toFixed(2)+'%';el.className='own-total '+(Math.abs(total-100)<0.01?'ok':'err');
+}
+
+function renderTaxPreview(sp,fp){
+  const el=document.getElementById('tax-preview');if(!el)return;
+  const zR=(taxRates['zakat']||0.025)*100;const cR=(taxRates['cit']||0.20)*100;
+  if(ownershipType==='saudi'){
+    el.innerHTML=`<div class="tax-result">
+      <div class="tax-result-row"><span>${L==='ar'?'نوع الضريبة':'Tax Type'}</span><span class="tax-val" style="color:var(--green);">${L==='ar'?'زكاة فقط':'Zakat Only'}</span></div>
+      <div class="tax-result-row"><span>${L==='ar'?'معدل الزكاة':'Zakat Rate'}</span><span class="tax-val">${zR.toFixed(1)}%</span></div>
+      <div class="tax-result-row"><span>${L==='ar'?'الوعاء':'Base'}</span><span class="tax-val" style="font-size:11px;">${L==='ar'?'صافي رأس المال العامل المعدَّل':'Adjusted net working capital'}</span></div>
+    </div>`;
+  }else if(ownershipType==='foreign'){
+    el.innerHTML=`<div class="tax-result">
+      <div class="tax-result-row"><span>${L==='ar'?'نوع الضريبة':'Tax Type'}</span><span class="tax-val" style="color:var(--red);">${L==='ar'?'ضريبة دخل فقط':'CIT Only'}</span></div>
+      <div class="tax-result-row"><span>${L==='ar'?'معدل ضريبة الدخل':'CIT Rate'}</span><span class="tax-val">${cR.toFixed(0)}%</span></div>
+      <div class="tax-result-row"><span>${L==='ar'?'الوعاء':'Base'}</span><span class="tax-val" style="font-size:11px;">${L==='ar'?'صافي الأرباح بعد الاستقطاعات':'Net profit after deductions'}</span></div>
+    </div>`;
+  }else{
+    const ssp=partners.filter(p=>p.nationality_type==='saudi').reduce((s,p)=>s+(parseFloat(p.ownership_pct)||0),0);
+    const sfp=partners.filter(p=>p.nationality_type==='foreign').reduce((s,p)=>s+(parseFloat(p.ownership_pct)||0),0);
+    el.innerHTML=`<div class="tax-result">
+      <div class="tax-result-row"><span>${L==='ar'?'حصة سعودية/خليجية':'Saudi/GCC Share'}</span><span class="tax-val">${ssp.toFixed(1)}%</span></div>
+      <div class="tax-result-row"><span>${L==='ar'?'زكاة على الحصة السعودية':'Zakat on Saudi share'}</span><span class="tax-val" style="color:var(--green);">${zR.toFixed(1)}% ${L==='ar'?'من وعاء الزكاة':'of Zakat base'}</span></div>
+      <div class="tax-result-row"><span>${L==='ar'?'حصة أجنبية':'Foreign Share'}</span><span class="tax-val">${sfp.toFixed(1)}%</span></div>
+      <div class="tax-result-row"><span>${L==='ar'?'ضريبة دخل على الحصة الأجنبية':'CIT on foreign share'}</span><span class="tax-val" style="color:var(--red);">${cR.toFixed(0)}% ${L==='ar'?'من الربح':'of profit'}</span></div>
+      <div class="tax-result-row"><span style="font-size:10px;color:var(--amber);">${L==='ar'?'⚠ الزكاة وضريبة الدخل تُحتسبان منفصلتين — لا تتقاصّان':'⚠ Zakat & CIT calculated separately — cannot offset each other'}</span></div>
+    </div>`;
+  }
+}
+
+function renderTaxRates(rates){
+  const tb=document.getElementById('tax-rates-tbody');if(!tb)return;
+  const labels={
+    vat:          {ar:'ضريبة القيمة المضافة',      en:'VAT',              app_ar:'جميع المبيعات المحلية',       app_en:'All local sales'},
+    zakat:        {ar:'الزكاة',                     en:'Zakat',            app_ar:'الملاك السعوديون والخليجيون', app_en:'Saudi/GCC owners'},
+    cit:          {ar:'ضريبة الدخل',                en:'Corp. Income Tax', app_ar:'الملاك الأجانب',              app_en:'Foreign owners'},
+    wht_dividends:{ar:'استقطاع — أرباح',            en:'WHT — Dividends',  app_ar:'مدفوعات لغير المقيمين',       app_en:'Payments to non-residents'},
+    wht_royalties:{ar:'استقطاع — امتيازات',         en:'WHT — Royalties',  app_ar:'رسوم امتياز لغير المقيمين',   app_en:'Royalties to non-residents'},
+    wht_services: {ar:'استقطاع — خدمات',            en:'WHT — Services',   app_ar:'خدمات من شركات أجنبية',       app_en:'Foreign company services'},
+    wht_interest: {ar:'استقطاع — فوائد',            en:'WHT — Interest',   app_ar:'فوائد لغير المقيمين',          app_en:'Interest to non-residents'},
+  };
+  tb.innerHTML=(Array.isArray(rates)?rates:[]).map(r=>{
+    const lbl=labels[r.rate_key]||{ar:r.rate_key,en:r.rate_key,app_ar:'—',app_en:'—'};
+    return `<tr><td>${L==='ar'?lbl.ar:lbl.en}</td><td><span class="rate-val">${(parseFloat(r.rate_value)*100).toFixed(1)}%</span></td><td style="font-size:11px;color:var(--muted);">${L==='ar'?lbl.app_ar:lbl.app_en}</td></tr>`;
+  }).join('');
+}
+
+function onBusinessTypeChange(){
+  const type=gval('s-type');
+  const el=document.getElementById('biz-type-impact');if(!el)return;
+  const impacts={
+    services:   {ar:'✓ لا يلزم مخزون | ✓ VAT 15% على جميع الخدمات | ✓ دليل حسابات خدمي',en:'✓ No inventory | ✓ VAT 15% on services | ✓ Service chart of accounts'},
+    trading:    {ar:'✓ مخزون إلزامي | ✓ تكلفة متوسط مرجّح (WAC) | ✓ VAT 15% | ✓ دليل تجاري',en:'✓ Inventory required | ✓ WAC costing | ✓ VAT 15% | ✓ Trading COA'},
+    retail:     {ar:'✓ مخزون إلزامي | ✓ WAC | ✓ VAT 15% | ✓ فاتورة مبسطة B2C',en:'✓ Inventory required | ✓ WAC | ✓ VAT 15% | ✓ Simplified B2C invoices'},
+    contracting:{ar:'✓ مخزون جزئي (مواد) | ✓ VAT 15% | ✓ فواتير بالإنجاز | ✓ حسابات مقاولات',en:'✓ Partial inventory | ✓ VAT 15% | ✓ Progress billing | ✓ Contracting COA'},
+    restaurant: {ar:'✓ مخزون مواد خام | ✓ VAT 15% | ✓ فاتورة مبسطة | ✓ تكلفة وصفات',en:'✓ Raw material inventory | ✓ VAT 15% | ✓ Simplified invoices | ✓ Recipe costing'},
+    healthcare: {ar:'⚡ VAT صفر% للمرضى السعوديين | ✓ VAT 15% للأجانب | ✓ لا مخزون في الغالب',en:'⚡ 0% VAT for Saudi patients | ✓ 15% for non-Saudis | ✓ Usually no inventory'},
+    education:  {ar:'⚡ VAT صفر% للطلاب السعوديين | ✓ VAT 15% للأجانب',en:'⚡ 0% VAT for Saudi students | ✓ 15% for non-Saudis'},
+    real_estate:{ar:'⚡ الإيجار السكني معفى من VAT | ✓ الإيجار التجاري 15%',en:'⚡ Residential rent VAT-exempt | ✓ Commercial rent 15%'},
+    technology: {ar:'✓ VAT 15% | ⚡ آلية الاحتساب العكسي لمزودي الخدمات الأجانب',en:'✓ VAT 15% | ⚡ Reverse charge for foreign service providers'},
+    transport:  {ar:'✓ VAT 15% | ✓ مخزون محدود (قطع غيار)',en:'✓ VAT 15% | ✓ Limited inventory (spare parts)'},
+    other:      {ar:'✓ VAT 15% الافتراضي | راجع مستشارك الضريبي',en:'✓ Default VAT 15% | Consult tax advisor'},
+  };
+  const imp=impacts[type]||impacts.other;
+  el.textContent=L==='ar'?imp.ar:imp.en;
+}
+
+function onLegalFormChange(){
+  if(gval('s-legal-form')==='branch'){
+    setOwnershipType('foreign');goSection('ownership');
+    notify(L==='ar'?'فرع شركة أجنبية — تم ضبط الملكية على أجنبي 100%':'Foreign branch — ownership set to 100% foreign','g');
+  }
+}
+
+/* ── LOGO CROP ENGINE ── */
+let cropImg = null;
+let cropX = 0, cropY = 0, cropZoom = 1;
+let cropDragging = false, cropDragStartX, cropDragStartY, cropDragOriginX, cropDragOriginY;
+const CROP_SIZE = 280; // viewport px
+const OUTPUT_SIZE = 400; // output canvas px
+
+function openLogoCropper(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const reader = new FileReader();
+  reader.onload = ev => {
+    const img = new Image();
+    img.onload = () => {
+      cropImg = img;
+      // Initial zoom: fit the whole image in viewport
+      const fitZoom = Math.max(CROP_SIZE/img.width, CROP_SIZE/img.height);
+      cropZoom = fitZoom;
+      cropX = (CROP_SIZE - img.width*cropZoom)/2;
+      cropY = (CROP_SIZE - img.height*cropZoom)/2;
+      document.getElementById('crop-zoom').min = fitZoom*0.8;
+      document.getElementById('crop-zoom').max = fitZoom*5;
+      document.getElementById('crop-zoom').step = fitZoom*0.01;
+      document.getElementById('crop-zoom').value = cropZoom;
+      setupCropCanvas();
+      drawCrop();
+      const modal = document.getElementById('crop-modal');
+      modal.style.display = 'flex';
+    };
+    img.src = ev.target.result;
+  };
+  reader.readAsDataURL(file);
+  e.target.value = ''; // reset so same file can be picked again
+}
+
+function setupCropCanvas(){
+  const canvas = document.getElementById('crop-canvas');
+  canvas.width  = CROP_SIZE;
+  canvas.height = CROP_SIZE;
+  canvas.style.width  = CROP_SIZE+'px';
+  canvas.style.height = CROP_SIZE+'px';
+  // Drag events
+  canvas.onmousedown  = e => { cropDragging=true; cropDragStartX=e.clientX; cropDragStartY=e.clientY; cropDragOriginX=cropX; cropDragOriginY=cropY; };
+  canvas.onmousemove  = e => { if(!cropDragging)return; cropX=cropDragOriginX+(e.clientX-cropDragStartX); cropY=cropDragOriginY+(e.clientY-cropDragStartY); drawCrop(); };
+  canvas.onmouseup    = () => cropDragging=false;
+  canvas.onmouseleave = () => cropDragging=false;
+  // Touch drag
+  canvas.ontouchstart = e => { e.preventDefault(); const t=e.touches[0]; cropDragging=true; cropDragStartX=t.clientX; cropDragStartY=t.clientY; cropDragOriginX=cropX; cropDragOriginY=cropY; };
+  canvas.ontouchmove  = e => { e.preventDefault(); if(!cropDragging)return; const t=e.touches[0]; cropX=cropDragOriginX+(t.clientX-cropDragStartX); cropY=cropDragOriginY+(t.clientY-cropDragStartY); drawCrop(); };
+  canvas.ontouchend   = () => cropDragging=false;
+  // Scroll to zoom
+  canvas.onwheel = e => { e.preventDefault(); const delta=e.deltaY>0?-0.05:0.05; updateCropZoomBy(delta); };
+}
+
+function drawCrop(){
+  if(!cropImg) return;
+  const canvas = document.getElementById('crop-canvas');
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, CROP_SIZE, CROP_SIZE);
+  ctx.drawImage(cropImg, cropX, cropY, cropImg.width*cropZoom, cropImg.height*cropZoom);
+}
+
+function updateCropZoom(val){
+  const newZoom = parseFloat(val);
+  // Keep center fixed when zooming
+  const cx = CROP_SIZE/2, cy = CROP_SIZE/2;
+  cropX = cx - (cx-cropX)*(newZoom/cropZoom);
+  cropY = cy - (cy-cropY)*(newZoom/cropZoom);
+  cropZoom = newZoom;
+  drawCrop();
+}
+
+function updateCropZoomBy(delta){
+  const slider = document.getElementById('crop-zoom');
+  const newVal = Math.min(Math.max(parseFloat(slider.min), cropZoom+delta*cropZoom), parseFloat(slider.max));
+  slider.value = newVal;
+  updateCropZoom(newVal);
+}
+
+function confirmCrop(){
+  if(!cropImg) return;
+  // Render cropped square to output canvas
+  const out = document.createElement('canvas');
+  out.width  = OUTPUT_SIZE;
+  out.height = OUTPUT_SIZE;
+  const ctx = out.getContext('2d');
+  // Scale: OUTPUT_SIZE / CROP_SIZE
+  const scale = OUTPUT_SIZE / CROP_SIZE;
+  ctx.drawImage(cropImg, cropX*scale, cropY*scale, cropImg.width*cropZoom*scale, cropImg.height*cropZoom*scale);
+  logoBase64 = out.toDataURL('image/png', 0.92);
+  showLogoPreview(logoBase64);
+  closeCropModal();
+}
+
+function closeCropModal(){
+  document.getElementById('crop-modal').style.display = 'none';
+  cropImg = null;
+}
+
+function handleLogoUpload(e){ openLogoCropper(e); } // backward compat
+
+function showLogoPreview(src){
+  const img=document.getElementById('logo-preview');
+  const txt=document.getElementById('logo-zone-text');
+  const btn=document.getElementById('btn-remove-logo');
+  img.src=src;img.style.display='block';txt.style.display='none';if(btn)btn.style.display='inline-flex';
+}
+function removeLogo(){
+  logoBase64=null;
+  const img=document.getElementById('logo-preview');
+  const txt=document.getElementById('logo-zone-text');
+  const btn=document.getElementById('btn-remove-logo');
+  img.src='';img.style.display='none';txt.style.display='block';
+  if(btn)btn.style.display='none';
+  document.getElementById('logo-input').value='';
+}
+
+async function changePassword(){
+  const np=document.getElementById('new-pass').value;
+  const cp=document.getElementById('confirm-pass').value;
+  const btn=document.getElementById('btn-change-pass');
+  const msg=document.getElementById('pass-msg');
+  if(np.length<8){msg.textContent=L==='ar'?'8 أحرف على الأقل':'Min 8 characters';msg.className='msg error';return;}
+  if(np!==cp){msg.textContent=L==='ar'?'كلمتا المرور غير متطابقتين':'Passwords do not match';msg.className='msg error';return;}
+  btn.disabled=true;btn.textContent=L==='ar'?'جارٍ الحفظ...':'Saving...';
+  const {error}=await sb.auth.updateUser({password:np});
+  if(error){msg.textContent=error.message;msg.className='msg error';}
+  else{msg.textContent=L==='ar'?'✓ تم تغيير كلمة المرور':'✓ Password changed';msg.className='msg success';
+    document.getElementById('new-pass').value='';document.getElementById('confirm-pass').value='';
+    setTimeout(()=>msg.className='msg',4000);}
+  btn.disabled=false;btn.textContent=L==='ar'?'تغيير كلمة المرور':'Change Password';
+}
+
+async function exportData(type){
+  let data,filename;
+  if(type==='invoices'){const r=await sb.from('invoices').select('*').eq('user_id',currentUser.id);data=r.data;filename='GulfLedger_Invoices.csv';}
+  else if(type==='inventory'){const r=await sb.from('inventory_items').select('*').eq('user_id',currentUser.id);data=r.data;filename='GulfLedger_Inventory.csv';}
+  else{const r=await sb.from('journal_entries').select('*').eq('user_id',currentUser.id);data=r.data;filename='GulfLedger_Ledger.csv';}
+  if(!data||!data.length){notify(L==='ar'?'لا توجد بيانات بعد':'No data yet','r');return;}
+  const keys=Object.keys(data[0]);
+  const csv=[keys.join(','),...data.map(r=>keys.map(k=>JSON.stringify(r[k]??'')).join(','))].join('\n');
+  const a=document.createElement('a');a.href='data:text/csv;charset=utf-8,\uFEFF'+encodeURIComponent(csv);a.download=filename;a.click();
+}
+
 function goSection(name){
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.stab').forEach(t=>t.classList.remove('active'));
   document.getElementById('sec-'+name)?.classList.add('active');
-  const map=['identity','invoicing','advanced'];
+  const map=['identity','address','ownership','branding','team','security','data'];
   const idx=map.indexOf(name);
   document.querySelectorAll('.stab')[idx]?.classList.add('active');
-  if(name==='invoicing')initInvoiceSettings();
+  if(name==='ownership'){renderPartners();renderTaxPreview();}
+  if(name==='identity')onBusinessTypeChange();
+  if(name==='team')loadTeam();
 }
-function initInvoiceSettings(){
-  const mode=localStorage.getItem('gl_vat_mode')||'exclusive';
-  updateVatModeUI(mode);
-  const prefix=localStorage.getItem('gl_inv_prefix')||'INV';
-  const el=document.getElementById('inv-prefix');if(el)el.value=prefix;
-  updatePrefixPreview();
+
+/* ── TEAM MANAGEMENT ── */
+const ROLE_LABELS_SETTINGS={
+  ar:{owner:'مالك',accountant:'محاسب',sales:'مبيعات',warehouse:'مستودع'},
+  en:{owner:'Owner',accountant:'Accountant',sales:'Sales',warehouse:'Warehouse'}
+};
+const ROLE_COLORS={owner:'#92400e|#fef3c7',accountant:'#1e40af|#dbeafe',sales:'#166534|#dcfce7',warehouse:'#6d28d9|#f3e8ff'};
+
+let lastInviteLink='', lastInviteEmail='', lastInviteRole='';
+
+async function sendInvite(){
+  const email=document.getElementById('inv-email').value.trim();
+  const role=document.getElementById('inv-role').value;
+  if(!email||!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
+    showMsg('invite-msg',L==='ar'?'أدخل بريد إلكتروني صحيح':'Enter valid email','r');return;
+  }
+  if(!currentBiz?.id){showMsg('invite-msg',L==='ar'?'لم يتم تحميل بيانات المنشأة':'Business not loaded','r');return;}
+
+  // Check if already a member
+  const {data:existing}=await sb.from('business_users')
+    .select('id').eq('business_id',currentBiz.id).limit(100);
+  // Simple check by loading team and comparing emails — full check would need join
+
+  // Generate unique token
+  const token=crypto.randomUUID();
+  const {error}=await sb.from('team_invites').insert({
+    business_id: currentBiz.id,
+    invited_by:  currentUser.id,
+    email:       email.toLowerCase(),
+    role,
+    token,
+    status:      'pending',
+    expires_at:  new Date(Date.now()+7*24*60*60*1000).toISOString()
+  });
+  if(error){showMsg('invite-msg',error.message,'r');return;}
+
+  const link=`https://gulfledger.net/join.html?invite=${token}`;
+  lastInviteLink=link;
+  lastInviteEmail=email;
+  lastInviteRole=role;
+
+  document.getElementById('invite-link-display').textContent=link;
+  document.getElementById('invite-result').style.display='block';
+  document.getElementById('inv-email').value='';
+
+  showMsg('invite-msg',
+    (L==='ar'?'✅ تم إنشاء رابط الدعوة — أرسله للعضو':'✅ Invite link created — send it to the member'),
+    'g');
+  loadTeam();
 }
-function setVatMode(mode){localStorage.setItem('gl_vat_mode',mode);updateVatModeUI(mode);notify(L==='ar'?(mode==='inclusive'?'✅ أسعار شاملة الضريبة':'✅ أسعار بدون ضريبة'):(mode==='inclusive'?'✅ Prices include VAT':'✅ Prices exclude VAT'),'g');}
-function updateVatModeUI(mode){
-  const ec=document.getElementById('vat-mode-exclusive');const ic=document.getElementById('vat-mode-inclusive');
-  const eb=document.getElementById('vat-excl-badge');const ib=document.getElementById('vat-incl-badge');
-  if(!ec)return;
-  if(mode==='inclusive'){ec.style.borderColor='var(--border)';ec.style.background='var(--white)';ic.style.borderColor='var(--blue)';ic.style.background='var(--tint)';if(eb)eb.style.display='none';if(ib){ib.style.display='block';ib.style.color='var(--blue)';}}
-  else{ec.style.borderColor='var(--blue)';ec.style.background='var(--tint)';ic.style.borderColor='var(--border)';ic.style.background='var(--white)';if(eb){eb.style.display='block';eb.style.color='var(--blue)';}if(ib)ib.style.display='none';}
+
+function copyInviteLink(){
+  navigator.clipboard?.writeText(lastInviteLink).then(()=>
+    showMsg('invite-msg',L==='ar'?'تم نسخ الرابط ✓':'Link copied ✓','g')
+  );
 }
-function updatePrefixPreview(){const v=(document.getElementById('inv-prefix')?.value||'INV').toUpperCase();const el=document.getElementById('inv-prefix-preview');if(el)el.textContent=v+'-2026-001';}
-async function saveInvoiceSettings(){
-  const prefix=(document.getElementById('inv-prefix')?.value||'INV').toUpperCase().replace(/[^A-Z0-9]/g,'');
-  localStorage.setItem('gl_inv_prefix',prefix);
-  if(currentBizId){await sb.from('businesses').update({vat_mode:localStorage.getItem('gl_vat_mode')||'exclusive',inv_prefix:prefix}).eq('id',currentBizId);}
-  notify(L==='ar'?'✅ تم حفظ إعدادات الفاتورة':'✅ Invoice settings saved','g');
+
+function copyInviteWhatsApp(){
+  const roleLabel=ROLE_LABELS_SETTINGS[L][lastInviteRole]||lastInviteRole;
+  const bizName=currentBiz?.name_ar||currentBiz?.name||'GulfLedger';
+  const msg=
+`مرحباً 👋
+
+تمت دعوتك للانضمام إلى ${bizName} على منصة GulfLedger بصفة ${roleLabel}.
+
+🔗 رابط التسجيل:
+${lastInviteLink}
+
+⏰ الرابط صالح لمدة 7 أيام.
+📧 سجّل بنفس البريد الإلكتروني: ${lastInviteEmail}`;
+
+  navigator.clipboard?.writeText(msg).then(()=>
+    showMsg('invite-msg',L==='ar'?'تم نسخ رسالة الواتساب ✓':'WhatsApp message copied ✓','g')
+  );
 }
+
+async function loadTeam(){
+  const tb=document.getElementById('team-tbody');
+  const pendingDiv=document.getElementById('pending-invites-list');
+  if(!currentBiz?.id)return;
+
+  // Load team members
+  const {data:members}=await sb.from('business_users')
+    .select('*, auth_users:user_id(email)')
+    .eq('business_id',currentBiz.id)
+    .order('joined_at',{ascending:false});
+
+  // Load pending invites
+  const {data:invites}=await sb.from('team_invites')
+    .select('*')
+    .eq('business_id',currentBiz.id)
+    .eq('status','pending')
+    .order('created_at',{ascending:false});
+
+  // Render members
+  if(!members||!members.length){
+    tb.innerHTML=`<tr><td colspan="5" style="text-align:center;padding:16px;color:var(--muted);">${L==='ar'?'لا يوجد أعضاء فريق بعد':'No team members yet'}</td></tr>`;
+  } else {
+    const [tc,bc]=members.length>0?['#fff','#64748b']:['#fff','#64748b'];
+    tb.innerHTML=members.map(m=>{
+      const roleStr=ROLE_LABELS_SETTINGS[L][m.role]||m.role;
+      const [color,bg]=(ROLE_COLORS[m.role]||'#64748b|#f1f5f9').split('|');
+      const isOwner=m.role==='owner';
+      return `<tr>
+        <td style="font-size:12px;">${m.auth_users?.email||'—'}</td>
+        <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:${bg};color:${color};">${roleStr}</span></td>
+        <td><span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:${m.status==='active'?'#dcfce7':'#fff1f2'};color:${m.status==='active'?'#166534':'#be123c'};">${m.status==='active'?(L==='ar'?'نشط':'Active'):(L==='ar'?'موقوف':'Suspended')}</span></td>
+        <td style="font-size:11px;color:var(--muted);">${m.joined_at?.substring(0,10)||'—'}</td>
+        <td>${isOwner?'—':`<button onclick="removeMember('${m.id}')" style="padding:3px 8px;background:#fff1f2;color:var(--red);border:1px solid #fca5a5;border-radius:5px;font-size:10px;cursor:pointer;">${L==='ar'?'إزالة':'Remove'}</button>`}</td>
+      </tr>`;
+    }).join('');
+  }
+
+  // Render pending invites
+  if(!invites||!invites.length){
+    pendingDiv.innerHTML=`<div style="font-size:12px;color:var(--muted);">${L==='ar'?'لا دعوات معلقة':'No pending invites'}</div>`;
+  } else {
+    pendingDiv.innerHTML=invites.map(inv=>{
+      const roleStr=ROLE_LABELS_SETTINGS[L][inv.role]||inv.role;
+      const expired=new Date(inv.expires_at)<new Date();
+      return `<div style="display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:var(--tint);border-radius:7px;margin-bottom:6px;font-size:12px;">
+        <div>
+          <strong>${inv.email}</strong>
+          <span style="font-size:10px;color:var(--muted);margin-right:8px;margin-left:8px;">·</span>
+          <span style="font-size:10px;color:var(--muted);">${roleStr}</span>
+        </div>
+        <div style="display:flex;gap:6px;align-items:center;">
+          <span style="font-size:10px;color:${expired?'var(--red)':'var(--amber)'};">${expired?(L==='ar'?'منتهي':'Expired'):(L==='ar'?'معلق':'Pending')}</span>
+          <button onclick="revokeInvite('${inv.id}')" style="padding:2px 7px;background:#fff1f2;color:var(--red);border:1px solid #fca5a5;border-radius:5px;font-size:10px;cursor:pointer;">${L==='ar'?'إلغاء':'Revoke'}</button>
+        </div>
+      </div>`;
+    }).join('');
+  }
+}
+
+async function removeMember(buId){
+  if(!confirm(L==='ar'?'هل أنت متأكد من إزالة هذا العضو؟':'Remove this member?'))return;
+  await sb.from('business_users').delete().eq('id',buId);
+  showMsg('invite-msg',L==='ar'?'تم إزالة العضو':'Member removed','g');
+  loadTeam();
+}
+
+async function revokeInvite(invId){
+  await sb.from('team_invites').update({status:'expired'}).eq('id',invId);
+  showMsg('invite-msg',L==='ar'?'تم إلغاء الدعوة':'Invite revoked','g');
+  loadTeam();
+}
+
+function setLang(lang){
+  L=lang;
+  applyLang(lang);
+  if(typeof onBusinessTypeChange==='function')onBusinessTypeChange();
+  if(typeof renderPartners==='function')renderPartners();
+  if(typeof renderTaxRates==='function'&&Object.keys(taxRates).length){
+    const rates=Object.keys(taxRates).map(k=>({rate_key:k,rate_value:taxRates[k]}));
+    renderTaxRates(rates);
+  }
+  // Language stored in localStorage only — nav toggle is the single source of truth
+}
+
+function gval(id){const e=document.getElementById(id);return e?e.value.trim():'';}
+function setVal(id,v){const e=document.getElementById(id);if(e)e.value=v;}
+async function logout(){await sb.auth.signOut();window.location.href='login.html';}
+
+/* ── ACCOUNTANT MODE TOGGLE ── */
 function initAccountantToggle(){
-  const on=localStorage.getItem('gl_accountant_mode')==='true';
-  const toggle=document.getElementById('accountant-toggle');
-  const knob=document.getElementById('accountant-toggle-knob');
-  const status=document.getElementById('accountant-mode-status');
-  if(toggle){toggle.classList.toggle('on',on);if(knob)knob.style.right=on?'2px':'auto';}
-  if(status)status.textContent=on?(L==='ar'?'مفعّل — أدوات المحاسبة ظاهرة':'Enabled — accounting tools visible'):(L==='ar'?'معطّل':'Disabled');
+  const on = localStorage.getItem('gl_accountant_mode') === 'true';
+  const toggle = document.getElementById('accountant-toggle');
+  const knob   = document.getElementById('accountant-toggle-knob');
+  const status = document.getElementById('accountant-mode-status');
+  if(!toggle) return;
+
+  // Check permission — owner or team manager only
+  const canToggle = currentBiz && (
+    currentUser?.id === currentBiz.user_id ||  // primary owner
+    localStorage.getItem('gl_role') === 'owner' ||
+    localStorage.getItem('gl_role') === 'accountant'
+  );
+
+  if(!canToggle){
+    toggle.style.opacity='0.4';
+    toggle.style.cursor='not-allowed';
+    toggle.onclick=null;
+    if(status) status.textContent = L==='ar'?'ليس لديك صلاحية تغيير هذا الإعداد':'You do not have permission to change this';
+    return;
+  }
+
+  applyToggleState(on);
 }
+
+function applyToggleState(on){
+  const toggle = document.getElementById('accountant-toggle');
+  const knob   = document.getElementById('accountant-toggle-knob');
+  const status = document.getElementById('accountant-mode-status');
+  if(!toggle) return;
+  toggle.style.background = on ? 'var(--green)' : 'var(--border)';
+  knob.style.right = on ? '24px' : '2px';
+  if(status) status.textContent = on
+    ? (L==='ar'?'✅ مفعّل — تظهر أدوات المحاسبة في شريط التنقل':'✅ Enabled — accounting tools visible in nav')
+    : (L==='ar'?'معطّل — الواجهة الافتراضية للمالك':'Disabled — default owner interface');
+}
+
 function toggleAccountantMode(){
-  const current=localStorage.getItem('gl_accountant_mode')==='true';
-  localStorage.setItem('gl_accountant_mode',(!current).toString());
-  initAccountantToggle();
-  notify(L==='ar'?(!current?'✅ وضع المحاسب مفعّل':'وضع المحاسب معطّل'):(!current?'✅ Accountant mode enabled':'Accountant mode disabled'),'g');
+  const canToggle = currentBiz && (
+    currentUser?.id === currentBiz.user_id ||
+    localStorage.getItem('gl_role') === 'owner' ||
+    localStorage.getItem('gl_role') === 'accountant'
+  );
+  if(!canToggle) return;
+
+  const current = localStorage.getItem('gl_accountant_mode') === 'true';
+  const newVal  = !current;
+  localStorage.setItem('gl_accountant_mode', newVal.toString());
+  applyToggleState(newVal);
+
+  // Show/hide accounting link in nav immediately
+  const navAccounting = document.getElementById('nav-accounting');
+  if(navAccounting) navAccounting.style.display = newVal ? 'inline-block' : 'none';
+
+  notify(newVal
+    ? (L==='ar'?'✅ تم تفعيل وضع المحاسب':'✅ Accountant mode enabled')
+    : (L==='ar'?'وضع المحاسب معطّل':'Accountant mode disabled'),
+    newVal ? 'g' : 'g'
+  );
 }
-function setLang(lang){L=lang;applyLang(lang);}
+
+function notify(msg,type){
+  const d=document.createElement('div');
+  d.style.cssText='position:fixed;top:80px;left:50%;transform:translateX(-50%);background:'+(type==='g'?'var(--green)':'var(--red)')+';color:#fff;padding:10px 24px;border-radius:8px;font-family:Tajawal,sans-serif;font-size:13px;z-index:9999;text-align:center;box-shadow:0 4px 16px rgba(0,0,0,0.2);';
+  d.textContent=msg;document.body.appendChild(d);
+  setTimeout(()=>{if(d.parentNode)d.parentNode.removeChild(d);},3000);
+}
+function showMsg(id,msg,type){ notify(msg,type); }
+
+/* ── GLOBAL BUTTON ACTION ── */
+async function btnAction(btn, fn, successMsg){
+  const orig = btn.innerHTML;
+  btn.disabled = true;
+  btn.style.opacity = '0.7';
+  btn.innerHTML = '<svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" style="animation:spin 0.8s linear infinite;display:inline;vertical-align:middle;margin-left:4px;"><path d="M12 2v4M12 18v4M4.93 4.93l2.83 2.83M16.24 16.24l2.83 2.83M2 12h4M18 12h4M4.93 19.07l2.83-2.83M16.24 7.76l2.83-2.83"/></svg> '+(L==='ar'?'جارٍ الحفظ...':'Saving...');
+  try {
+    await fn();
+    btn.style.opacity = '1';
+    btn.style.background = 'var(--green)';
+    btn.style.color = '#fff';
+    btn.innerHTML = '✅ ' + successMsg;
+    btn.disabled = false;
+    setTimeout(()=>{
+      btn.innerHTML = orig;
+      btn.style.background = '';
+      btn.style.color = '';
+    }, 2500);
+  } catch(e) {
+    btn.style.opacity = '1';
+    btn.style.background = 'var(--red)';
+    btn.style.color = '#fff';
+    btn.innerHTML = '❌ ' + (L==='ar'?'حدث خطأ':'Error');
+    btn.disabled = false;
+    setTimeout(()=>{
+      btn.innerHTML = orig;
+      btn.style.background = '';
+      btn.style.color = '';
+    }, 2500);
+    console.error('btnAction error:', e.message);
+  }
+}
+const _sc = document.createElement('style');
+_sc.textContent = '@keyframes spin{from{transform:rotate(0deg)}to{transform:rotate(360deg)}}';
+document.head.appendChild(_sc);
+
 init();
-</script></body></html>
+
+// Force Gregorian dates — prevents Hijri calendar on Arabic devices
+(function(){
+  function fixDates(){
+    document.querySelectorAll('input[type="date"]').forEach(function(el){
+      if(!el.getAttribute('data-gregorian-fixed')){
+        el.setAttribute('lang','en-SA-u-ca-gregory');
+        el.setAttribute('data-gregorian-fixed','1');
+      }
+    });
+  }
+  fixDates();
+  // Also fix any dynamically added date inputs
+  var obs = new MutationObserver(fixDates);
+  obs.observe(document.body, {childList:true, subtree:true});
+})();
+
+
+/* ── PERSISTENT LANGUAGE ── */
+function getStoredLang(){return localStorage.getItem('gl_lang')||'ar';}
+function applyLang(lang){
+  localStorage.setItem('gl_lang',lang);
+  document.getElementById('btn-ar')?.classList.toggle('on',lang==='ar');
+  document.getElementById('btn-en')?.classList.toggle('on',lang==='en');
+  // Language applied — no settings language card to update
+  document.documentElement.setAttribute('lang',lang);
+  document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
+  document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));
+  document.querySelectorAll('select option[data-ar]').forEach(o=>o.text=o.getAttribute('data-'+lang)||o.text);
+}
+
+</script>
+<!-- LOGO CROP MODAL -->
+<div id="crop-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:700;align-items:center;justify-content:center;padding:20px;">
+  <div style="background:#1a1a2e;border-radius:16px;padding:24px;width:100%;max-width:420px;">
+    <div style="font-size:15px;font-weight:700;color:#fff;margin-bottom:6px;" data-ar="قص الشعار" data-en="Crop Logo">قص الشعار</div>
+    <div style="font-size:11px;color:rgba(255,255,255,0.5);margin-bottom:16px;" data-ar="اسحب لتحريك الصورة · استخدم الشريط للتكبير" data-en="Drag to reposition · Scroll/slider to zoom">اسحب لتحريك الصورة · استخدم الشريط للتكبير</div>
+
+    <!-- Crop viewport -->
+    <div style="position:relative;width:280px;height:280px;margin:0 auto 16px;border-radius:12px;overflow:hidden;border:2px solid rgba(255,255,255,0.2);cursor:move;" id="crop-viewport">
+      <canvas id="crop-canvas" style="position:absolute;top:0;left:0;"></canvas>
+      <!-- Square overlay guide -->
+      <div style="position:absolute;inset:0;border:2px dashed rgba(255,255,255,0.4);border-radius:10px;pointer-events:none;"></div>
+    </div>
+
+    <!-- Zoom slider -->
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:18px;">
+      <span style="font-size:14px;">🔍</span>
+      <input type="range" id="crop-zoom" min="0.5" max="3" step="0.01" value="1"
+        style="flex:1;accent-color:var(--sky);" oninput="updateCropZoom(this.value)">
+      <span style="font-size:14px;">🔎</span>
+    </div>
+
+    <div style="display:flex;gap:10px;">
+      <button onclick="confirmCrop()"
+        style="flex:1;padding:11px;background:var(--sky);color:#fff;border:none;border-radius:8px;font-family:'Tajawal',sans-serif;font-size:14px;font-weight:700;cursor:pointer;">
+        ✅ <span data-ar="حفظ الشعار" data-en="Save Logo">حفظ الشعار</span>
+      </button>
+      <button onclick="closeCropModal()"
+        style="padding:11px 18px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:8px;font-family:'Tajawal',sans-serif;font-size:13px;cursor:pointer;">
+        <span data-ar="إلغاء" data-en="Cancel">إلغاء</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+</div><!-- /gl-page-content -->
+<script>
+
+function toggleGLSB(){var s=document.getElementById('gl-sidebar');if(window.innerWidth<=768){s.classList.toggle('mob-open');var o=document.getElementById('sb-overlay');if(o)o.style.display=s.classList.contains('mob-open')?'block':'none';var b=document.getElementById('sb-mob-btn');if(b)b.textContent=s.classList.contains('mob-open')?'\u00d7':'\u2630';}else{s.classList.toggle('collapsed');document.body.classList.toggle('gl-collapsed');localStorage.setItem('gl_sb_collapsed',s.classList.contains('collapsed')?'1':'0');}}
+function closeGLSB(){var s=document.getElementById('gl-sidebar');s.classList.remove('mob-open');var o=document.getElementById('sb-overlay');if(o)o.style.display='none';var b=document.getElementById('sb-mob-btn');if(b)b.textContent='\u2630';}
+(function(){if(localStorage.getItem('gl_sb_collapsed')==='1'){var s=document.getElementById('gl-sidebar');if(s){s.classList.add('collapsed');document.body.classList.add('gl-collapsed');}}})();
+document.addEventListener('click',function(e){var m=document.getElementById('gl-qa-menu');if(m&&!e.target.closest('.gl-h-add')&&!e.target.closest('.gl-qa-menu'))m.classList.remove('open');});
+</script>
+<script>
+(function(){
+  var origSet = window._origBizSet;
+  var obs = new MutationObserver(function(){
+    var bn = document.getElementById('biz-name');
+    var gbn = document.getElementById('gl-biz-name');
+    if(bn && gbn && bn.textContent !== '...') gbn.textContent = bn.textContent;
+    var un = document.getElementById('gl-user-name');
+    if(un && bn && bn.textContent !== '...') un.textContent = bn.textContent.substring(0,10);
+  });
+  obs.observe(document.body, {childList:true, subtree:true, characterData:true});
+})();
+</script>
+<script>
+(function(){
+  var origSetLang = window.setLang;
+  if(typeof setLang === 'function'){
+    var _origSL = setLang;
+    window.setLang = function(lang){
+      _origSL(lang);
+      var a=document.getElementById('gl-btn-ar'),e=document.getElementById('gl-btn-en');
+      if(a)a.classList.toggle('on',lang==='ar');
+      if(e)e.classList.toggle('on',lang==='en');
+    };
+  }
+  // Init
+  var l=localStorage.getItem('gl_lang')||'ar';
+  var a=document.getElementById('gl-btn-ar'),e=document.getElementById('gl-btn-en');
+  if(a)a.classList.toggle('on',l==='ar');
+  if(e)e.classList.toggle('on',l==='en');
+})();
+</script>
+</body>
+</html>
