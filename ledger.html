@@ -990,7 +990,7 @@ function renderJournal() {
   });
 
   if (!filtered.length) {
-    tb.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا توجد قيود بعد':'No entries yet'}</td></tr>`;
+    tb.innerHTML = `<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا توجد قيود بعد':'No entries yet'}</td></tr>`;
     return;
   }
 
@@ -1280,10 +1280,11 @@ function adjustJournalEntry(entryId, ref, gap) {
 }
 
 function checkBalanceIssue() {
-  // Go to journal and highlight unbalanced entries
   goTab('journal');
 
   const unbalanced = entries.filter(e => {
+    if(e.status === 'reversed') return false;
+    if((e.source||'').includes('reversal') || e.source==='credit_note' || (e.reference||'').startsWith('REV-')) return false;
     const lines = e.journal_lines || [];
     const dr = lines.reduce((s,l) => s+(l.debit||0), 0);
     const cr = lines.reduce((s,l) => s+(l.credit||0), 0);
@@ -1291,19 +1292,25 @@ function checkBalanceIssue() {
   });
 
   if(!unbalanced.length) {
-    notify(L==='ar'?'لم يتم العثور على قيود غير متوازنة — الميزان صحيح':'No unbalanced entries found — ledger is correct','g');
+    // Clear any search filter and show all
+    const searchEl = document.getElementById('journal-search');
+    if(searchEl) { searchEl.value = ''; }
+    renderJournal();
+    notify(L==='ar'?'✓ لا توجد قيود غير متوازنة — الدفتر سليم':'✓ No unbalanced entries — ledger is clean','g');
     return;
   }
 
-  // Filter journal to show unbalanced entry directly
-  const ref = unbalanced[0].reference || '';
+  // Clear all filters so all entries show — unbalanced ones highlighted in yellow
   const searchEl = document.getElementById('journal-search');
-  if(searchEl) { searchEl.value = ref; renderJournal(); }
+  const srcEl    = document.getElementById('journal-source-filter');
+  if(searchEl) searchEl.value = '';
+  if(srcEl)    srcEl.value    = '';
+  renderJournal();
 
   notify(
     L==='ar'
-      ? `⚠ ${unbalanced.length} قيد غير متوازن — يُعرض: ${ref}`
-      : `⚠ ${unbalanced.length} unbalanced entr${unbalanced.length>1?'ies':'y'} — showing: ${ref}`,
+      ? `⚠ يوجد ${unbalanced.length} قيد غير متوازن — مُظلَّلة باللون الأصفر في الجدول`
+      : `⚠ ${unbalanced.length} unbalanced entr${unbalanced.length>1?'ies':'y'} — highlighted in yellow below`,
     'r'
   );
   document.getElementById('tc-journal')?.scrollIntoView({behavior:'smooth'});
