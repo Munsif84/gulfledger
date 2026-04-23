@@ -368,11 +368,6 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
   <!-- SIDEBAR -->
   <div class="sidebar">
     <div class="sb-sec">
-      <!-- Action button - not a nav item -->
-      <button onclick="openNewEntry()" style="width:100%;margin:8px 0 14px;padding:10px 14px;background:var(--blue);color:#fff;border:none;border-radius:8px;font-family:'Tajawal',sans-serif;font-size:13px;font-weight:700;cursor:pointer;display:flex;align-items:center;gap:8px;justify-content:center;">
-        <span style="font-size:16px;">+</span>
-        <span data-ar="قيد محاسبي جديد" data-en="New Journal Entry">New Journal Entry</span>
-      </button>
       <span class="sb-lbl" data-ar="الأقسام" data-en="Sections">Sections</span>
       <div class="sb-item active" id="sb-journal"  onclick="goTab('journal')">
         <div class="sb-dot" style="background:var(--green);"></div>
@@ -525,8 +520,7 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
           </tbody>
         </table></div>
         <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;">
-          <button class="btn-s" onclick="goTab('entry')" data-ar="قيد جديد ←" data-en="New Entry →">قيد جديد ←</button>
-          <button class="btn-s" onclick="goTab('trial')" data-ar="ميزان المراجعة ←" data-en="Trial Balance →">ميزان المراجعة ←</button>
+          <button class="btn-s" onclick="goTab('trial')" data-ar="ميزان المراجعة ←" data-en="Trial Balance →">Trial Balance →</button>
         </div>
       </div>
     </div>
@@ -818,10 +812,10 @@ function renderStats() {
     if(cardEl) { cardEl.style.borderColor='#86efac'; cardEl.style.background='#f0fdf4'; }
   } else {
     if(balEl) { balEl.textContent = 'SAR ' + fmt(diff); balEl.className='stat-num c-red'; }
-    if(actEl) actEl.innerHTML = `
+    if (actEl) actEl.innerHTML = `
       <div style="font-size:11px;color:var(--red);margin-bottom:6px;">${L==='ar'?'⚠ فجوة في الميزان':'⚠ Balance gap'}</div>
-      <button onclick="openNewEntry()" style="font-size:10px;padding:4px 10px;background:var(--red);color:#fff;border:none;border-radius:5px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:600;">
-        ${L==='ar'?'تصحيح القيد':'Fix Entry'}
+      <button onclick="checkBalanceIssue()" style="font-size:10px;padding:4px 10px;background:var(--red);color:#fff;border:none;border-radius:5px;cursor:pointer;font-family:'Tajawal',sans-serif;font-weight:600;">
+        ${L==='ar'?'🔍 عرض المشكلة':'🔍 Check Issue'}
       </button>`;
     if(cardEl) { cardEl.style.borderColor='#fca5a5'; cardEl.style.background='#fff5f5'; }
   }
@@ -1174,6 +1168,36 @@ function openNewEntry() {
   });
   entryTab.classList.add('active');
   window.scrollTo(0,0);
+}
+
+function checkBalanceIssue() {
+  // Go to journal and highlight unbalanced entries
+  goTab('journal');
+
+  const unbalanced = entries.filter(e => {
+    const lines = e.journal_lines || [];
+    const dr = lines.reduce((s,l) => s+(l.debit||0), 0);
+    const cr = lines.reduce((s,l) => s+(l.credit||0), 0);
+    return Math.abs(dr - cr) > 0.01;
+  });
+
+  if(!unbalanced.length) {
+    notify(L==='ar'?'لم يتم العثور على قيود غير متوازنة — الميزان صحيح':'No unbalanced entries found — ledger is correct','g');
+    return;
+  }
+
+  // Filter journal to show unbalanced entry directly
+  const ref = unbalanced[0].reference || '';
+  const searchEl = document.getElementById('journal-search');
+  if(searchEl) { searchEl.value = ref; renderJournal(); }
+
+  notify(
+    L==='ar'
+      ? `⚠ ${unbalanced.length} قيد غير متوازن — يُعرض: ${ref}`
+      : `⚠ ${unbalanced.length} unbalanced entr${unbalanced.length>1?'ies':'y'} — showing: ${ref}`,
+    'r'
+  );
+  document.getElementById('tc-journal')?.scrollIntoView({behavior:'smooth'});
 }
 
 /* ── EXPENSE CATEGORIES ── */
