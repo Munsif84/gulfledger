@@ -302,6 +302,7 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
             <div class="fld">
               <label data-ar="الإجمالي شامل الضريبة" data-en="Total incl. VAT">الإجمالي شامل الضريبة</label>
               <input type="text" id="exp-total-display" readonly value="SAR 0.00" class="input-money-readonly">
+              <div id="exp-vat-mode-hint" style="font-size:10px;color:var(--sky);margin-top:3px;"></div>
             </div>
           </div>
 
@@ -491,11 +492,20 @@ function calcExpVAT(){
   const amount=parseFloat(document.getElementById('exp-amount').value)||0;
   const vatCat=document.getElementById('exp-vat-cat').value;
   const isStandard=vatCat==='standard';
-  const vatRate=isStandard?0.15:0;
-  const vatAmt=Math.round(amount*vatRate*100)/100;
-  const total=amount+vatAmt;
+  const inclVAT=localStorage.getItem('gl_vat_mode')==='inclusive';
+
+  // Inclusive: amount entered includes VAT → extract net; Exclusive: amount is net → add VAT
+  const netAmount=inclVAT&&isStandard?Math.round(amount/1.15*100)/100:amount;
+  const vatAmt=isStandard?Math.round(netAmount*0.15*100)/100:0;
+  const total=inclVAT?amount:Math.round((amount+vatAmt)*100)/100;
   const deductType=document.getElementById('exp-vat-type').value;
   const recAmt=isStandard?(deductType==='deductible'?vatAmt:deductType==='partial'?Math.round(vatAmt*0.5*100)/100:0):0;
+
+  // Show VAT mode hint
+  const modeHintEl=document.getElementById('exp-vat-mode-hint');
+  if(modeHintEl) modeHintEl.textContent=inclVAT&&isStandard
+    ?(L==='ar'?'المبلغ شامل الضريبة — تم استخراج SAR '+fmt(vatAmt)+' VAT تلقائياً':'Amount includes VAT — SAR '+fmt(vatAmt)+' extracted automatically')
+    :(L==='ar'?'المبلغ بدون ضريبة — سيُضاف SAR '+fmt(vatAmt)+' VAT':'Amount excl. VAT — SAR '+fmt(vatAmt)+' VAT will be added');
 
   document.getElementById('exp-total-display').value='SAR '+fmt(total);
 
@@ -536,8 +546,11 @@ async function saveExpense(){
 
   const vatCat=document.getElementById('exp-vat-cat').value;
   const isStandard=vatCat==='standard';
-  const vatAmt=isStandard?Math.round(amount*0.15*100)/100:0;
-  const total=Math.round((amount+vatAmt)*100)/100;
+  const inclVAT=localStorage.getItem('gl_vat_mode')==='inclusive';
+  // Inclusive: extract net from entered amount; Exclusive: amount is already net
+  const netAmount=inclVAT&&isStandard?Math.round(amount/1.15*100)/100:amount;
+  const vatAmt=isStandard?Math.round(netAmount*0.15*100)/100:0;
+  const total=inclVAT?amount:Math.round((amount+vatAmt)*100)/100;
   const deductType=document.getElementById('exp-vat-type').value;
   const recVAT=isStandard?(deductType==='deductible'?vatAmt:deductType==='partial'?Math.round(vatAmt*0.5*100)/100:0):0;
   const method=document.getElementById('exp-method').value;

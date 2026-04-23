@@ -807,6 +807,7 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
                 <span><span style="display:block;">الإجمالي شامل الضريبة</span><span style="display:block;font-size:10px;color:var(--muted);font-weight:400;">Total incl. VAT</span></span>
                 <span class="inv-total-val" id="p-total">SAR 0.00</span>
               </div>
+              <div id="vat-mode-hint" style="font-size:10px;color:var(--sky);margin-top:4px;text-align:left;padding:3px 6px;background:var(--tint);border-radius:5px;"></div>
             </div>
           </div>
           <div id="p-notes" style="display:none;margin-bottom:10px;font-size:11px;color:var(--muted);border-top:1px solid var(--tint);padding-top:8px;"></div>
@@ -1386,6 +1387,9 @@ async function init() {
     if(biz.brand_color)   localStorage.setItem('gl_brand_color',   biz.brand_color);
     if(biz.invoice_layout)localStorage.setItem('gl_invoice_layout',biz.invoice_layout);
     if(biz.invoice_footer)localStorage.setItem('gl_invoice_footer',biz.invoice_footer);
+    if(biz.vat_mode)      localStorage.setItem('gl_vat_mode',      biz.vat_mode);
+    if(biz.zatca_phase)   localStorage.setItem('gl_zatca_phase',   biz.zatca_phase);
+    if(biz.inv_prefix)    localStorage.setItem('gl_inv_prefix',    biz.inv_prefix);
     if(biz.logo_base64)   localStorage.setItem('gl_logo_base64',   biz.logo_base64);
     // Seller preview box
     const sellerName = biz.name_ar || biz.name || '—';
@@ -1906,30 +1910,40 @@ function pickItem(name, price, itemId, nameAr) {
 }
 
 function updateRow(i) {
-  const discPct = items[i].disc || 0;
-  const sub     = items[i].qty * items[i].price;
-  const discAmt = sub * (discPct/100);
-  const netSub  = sub - discAmt;
-  const total   = netSub * 1.15;
+  const discPct  = items[i].disc || 0;
+  const rawSub   = items[i].qty * items[i].price;
+  const discAmt  = rawSub * (discPct/100);
+  const netSub   = rawSub - discAmt;
+  const inclVAT  = localStorage.getItem('gl_vat_mode') === 'inclusive';
+  const lineNet  = inclVAT ? Math.round(netSub / 1.15 * 100) / 100 : netSub;
+  const lineVAT  = Math.round(lineNet * 0.15 * 100) / 100;
+  const lineTotal = inclVAT ? netSub : Math.round(netSub * 1.15 * 100) / 100;
   const t = document.getElementById('rt-'+i);
   if (t) {
-    t.value = 'SAR ' + fmt(total);
-    t.title = 'Net: SAR '+fmt(netSub)+' + VAT: SAR '+fmt(netSub*0.15)+(discAmt>0?' | Disc: SAR '+fmt(discAmt):'');
+    t.value = 'SAR ' + fmt(lineTotal);
+    t.title = 'Net: SAR '+fmt(lineNet)+' + VAT: SAR '+fmt(lineVAT)+(discAmt>0?' | Disc: SAR '+fmt(discAmt):'');
   }
   updateTotals();
 }
 
 function updateTotals() {
-  let sub = 0;
+  const inclVAT = localStorage.getItem('gl_vat_mode') === 'inclusive';
+  let grossSub = 0;
   items.forEach(it => {
     const rawSub = it.qty * it.price;
-    const disc   = rawSub * ((it.disc||0)/100);
-    sub += rawSub - disc;
+    grossSub += rawSub - rawSub * ((it.disc||0)/100);
   });
-  const vat = sub * 0.15;
+  // If inclusive: price entered already includes VAT → extract
+  const sub = inclVAT ? Math.round(grossSub / 1.15 * 100) / 100 : grossSub;
+  const vat = Math.round(sub * 0.15 * 100) / 100;
   setText('p-sub',   'SAR ' + fmt(sub));
   setText('p-vat',   'SAR ' + fmt(vat));
-  setText('p-total', 'SAR ' + fmt(sub+vat));
+  setText('p-total', 'SAR ' + fmt(sub + vat));
+  // Show VAT mode hint on invoice form
+  const modeHint = document.getElementById('vat-mode-hint');
+  if(modeHint) modeHint.textContent = inclVAT
+    ? (currentLang==='ar'?'الأسعار شاملة الضريبة — يتم استخراج VAT تلقائياً':'Prices include VAT — extracted automatically')
+    : (currentLang==='ar'?'الأسعار بدون ضريبة — يضاف 15% عند الحساب':'Prices exclude VAT — 15% added on calculation');
 }
 
 function addItem()     { items.push({desc:'',desc_ar:'',qty:0,price:0,disc:0,itemId:null}); renderItems(); }
@@ -2115,16 +2129,18 @@ async function saveInvoice() {
     }
   }
 
-  // Calculate totals with discount
-  let sub = 0;
+  // Calculate totals with discount — respect VAT mode
+  const inclVAT = localStorage.getItem('gl_vat_mode') === 'inclusive';
+  let grossSub = 0;
   items.forEach(it => {
     const rawSub = it.qty * it.price;
     const disc   = rawSub * ((it.disc||0)/100);
-    sub += rawSub - disc;
+    grossSub += rawSub - disc;
   });
+  // If inclusive: prices already include VAT → extract net
+  const sub   = Math.round((inclVAT ? grossSub / 1.15 : grossSub) * 100) / 100;
   const vat   = Math.round(sub * 0.15 * 100) / 100;
   const total = Math.round((sub + vat) * 100) / 100;
-  sub = Math.round(sub * 100) / 100;
 
   // Auto-save new customer if mobile entered but no customer selected
   const mobile = v('f-buyer-mobile');
