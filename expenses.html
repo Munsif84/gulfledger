@@ -250,6 +250,35 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
 .receipt-thumb{width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);cursor:pointer;vertical-align:middle;}
 .receipt-link{font-size:10px;color:var(--blue);text-decoration:none;}
 
+
+/* GL:EXP-FORM-V2 */
+/* Uniform field height for all inputs/selects */
+.fld input:not([type=file]),.fld select{height:38px!important;padding:0 10px!important;box-sizing:border-box;}
+.fld input[readonly]{height:38px!important;padding:0 10px!important;}
+.input-money,.input-money-readonly{height:38px!important;padding:0 10px!important;box-sizing:border-box;}
+/* VAT breakdown inline */
+.exp-vat-breakdown{display:flex;gap:0;border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:14px;}
+.exp-vat-cell{flex:1;padding:9px 12px;text-align:center;border-left:1px solid var(--border);}
+.exp-vat-cell:last-child{border-left:none;}
+.exp-vat-cell-lbl{font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:3px;}
+.exp-vat-cell-val{font-family:'DM Mono',monospace;font-size:15px;font-weight:700;color:var(--navy);}
+.exp-vat-cell-val.green{color:var(--green);}
+/* Compliance indicator */
+.exp-compliance{display:flex;align-items:flex-start;gap:8px;padding:9px 13px;border-radius:7px;font-size:12px;margin-bottom:12px;line-height:1.5;border:1px solid;}
+.exp-compliance.ok{background:#f0fdf4;border-color:#86efac;color:#166534;}
+.exp-compliance.warn{background:#fffbeb;border-color:#fde68a;color:#92400e;}
+.exp-compliance.alert{background:#fff1f2;border-color:#fca5a5;color:#be123c;}
+/* Deductibility highlight */
+#exp-vat-type-wrap{border:1.5px solid var(--border);border-radius:8px;padding:2px 0;}
+#exp-vat-type-wrap.highlight{border-color:var(--amber);}
+/* Upload zone — neutral not green */
+.receipt-zone{border:2px dashed #cbd5e1!important;background:#f8fafc!important;}
+.receipt-zone:hover,.receipt-zone.drag-over{border-color:var(--sky)!important;background:var(--tint)!important;}
+/* Supplier recommended badge */
+.fld-badge{font-size:10px;font-weight:700;padding:1px 6px;border-radius:4px;margin-right:4px;display:inline-block;vertical-align:middle;}
+.fld-badge.recommended{background:#fef3c7;color:#92400e;}
+.fld-badge.required{background:#fff1f2;color:#be123c;}
+
 </style>
 </head>
 <body>
@@ -341,6 +370,7 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
         </div>
         <div class="card-bdy">
 
+          <!-- Row 1: Date + Category + Payment Method -->
           <div class="fg fg-3">
             <div class="fld">
               <label data-ar="التاريخ *" data-en="Date *">التاريخ *</label>
@@ -348,85 +378,123 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
             </div>
             <div class="fld">
               <label data-ar="الفئة *" data-en="Category *">الفئة *</label>
-              <select id="exp-cat">
+              <select id="exp-cat" onchange="updateCompliance()">
                 <option value="">— اختر فئة —</option>
               </select>
             </div>
             <div class="fld">
-              <label data-ar="طريقة الدفع *" data-en="Payment Method *">طريقة الدفع *</label>
-              <select id="exp-method">
-                <option value="cash"   data-ar="نقداً"         data-en="Cash">نقداً</option>
-                <option value="bank"   data-ar="تحويل بنكي"   data-en="Bank Transfer">تحويل بنكي</option>
-                <option value="card"   data-ar="بطاقة"         data-en="Card">بطاقة</option>
-                <option value="credit" data-ar="آجل / دين"    data-en="Credit">آجل / دين</option>
+              <label data-ar="طريقة الدفع *" data-en="Paid via *">طريقة الدفع *</label>
+              <select id="exp-method" onchange="updateCompliance()">
+                <option value="cash"   data-ar="نقداً"           data-en="Cash">نقداً</option>
+                <option value="bank"   data-ar="تحويل بنكي"     data-en="Bank Transfer">تحويل بنكي</option>
+                <option value="card"   data-ar="بطاقة"           data-en="Card">بطاقة</option>
+                <option value="credit" data-ar="آجل (ذمة دائنة)" data-en="Credit (Payable)">آجل (ذمة دائنة)</option>
               </select>
             </div>
           </div>
 
+          <!-- Row 2: Description + Supplier -->
           <div class="fg fg-2">
             <div class="fld">
-              <label data-ar="الوصف *" data-en="Description *">الوصف *</label>
-              <input type="text" id="exp-desc" data-placeholder-ar="وصف المصروف..." data-placeholder-en="Expense description..." placeholder="Expense description...">
+              <label data-ar="ما الذي صُرف عليه؟ *" data-en="What was this expense for? *">ما الذي صُرف عليه؟ *</label>
+              <input type="text" id="exp-desc"
+                data-placeholder-ar="مثال: إيجار المكتب، فاتورة الكهرباء..."
+                data-placeholder-en="e.g. Office rent, electricity bill..."
+                placeholder="e.g. Office rent, electricity bill...">
             </div>
             <div class="fld">
-              <label data-ar="المورد / الجهة" data-en="Supplier / Vendor">المورد / الجهة</label>
-              <input type="text" id="exp-vendor" data-placeholder-ar="اسم المورد أو الجهة (اختياري)" data-placeholder-en="Supplier or vendor name (optional)" placeholder="Supplier or vendor name (optional)">
+              <label>
+                <span data-ar="المورد / الجهة" data-en="Supplier / Vendor">المورد / الجهة</span>
+                <span class="fld-badge recommended" data-ar="موصى به للضريبة" data-en="Recommended for VAT">موصى به للضريبة</span>
+              </label>
+              <input type="text" id="exp-vendor"
+                data-placeholder-ar="اسم المورد (مهم لاسترداد الضريبة)"
+                data-placeholder-en="Supplier name (important for VAT recovery)"
+                placeholder="Supplier name (important for VAT recovery)"
+                oninput="updateCompliance()">
             </div>
           </div>
 
+          <!-- Row 3: Amount + VAT Treatment + Deductibility -->
           <div class="fg fg-3">
             <div class="fld">
-              <label data-ar="المبلغ قبل الضريبة (SAR) *" data-en="Amount before VAT (SAR) *">المبلغ قبل الضريبة *</label>
-              <input type="number" id="exp-amount" placeholder="0.00" min="0" step="0.01" oninput="calcExpVAT()" class="input-money">
+              <label data-ar="المبلغ قبل الضريبة (SAR) *" data-en="Amount excl. VAT (SAR) *">المبلغ قبل الضريبة *</label>
+              <input type="number" id="exp-amount" placeholder="0.00" min="0" step="0.01" oninput="calcExpVAT();updateCompliance()" class="input-money">
             </div>
             <div class="fld">
-              <label data-ar="فئة الضريبة (زاتكا)" data-en="VAT Category (ZATCA)">فئة الضريبة (زاتكا)</label>
-              <select id="exp-vat-cat" onchange="calcExpVAT()">
-                <option value="standard" data-ar="خاضع للضريبة — 15%" data-en="Standard Rated — 15%">Standard Rated — 15%</option>
-                <option value="zero"     data-ar="نسبة صفرية — 0%"    data-en="Zero Rated — 0%">Zero Rated — 0%</option>
-                <option value="exempt"   data-ar="معفى من الضريبة"    data-en="Exempt">Exempt</option>
-                <option value="out"      data-ar="خارج النطاق"        data-en="Out of Scope">Out of Scope</option>
+              <label data-ar="معالجة ضريبة القيمة المضافة" data-en="VAT Treatment">معالجة ضريبة القيمة المضافة</label>
+              <select id="exp-vat-cat" onchange="calcExpVAT();updateCompliance()">
+                <option value="standard" data-ar="خاضع للضريبة — 15%"  data-en="Standard Rated — 15%">Standard Rated — 15%</option>
+                <option value="zero"     data-ar="نسبة صفرية — 0%"      data-en="Zero Rated — 0%">Zero Rated — 0%</option>
+                <option value="exempt"   data-ar="معفى من الضريبة"      data-en="Exempt">Exempt</option>
+                <option value="out"      data-ar="خارج النطاق"          data-en="Out of Scope">Out of Scope</option>
               </select>
-              <span class="hint" id="vat-cat-hint" data-ar="الأكثر شيوعاً للمصاريف التشغيلية" data-en="Most common for operational expenses">Most common for operational expenses</span>
+              <span class="hint" id="vat-cat-hint">Most common for operational expenses</span>
             </div>
             <div class="fld">
-              <label data-ar="الإجمالي شامل الضريبة" data-en="Total incl. VAT">الإجمالي شامل الضريبة</label>
-              <input type="text" id="exp-total-display" readonly value="SAR 0.00" class="input-money-readonly">
+              <label data-ar="قابلية الاسترداد *" data-en="VAT Deductibility *">
+                <span data-ar="قابلية الاسترداد *" data-en="VAT Deductibility *">قابلية الاسترداد *</span>
+                <span title="بناءً على أنظمة زاتكا للمصاريف التجارية — Based on ZATCA rules for business expenses" style="cursor:help;color:var(--muted);font-size:11px;"> ⓘ</span>
+              </label>
+              <select id="exp-vat-type" onchange="calcExpVAT();updateCompliance()">
+                <option value="deductible"     data-ar="قابل للاسترداد بالكامل"       data-en="Fully Deductible">Fully Deductible</option>
+                <option value="non_deductible" data-ar="غير قابل للاسترداد"           data-en="Non-Deductible">Non-Deductible</option>
+                <option value="partial"        data-ar="جزئي — 50% (ضيافة وترفيه)"   data-en="Partial — 50% (Entertainment)">Partial — 50% (Entertainment)</option>
+              </select>
             </div>
           </div>
 
+          <!-- VAT Breakdown (always visible once amount entered) -->
+          <div class="exp-vat-breakdown" id="exp-vat-breakdown" style="display:none;">
+            <div class="exp-vat-cell">
+              <div class="exp-vat-cell-lbl" data-ar="المبلغ" data-en="Amount">المبلغ</div>
+              <div class="exp-vat-cell-val" id="exp-bd-amount">SAR 0.00</div>
+            </div>
+            <div class="exp-vat-cell">
+              <div class="exp-vat-cell-lbl" id="exp-bd-rate-lbl">VAT 15%</div>
+              <div class="exp-vat-cell-val" id="exp-bd-vat">SAR 0.00</div>
+            </div>
+            <div class="exp-vat-cell">
+              <div class="exp-vat-cell-lbl" data-ar="الإجمالي" data-en="Total">الإجمالي</div>
+              <div class="exp-vat-cell-val" id="exp-bd-total">SAR 0.00</div>
+            </div>
+            <div class="exp-vat-cell" id="exp-bd-rec-cell">
+              <div class="exp-vat-cell-lbl" data-ar="قابل للاسترداد" data-en="Recoverable">قابل للاسترداد</div>
+              <div class="exp-vat-cell-val green" id="exp-bd-rec">SAR 0.00</div>
+            </div>
+          </div>
+
+          <!-- Compliance Indicator -->
+          <div class="exp-compliance warn" id="exp-compliance" style="display:none;">
+            <span id="exp-compliance-icon">⚠️</span>
+            <span id="exp-compliance-msg"></span>
+          </div>
+
+          <!-- Row 4: Reference + Notes -->
           <div class="fg fg-2">
             <div class="fld">
-              <label data-ar="قابلية استرداد الضريبة" data-en="VAT Recovery">VAT Recovery</label>
-              <select id="exp-vat-type" onchange="calcExpVAT()">
-                <option value="deductible"     data-ar="قابل للاسترداد بالكامل"      data-en="Fully Deductible (Business)">Fully Deductible (Business)</option>
-                <option value="non_deductible" data-ar="غير قابل للاسترداد (شخصي)"  data-en="Non-Deductible (Personal)">Non-Deductible (Personal)</option>
-                <option value="partial"        data-ar="جزئي — 50%"                 data-en="Partial — 50%">Partial — 50%</option>
-              </select>
+              <label data-ar="رقم فاتورة المورد" data-en="Supplier Invoice No.">رقم فاتورة المورد</label>
+              <input type="text" id="exp-ref"
+                data-placeholder-ar="رقم الفاتورة من المورد"
+                data-placeholder-en="Supplier invoice number"
+                placeholder="Supplier invoice number"
+                dir="ltr" style="font-family:'DM Mono',monospace;"
+                oninput="updateCompliance()">
             </div>
             <div class="fld">
-              <label data-ar="رقم المرجع / الفاتورة" data-en="Reference / Invoice No.">رقم المرجع / الفاتورة</label>
-              <input type="text" id="exp-ref" data-placeholder-ar="EXP-001 أو رقم فاتورة المورد" data-placeholder-en="EXP-001 or supplier invoice number" placeholder="EXP-001 or supplier invoice number" dir="ltr" style="font-family:'DM Mono',monospace;">
+              <label data-ar="ملاحظات" data-en="Notes">ملاحظات</label>
+              <input type="text" id="exp-notes"
+                data-placeholder-ar="تفاصيل إضافية (اختياري)"
+                data-placeholder-en="Additional details (optional)"
+                placeholder="Additional details (optional)">
             </div>
           </div>
 
-          <div class="fld" style="margin-bottom:14px;">
-            <label data-ar="ملاحظات" data-en="Notes">ملاحظات</label>
-            <input type="text" id="exp-notes" data-placeholder-ar="تفاصيل إضافية (اختياري)" data-placeholder-en="Additional details (optional)" placeholder="Additional details (optional)">
-          </div>
-
-          <!-- VAT Preview -->
-          <div id="exp-vat-preview" style="background:var(--tint);border:1px solid var(--light);border-radius:8px;padding:11px 14px;margin-bottom:14px;display:none;">
-            <div style="font-size:11px;font-weight:700;color:var(--navy);margin-bottom:6px;" data-ar="ملخص الضريبة" data-en="VAT Summary">ملخص الضريبة</div>
-            <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);margin-bottom:3px;">
-              <span data-ar="ضريبة القيمة المضافة 15%" data-en="VAT 15%">ضريبة القيمة المضافة 15%</span>
-              <span class="mono" id="exp-vat-amt">SAR 0.00</span>
-            </div>
-            <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--green);font-weight:700;">
-              <span data-ar="المبلغ القابل للاسترداد" data-en="Recoverable Amount">المبلغ القابل للاسترداد</span>
-              <span class="mono" id="exp-vat-rec-amt">SAR 0.00</span>
-            </div>
-          </div>
+          <!-- Hidden legacy fields kept for JS compatibility -->
+          <input type="hidden" id="exp-total-display" value="SAR 0.00">
+          <span id="exp-vat-amt" style="display:none;">SAR 0.00</span>
+          <span id="exp-vat-rec-amt" style="display:none;">SAR 0.00</span>
+          <div id="exp-vat-preview" style="display:none;"></div>
 
           <!-- Receipt Upload -->
           <div class="fld" style="margin-bottom:14px;">
@@ -597,39 +665,84 @@ function autoMapAccount(nameAr, nameEn){
 
 /* ── VAT CALC ── */
 function calcExpVAT(){
-  const amount=parseFloat(document.getElementById('exp-amount').value)||0;
-  const vatCat=document.getElementById('exp-vat-cat').value;
-  const isStandard=vatCat==='standard';
-  const vatRate=isStandard?0.15:0;
-  const vatAmt=Math.round(amount*vatRate*100)/100;
-  const total=amount+vatAmt;
-  const deductType=document.getElementById('exp-vat-type').value;
-  const recAmt=isStandard?(deductType==='deductible'?vatAmt:deductType==='partial'?Math.round(vatAmt*0.5*100)/100:0):0;
+  const amount    = parseFloat(document.getElementById('exp-amount').value)||0;
+  const vatCat    = document.getElementById('exp-vat-cat').value;
+  const isStd     = vatCat==='standard';
+  const vatRate   = isStd?0.15:0;
+  const vatAmt    = Math.round(amount*vatRate*100)/100;
+  const total     = Math.round((amount+vatAmt)*100)/100;
+  const deductType= document.getElementById('exp-vat-type').value;
+  const recAmt    = isStd?(deductType==='deductible'?vatAmt:deductType==='partial'?Math.round(vatAmt*0.5*100)/100:0):0;
 
-  document.getElementById('exp-total-display').value='SAR '+fmt(total);
+  // Legacy hidden fields
+  const legacyTotal = document.getElementById('exp-total-display');
+  if(legacyTotal) legacyTotal.value = 'SAR '+fmt(total);
+  const legacyVat = document.getElementById('exp-vat-amt');
+  if(legacyVat) legacyVat.textContent = 'SAR '+fmt(vatAmt);
+  const legacyRec = document.getElementById('exp-vat-rec-amt');
+  if(legacyRec) legacyRec.textContent = 'SAR '+fmt(recAmt);
 
-  // Update hint based on selected VAT category
+  // VAT hint
   const hints={
     standard:{ar:'الأكثر شيوعاً للمصاريف التشغيلية',en:'Most common for operational expenses'},
-    zero:    {ar:'مصاريف التصدير ومعاملات خاصة',     en:'Export expenses & special transactions'},
+    zero:    {ar:'مصاريف التصدير ومعاملات خاصة',    en:'Export expenses & special transactions'},
     exempt:  {ar:'الإيجار السكني، الخدمات المالية',  en:'Residential rent, financial services'},
-    out:     {ar:'خارج نطاق نظام الضريبة السعودي',   en:'Outside Saudi VAT system scope'},
+    out:     {ar:'خارج نطاق نظام الضريبة السعودي',  en:'Outside Saudi VAT system scope'},
   };
-  const hint=document.getElementById('vat-cat-hint');
-  if(hint){const h=hints[vatCat]||hints.standard;hint.textContent=L==='ar'?h.ar:h.en;}
+  const hint = document.getElementById('vat-cat-hint');
+  if(hint){const h=hints[vatCat]||hints.standard; hint.textContent=L==='ar'?h.ar:h.en;}
 
-  // Show/hide VAT recovery field — only relevant for standard
-  const recRow=document.getElementById('exp-vat-type')?.closest('.fld');
-  if(recRow)recRow.style.opacity=isStandard?'1':'0.4';
+  // Deductibility opacity
+  const deductFld = document.getElementById('exp-vat-type')?.closest('.fld');
+  if(deductFld) deductFld.style.opacity = isStd?'1':'0.45';
 
-  const preview=document.getElementById('exp-vat-preview');
-  if(amount>0&&isStandard){
-    preview.style.display='block';
-    document.getElementById('exp-vat-amt').textContent='SAR '+fmt(vatAmt);
-    document.getElementById('exp-vat-rec-amt').textContent='SAR '+fmt(recAmt);
-  } else {
-    preview.style.display='none';
+  // VAT Breakdown panel
+  const bd = document.getElementById('exp-vat-breakdown');
+  if(bd){
+    if(amount>0){
+      bd.style.display='flex';
+      const rateLabel = {standard:'VAT 15%',zero:'VAT 0%',exempt:L==='ar'?'معفى':'Exempt',out:L==='ar'?'خارج النطاق':'Out of Scope'}[vatCat]||'VAT';
+      document.getElementById('exp-bd-rate-lbl').textContent = rateLabel;
+      document.getElementById('exp-bd-amount').textContent  = 'SAR '+fmt(amount);
+      document.getElementById('exp-bd-vat').textContent     = 'SAR '+fmt(vatAmt);
+      document.getElementById('exp-bd-total').textContent   = 'SAR '+fmt(total);
+      document.getElementById('exp-bd-rec').textContent     = 'SAR '+fmt(recAmt);
+      const recCell = document.getElementById('exp-bd-rec-cell');
+      if(recCell) recCell.style.display = isStd?'':'none';
+    } else {
+      bd.style.display='none';
+    }
   }
+}
+
+function updateCompliance(){
+  const vatCat     = document.getElementById('exp-vat-cat').value;
+  const deductType = document.getElementById('exp-vat-type').value;
+  const vendor     = (document.getElementById('exp-vendor')?.value||'').trim();
+  const ref        = (document.getElementById('exp-ref')?.value||'').trim();
+  const hasReceipt = (typeof receiptFile !== 'undefined' && !!receiptFile);
+  const amount     = parseFloat(document.getElementById('exp-amount').value)||0;
+  const isStd      = vatCat==='standard';
+  const box        = document.getElementById('exp-compliance');
+  if(!box || amount<=0){ if(box) box.style.display='none'; return; }
+
+  var cls='ok', icon='', msg='';
+  if(isStd && deductType==='deductible'){
+    if(!vendor && !ref && !hasReceipt)  { cls='alert'; icon='🔴'; msg=L==='ar'?'لاسترداد الضريبة: يجب توفر فاتورة المورد مع رقمه الضريبي':'VAT recovery requires valid supplier invoice with VAT number'; }
+    else if(!ref && !hasReceipt)        { cls='warn';  icon='🟡'; msg=L==='ar'?'يُنصح برفع فاتورة المورد لإثبات استحقاق استرداد الضريبة':'Upload supplier invoice to support VAT recovery claim'; }
+    else if(ref && !hasReceipt)         { cls='warn';  icon='🟡'; msg=L==='ar'?'رقم الفاتورة مسجل — يُنصح برفع صورة الفاتورة للأرشفة':'Invoice number recorded — consider uploading the invoice file'; }
+    else                                { cls='ok';    icon='✅'; msg=L==='ar'?'مطابق لمتطلبات زاتكا — الفاتورة موثقة':'ZATCA compliant — invoice documented'; }
+  } else if(isStd && deductType==='partial'){
+    cls='warn'; icon='🟡'; msg=L==='ar'?'مصاريف الضيافة: يُسترد 50% فقط من الضريبة':'Entertainment: only 50% VAT recoverable per ZATCA rules';
+  } else if(isStd && deductType==='non_deductible'){
+    cls='warn'; icon='🟡'; msg=L==='ar'?'الضريبة غير قابلة للاسترداد — تأكد من التصنيف الصحيح':'VAT not recoverable — verify expense classification';
+  } else {
+    cls='ok'; icon='ℹ️'; msg=L==='ar'?'لا توجد ضريبة قابلة للاسترداد على هذا النوع':'No VAT recoverable on this expense type';
+  }
+  box.className = 'exp-compliance ' + cls;
+  box.style.display = 'flex';
+  document.getElementById('exp-compliance-icon').textContent = icon;
+  document.getElementById('exp-compliance-msg').textContent  = msg;
 }
 
 /* ── SAVE EXPENSE ── */
@@ -1057,6 +1170,7 @@ function handleReceiptFile(file) {
   if(!file) return;
   if(file.size > 5*1024*1024) { notify(L==='ar'?'الملف أكبر من 5MB':'File exceeds 5MB','r'); return; }
   receiptFile = file;
+  if(typeof updateCompliance==="function") updateCompliance();
   const preview = document.getElementById('receipt-preview');
   const icon    = document.getElementById('receipt-preview-icon');
   const name    = document.getElementById('receipt-preview-name');
