@@ -906,12 +906,20 @@ async function saveExpense(){
   exp = exp_ins; error = ins_err;
   } // end insert
 
-  // Upload receipt if selected
+  // Upload receipt if selected — non-blocking, runs after expense is saved
   if(exp && !error) {
     const file = document.getElementById('receipt-file').files[0];
     if(file) {
-      const url = await uploadReceipt(file, exp.id);
-      if(url) await sb.from('expenses').update({receipt_url:url}).eq('id',exp.id);
+      // Small delay so "expense saved" notify shows first
+      setTimeout(async () => {
+        const url = await uploadReceipt(file, exp.id);
+        if(url) {
+          await sb.from('expenses').update({receipt_url:url}).eq('id', exp.id);
+          // Update local array too
+          const local = expenses.find(e => e.id === exp.id);
+          if(local) local.receipt_url = url;
+        }
+      }, 800);
     }
   }
 
@@ -1442,24 +1450,55 @@ function clearReceipt() {
 
 async function uploadReceipt(file, expenseId) {
   try {
-    const ext  = file.name.split('.').pop();
+    const ext  = file.name.split('.').pop().toLowerCase();
     const path = `${currentUser.id}/${expenseId}/receipt.${ext}`;
     const { data, error } = await sb.storage.from('receipts').upload(path, file, {
       upsert: true,
       contentType: file.type
     });
     if(error) {
-      console.warn('Receipt upload error:', error.message);
-      // If bucket doesn't exist, show one-time warning
-      if(error.message?.includes('Bucket not found') || error.message?.includes('bucket')) {
-        notify(L==='ar'?'⚠ يرجى إنشاء bucket "receipts" في Supabase Storage':'⚠ Please create "receipts" bucket in Supabase Storage','r');
+      console.warn('Receipt upload error:', error.message, error);
+      const msg = error.message || '';
+      if(msg.includes('Bucket not found') || msg.includes('bucket') || msg.includes('not found')) {
+        notify(
+          L==='ar'
+            ? '⚠ يرجى إنشاء bucket باسم "receipts" في Supabase Storage وتفعيل الوصول العام'
+            : '⚠ Create a public bucket named "receipts" in Supabase Storage',
+          'r'
+        );
+      } else if(msg.includes('row-level') || msg.includes('policy') || msg.includes('violates')) {
+        notify(
+          L==='ar'
+            ? '⚠ خطأ في صلاحيات التخزين — تأكد من سياسات RLS على bucket "receipts"'
+            : '⚠ Storage permission error — check RLS policies on "receipts" bucket',
+          'r'
+        );
+      } else if(msg.includes('Payload') || msg.includes('size') || msg.includes('large')) {
+        notify(L==='ar' ? '⚠ الملف كبير جداً — الحد الأقصى 5MB' : '⚠ File too large — max 5MB', 'r');
+      } else {
+        notify(
+          (L==='ar' ? '⚠ تعذّر رفع الإيصال: ' : '⚠ Receipt upload failed: ') + msg.slice(0,80),
+          'r'
+        );
       }
       return null;
     }
+    // Get public URL
     const { data: urlData } = sb.storage.from('receipts').getPublicUrl(path);
-    return urlData?.publicUrl || null;
+    const url = urlData?.publicUrl || null;
+    if(url) {
+      notify(
+        L==='ar' ? '✅ تم رفع الإيصال بنجاح' : '✅ Receipt uploaded successfully',
+        'g'
+      );
+    }
+    return url;
   } catch(e) {
     console.warn('Upload failed:', e.message);
+    notify(
+      (L==='ar' ? '⚠ خطأ غير متوقع في رفع الإيصال: ' : '⚠ Unexpected upload error: ') + e.message.slice(0,60),
+      'r'
+    );
     return null;
   }
 }
