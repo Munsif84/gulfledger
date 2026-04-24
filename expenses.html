@@ -308,6 +308,24 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
 .exp-qf-btn{padding:3px 10px;font-size:11px;font-weight:600;border:1px solid var(--border);border-radius:12px;background:var(--white);color:var(--muted);cursor:pointer;font-family:'Cairo',sans-serif;transition:all .15s;}
 .exp-qf-btn:hover,.exp-qf-btn.active{background:var(--blue);color:#fff;border-color:var(--blue);}
 
+
+/* GL:DEDUCT-HINT */
+.deduct-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:9998;display:flex;align-items:center;justify-content:center;padding:20px;}
+.deduct-modal{background:#fff;border-radius:14px;padding:22px 24px;width:100%;max-width:480px;box-shadow:0 20px 60px rgba(0,0,0,0.2);animation:popIn .2s ease;}
+.deduct-modal-hdr{font-size:15px;font-weight:700;color:var(--navy);margin-bottom:4px;}
+.deduct-modal-sub{font-size:12px;color:var(--muted);margin-bottom:16px;}
+.deduct-row{display:flex;align-items:flex-start;gap:10px;padding:9px 0;border-bottom:1px solid var(--tint);}
+.deduct-row:last-child{border-bottom:none;}
+.deduct-icon{font-size:18px;width:24px;flex-shrink:0;text-align:center;margin-top:1px;}
+.deduct-body{flex:1;}
+.deduct-title{font-size:13px;font-weight:700;color:var(--ink);margin-bottom:2px;}
+.deduct-examples{font-size:11px;color:var(--muted);line-height:1.5;}
+.deduct-badge{font-size:10px;font-weight:700;padding:1px 7px;border-radius:4px;display:inline-block;margin-bottom:3px;}
+.deduct-full{background:#dcfce7;color:#166534;}
+.deduct-partial{background:#fef3c7;color:#92400e;}
+.deduct-non{background:#fff1f2;color:#be123c;}
+.deduct-exempt{background:#f1f5f9;color:#475569;}
+
 </style>
 </head>
 <body>
@@ -444,7 +462,7 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
                 data-placeholder-en="Supplier name (important for VAT recovery)"
                 placeholder="Supplier name (important for VAT recovery)"
                 oninput="updateCompliance()">
-              <div class="exp-supplier-hint" id="exp-supplier-hint" data-ar="⚠ يجب أن تحتوي فاتورة المورد على رقم ضريبي صحيح" data-en="⚠ Supplier invoice must include a valid VAT number">⚠ Supplier invoice must include a valid VAT number</div>
+              <div class="exp-supplier-hint" id="exp-supplier-hint" data-ar="⚠ يجب أن يحتوي إيصال المورد على رقم ضريبي صحيح" data-en="⚠ Supplier receipt must include a valid VAT number">⚠ Supplier receipt must include a valid VAT number</div>
             </div>
           </div>
 
@@ -470,7 +488,7 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
             <div class="fld">
               <label data-ar="قابلية الاسترداد *" data-en="VAT Deductibility *">
                 <span data-ar="قابلية الاسترداد *" data-en="VAT Deductibility *">قابلية الاسترداد *</span>
-                <span title="بناءً على أنظمة زاتكا للمصاريف التجارية — Based on ZATCA rules for business expenses" style="cursor:help;color:var(--muted);font-size:11px;"> ⓘ</span>
+                <span onclick="openDeductHint()" style="cursor:pointer;color:var(--blue);font-size:13px;margin-right:4px;" title="انقر لمعرفة المزيد"> ⓘ</span>
               </label>
               <select id="exp-vat-type" onchange="calcExpVAT();updateCompliance()">
                 <option value="deductible"     data-ar="قابل للاسترداد بالكامل"       data-en="Fully Deductible">Fully Deductible</option>
@@ -512,11 +530,11 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
           <!-- Row 4: Reference + Notes -->
           <div class="fg fg-2">
             <div class="fld">
-              <label data-ar="رقم فاتورة المورد" data-en="Supplier Invoice No.">رقم فاتورة المورد</label>
+              <label data-ar="رقم الإيصال" data-en="Receipt / Ref No.">رقم الإيصال</label>
               <input type="text" id="exp-ref"
-                data-placeholder-ar="رقم الفاتورة من المورد"
-                data-placeholder-en="Supplier invoice number"
-                placeholder="Supplier invoice number"
+                data-placeholder-ar="رقم الإيصال أو المرجع"
+                data-placeholder-en="Receipt or reference number"
+                placeholder="Receipt or reference number"
                 dir="ltr" style="font-family:'DM Mono',monospace;"
                 oninput="updateCompliance()">
             </div>
@@ -537,8 +555,8 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
 
           <!-- Receipt Upload -->
           <div class="fld" style="margin-bottom:14px;">
-            <label><span data-ar="إرفاق الفاتورة" data-en="Upload Invoice">إرفاق الفاتورة</span> <span class="fld-badge recommended" data-ar="موصى به لاسترداد الضريبة" data-en="Recommended for VAT recovery">موصى به لاسترداد الضريبة</span></label>
-            <div class="exp-vat-micro" id="exp-upload-hint" style="display:none;"><span>✔</span><span data-ar="مطلوب لإثبات الاستحقاق الضريبي في حال المطالبة" data-en="Required to support VAT recovery in case of audit">مطلوب لإثبات الاستحقاق الضريبي في حال المطالبة</span></div>
+            <label><span data-ar="إرفاق الإيصال" data-en="Upload Receipt">إرفاق الإيصال</span> <span class="fld-badge recommended" data-ar="موصى به لاسترداد الضريبة" data-en="Recommended for VAT recovery">موصى به لاسترداد الضريبة</span></label>
+            <div class="exp-vat-micro" id="exp-upload-hint" style="display:none;"><span>✔</span><span data-ar="مطلوب لإثبات الاستحقاق الضريبي عند المراجعة" data-en="Required to support VAT recovery in case of audit">مطلوب لإثبات الاستحقاق الضريبي عند المراجعة</span></div>
             <div class="receipt-zone" id="receipt-zone" onclick="document.getElementById('receipt-file').click()"
               ondragover="event.preventDefault();this.classList.add('drag-over')"
               ondragleave="this.classList.remove('drag-over')"
@@ -781,9 +799,9 @@ function updateCompliance(){
 
   var cls='ok', icon='', msg='';
   if(isStd && deductType==='deductible'){
-    if(!vendor && !ref && !hasReceipt)  { cls='alert'; icon='🔴'; msg=L==='ar'?'لاسترداد الضريبة: يجب توفر فاتورة المورد مع رقمه الضريبي':'VAT recovery requires valid supplier invoice with VAT number'; }
-    else if(!ref && !hasReceipt)        { cls='warn';  icon='🟡'; msg=L==='ar'?'يُنصح برفع فاتورة المورد لإثبات استحقاق استرداد الضريبة':'Upload supplier invoice to support VAT recovery claim'; }
-    else if(ref && !hasReceipt)         { cls='warn';  icon='🟡'; msg=L==='ar'?'رقم الفاتورة مسجل — يُنصح برفع صورة الفاتورة للأرشفة':'Invoice number recorded — consider uploading the invoice file'; }
+    if(!vendor && !ref && !hasReceipt)  { cls='alert'; icon='🔴'; msg=L==='ar'?'لاسترداد الضريبة: يجب توفر إيصال المورد مع رقمه الضريبي':'VAT recovery requires valid supplier receipt with VAT number'; }
+    else if(!ref && !hasReceipt)        { cls='warn';  icon='🟡'; msg=L==='ar'?'يُنصح برفع إيصال المورد لإثبات استحقاق استرداد الضريبة':'Upload supplier receipt to support VAT recovery claim'; }
+    else if(ref && !hasReceipt)         { cls='warn';  icon='🟡'; msg=L==='ar'?'رقم الإيصال مسجل — يُنصح برفع صورة الإيصال للأرشفة':'Receipt number recorded — consider uploading the receipt file'; }
     else                                { cls='ok';    icon='✅'; msg=L==='ar'?'مطابق لمتطلبات زاتكا — الفاتورة موثقة':'ZATCA compliant — invoice documented'; }
   } else if(isStd && deductType==='partial'){
     cls='warn'; icon='🟡'; msg=L==='ar'?'مصاريف الضيافة: يُسترد 50% فقط من الضريبة':'Entertainment: only 50% VAT recoverable per ZATCA rules';
@@ -819,7 +837,25 @@ async function saveExpense(){
   const ref=document.getElementById('exp-ref').value.trim();
   const cat=categories.find(c=>c.name_ar===catName);
 
-  const {data:exp,error}=await sb.from('expenses').insert({
+  // Update mode if editing existing expense
+  const editId = window._editingExpenseId || null;
+  let exp, error;
+  if(editId){
+    const {data:upd, error:updErr} = await sb.from('expenses').update({
+      expense_date:date, category_name:catName, description:desc,
+      vendor:document.getElementById('exp-vendor').value.trim()||null,
+      amount, vat_amount:vatAmt, total,
+      vat_deductible:deductType, vat_recoverable:recVAT,
+      payment_method:method, reference:ref||null,
+      notes:document.getElementById('exp-notes').value.trim()||null,
+      has_vat:isStandard, receipt_url:null
+    }).eq('id', editId).select().single();
+    exp = upd; error = updErr;
+    window._editingExpenseId = null;
+    const btn = document.getElementById('btn-save-expense');
+    if(btn){ btn.textContent = L==='ar'?'💾 حفظ المصروف':'💾 Save Expense'; btn.style.background=''; }
+  } else {
+  const {data:exp_ins,error:ins_err}=await sb.from('expenses').insert({
     user_id:currentUser.id,business_id:currentBiz?.id,
     expense_date:date,
     category_name:catName,
@@ -833,6 +869,8 @@ async function saveExpense(){
     has_vat:isStandard,
     receipt_url:null
   }).select().single();
+  exp = exp_ins; error = ins_err;
+  } // end insert
 
   // Upload receipt if selected
   if(exp && !error) {
@@ -920,126 +958,41 @@ async function loadExpenses(){
   renderStats();
   renderCatBreakdown();
   updateSidebarStats();
-
-  // Supplier VAT hint — show when standard + deductible
-  var supHint = document.getElementById('exp-supplier-hint');
-  if(supHint) supHint.classList.toggle('show', isStd && deductType !== 'non_deductible');
-  // Upload hint — show when standard
-  var upHint = document.getElementById('exp-upload-hint');
-  if(upHint) upHint.style.display = isStd?'flex':'none';
-  // Sync hint language
-  if(supHint){ supHint.textContent = L==='ar'
-    ? '⚠ يجب أن تحتوي فاتورة المورد على رقم ضريبي صحيح'
-    : '⚠ Supplier invoice must include a valid VAT number'; }
-}
-function renderExpenses(){
-  const search=(document.getElementById('exp-search')?.value||'').toLowerCase();
-  const catFilter=document.getElementById('exp-filter-cat')?.value||'';
-  const methodFilter=document.getElementById('exp-filter-method')?.value||'';
-  const fromDate=document.getElementById('exp-filter-from')?.value||'';
-  const toDate=document.getElementById('exp-filter-to')?.value||'';
-
-  // Apply quick filter
-  const qfDates = getQuickFilterDates();
-  const isReviewFilter = activeQuickFilter === 'review';
-
-  let filtered=expenses.filter(e=>{
-    const ms=!search||(e.description||'').toLowerCase().includes(search)||(e.vendor||'').toLowerCase().includes(search)||(e.category_name||'').toLowerCase().includes(search);
-    const mc=!catFilter||e.category_name===catFilter;
-    const mm=!methodFilter||e.payment_method===methodFilter;
-    const mf=!fromDate||(qfDates?e.expense_date>=qfDates.from:e.expense_date>=fromDate);
-    const mt=!toDate||(qfDates?e.expense_date<=qfDates.to:e.expense_date<=toDate);
-    const mr=!isReviewFilter||(e.has_vat && e.vat_deductible==='deductible' && !e.vendor && !e.reference && !e.receipt_url);
-    return ms&&mc&&mm&&mf&&mt&&mr;
-  });
-
-  const total=filtered.length;
-  const totalPages=Math.ceil(total/EXP_PAGE_SIZE)||1;
-  if(expCurrentPage>=totalPages)expCurrentPage=totalPages-1;
-  const page=filtered.slice(expCurrentPage*EXP_PAGE_SIZE,(expCurrentPage+1)*EXP_PAGE_SIZE);
-
-  const info=document.getElementById('exp-page-info');
-  if(info)info.textContent=`${L==='ar'?'صفحة':'Page'} ${expCurrentPage+1} ${L==='ar'?'من':'of'} ${totalPages} — ${total} ${L==='ar'?'نتيجة':'results'}`;
-  const prevBtn=document.getElementById('exp-prev');const nextBtn=document.getElementById('exp-next');
-  if(prevBtn)prevBtn.disabled=expCurrentPage===0;
-  if(nextBtn)nextBtn.disabled=expCurrentPage>=totalPages-1;
-
-  const tb=document.getElementById('exp-tbody');
-  if(!page.length){tb.innerHTML=`<tr><td colspan="8" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا توجد مصاريف':'No expenses found'}</td></tr>`;const tf=document.getElementById('exp-tfoot');if(tf)tf.innerHTML='';return;}
-
-  const methodBadge=(m)=>({cash:`<span class="bdg bdg-cash">${L==='ar'?'نقداً':'Cash'}</span>`,bank:`<span class="bdg bdg-bank">${L==='ar'?'بنك':'Bank'}</span>`,card:`<span class="bdg bdg-card">${L==='ar'?'بطاقة':'Card'}</span>`,credit:`<span class="bdg bdg-credit">${L==='ar'?'آجل':'Credit'}</span>`})[m]||`<span class="bdg">${m}</span>`;
-
-  tb.innerHTML=page.map(e=>{
-    const isReversed=e.status==='reversed';
-    // Resolve category display name in current language
-    const cat=categories.find(c=>c.name_ar===e.category_name);
-    const catDisplay=L==='ar'?(e.category_name||'—'):(cat?.name_en||e.category_name||'—');
-    // VAT status logic
-      const vatCatCode = e.vat_category || (e.has_vat ? 'standard' : 'none');
-      const needsReview = e.has_vat && e.vat_deductible==='deductible' && !e.vendor && !e.reference && !e.receipt_url;
-      const vatStatusHtml = (() => {
-        if(!e.has_vat){
-          const label = {zero:L==='ar'?'نسبة صفرية':'Zero Rated',exempt:L==='ar'?'معفى':'Exempt',out:L==='ar'?'خارج النطاق':'Out of Scope'}[vatCatCode]||(L==='ar'?'بدون ضريبة':'No VAT');
-          return `<span class="vat-status-badge vat-none">${label}</span>`;
-        }
-        const recAmt = e.vat_recoverable||0;
-        const deduct = e.vat_deductible||'deductible';
-        const statusBadge = needsReview
-          ? `<span class="vat-status-badge vat-warn">⚠ ${L==='ar'?'راجع الفاتورة':'Check invoice'}</span>`
-          : deduct==='non_deductible'
-            ? `<span class="vat-status-badge vat-none">${L==='ar'?'غير قابل للاسترداد':'Not deductible'}</span>`
-            : deduct==='partial'
-              ? `<span class="vat-status-badge vat-warn">50% ${L==='ar'?'جزئي':'Partial'}</span>`
-              : `<span class="vat-status-badge vat-ok">✔ ${L==='ar'?'قابل للاسترداد':'Deductible'}</span>`;
-        return `<div class="vat-status"><span class="vat-status-amt">SAR ${fmt(recAmt)}</span>${statusBadge}</div>`;
-      })();
-
-      return `<tr class="${isReversed?'exp-reversed-row':''}">
-    <td style="font-size:11px;color:var(--muted);white-space:nowrap;">${e.expense_date||'—'}</td>
-    <td>
-      <div style="font-size:12px;font-weight:600;color:var(--ink);">${e.description||'—'}</div>
-      ${isReversed?`<span class="exp-reversed-badge">❌ ${L==='ar'?'مُلغى — تم عكس هذا القيد':'Cancelled — entry reversed'}</span>`:''}
-      ${e.notes&&!isReversed?`<div style="font-size:10px;color:var(--muted);">${e.notes}</div>`:''}
-    </td>
-    <td style="font-size:11px;">${catDisplay}</td>
-    <td style="font-size:11px;color:var(--muted);">${e.vendor||'—'}</td>
-    <td>
-      <div class="exp-amt-main">SAR ${fmt(e.total)}</div>
-      ${e.has_vat&&e.vat_amount>0?`<div class="exp-amt-vat">${L==='ar'?'ضريبة':'VAT'}: SAR ${fmt(e.vat_amount)}</div>`:''}
-    </td>
-    <td>${vatStatusHtml}</td>
-    <td>${methodBadge(e.payment_method)}</td>
-    <td>${e.receipt_url?`<a href="${e.receipt_url}" target="_blank" title="عرض الإيصال">${e.receipt_url.match(/\.(jpg|jpeg|png|gif|webp)/i)?`<img class="receipt-thumb" src="${e.receipt_url}">`:'📄'}</a>`:`<span style="color:var(--border);">—</span>`}</td>
-    <td>${isReversed?'<span style="font-size:10px;color:var(--muted);">—</span>':`<button class="btn-cancel-entry" onclick="reverseExpense('${e.id}')">${L==='ar'?'إلغاء القيد':'Cancel Entry'}</button>`}</td>
-  </tr>`}).join('');
-
-  // Exclude reversed from totals
-  const activeFiltered=filtered.filter(e=>e.status!=='reversed');
-  const totalAmt=activeFiltered.reduce((s,e)=>s+(e.total||0),0);
-  const totalVAT=activeFiltered.reduce((s,e)=>s+(e.vat_recoverable||0),0);
-  const tf=document.getElementById('exp-tfoot');
-  if(tf)tf.innerHTML=(function(){
-    var a=activeFiltered.length,ar=L==='ar';
-    var mono='font-family:DM Mono,monospace;font-weight:700;font-size:13px;';
-    return '<tr style="background:var(--navy);color:#fff;">'
-      +'<td colspan="4" style="padding:10px 12px;font-weight:700;font-size:12px;">'+a+' '+(ar?'مصروف':'expenses')+'</td>'
-      +'<td style="padding:10px 12px;"><div style="'+mono+'">SAR '+fmt(totalAmt)+'</div>'
-      +'<div style="font-size:10px;color:var(--light);opacity:.8;">'+(ar?'إجمالي المصاريف':'Total Expenses')+'</div></td>'
-      +'<td style="padding:10px 12px;"><div style="'+mono+'color:#86efac;">SAR '+fmt(totalVAT)+'</div>'
-      +'<div style="font-size:10px;color:var(--light);opacity:.8;">'+(ar?'ضريبة قابلة للاسترداد':'Recoverable VAT')+'</div></td>'
-      +'<td colspan="3" style="padding:10px 12px;font-size:10px;color:var(--light);opacity:.7;">'+(ar?'من إجمالي الفلترة':'from filtered results')+'</td>'
-      +'</tr>';
-  })()
+  renderInsightStrip();
 }
 
-function expPage(dir){expCurrentPage+=dir;if(expCurrentPage<0)expCurrentPage=0;renderExpenses();}
-
-function clearExpFilters(){
-  ['exp-search','exp-filter-from','exp-filter-to'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
-  document.getElementById('exp-filter-cat').value='';
-  document.getElementById('exp-filter-method').value='';
-  expCurrentPage=0;renderExpenses();
+function editExpense(id){
+  const e = expenses.find(x => x.id === id);
+  if(!e) return;
+  // Pre-fill form
+  document.getElementById('exp-date').value    = e.expense_date || '';
+  document.getElementById('exp-cat').value     = e.category_name || '';
+  document.getElementById('exp-method').value  = e.payment_method || 'cash';
+  document.getElementById('exp-desc').value    = e.description || '';
+  document.getElementById('exp-vendor').value  = e.vendor || '';
+  document.getElementById('exp-amount').value  = e.amount || '';
+  document.getElementById('exp-vat-cat').value = e.vat_category || (e.has_vat ? 'standard' : 'exempt');
+  document.getElementById('exp-vat-type').value= e.vat_deductible || 'deductible';
+  document.getElementById('exp-ref').value     = e.reference || '';
+  document.getElementById('exp-notes').value   = e.notes || '';
+  // Store id for update
+  window._editingExpenseId = id;
+  // Switch to form tab and scroll
+  goTab('add');
+  calcExpVAT();
+  updateCompliance();
+  // Highlight the save button
+  const btn = document.getElementById('btn-save-expense');
+  if(btn){
+    btn.textContent = L==='ar' ? '💾 تحديث المصروف' : '💾 Update Expense';
+    btn.style.background = 'var(--amber)';
+  }
+  // Scroll to top of form
+  document.getElementById('tc-add')?.scrollIntoView({behavior:'smooth', block:'start'});
+  // Show notice
+  notify(L==='ar' ? '✏️ جارٍ تعديل المصروف — أرفق الإيصال ثم احفظ' : '✏️ Editing expense — attach receipt then save', 'g');
 }
+
 
 async function reverseExpense(id){
   // Local in-memory guard — prevent double reversal even if DB status fails
@@ -1228,6 +1181,149 @@ function applyLang(lang){
   // Update VAT hint
   calcExpVAT();
 }
+
+/* ── RENDER EXPENSES LIST ── */
+function clearExpFilters(){
+  ['exp-search','exp-filter-from','exp-filter-to'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
+  document.getElementById('exp-filter-cat').value='';
+  document.getElementById('exp-filter-method').value='';
+  expCurrentPage=0;
+  activeQuickFilter='all';
+  document.querySelectorAll('.exp-qf-btn').forEach(b=>b.classList.remove('active'));
+  const all=document.getElementById('qf-all');if(all)all.classList.add('active');
+  renderExpenses();
+}
+
+function expPage(dir){
+  expCurrentPage+=dir;
+  if(expCurrentPage<0)expCurrentPage=0;
+  renderExpenses();
+}
+
+function renderExpenses(){
+  const search=(document.getElementById('exp-search')?.value||'').toLowerCase();
+  const catFilter=document.getElementById('exp-filter-cat')?.value||'';
+  const methodFilter=document.getElementById('exp-filter-method')?.value||'';
+  const fromDate=document.getElementById('exp-filter-from')?.value||'';
+  const toDate=document.getElementById('exp-filter-to')?.value||'';
+
+  // Quick filter dates
+  const qfDates = typeof getQuickFilterDates === 'function' ? getQuickFilterDates() : null;
+  const isReviewFilter = typeof activeQuickFilter !== 'undefined' && activeQuickFilter === 'review';
+
+  var filtered=expenses.filter(function(e){
+    var ms=!search||(e.description||'').toLowerCase().includes(search)||(e.vendor||'').toLowerCase().includes(search)||(e.category_name||'').toLowerCase().includes(search);
+    var mc=!catFilter||e.category_name===catFilter;
+    var mm=!methodFilter||e.payment_method===methodFilter;
+    var ef=qfDates?e.expense_date>=qfDates.from:(!fromDate||e.expense_date>=fromDate);
+    var et=qfDates?e.expense_date<=qfDates.to:(!toDate||e.expense_date<=toDate);
+    var mr=!isReviewFilter||(e.has_vat && e.vat_deductible==='deductible' && !e.vendor && !e.reference && !e.receipt_url);
+    return ms&&mc&&mm&&ef&&et&&mr;
+  });
+
+  var total=filtered.length;
+  var totalPages=Math.ceil(total/EXP_PAGE_SIZE)||1;
+  if(expCurrentPage>=totalPages)expCurrentPage=totalPages-1;
+  var page=filtered.slice(expCurrentPage*EXP_PAGE_SIZE,(expCurrentPage+1)*EXP_PAGE_SIZE);
+
+  var info=document.getElementById('exp-page-info');
+  if(info)info.textContent=(L==='ar'?'صفحة':'Page')+' '+(expCurrentPage+1)+' '+(L==='ar'?'من':'of')+' '+totalPages+' — '+total+' '+(L==='ar'?'نتيجة':'results');
+
+  var prevBtn=document.getElementById('exp-prev');var nextBtn=document.getElementById('exp-next');
+  if(prevBtn)prevBtn.disabled=expCurrentPage===0;
+  if(nextBtn)nextBtn.disabled=expCurrentPage>=totalPages-1;
+
+  var tb=document.getElementById('exp-tbody');
+  if(!page.length){
+    tb.innerHTML='<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px;">'+(L==='ar'?'لا توجد مصاريف':'No expenses found')+'</td></tr>';
+    var tf=document.getElementById('exp-tfoot');if(tf)tf.innerHTML='';
+    return;
+  }
+
+  function methodBadge(m){
+    var map={
+      cash:'<span class="bdg bdg-cash">'+(L==='ar'?'نقداً':'Cash')+'</span>',
+      bank:'<span class="bdg bdg-bank">'+(L==='ar'?'بنك':'Bank')+'</span>',
+      card:'<span class="bdg bdg-card">'+(L==='ar'?'بطاقة':'Card')+'</span>',
+      credit:'<span class="bdg bdg-credit">'+(L==='ar'?'آجل':'Credit')+'</span>'
+    };
+    return map[m]||'<span class="bdg">'+m+'</span>';
+  }
+
+  tb.innerHTML=page.map(function(e){
+    var isReversed=e.status==='reversed';
+    var cat=categories.find(function(cc){return cc.name_ar===e.category_name;});
+    var catDisplay=L==='ar'?(e.category_name||'—'):(cat&&cat.name_en?cat.name_en:e.category_name||'—');
+
+    // VAT status
+    var needsReview=e.has_vat&&e.vat_deductible==='deductible'&&!e.vendor&&!e.reference&&!e.receipt_url;
+    var vatHtml=(function(){
+      if(!e.has_vat){
+        var label={zero:L==='ar'?'نسبة صفرية':'Zero Rated',exempt:L==='ar'?'معفى':'Exempt',out:L==='ar'?'خارج النطاق':'Out of Scope'}[e.vat_category]||(L==='ar'?'بدون ضريبة':'No VAT');
+        return '<span class="vat-status-badge vat-none">'+label+'</span>';
+      }
+      var recAmt=e.vat_recoverable||0;
+      var deduct=e.vat_deductible||'deductible';
+      var badgeLbl=needsReview?(L==='ar'?'أرفق الإيصال':'Add Receipt')
+        :deduct==='non_deductible'?(L==='ar'?'غير قابل للاسترداد':'Not deductible')
+        :deduct==='partial'?('⚡ 50% '+(L==='ar'?'جزئي':'Partial'))
+        :('✔ '+(L==='ar'?'قابل للاسترداد':'Deductible'));
+      var badgeCls=needsReview?'vat-warn':deduct==='non_deductible'?'vat-none':deduct==='partial'?'vat-warn':'vat-ok';
+      var badgeAttr=needsReview?' style="cursor:pointer" onclick="editExpense(this.dataset.id)" data-id="'+e.id+'"':'';
+      var badge='<span class="vat-status-badge '+badgeCls+'"'+badgeAttr+'>'+badgeLbl+'</span>';
+      return '<div class="vat-status"><span class="vat-status-amt">SAR '+fmt(recAmt)+'</span>'+badge+'</div>';
+    })();
+
+    // Amount
+    var amtHtml='<div class="exp-amt-main">SAR '+fmt(e.total)+'</div>'
+      +(e.has_vat&&e.vat_amount>0?'<div class="exp-amt-vat">'+(L==='ar'?'ضريبة':'VAT')+': SAR '+fmt(e.vat_amount)+'</div>':'');
+
+    // Receipt
+    var receiptHtml=e.receipt_url
+      ?'<a href="'+e.receipt_url+'" target="_blank" title="عرض الإيصال">'+(e.receipt_url.match(/\.(jpg|jpeg|png|gif|webp)/i)?'<img class="receipt-thumb" src="'+e.receipt_url+'">':'📄')+'</a>'
+      :'<span style="color:var(--border);">—</span>';
+
+    // Action
+    var actionHtml=isReversed
+      ?'<span style="font-size:10px;color:var(--muted);">—</span>'
+      :'<button class="btn-cancel-entry" onclick="reverseExpense(this.dataset.id)" data-id="'+e.id+'"">'+(L==='ar'?'إلغاء القيد':'Cancel Entry')+'</button>';
+
+    return '<tr class="'+(isReversed?'exp-reversed-row':'')+'">'+
+      '<td style="font-size:11px;color:var(--muted);white-space:nowrap;">'+(e.expense_date||'—')+'</td>'+
+      '<td>'+
+        '<div style="font-size:12px;font-weight:600;color:var(--ink);">'+(e.description||'—')+'</div>'+
+        (isReversed?'<span class="exp-reversed-badge">❌ '+(L==='ar'?'مُلغى':'Cancelled')+'</span>':'')+
+        (e.notes&&!isReversed?'<div style="font-size:10px;color:var(--muted);">'+e.notes+'</div>':'')+
+      '</td>'+
+      '<td style="font-size:11px;">'+catDisplay+'</td>'+
+      '<td style="font-size:11px;color:var(--muted);">'+(e.vendor||'—')+'</td>'+
+      '<td>'+amtHtml+'</td>'+
+      '<td>'+vatHtml+'</td>'+
+      '<td>'+methodBadge(e.payment_method)+'</td>'+
+      '<td>'+receiptHtml+'</td>'+
+      '<td>'+actionHtml+'</td>'+
+    '</tr>';
+  }).join('');
+
+  // Footer totals
+  var activeFiltered=filtered.filter(function(e){return e.status!=='reversed';});
+  var totalAmt=activeFiltered.reduce(function(s,e){return s+(e.total||0);},0);
+  var totalVAT=activeFiltered.reduce(function(s,e){return s+(e.vat_recoverable||0);},0);
+  var tf=document.getElementById('exp-tfoot');
+  if(tf)tf.innerHTML=(function(){
+    var a=activeFiltered.length,ar=L==='ar';
+    var mono='font-family:DM Mono,monospace;font-weight:700;font-size:13px;';
+    return '<tr style="background:var(--navy);color:#fff;">'
+      +'<td colspan="4" style="padding:10px 12px;font-weight:700;font-size:12px;">'+a+' '+(ar?'مصروف':'expenses')+'</td>'
+      +'<td style="padding:10px 12px;"><div style="'+mono+'">SAR '+fmt(totalAmt)+'</div>'
+      +'<div style="font-size:10px;color:var(--light);opacity:.8;">'+(ar?'إجمالي المصاريف':'Total Expenses')+'</div></td>'
+      +'<td style="padding:10px 12px;"><div style="'+mono+'color:#86efac;">SAR '+fmt(totalVAT)+'</div>'
+      +'<div style="font-size:10px;color:var(--light);opacity:.8;">'+(ar?'ضريبة قابلة للاسترداد':'Recoverable VAT')+'</div></td>'
+      +'<td colspan="3" style="padding:10px 12px;font-size:10px;color:var(--light);opacity:.7;">'+(ar?'من إجمالي الفلترة':'from filtered results')+'</td>'
+      +'</tr>';
+  })();
+}
+
 function setLang(lang){L=lang;applyLang(lang);populateCatDropdowns();renderExpenses();}
 
 // Force Gregorian dates
@@ -1235,7 +1331,8 @@ function setLang(lang){L=lang;applyLang(lang);populateCatDropdowns();renderExpen
 
 init();
 </script>
-<script>/* GL:SB-COLLAPSE-JS */
+<script>/* GL:SB-CO
+LLAPSE-JS */
 document.querySelectorAll('.sb-lbl').forEach(function(lbl){
   lbl.addEventListener('click',function(){
     this.closest('.sb-sec').classList.toggle('open');
@@ -1384,6 +1481,71 @@ function renderInsightStrip() {
     (needsReview > 0 ? `<span class="exp-insight-item warn">⚠ ${needsReview} ${L==='ar'?'قيد يحتاج مراجعة':'entr'+(needsReview>1?'ies':'y')+' need review'}</span>` : '');
 }
 
+
+/* GL:DEDUCT-HINT-JS */
+function openDeductHint(){
+  var m = document.getElementById('deduct-hint-modal');
+  if(m){ m.style.display='flex'; applyLang(L); }
+}
+function closeDeductHint(){
+  var m = document.getElementById('deduct-hint-modal');
+  if(m) m.style.display='none';
+}
+
+</script>
+<!-- Deductibility Hint Modal -->
+<div class="deduct-modal-overlay" id="deduct-hint-modal" style="display:none;" onclick="if(event.target===this)closeDeductHint()">
+  <div class="deduct-modal">
+    <div class="deduct-modal-hdr" data-ar="دليل قابلية استرداد ضريبة القيمة المضافة" data-en="VAT Deductibility Guide">دليل قابلية استرداد ضريبة القيمة المضافة</div>
+    <div class="deduct-modal-sub" data-ar="حسب أنظمة هيئة الزكاة والضريبة والجمارك (زاتكا)" data-en="As per ZATCA (Saudi Tax Authority) regulations">حسب أنظمة هيئة الزكاة والضريبة والجمارك (زاتكا)</div>
+
+    <div class="deduct-row">
+      <div class="deduct-icon">✅</div>
+      <div class="deduct-body">
+        <div class="deduct-badge deduct-full" data-ar="قابل للاسترداد بالكامل" data-en="Fully Deductible">قابل للاسترداد بالكامل</div>
+        <div class="deduct-title" data-ar="مصاريف الأعمال التشغيلية" data-en="Business Operating Expenses">مصاريف الأعمال التشغيلية</div>
+        <div class="deduct-examples" data-ar="إيجار المكتب، الكهرباء، الاتصالات، القرطاسية، الصيانة، الرواتب، التسويق، رسوم مهنية" data-en="Office rent, electricity, telecom, stationery, maintenance, salaries, marketing, professional fees">إيجار المكتب، الكهرباء، الاتصالات، القرطاسية، الصيانة، الرواتب، التسويق، رسوم مهنية</div>
+      </div>
+    </div>
+
+    <div class="deduct-row">
+      <div class="deduct-icon">⚡</div>
+      <div class="deduct-body">
+        <div class="deduct-badge deduct-partial" data-ar="50% فقط — جزئي" data-en="50% Only — Partial">50% فقط — جزئي</div>
+        <div class="deduct-title" data-ar="الضيافة والترفيه" data-en="Entertainment & Hospitality">الضيافة والترفيه</div>
+        <div class="deduct-examples" data-ar="وجبات العمل، حفلات الشركة، هدايا العملاء، مصاريف الترفيه — يُسترد 50% فقط من الضريبة" data-en="Business meals, company events, client gifts, entertainment — only 50% VAT recoverable">وجبات العمل، حفلات الشركة، هدايا العملاء — يُسترد 50% فقط من الضريبة</div>
+      </div>
+    </div>
+
+    <div class="deduct-row">
+      <div class="deduct-icon">❌</div>
+      <div class="deduct-body">
+        <div class="deduct-badge deduct-non" data-ar="غير قابل للاسترداد" data-en="Not Deductible">غير قابل للاسترداد</div>
+        <div class="deduct-title" data-ar="المصاريف الشخصية والمخالفات" data-en="Personal Expenses & Fines">المصاريف الشخصية والمخالفات</div>
+        <div class="deduct-examples" data-ar="مصاريف شخصية، غرامات ومخالفات، تسلية شخصية، ملابس غير مهنية" data-en="Personal expenses, fines & penalties, personal entertainment, non-work clothing">مصاريف شخصية، غرامات ومخالفات، تسلية شخصية</div>
+      </div>
+    </div>
+
+    <div class="deduct-row">
+      <div class="deduct-icon">🚫</div>
+      <div class="deduct-body">
+        <div class="deduct-badge deduct-exempt" data-ar="معفى بطبيعته" data-en="Exempt by Nature">معفى بطبيعته</div>
+        <div class="deduct-title" data-ar="الخدمات المعفاة من الضريبة" data-en="VAT-Exempt Services">الخدمات المعفاة من الضريبة</div>
+        <div class="deduct-examples" data-ar="الإيجار السكني، الخدمات المالية والتأمين، التعليم الرسمي، الرعاية الصحية — لا ضريبة مدفوعة أصلاً" data-en="Residential rent, financial services, insurance, formal education, healthcare — no VAT charged in the first place">الإيجار السكني، الخدمات المالية، التأمين، التعليم، الرعاية الصحية</div>
+      </div>
+    </div>
+
+    <div style="margin-top:16px;text-align:center;">
+      <button onclick="closeDeductHint()" style="padding:8px 28px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Cairo',sans-serif;font-size:14px;font-weight:700;cursor:pointer;" data-ar="فهمت ✓" data-en="Got it ✓">فهمت ✓</button>
+    </div>
+  </div>
+</div>
+<script>/* GL:SB-COLLAPSE-JS */
+document.querySelectorAll('.sb-lbl').forEach(function(lbl){
+  lbl.addEventListener('click',function(){
+    this.closest('.sb-sec').classList.toggle('open');
+  });
+});
 </script>
 </body>
 </html>
