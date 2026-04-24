@@ -885,7 +885,7 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
         </div>
       </div>
 
-      <div class="inv-body">
+      <div class="inv-body"><div class="inv-repeat-header"><div>
         <div class="inv-parties" dir="rtl">
           <div>
             <div class="party-label"><span style="display:block;">البائع</span><span style="display:block;font-size:8px;opacity:.7;letter-spacing:.05em;">SELLER</span></div>
@@ -915,7 +915,7 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
             <span class="inv-date-label"><span style="display:block;">رقم أمر الشراء</span><span style="display:block;font-size:8px;opacity:.7;">PO NO.</span></span>
             <span class="inv-date-val mono" id="p-po-num">—</span>
           </div>
-        </div>
+        </div></div></div>
 
         <table class="inv-items" dir="rtl">
           <thead>
@@ -933,7 +933,13 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
         </table>
 
         <div class="inv-footer">
-          <div class="inv-footer-top">
+          <div id="p-notes" style="display:none;margin-bottom:10px;font-size:13px;color:var(--muted);border-top:1px solid var(--tint);padding-top:8px;"></div>
+          <div class="inv-footer-row">
+            <div class="inv-qr-left">
+              <div class="inv-qr-box" id="qr-container"></div>
+              <div class="inv-qr-zatca">ZATCA</div>
+            </div>
+            <div style="flex:1;"></div>
             <div class="inv-totals">
               <div class="inv-total-row">
                 <span><span style="display:block;">الإجمالي قبل الضريبة</span><span style="display:block;font-size:9px;color:var(--muted);">Subtotal (excl. VAT)</span></span>
@@ -947,14 +953,6 @@ input[type="date"] { -webkit-appearance: none; color-scheme: light; font-family:
                 <span><span style="display:block;">الإجمالي شامل الضريبة</span><span style="display:block;font-size:12px;color:var(--muted);font-weight:400;">Total incl. VAT</span></span>
                 <span class="inv-total-val" id="p-total">SAR 0.00</span>
               </div>
-            </div>
-          </div>
-          <div id="p-notes" style="display:none;margin-bottom:10px;font-size:13px;color:var(--muted);border-top:1px solid var(--tint);padding-top:8px;"></div>
-          <div class="inv-qr-section">
-            <div style="flex:1;"></div>
-            <div style="text-align:center;">
-              <div class="inv-qr-box" id="qr-container"></div>
-              <div class="inv-qr-zatca">ZATCA</div>
             </div>
           </div>
           <div class="inv-custom-footer" id="p-custom-footer"></div>
@@ -1353,121 +1351,174 @@ async function confirmPayment(){
 
 /* ── PRINT ── */
 function printInvoice(){
-  const invoice = document.getElementById('invoice-preview');
-  if(!invoice){ window.print(); return; }
+  const isB2B   = document.getElementById('f-type')?.value === 'b2b';
+  const tmplUrl = isB2B ? 'standard-invoice.html' : 'simplified-invoice.html';
 
-  // Only grab invoice-specific styles (not nav/form/modal styles)
-  const allStyles = Array.from(document.querySelectorAll('style'))
-    .map(s => s.innerHTML).join('\n');
+  // Collect live data
+  const invNum    = document.getElementById('f-invnum')?.value || '—';
+  const date      = document.getElementById('f-date')?.value   || '';
+  const dateStr   = date ? new Date(date).toLocaleDateString('en-SA',{year:'numeric',month:'long',day:'numeric'}) : '—';
+  const poNum     = document.getElementById('f-po-num')?.value  || '';
+  const notes     = document.getElementById('f-notes')?.value   || '';
 
-  // Extract only inv-* and party-* and relevant rules
-  const invoiceStyleRules = allStyles.split('\n').filter(line =>
-    line.match(/inv-|party-|\.badge|\.mono|@font|disc-tag|mock/)
-  ).join('\n');
+  // Seller
+  const sName   = document.getElementById('f-seller-name')?.value    || 'GulfLedger';
+  const sTrn    = document.getElementById('f-seller-trn')?.value     || '';
+  const sCr     = document.getElementById('f-seller-cr')?.value      || '';
+  const sBldg   = document.getElementById('f-seller-building')?.value|| '';
+  const sStr    = document.getElementById('f-seller-street')?.value  || '';
+  const sDist   = document.getElementById('f-seller-district')?.value|| '';
+  const sCity   = document.getElementById('f-seller-city')?.value    || '';
+  const sPost   = document.getElementById('f-seller-postal')?.value  || '';
+  const sAddr   = [[sBldg,sStr].filter(Boolean).join(' '),[sDist,sCity,sPost].filter(Boolean).join('، ')].filter(Boolean).join('<br>');
 
-  // Explicitly get logo base64 (outerHTML may not capture it reliably)
-  const logoBase64 = localStorage.getItem('gl_logo_base64') || 
-                     document.getElementById('p-logo')?.src || '';
-  const logoVisible = document.getElementById('p-logo-wrap')?.style.display !== 'none' && logoBase64;
+  // Buyer
+  const bName   = document.getElementById('f-buyer-name-b2b')?.value || document.getElementById('f-buyer-name')?.value || '';
+  const bTrn    = document.getElementById('f-buyer-trn')?.value      || '';
+  const bBldg   = document.getElementById('f-buyer-building')?.value || '';
+  const bStr    = document.getElementById('f-buyer-street')?.value   || '';
+  const bDist   = document.getElementById('f-buyer-district')?.value || '';
+  const bCity   = document.getElementById('f-buyer-city')?.value     || '';
+  const bPost   = document.getElementById('f-buyer-postcode')?.value || '';
+  const bAddNum = document.getElementById('f-buyer-addnum')?.value   || '';
+  const bAddrQ  = document.getElementById('f-buyer-address-quick')?.value || '';
+  const bAddr   = bBldg||bStr
+    ? [[bBldg,bStr].filter(Boolean).join(' '),[bDist,bCity,bPost].filter(Boolean).join('، '),bAddNum].filter(Boolean).join('<br>')
+    : bAddrQ;
 
-  // Clone invoice and fix logo
-  const invoiceClone = invoice.cloneNode(true);
-  if(logoVisible){
-    const cloneLogo = invoiceClone.querySelector('#p-logo');
-    const cloneLogoWrap = invoiceClone.querySelector('#p-logo-wrap');
-    if(cloneLogo) cloneLogo.src = logoBase64;
-    if(cloneLogoWrap) cloneLogoWrap.style.display = 'block';
-  }
+  // Totals
+  const fmt = n => n.toLocaleString('en-SA',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const activeItems = items.filter(it => it.desc || it.price > 0);
+  let sub = 0;
+  activeItems.forEach(it => {
+    const raw = it.qty * it.price;
+    sub += raw - raw * ((it.disc||0)/100);
+  });
+  const vat   = sub * 0.15;
+  const total = sub + vat;
 
-  const invoiceHTML = invoiceClone.outerHTML;
+  // Build item rows
+  const brandColor = getComputedStyle(document.documentElement).getPropertyValue('--brand').trim() || '#1A3C2A';
+  const logoBase64 = localStorage.getItem('gl_logo_base64') || '';
+  const customFooter = localStorage.getItem('gl_invoice_footer') || '';
 
-  const brandColor = getComputedStyle(document.documentElement).getPropertyValue('--brand').trim() || '#0C447C';
+  // QR data
+  const qrEl = document.getElementById('qr-container');
+  const qrCanvas = qrEl?.querySelector('canvas');
+  const qrDataUrl = qrCanvas ? qrCanvas.toDataURL() : '';
 
-  const html = `<!DOCTYPE html>
-<html dir="rtl" lang="ar">
-<head>
-<meta charset="UTF-8">
-<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=Cairo:wght@300;400;500;600;700&family=DM+Mono&family=DM+Sans:wght@400;500;700&display=swap" rel="stylesheet">
-<style>
-:root{--brand:${brandColor};--navy:#1A3C2A;--blue:#006C35;--sky:#3DAA65;--light:#A8D9BC;--tint:#E6F4EC;--green:#1D9E75;--ink:#0D2618;--muted:#4A7A5E;--white:#fff;--border:#C3DECE;--amber:#C9920A;}
-*{box-sizing:border-box;margin:0;padding:0;}
-body{background:#fff;font-family:'Cairo',sans-serif;color:#0d1a2a;width:100%;}
-@page{size:A4 portrait;margin:12mm;@bottom-right{content:"Page " counter(page) " / " counter(pages);font-family:'DM Mono',monospace;font-size:9px;color:#aaa;}}
-@media print{*{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}}
-.mono{font-family:'DM Mono',monospace;}
-.badge{font-size:12px;font-weight:700;padding:2px 8px;border-radius:8px;display:inline-block;}
-/* Invoice layout */
-.invoice-doc{background:#fff;width:100%;display:block;}
-/* Header */
-.inv-header{background:var(--brand);padding:20px 24px;display:flex;align-items:center;justify-content:space-between;}
-.inv-brand{display:flex;align-items:center;gap:10px;}
-.inv-bars{display:flex;gap:3px;height:28px;}
-.inv-bar{width:4px;border-radius:2px;}
-.inv-brand-name{font-family:'Playfair Display',serif;font-size:20px;color:#fff;}
-.inv-brand-sub{font-size:9px;letter-spacing:3px;color:var(--light);display:block;}
-.inv-meta{text-align:left;}
-.inv-num{font-family:'DM Mono',monospace;font-size:16px;color:#fff;font-weight:700;}
-.inv-type-badge{font-size:9px;font-weight:700;padding:2px 8px;border-radius:6px;background:rgba(255,255,255,0.15);color:var(--light);display:inline-block;margin-top:4px;}
-/* Body */
-.inv-body{padding:16px 20px;display:block;}
-/* Parties */
-.inv-parties{display:grid;grid-template-columns:1fr 1fr;gap:0;margin-bottom:16px;border:1px solid var(--border);border-radius:8px;overflow:hidden;}
-.inv-parties>div{padding:12px 16px;text-align:right;}
-.inv-parties>div:first-child{border-left:1px solid var(--border);border-right:none;}
-.party-label{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:5px;}
-.party-name{font-size:15px;font-weight:700;color:var(--navy);margin-bottom:3px;}
-.party-detail{font-size:12px;color:var(--muted);line-height:1.5;}
-.party-trn{font-family:'DM Mono',monospace;font-size:12px;color:var(--ink);margin-top:3px;}
-/* Date row */
-.inv-date-row{display:flex;flex-wrap:nowrap;gap:0;margin-bottom:16px;padding:8px 14px;background:var(--tint);border-radius:7px;direction:rtl;align-items:center;}
-.inv-date-item{display:flex;flex-direction:column;gap:2px;flex:1;padding:0 10px;border-left:1px solid var(--border);}  .inv-date-item:last-child{border-left:none;}
-.inv-date-label{font-size:8px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);}
-.inv-date-val{font-size:14px;font-weight:700;color:var(--ink);white-space:nowrap;}
-/* Items table */
-.inv-items{width:100%;border-collapse:collapse;margin-bottom:0;font-size:13px;direction:rtl;}
-.inv-items thead{display:table-header-group;}
-.inv-items th{background:var(--brand);color:#fff;padding:7px 10px;font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;text-align:right;}
-.inv-items td{padding:8px 10px;border-bottom:1px solid var(--tint);text-align:right;}
-.inv-items tbody tr:last-child td{border-bottom:none;}
-.disc-tag{font-size:9px;color:var(--amber);background:#fffbeb;border:1px solid #fde68a;border-radius:4px;padding:1px 5px;display:inline-block;margin-top:3px;}
-/* Footer — flows right after table */
-.inv-footer{margin-top:16px;padding-top:10px;border-top:1.5px solid var(--border);display:block;page-break-inside:avoid;}
-.inv-footer-top{display:flex;justify-content:flex-end;margin-bottom:14px;}
-.inv-totals{min-width:300px;}
-.inv-total-row{display:flex;justify-content:space-between;gap:20px;padding:3px 0;font-size:13px;color:var(--muted);}
-.inv-total-row.grand{font-size:15px;font-weight:700;color:var(--navy);border-top:1.5px solid var(--navy);margin-top:4px;padding-top:6px;gap:24px;}
-.inv-total-val{font-family:'DM Mono',monospace;font-weight:600;white-space:nowrap;text-align:left;}
-/* QR */
-.inv-qr-section{display:flex;align-items:flex-end;justify-content:flex-end;padding:10px 0 0;overflow:visible;}
-.inv-qr-box{width:80px;height:80px;display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:visible;}
-.inv-qr-box img,.inv-qr-box canvas{width:80px!important;height:80px!important;display:block!important;}
-.inv-qr-zatca{font-size:8px;color:var(--muted);letter-spacing:.04em;text-align:center;margin-top:3px;}
-.inv-qr-label{font-size:9px;color:var(--muted);line-height:1.6;text-align:center;}
-/* Notes / custom footer */
-#p-notes{font-size:13px;color:var(--muted);border-top:1px solid var(--tint);padding-top:8px;margin-bottom:10px;}
-.inv-custom-footer{text-align:center;font-size:13px;color:var(--muted);padding:10px 0 4px;border-top:1px solid var(--tint);margin-top:8px;}
-/* Logo */
-#p-logo-wrap{width:44px;height:44px;border-radius:8px;overflow:hidden;background:rgba(255,255,255,0.15);flex-shrink:0;margin-left:10px;}
-#p-logo{width:100%;height:100%;object-fit:cover;}
-/* B2C notice */
-.inv-b2c-notice{background:#f0fdf4;border:1px solid #86efac;border-radius:6px;padding:7px 11px;font-size:12px;color:#085041;margin-bottom:12px;}
-</style>
-</head>
-<body>
-${invoiceHTML}
-<script>
-window.onload=function(){
-  window.print();
-  window.onafterprint=function(){ window.close(); };
+  // B2B item rows (7 columns)
+  const b2bRows = activeItems.map(it => {
+    const raw  = it.qty * it.price;
+    const disc = raw * ((it.disc||0)/100);
+    const net  = raw - disc;
+    const vatA = net * 0.15;
+    const discHtml = it.disc > 0 ? \`<span class="disc-tag">\${it.disc}%</span>\` : '—';
+    return \`<tr>
+      <td><div class="inv-desc">\${it.desc_ar||it.desc||'—'}</div>\${it.desc&&it.desc_ar?\`<div class="inv-desc-en">\${it.desc}</div>\`:''}</td>
+      <td class="num">\${it.qty||''}</td>
+      <td class="num">SAR \${fmt(it.price)}</td>
+      <td style="text-align:center;">\${discHtml}</td>
+      <td class="num">SAR \${fmt(net)}</td>
+      <td class="num">SAR \${fmt(vatA)}</td>
+      <td class="num" style="font-weight:600;">SAR \${fmt(net+vatA)}</td>
+    </tr>\`;
+  }).join('');
+
+  // B2C item rows (4 columns)
+  const b2cRows = activeItems.map(it => {
+    const raw  = it.qty * it.price;
+    const disc = raw * ((it.disc||0)/100);
+    const net  = raw - disc;
+    const ttl  = net * 1.15;
+    return \`<tr>
+      <td><div class="inv-desc">\${it.desc_ar||it.desc||'—'}</div>\${it.desc&&it.desc_ar?\`<div class="inv-desc-en">\${it.desc}</div>\`:''}</td>
+      <td class="num">\${it.qty||''}</td>
+      <td class="num">SAR \${fmt(it.price)}</td>
+      <td class="num" style="font-weight:600;">SAR \${fmt(ttl)}</td>
+    </tr>\`;
+  }).join('');
+
+  const itemRows = isB2B ? b2bRows : b2cRows;
+
+  // Fetch template and inject data
+  fetch(tmplUrl)
+    .then(r => r.text())
+    .then(tmplHtml => {
+      // Inject data via placeholder replacement on DOM
+      const parser = new DOMParser();
+      const doc = parser.parseFromString(tmplHtml, 'text/html');
+
+      const set = (id, val, isHtml=false) => {
+        const el = doc.getElementById(id);
+        if(!el) return;
+        if(isHtml) el.innerHTML = val; else el.textContent = val;
+      };
+
+      // Brand color
+      doc.documentElement.style.setProperty('--brand', brandColor);
+
+      // Header
+      set('gl-seller-name',    sName);
+      set('gl-invnum',         invNum);
+      set('gl-date-header',    dateStr);
+
+      // Parties / meta
+      set('gl-p-seller-name',  sName);
+      set('gl-p-seller-addr',  '', true); doc.getElementById('gl-p-seller-addr') && (doc.getElementById('gl-p-seller-addr').innerHTML = sAddr);
+      set('gl-p-seller-trn',   sTrn ? 'TRN: ' + sTrn : '');
+      set('gl-p-buyer-name',   bName || (isB2B ? '—' : ''));
+      set('gl-p-buyer-trn',    bTrn ? 'TRN: ' + bTrn : '');
+      const bAddrEl = doc.getElementById('gl-p-buyer-addr');
+      if(bAddrEl) bAddrEl.innerHTML = bAddr;
+
+      // Seller TRN / CR
+      set('gl-seller-trn',     sTrn ? 'TRN: ' + sTrn : '');
+      set('gl-seller-cr',      sCr  ? 'CR: '  + sCr  : '');
+
+      // Date row
+      set('gl-date',   dateStr);
+      set('gl-invnum2',invNum);
+      const poRow = doc.getElementById('gl-po-row');
+      if(poRow) { set('gl-po-num', poNum || '—'); }
+
+      // Customer (B2C)
+      const custRow = doc.getElementById('gl-customer-row');
+      if(custRow && bName) { custRow.style.display='block'; set('gl-buyer-name', bName); }
+
+      // Items
+      const tbody = doc.getElementById('gl-items-body');
+      if(tbody) tbody.innerHTML = itemRows;
+
+      // Totals
+      set('gl-sub',   'SAR ' + fmt(sub));
+      set('gl-vat',   'SAR ' + fmt(vat));
+      set('gl-total', 'SAR ' + fmt(total));
+
+      // Notes
+      const notesEl = doc.getElementById('gl-notes');
+      if(notesEl && notes) { notesEl.style.display='block'; notesEl.textContent = notes; }
+
+      // QR
+      if(qrDataUrl) {
+        ['gl-qr-header','gl-qr-footer'].forEach(id => {
+          const el = doc.getElementById(id);
+          if(el) el.innerHTML = \`<img src="\${qrDataUrl}" width="66" height="66">\`;
+        });
+      }
+
+      // Custom footer
+      set('gl-custom-footer', customFooter);
+
+      // Open print window
+      const win = window.open('','_blank','width=900,height=700');
+      win.document.write('<!DOCTYPE html>' + doc.documentElement.outerHTML);
+      win.document.close();
+      win.onload = function(){ win.print(); win.onafterprint = function(){ win.close(); }; };
+    })
+    .catch(() => { window.print(); });
 }
-<\/script>
-</body>
-</html>`;
 
-  const win = window.open('','_blank','width=900,height=700');
-  win.document.write(html);
-  win.document.close();
-}
 function applyBranding(biz){
   if(!biz) return;
   const color  = localStorage.getItem('gl_brand_color')    || biz.brand_color    || '#0C447C';
