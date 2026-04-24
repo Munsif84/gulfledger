@@ -279,6 +279,15 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
 .fld-badge.recommended{background:#fef3c7;color:#92400e;}
 .fld-badge.required{background:#fff1f2;color:#be123c;}
 
+
+/* GL:EXP-GROUPS */
+.exp-section{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:10px 0 6px;border-top:1px solid var(--border);margin-top:4px;display:flex;align-items:center;gap:6px;}
+.exp-section:first-of-type{border-top:none;padding-top:0;margin-top:0;}
+.exp-section-dot{width:6px;height:6px;border-radius:50%;flex-shrink:0;}
+.exp-supplier-hint{font-size:11px;margin-top:3px;color:var(--amber);display:none;}
+.exp-supplier-hint.show{display:block;}
+.exp-vat-micro{font-size:11px;color:var(--muted);padding:4px 0 2px;display:flex;align-items:center;gap:5px;}
+
 </style>
 </head>
 <body>
@@ -370,6 +379,9 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
         </div>
         <div class="card-bdy">
 
+          <!-- ── GROUP 1: Basic Info ── -->
+          <div class="exp-section"><span class="exp-section-dot" style="background:var(--sky);"></span><span data-ar="البيانات الأساسية" data-en="Basic Info">البيانات الأساسية</span></div>
+
           <!-- Row 1: Date + Category + Payment Method -->
           <div class="fg fg-3">
             <div class="fld">
@@ -412,8 +424,12 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
                 data-placeholder-en="Supplier name (important for VAT recovery)"
                 placeholder="Supplier name (important for VAT recovery)"
                 oninput="updateCompliance()">
+              <div class="exp-supplier-hint" id="exp-supplier-hint" data-ar="⚠ يجب أن تحتوي فاتورة المورد على رقم ضريبي صحيح" data-en="⚠ Supplier invoice must include a valid VAT number">⚠ Supplier invoice must include a valid VAT number</div>
             </div>
           </div>
+
+          <!-- ── GROUP 2: Amount & VAT ── -->
+          <div class="exp-section"><span class="exp-section-dot" style="background:var(--amber);"></span><span data-ar="المبلغ والضريبة" data-en="Amount & VAT">المبلغ والضريبة</span></div>
 
           <!-- Row 3: Amount + VAT Treatment + Deductibility -->
           <div class="fg fg-3">
@@ -470,6 +486,9 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
             <span id="exp-compliance-msg"></span>
           </div>
 
+          <!-- ── GROUP 3: Reference & Documents ── -->
+          <div class="exp-section"><span class="exp-section-dot" style="background:var(--blue);"></span><span data-ar="المرجع والوثائق" data-en="Reference & Documents">المرجع والوثائق</span></div>
+
           <!-- Row 4: Reference + Notes -->
           <div class="fg fg-2">
             <div class="fld">
@@ -498,7 +517,8 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
 
           <!-- Receipt Upload -->
           <div class="fld" style="margin-bottom:14px;">
-            <label data-ar="إرفاق الإيصال / الفاتورة (ZATCA)" data-en="Attach Receipt / Invoice (ZATCA)">إرفاق الإيصال / الفاتورة (ZATCA)</label>
+            <label><span data-ar="إرفاق الفاتورة" data-en="Upload Invoice">إرفاق الفاتورة</span> <span class="fld-badge recommended" data-ar="موصى به لاسترداد الضريبة" data-en="Recommended for VAT recovery">موصى به لاسترداد الضريبة</span></label>
+            <div class="exp-vat-micro" id="exp-upload-hint" style="display:none;"><span>✔</span><span data-ar="مطلوب لإثبات الاستحقاق الضريبي في حال المطالبة" data-en="Required to support VAT recovery in case of audit">مطلوب لإثبات الاستحقاق الضريبي في حال المطالبة</span></div>
             <div class="receipt-zone" id="receipt-zone" onclick="document.getElementById('receipt-file').click()"
               ondragover="event.preventDefault();this.classList.add('drag-over')"
               ondragleave="this.classList.remove('drag-over')"
@@ -514,6 +534,7 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
               <button class="receipt-preview-remove" onclick="clearReceipt()" title="إزالة">×</button>
             </div>
           </div>
+          <div class="exp-vat-micro" style="margin-bottom:10px;color:var(--green);"><span>✔</span><span data-ar="سيتم احتساب الضريبة تلقائيًا في الإقرار الضريبي" data-en="VAT will be automatically included in your VAT return">سيتم احتساب الضريبة تلقائيًا في الإقرار الضريبي</span></div>
           <div class="btn-row">
             <button class="btn-p" onclick="saveExpense()" data-ar="💾 حفظ المصروف" data-en="💾 Save Expense">💾 حفظ المصروف</button>
             <button class="btn-s" onclick="clearExpForm()" data-ar="مسح" data-en="Clear">مسح</button>
@@ -867,8 +888,18 @@ async function loadExpenses(){
   renderStats();
   renderCatBreakdown();
   updateSidebarStats();
-}
 
+  // Supplier VAT hint — show when standard + deductible
+  var supHint = document.getElementById('exp-supplier-hint');
+  if(supHint) supHint.classList.toggle('show', isStd && deductType !== 'non_deductible');
+  // Upload hint — show when standard
+  var upHint = document.getElementById('exp-upload-hint');
+  if(upHint) upHint.style.display = isStd?'flex':'none';
+  // Sync hint language
+  if(supHint){ supHint.textContent = L==='ar'
+    ? '⚠ يجب أن تحتوي فاتورة المورد على رقم ضريبي صحيح'
+    : '⚠ Supplier invoice must include a valid VAT number'; }
+}
 function renderExpenses(){
   const search=(document.getElementById('exp-search')?.value||'').toLowerCase();
   const catFilter=document.getElementById('exp-filter-cat')?.value||'';
