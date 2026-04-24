@@ -1354,25 +1354,22 @@ function printInvoice(){
   const isB2B   = document.getElementById('f-type')?.value === 'b2b';
   const tmplUrl = isB2B ? 'standard-invoice.html' : 'simplified-invoice.html';
 
-  // Collect live data
-  const invNum    = document.getElementById('f-invnum')?.value || '—';
-  const date      = document.getElementById('f-date')?.value   || '';
-  const dateStr   = date ? new Date(date).toLocaleDateString('en-SA',{year:'numeric',month:'long',day:'numeric'}) : '—';
-  const poNum     = document.getElementById('f-po-num')?.value  || '';
-  const notes     = document.getElementById('f-notes')?.value   || '';
+  const invNum  = document.getElementById('f-invnum')?.value || '—';
+  const date    = document.getElementById('f-date')?.value   || '';
+  const dateStr = date ? new Date(date).toLocaleDateString('en-SA',{year:'numeric',month:'long',day:'numeric'}) : '—';
+  const poNum   = document.getElementById('f-po-num')?.value  || '';
+  const notes   = document.getElementById('f-notes')?.value   || '';
 
-  // Seller
-  const sName   = document.getElementById('f-seller-name')?.value    || 'GulfLedger';
-  const sTrn    = document.getElementById('f-seller-trn')?.value     || '';
-  const sCr     = document.getElementById('f-seller-cr')?.value      || '';
-  const sBldg   = document.getElementById('f-seller-building')?.value|| '';
-  const sStr    = document.getElementById('f-seller-street')?.value  || '';
-  const sDist   = document.getElementById('f-seller-district')?.value|| '';
-  const sCity   = document.getElementById('f-seller-city')?.value    || '';
-  const sPost   = document.getElementById('f-seller-postal')?.value  || '';
-  const sAddr   = [[sBldg,sStr].filter(Boolean).join(' '),[sDist,sCity,sPost].filter(Boolean).join('، ')].filter(Boolean).join('<br>');
+  const sName   = document.getElementById('f-seller-name')?.value     || 'GulfLedger';
+  const sTrn    = document.getElementById('f-seller-trn')?.value      || '';
+  const sCr     = document.getElementById('f-seller-cr')?.value       || '';
+  const sBldg   = document.getElementById('f-seller-building')?.value || '';
+  const sStr    = document.getElementById('f-seller-street')?.value   || '';
+  const sDist   = document.getElementById('f-seller-district')?.value || '';
+  const sCity   = document.getElementById('f-seller-city')?.value     || '';
+  const sPost   = document.getElementById('f-seller-postal')?.value   || '';
+  const sAddr   = [[sBldg,sStr].filter(Boolean).join(' '),[sDist,sCity,sPost].filter(Boolean).join('\u060c ')].filter(Boolean).join('<br>');
 
-  // Buyer
   const bName   = document.getElementById('f-buyer-name-b2b')?.value || document.getElementById('f-buyer-name')?.value || '';
   const bTrn    = document.getElementById('f-buyer-trn')?.value      || '';
   const bBldg   = document.getElementById('f-buyer-building')?.value || '';
@@ -1382,141 +1379,105 @@ function printInvoice(){
   const bPost   = document.getElementById('f-buyer-postcode')?.value || '';
   const bAddNum = document.getElementById('f-buyer-addnum')?.value   || '';
   const bAddrQ  = document.getElementById('f-buyer-address-quick')?.value || '';
-  const bAddr   = bBldg||bStr
-    ? [[bBldg,bStr].filter(Boolean).join(' '),[bDist,bCity,bPost].filter(Boolean).join('، '),bAddNum].filter(Boolean).join('<br>')
+  const bAddr   = (bBldg||bStr)
+    ? [[bBldg,bStr].filter(Boolean).join(' '),[bDist,bCity,bPost].filter(Boolean).join('\u060c '),bAddNum].filter(Boolean).join('<br>')
     : bAddrQ;
 
-  // Totals
-  const fmt = n => n.toLocaleString('en-SA',{minimumFractionDigits:2,maximumFractionDigits:2});
-  const activeItems = items.filter(it => it.desc || it.price > 0);
-  let sub = 0;
-  activeItems.forEach(it => {
-    const raw = it.qty * it.price;
+  var fmt = function(n){ return n.toLocaleString('en-SA',{minimumFractionDigits:2,maximumFractionDigits:2}); };
+  var activeItems = items.filter(function(it){ return it.desc || it.price > 0; });
+  var sub = 0;
+  activeItems.forEach(function(it){
+    var raw = it.qty * it.price;
     sub += raw - raw * ((it.disc||0)/100);
   });
-  const vat   = sub * 0.15;
-  const total = sub + vat;
+  var vat   = sub * 0.15;
+  var total = sub + vat;
 
-  // Build item rows
-  const brandColor = getComputedStyle(document.documentElement).getPropertyValue('--brand').trim() || '#1A3C2A';
-  const logoBase64 = localStorage.getItem('gl_logo_base64') || '';
-  const customFooter = localStorage.getItem('gl_invoice_footer') || '';
+  var brandColor   = getComputedStyle(document.documentElement).getPropertyValue('--brand').trim() || '#1A3C2A';
+  var customFooter = localStorage.getItem('gl_invoice_footer') || '';
+  var qrEl     = document.getElementById('qr-container');
+  var qrCanvas = qrEl ? qrEl.querySelector('canvas') : null;
+  var qrDataUrl= qrCanvas ? qrCanvas.toDataURL() : '';
 
-  // QR data
-  const qrEl = document.getElementById('qr-container');
-  const qrCanvas = qrEl?.querySelector('canvas');
-  const qrDataUrl = qrCanvas ? qrCanvas.toDataURL() : '';
-
-  // B2B item rows (7 columns)
-  const b2bRows = activeItems.map(it => {
-    const raw  = it.qty * it.price;
-    const disc = raw * ((it.disc||0)/100);
-    const net  = raw - disc;
-    const vatA = net * 0.15;
-    const discHtml = it.disc > 0 ? \`<span class="disc-tag">\${it.disc}%</span>\` : '—';
-    return \`<tr>
-      <td><div class="inv-desc">\${it.desc_ar||it.desc||'—'}</div>\${it.desc&&it.desc_ar?\`<div class="inv-desc-en">\${it.desc}</div>\`:''}</td>
-      <td class="num">\${it.qty||''}</td>
-      <td class="num">SAR \${fmt(it.price)}</td>
-      <td style="text-align:center;">\${discHtml}</td>
-      <td class="num">SAR \${fmt(net)}</td>
-      <td class="num">SAR \${fmt(vatA)}</td>
-      <td class="num" style="font-weight:600;">SAR \${fmt(net+vatA)}</td>
-    </tr>\`;
+  var b2bRows = activeItems.map(function(it){
+    var raw=it.qty*it.price, disc=raw*((it.disc||0)/100), net=raw-disc, vatA=net*0.15;
+    var discHtml = it.disc>0 ? '<span class="disc-tag">'+it.disc+'%</span>' : '\u2014';
+    var descAr = it.desc_ar||it.desc||'\u2014';
+    var descEn = (it.desc&&it.desc_ar) ? '<div class="inv-desc-en">'+it.desc+'</div>' : '';
+    return '<tr>'
+      +'<td><div class="inv-desc">'+descAr+'</div>'+descEn+'</td>'
+      +'<td class="num">'+(it.qty||'')+'</td>'
+      +'<td class="num">SAR '+fmt(it.price)+'</td>'
+      +'<td style="text-align:center;">'+discHtml+'</td>'
+      +'<td class="num">SAR '+fmt(net)+'</td>'
+      +'<td class="num">SAR '+fmt(vatA)+'</td>'
+      +'<td class="num" style="font-weight:600;">SAR '+fmt(net+vatA)+'</td>'
+      +'</tr>';
   }).join('');
 
-  // B2C item rows (4 columns)
-  const b2cRows = activeItems.map(it => {
-    const raw  = it.qty * it.price;
-    const disc = raw * ((it.disc||0)/100);
-    const net  = raw - disc;
-    const ttl  = net * 1.15;
-    return \`<tr>
-      <td><div class="inv-desc">\${it.desc_ar||it.desc||'—'}</div>\${it.desc&&it.desc_ar?\`<div class="inv-desc-en">\${it.desc}</div>\`:''}</td>
-      <td class="num">\${it.qty||''}</td>
-      <td class="num">SAR \${fmt(it.price)}</td>
-      <td class="num" style="font-weight:600;">SAR \${fmt(ttl)}</td>
-    </tr>\`;
+  var b2cRows = activeItems.map(function(it){
+    var raw=it.qty*it.price, disc=raw*((it.disc||0)/100), net=raw-disc, ttl=net*1.15;
+    var descAr = it.desc_ar||it.desc||'\u2014';
+    var descEn = (it.desc&&it.desc_ar) ? '<div class="inv-desc-en">'+it.desc+'</div>' : '';
+    return '<tr>'
+      +'<td><div class="inv-desc">'+descAr+'</div>'+descEn+'</td>'
+      +'<td class="num">'+(it.qty||'')+'</td>'
+      +'<td class="num">SAR '+fmt(it.price)+'</td>'
+      +'<td class="num" style="font-weight:600;">SAR '+fmt(ttl)+'</td>'
+      +'</tr>';
   }).join('');
 
-  const itemRows = isB2B ? b2bRows : b2cRows;
+  var itemRows = isB2B ? b2bRows : b2cRows;
 
-  // Fetch template and inject data
   fetch(tmplUrl)
-    .then(r => r.text())
-    .then(tmplHtml => {
-      // Inject data via placeholder replacement on DOM
-      const parser = new DOMParser();
-      const doc = parser.parseFromString(tmplHtml, 'text/html');
+    .then(function(r){ return r.text(); })
+    .then(function(tmplHtml){
+      var parser = new DOMParser();
+      var doc = parser.parseFromString(tmplHtml,'text/html');
 
-      const set = (id, val, isHtml=false) => {
-        const el = doc.getElementById(id);
-        if(!el) return;
-        if(isHtml) el.innerHTML = val; else el.textContent = val;
-      };
-
-      // Brand color
-      doc.documentElement.style.setProperty('--brand', brandColor);
-
-      // Header
-      set('gl-seller-name',    sName);
-      set('gl-invnum',         invNum);
-      set('gl-date-header',    dateStr);
-
-      // Parties / meta
-      set('gl-p-seller-name',  sName);
-      set('gl-p-seller-addr',  '', true); doc.getElementById('gl-p-seller-addr') && (doc.getElementById('gl-p-seller-addr').innerHTML = sAddr);
-      set('gl-p-seller-trn',   sTrn ? 'TRN: ' + sTrn : '');
-      set('gl-p-buyer-name',   bName || (isB2B ? '—' : ''));
-      set('gl-p-buyer-trn',    bTrn ? 'TRN: ' + bTrn : '');
-      const bAddrEl = doc.getElementById('gl-p-buyer-addr');
-      if(bAddrEl) bAddrEl.innerHTML = bAddr;
-
-      // Seller TRN / CR
-      set('gl-seller-trn',     sTrn ? 'TRN: ' + sTrn : '');
-      set('gl-seller-cr',      sCr  ? 'CR: '  + sCr  : '');
-
-      // Date row
-      set('gl-date',   dateStr);
-      set('gl-invnum2',invNum);
-      const poRow = doc.getElementById('gl-po-row');
-      if(poRow) { set('gl-po-num', poNum || '—'); }
-
-      // Customer (B2C)
-      const custRow = doc.getElementById('gl-customer-row');
-      if(custRow && bName) { custRow.style.display='block'; set('gl-buyer-name', bName); }
-
-      // Items
-      const tbody = doc.getElementById('gl-items-body');
-      if(tbody) tbody.innerHTML = itemRows;
-
-      // Totals
-      set('gl-sub',   'SAR ' + fmt(sub));
-      set('gl-vat',   'SAR ' + fmt(vat));
-      set('gl-total', 'SAR ' + fmt(total));
-
-      // Notes
-      const notesEl = doc.getElementById('gl-notes');
-      if(notesEl && notes) { notesEl.style.display='block'; notesEl.textContent = notes; }
-
-      // QR
-      if(qrDataUrl) {
-        ['gl-qr-header','gl-qr-footer'].forEach(id => {
-          const el = doc.getElementById(id);
-          if(el) el.innerHTML = \`<img src="\${qrDataUrl}" width="66" height="66">\`;
-        });
+      function set(id,val,isHtml){
+        var el=doc.getElementById(id);
+        if(!el)return;
+        if(isHtml) el.innerHTML=val; else el.textContent=val;
       }
 
-      // Custom footer
-      set('gl-custom-footer', customFooter);
-
-      // Open print window
-      const win = window.open('','_blank','width=900,height=700');
-      win.document.write('<!DOCTYPE html>' + doc.documentElement.outerHTML);
+      doc.documentElement.style.setProperty('--brand',brandColor);
+      set('gl-seller-name',sName);
+      set('gl-invnum',invNum);
+      set('gl-date-header',dateStr);
+      set('gl-p-seller-name',sName);
+      var psa=doc.getElementById('gl-p-seller-addr'); if(psa) psa.innerHTML=sAddr;
+      set('gl-p-seller-trn',sTrn?'TRN: '+sTrn:'');
+      set('gl-p-buyer-name',bName||(isB2B?'\u2014':''));
+      set('gl-p-buyer-trn',bTrn?'TRN: '+bTrn:'');
+      var pba=doc.getElementById('gl-p-buyer-addr'); if(pba) pba.innerHTML=bAddr;
+      set('gl-seller-trn',sTrn?'TRN: '+sTrn:'');
+      set('gl-seller-cr',sCr?'CR: '+sCr:'');
+      set('gl-seller-city',sCity);
+      set('gl-date',dateStr);
+      set('gl-invnum2',invNum);
+      set('gl-po-num',poNum||'\u2014');
+      var cr=doc.getElementById('gl-customer-row');
+      if(cr&&bName){cr.style.display='block';set('gl-buyer-name',bName);}
+      var tb=doc.getElementById('gl-items-body'); if(tb) tb.innerHTML=itemRows;
+      set('gl-sub','SAR '+fmt(sub));
+      set('gl-vat','SAR '+fmt(vat));
+      set('gl-total','SAR '+fmt(total));
+      var ne=doc.getElementById('gl-notes');
+      if(ne&&notes){ne.style.display='block';ne.textContent=notes;}
+      if(qrDataUrl){
+        ['gl-qr-header','gl-qr-footer'].forEach(function(id){
+          var el=doc.getElementById(id);
+          if(el) el.innerHTML='<img src="'+qrDataUrl+'" width="66" height="66">';
+        });
+      }
+      set('gl-custom-footer',customFooter);
+      var win=window.open('','_blank','width=900,height=700');
+      win.document.write('<!DOCTYPE html>'+doc.documentElement.outerHTML);
       win.document.close();
-      win.onload = function(){ win.print(); win.onafterprint = function(){ win.close(); }; };
+      win.onload=function(){win.print();win.onafterprint=function(){win.close();};};
     })
-    .catch(() => { window.print(); });
+    .catch(function(){ window.print(); });
 }
 
 function applyBranding(biz){
