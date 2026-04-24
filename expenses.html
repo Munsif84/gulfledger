@@ -234,6 +234,22 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
 #sb-po-new::before,#sb-sup-inv-new::before,
 [id^="sb-new"]::before{content:'+ ';font-weight:700;color:var(--blue);font-size:16px;}
 
+
+/* GL:RECEIPT-UPLOAD */
+.receipt-zone{border:2px dashed var(--border);border-radius:8px;padding:16px;text-align:center;cursor:pointer;transition:all .2s;background:var(--white);margin-bottom:14px;}
+.receipt-zone:hover,.receipt-zone.drag-over{border-color:var(--sky);background:var(--tint);}
+.receipt-zone input[type=file]{display:none;}
+.receipt-zone-icon{font-size:24px;margin-bottom:6px;}
+.receipt-zone-text{font-size:13px;color:var(--muted);}
+.receipt-zone-text strong{color:var(--blue);}
+.receipt-preview{display:flex;align-items:center;gap:10px;padding:8px 12px;background:var(--tint);border-radius:6px;margin-bottom:14px;}
+.receipt-preview img{width:48px;height:48px;object-fit:cover;border-radius:4px;border:1px solid var(--border);}
+.receipt-preview-icon{font-size:28px;}
+.receipt-preview-name{font-size:12px;color:var(--navy);font-weight:600;flex:1;word-break:break-all;}
+.receipt-preview-remove{background:none;border:none;color:var(--red);cursor:pointer;font-size:16px;padding:0;}
+.receipt-thumb{width:28px;height:28px;object-fit:cover;border-radius:3px;border:1px solid var(--border);cursor:pointer;vertical-align:middle;}
+.receipt-link{font-size:10px;color:var(--blue);text-decoration:none;}
+
 </style>
 </head>
 <body>
@@ -412,6 +428,24 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
             </div>
           </div>
 
+          <!-- Receipt Upload -->
+          <div class="fld" style="margin-bottom:14px;">
+            <label data-ar="إرفاق الإيصال / الفاتورة (ZATCA)" data-en="Attach Receipt / Invoice (ZATCA)">إرفاق الإيصال / الفاتورة (ZATCA)</label>
+            <div class="receipt-zone" id="receipt-zone" onclick="document.getElementById('receipt-file').click()"
+              ondragover="event.preventDefault();this.classList.add('drag-over')"
+              ondragleave="this.classList.remove('drag-over')"
+              ondrop="handleReceiptDrop(event)">
+              <input type="file" id="receipt-file" accept="image/*,.pdf" onchange="handleReceiptFile(this.files[0])">
+              <div class="receipt-zone-icon">📎</div>
+              <div class="receipt-zone-text"><strong data-ar="اضغط لرفع الملف" data-en="Click to upload">اضغط لرفع الملف</strong> <span data-ar="أو اسحب وأفلت" data-en="or drag & drop">أو اسحب وأفلت</span></div>
+              <div style="font-size:11px;color:var(--muted);margin-top:4px;" data-ar="صورة أو PDF — الحد الأقصى 5MB" data-en="Image or PDF — max 5MB">صورة أو PDF — الحد الأقصى 5MB</div>
+            </div>
+            <div class="receipt-preview" id="receipt-preview" style="display:none;">
+              <div id="receipt-preview-icon"></div>
+              <div class="receipt-preview-name" id="receipt-preview-name"></div>
+              <button class="receipt-preview-remove" onclick="clearReceipt()" title="إزالة">×</button>
+            </div>
+          </div>
           <div class="btn-row">
             <button class="btn-p" onclick="saveExpense()" data-ar="💾 حفظ المصروف" data-en="💾 Save Expense">💾 حفظ المصروف</button>
             <button class="btn-s" onclick="clearExpForm()" data-ar="مسح" data-en="Clear">مسح</button>
@@ -454,9 +488,10 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
               <th data-ar="المبلغ"      data-en="Amount">المبلغ</th>
               <th data-ar="ضريبة"       data-en="VAT">ضريبة</th>
               <th data-ar="طريقة الدفع" data-en="Method">طريقة الدفع</th>
+              <th data-ar="إيصال" data-en="Receipt">إيصال</th>
               <th data-ar="إجراء"       data-en="Action">إجراء</th>
             </tr></thead>
-            <tbody id="exp-tbody"><tr><td colspan="8" style="text-align:center;padding:20px;color:var(--muted);">جارٍ التحميل...</td></tr></tbody>
+            <tbody id="exp-tbody"><tr><td colspan="9" style="text-align:center;padding:20px;color:var(--muted);">جارٍ التحميل...</td></tr></tbody>
             <tfoot id="exp-tfoot"></tfoot>
           </table>
         </div>
@@ -629,8 +664,18 @@ async function saveExpense(){
     payment_method:method,
     reference:ref||null,
     notes:document.getElementById('exp-notes').value.trim()||null,
-    has_vat:isStandard
+    has_vat:isStandard,
+    receipt_url:null
   }).select().single();
+
+  // Upload receipt if selected
+  if(exp && !error) {
+    const file = document.getElementById('receipt-file').files[0];
+    if(file) {
+      const url = await uploadReceipt(file, exp.id);
+      if(url) await sb.from('expenses').update({receipt_url:url}).eq('id',exp.id);
+    }
+  }
 
   if(error){notify(error.message,'r');return;}
 
@@ -756,6 +801,7 @@ function renderExpenses(){
     <td class="mono" style="font-weight:700;">SAR ${fmt(e.total)}</td>
     <td>${e.has_vat?`<span class="bdg bdg-vat">SAR ${fmt(e.vat_recoverable||0)}</span>`:`<span class="bdg bdg-novat">${L==='ar'?'بدون':'No VAT'}</span>`}</td>
     <td>${methodBadge(e.payment_method)}</td>
+    <td>${e.receipt_url?`<a href="${e.receipt_url}" target="_blank" title="عرض الإيصال">${e.receipt_url.match(/\.(jpg|jpeg|png|gif|webp)/i)?`<img class="receipt-thumb" src="${e.receipt_url}">`:'📄'}</a>`:`<span style="color:var(--border);font-size:16px;">—</span>`}</td>
     <td>${isReversed?`<span style="font-size:10px;color:var(--muted);">—</span>`:`<button class="btn-d" onclick="reverseExpense('${e.id}')" style="font-size:10px;padding:3px 8px;">${L==='ar'?'عكس':'Reverse'}</button>`}</td>
   </tr>`}).join('');
 
@@ -912,6 +958,7 @@ function exportExpenses(){
 
 /* ── FORM HELPERS ── */
 function clearExpForm(){
+  clearReceipt();
   ['exp-desc','exp-vendor','exp-amount','exp-ref','exp-notes'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});
   document.getElementById('exp-date').value=today();
   document.getElementById('exp-cat').value='';
@@ -1002,6 +1049,68 @@ document.addEventListener('click',function(e){
   var w=document.getElementById('gl-qa-wrap');
   if(w&&!w.contains(e.target)){var m=document.getElementById('gl-qa-menu');if(m)m.classList.remove('open');}
 });
+
+/* GL:RECEIPT-UPLOAD-JS */
+let receiptFile = null;
+
+function handleReceiptFile(file) {
+  if(!file) return;
+  if(file.size > 5*1024*1024) { notify(L==='ar'?'الملف أكبر من 5MB':'File exceeds 5MB','r'); return; }
+  receiptFile = file;
+  const preview = document.getElementById('receipt-preview');
+  const icon    = document.getElementById('receipt-preview-icon');
+  const name    = document.getElementById('receipt-preview-name');
+  const zone    = document.getElementById('receipt-zone');
+  zone.style.display = 'none';
+  preview.style.display = 'flex';
+  name.textContent = file.name;
+  if(file.type.startsWith('image/')) {
+    const reader = new FileReader();
+    reader.onload = e => { icon.innerHTML = `<img src="${e.target.result}" class="receipt-preview img" style="width:48px;height:48px;object-fit:cover;border-radius:4px;">`; };
+    reader.readAsDataURL(file);
+  } else {
+    icon.innerHTML = '<span style="font-size:28px;">📄</span>';
+  }
+}
+
+function handleReceiptDrop(e) {
+  e.preventDefault();
+  document.getElementById('receipt-zone').classList.remove('drag-over');
+  const file = e.dataTransfer.files[0];
+  if(file) handleReceiptFile(file);
+}
+
+function clearReceipt() {
+  receiptFile = null;
+  document.getElementById('receipt-file').value = '';
+  document.getElementById('receipt-zone').style.display = 'block';
+  document.getElementById('receipt-preview').style.display = 'none';
+}
+
+async function uploadReceipt(file, expenseId) {
+  try {
+    const ext  = file.name.split('.').pop();
+    const path = `${currentUser.id}/${expenseId}/receipt.${ext}`;
+    const { data, error } = await sb.storage.from('receipts').upload(path, file, {
+      upsert: true,
+      contentType: file.type
+    });
+    if(error) {
+      console.warn('Receipt upload error:', error.message);
+      // If bucket doesn't exist, show one-time warning
+      if(error.message?.includes('Bucket not found') || error.message?.includes('bucket')) {
+        notify(L==='ar'?'⚠ يرجى إنشاء bucket "receipts" في Supabase Storage':'⚠ Please create "receipts" bucket in Supabase Storage','r');
+      }
+      return null;
+    }
+    const { data: urlData } = sb.storage.from('receipts').getPublicUrl(path);
+    return urlData?.publicUrl || null;
+  } catch(e) {
+    console.warn('Upload failed:', e.message);
+    return null;
+  }
+}
+
 </script>
 </body>
 </html>
