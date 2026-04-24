@@ -288,6 +288,26 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
 .exp-supplier-hint.show{display:block;}
 .exp-vat-micro{font-size:11px;color:var(--muted);padding:4px 0 2px;display:flex;align-items:center;gap:5px;}
 
+
+/* GL:EXP-LIST-V2 */
+.exp-insight-strip{display:flex;gap:10px;flex-wrap:wrap;padding:10px 16px;background:var(--tint);border-bottom:1px solid var(--border);}
+.exp-insight-item{font-size:12px;font-weight:600;display:flex;align-items:center;gap:5px;}
+.exp-insight-item.ok{color:#166534;}.exp-insight-item.warn{color:var(--amber);}.exp-insight-item.info{color:var(--blue);}
+.vat-status{display:flex;flex-direction:column;gap:2px;}
+.vat-status-amt{font-family:'DM Mono',monospace;font-size:12px;font-weight:700;color:var(--navy);}
+.vat-status-badge{font-size:10px;font-weight:600;padding:1px 5px;border-radius:4px;display:inline-block;width:fit-content;}
+.vat-ok{background:#dcfce7;color:#166534;}.vat-warn{background:#fffbeb;color:#92400e;}.vat-none{background:#f1f5f9;color:#64748b;}
+.exp-amt-cell{display:flex;flex-direction:column;gap:1px;}
+.exp-amt-main{font-family:'DM Mono',monospace;font-size:13px;font-weight:700;color:var(--navy);}
+.exp-amt-vat{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;}
+.exp-reversed-row{opacity:.5;}
+.exp-reversed-badge{display:inline-flex;align-items:center;gap:4px;background:#fff1f2;color:var(--red);font-size:10px;font-weight:700;padding:2px 7px;border-radius:5px;text-decoration:none;}
+.btn-cancel-entry{padding:3px 9px;background:#f8fafc;color:#64748b;border:1px solid #cbd5e1;border-radius:5px;font-size:10px;font-family:'Cairo',sans-serif;cursor:pointer;transition:all .15s;}
+.btn-cancel-entry:hover{background:#fff1f2;color:var(--red);border-color:#fca5a5;}
+.exp-qf{display:flex;gap:4px;flex-wrap:wrap;padding:6px 16px 8px;border-bottom:1px solid var(--border);}
+.exp-qf-btn{padding:3px 10px;font-size:11px;font-weight:600;border:1px solid var(--border);border-radius:12px;background:var(--white);color:var(--muted);cursor:pointer;font-family:'Cairo',sans-serif;transition:all .15s;}
+.exp-qf-btn:hover,.exp-qf-btn.active{background:var(--blue);color:#fff;border-color:var(--blue);}
+
 </style>
 </head>
 <body>
@@ -550,22 +570,34 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
           <span class="card-ttl" data-ar="قائمة المصاريف" data-en="Expenses List">قائمة المصاريف</span>
           <button class="btn-s" onclick="exportExpenses()" style="font-size:11px;" data-ar="📥 تصدير Excel" data-en="📥 Export Excel">📥 تصدير Excel</button>
         </div>
+        <!-- Insight Strip -->
+        <div class="exp-insight-strip" id="exp-insight-strip" style="display:none;"></div>
+
+        <!-- Quick Filters -->
+        <div class="exp-qf">
+          <button class="exp-qf-btn active" id="qf-all"     onclick="setQuickFilter('all')"     data-ar="الكل"          data-en="All">الكل</button>
+          <button class="exp-qf-btn"        id="qf-month"   onclick="setQuickFilter('month')"   data-ar="هذا الشهر"     data-en="This Month">هذا الشهر</button>
+          <button class="exp-qf-btn"        id="qf-30"      onclick="setQuickFilter('30days')"  data-ar="آخر 30 يوم"    data-en="Last 30 Days">آخر 30 يوم</button>
+          <button class="exp-qf-btn"        id="qf-quarter" onclick="setQuickFilter('quarter')" data-ar="هذا الربع"     data-en="This Quarter">هذا الربع</button>
+          <button class="exp-qf-btn"        id="qf-review"  onclick="setQuickFilter('review')"  data-ar="⚠ يحتاج مراجعة" data-en="⚠ Needs Review">⚠ يحتاج مراجعة</button>
+        </div>
+
         <!-- Filters -->
-        <div style="padding:10px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-          <input type="text" id="exp-search" data-placeholder-ar="بحث بالوصف أو المورد..." data-placeholder-en="Search by description or vendor..." placeholder="Search by description or vendor..." oninput="renderExpenses()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Cairo',sans-serif;font-size:12px;width:180px;">
-          <select id="exp-filter-cat" onchange="renderExpenses()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Cairo',sans-serif;font-size:12px;">
+        <div style="padding:8px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <input type="text" id="exp-search" data-placeholder-ar="بحث بالوصف أو المورد..." data-placeholder-en="Search by description or vendor..." placeholder="Search by description or vendor..." oninput="renderExpenses()" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Cairo',sans-serif;font-size:12px;width:180px;">
+          <select id="exp-filter-cat" onchange="renderExpenses()" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Cairo',sans-serif;font-size:12px;">
             <option value="" data-ar="كل الفئات" data-en="All Categories">كل الفئات</option>
           </select>
-          <select id="exp-filter-method" onchange="renderExpenses()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Cairo',sans-serif;font-size:12px;">
-            <option value=""      data-ar="كل طرق الدفع" data-en="All Methods">كل طرق الدفع</option>
-            <option value="cash"  data-ar="نقداً"        data-en="Cash">نقداً</option>
-            <option value="bank"  data-ar="تحويل بنكي"  data-en="Bank">تحويل بنكي</option>
-            <option value="card"  data-ar="بطاقة"        data-en="Card">بطاقة</option>
-            <option value="credit" data-ar="آجل"         data-en="Credit">آجل</option>
+          <select id="exp-filter-method" onchange="renderExpenses()" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Cairo',sans-serif;font-size:12px;">
+            <option value=""       data-ar="كل طرق الدفع" data-en="All Methods">كل طرق الدفع</option>
+            <option value="cash"   data-ar="نقداً"        data-en="Cash">نقداً</option>
+            <option value="bank"   data-ar="تحويل بنكي"  data-en="Bank">تحويل بنكي</option>
+            <option value="card"   data-ar="بطاقة"        data-en="Card">بطاقة</option>
+            <option value="credit" data-ar="آجل"          data-en="Credit">آجل</option>
           </select>
-          <input type="date" id="exp-filter-from" onchange="renderExpenses()" lang="en" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'DM Mono',monospace;font-size:12px;">
-          <input type="date" id="exp-filter-to"   onchange="renderExpenses()" lang="en" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'DM Mono',monospace;font-size:12px;">
-          <button class="btn-s" onclick="clearExpFilters()" style="font-size:11px;" data-ar="مسح الفلاتر" data-en="Clear">مسح الفلاتر</button>
+          <input type="date" id="exp-filter-from" onchange="renderExpenses()" lang="en" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-family:'DM Mono',monospace;font-size:12px;">
+          <input type="date" id="exp-filter-to"   onchange="renderExpenses()" lang="en" style="padding:5px 10px;border:1px solid var(--border);border-radius:6px;font-family:'DM Mono',monospace;font-size:12px;">
+          <button class="btn-s" onclick="clearExpFilters()" style="font-size:11px;" data-ar="↺ إعادة تعيين" data-en="↺ Reset Filters">↺ إعادة تعيين</button>
         </div>
         <div style="overflow-x:auto;">
           <table class="tbl">
@@ -575,7 +607,7 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
               <th data-ar="الفئة"       data-en="Category">الفئة</th>
               <th data-ar="المورد"      data-en="Vendor">المورد</th>
               <th data-ar="المبلغ"      data-en="Amount">المبلغ</th>
-              <th data-ar="ضريبة"       data-en="VAT">ضريبة</th>
+              <th data-ar="حالة الضريبة" data-en="VAT Status">حالة الضريبة</th>
               <th data-ar="طريقة الدفع" data-en="Method">طريقة الدفع</th>
               <th data-ar="إيصال" data-en="Receipt">إيصال</th>
               <th data-ar="إجراء"       data-en="Action">إجراء</th>
@@ -907,13 +939,18 @@ function renderExpenses(){
   const fromDate=document.getElementById('exp-filter-from')?.value||'';
   const toDate=document.getElementById('exp-filter-to')?.value||'';
 
+  // Apply quick filter
+  const qfDates = getQuickFilterDates();
+  const isReviewFilter = activeQuickFilter === 'review';
+
   let filtered=expenses.filter(e=>{
     const ms=!search||(e.description||'').toLowerCase().includes(search)||(e.vendor||'').toLowerCase().includes(search)||(e.category_name||'').toLowerCase().includes(search);
     const mc=!catFilter||e.category_name===catFilter;
     const mm=!methodFilter||e.payment_method===methodFilter;
-    const mf=!fromDate||e.expense_date>=fromDate;
-    const mt=!toDate||e.expense_date<=toDate;
-    return ms&&mc&&mm&&mf&&mt;
+    const mf=!fromDate||(qfDates?e.expense_date>=qfDates.from:e.expense_date>=fromDate);
+    const mt=!toDate||(qfDates?e.expense_date<=qfDates.to:e.expense_date<=toDate);
+    const mr=!isReviewFilter||(e.has_vat && e.vat_deductible==='deductible' && !e.vendor && !e.reference && !e.receipt_url);
+    return ms&&mc&&mm&&mf&&mt&&mr;
   });
 
   const total=filtered.length;
@@ -937,16 +974,43 @@ function renderExpenses(){
     // Resolve category display name in current language
     const cat=categories.find(c=>c.name_ar===e.category_name);
     const catDisplay=L==='ar'?(e.category_name||'—'):(cat?.name_en||e.category_name||'—');
-    return `<tr style="${isReversed?'opacity:.5;text-decoration:line-through;':''}">
+    // VAT status logic
+      const vatCatCode = e.vat_category || (e.has_vat ? 'standard' : 'none');
+      const needsReview = e.has_vat && e.vat_deductible==='deductible' && !e.vendor && !e.reference && !e.receipt_url;
+      const vatStatusHtml = (() => {
+        if(!e.has_vat){
+          const label = {zero:L==='ar'?'نسبة صفرية':'Zero Rated',exempt:L==='ar'?'معفى':'Exempt',out:L==='ar'?'خارج النطاق':'Out of Scope'}[vatCatCode]||(L==='ar'?'بدون ضريبة':'No VAT');
+          return `<span class="vat-status-badge vat-none">${label}</span>`;
+        }
+        const recAmt = e.vat_recoverable||0;
+        const deduct = e.vat_deductible||'deductible';
+        const statusBadge = needsReview
+          ? `<span class="vat-status-badge vat-warn">⚠ ${L==='ar'?'راجع الفاتورة':'Check invoice'}</span>`
+          : deduct==='non_deductible'
+            ? `<span class="vat-status-badge vat-none">${L==='ar'?'غير قابل للاسترداد':'Not deductible'}</span>`
+            : deduct==='partial'
+              ? `<span class="vat-status-badge vat-warn">50% ${L==='ar'?'جزئي':'Partial'}</span>`
+              : `<span class="vat-status-badge vat-ok">✔ ${L==='ar'?'قابل للاسترداد':'Deductible'}</span>`;
+        return `<div class="vat-status"><span class="vat-status-amt">SAR ${fmt(recAmt)}</span>${statusBadge}</div>`;
+      })();
+
+      return `<tr class="${isReversed?'exp-reversed-row':''}">
     <td style="font-size:11px;color:var(--muted);white-space:nowrap;">${e.expense_date||'—'}</td>
-    <td><strong style="font-size:12px;">${e.description||'—'}</strong>${isReversed?` <span class="bdg" style="background:#fff1f2;color:var(--red);text-decoration:none;">${L==='ar'?'مُعكَس':'Reversed'}</span>`:''} ${e.notes?`<div style="font-size:10px;color:var(--muted);">${e.notes}</div>`:''}</td>
-    <td style="font-size:12px;">${catDisplay}</td>
+    <td>
+      <div style="font-size:12px;font-weight:600;color:var(--ink);">${e.description||'—'}</div>
+      ${isReversed?`<span class="exp-reversed-badge">❌ ${L==='ar'?'مُلغى — تم عكس هذا القيد':'Cancelled — entry reversed'}</span>`:''}
+      ${e.notes&&!isReversed?`<div style="font-size:10px;color:var(--muted);">${e.notes}</div>`:''}
+    </td>
+    <td style="font-size:11px;">${catDisplay}</td>
     <td style="font-size:11px;color:var(--muted);">${e.vendor||'—'}</td>
-    <td class="mono" style="font-weight:700;">SAR ${fmt(e.total)}</td>
-    <td>${e.has_vat?`<span class="bdg bdg-vat">SAR ${fmt(e.vat_recoverable||0)}</span>`:`<span class="bdg bdg-novat">${L==='ar'?'بدون':'No VAT'}</span>`}</td>
+    <td>
+      <div class="exp-amt-main">SAR ${fmt(e.total)}</div>
+      ${e.has_vat&&e.vat_amount>0?`<div class="exp-amt-vat">${L==='ar'?'ضريبة':'VAT'}: SAR ${fmt(e.vat_amount)}</div>`:''}
+    </td>
+    <td>${vatStatusHtml}</td>
     <td>${methodBadge(e.payment_method)}</td>
-    <td>${e.receipt_url?`<a href="${e.receipt_url}" target="_blank" title="عرض الإيصال">${e.receipt_url.match(/\.(jpg|jpeg|png|gif|webp)/i)?`<img class="receipt-thumb" src="${e.receipt_url}">`:'📄'}</a>`:`<span style="color:var(--border);font-size:16px;">—</span>`}</td>
-    <td>${isReversed?`<span style="font-size:10px;color:var(--muted);">—</span>`:`<button class="btn-d" onclick="reverseExpense('${e.id}')" style="font-size:10px;padding:3px 8px;">${L==='ar'?'عكس':'Reverse'}</button>`}</td>
+    <td>${e.receipt_url?`<a href="${e.receipt_url}" target="_blank" title="عرض الإيصال">${e.receipt_url.match(/\.(jpg|jpeg|png|gif|webp)/i)?`<img class="receipt-thumb" src="${e.receipt_url}">`:'📄'}</a>`:`<span style="color:var(--border);">—</span>`}</td>
+    <td>${isReversed?'<span style="font-size:10px;color:var(--muted);">—</span>':`<button class="btn-cancel-entry" onclick="reverseExpense('${e.id}')">${L==='ar'?'إلغاء القيد':'Cancel Entry'}</button>`}</td>
   </tr>`}).join('');
 
   // Exclude reversed from totals
@@ -954,7 +1018,11 @@ function renderExpenses(){
   const totalAmt=activeFiltered.reduce((s,e)=>s+(e.total||0),0);
   const totalVAT=activeFiltered.reduce((s,e)=>s+(e.vat_recoverable||0),0);
   const tf=document.getElementById('exp-tfoot');
-  if(tf)tf.innerHTML=`<tr style="background:var(--navy);color:#fff;"><td colspan="4" style="padding:10px 12px;font-weight:700;font-size:12px;">${activeFiltered.length} ${L==='ar'?'مصروف':'expenses'}</td><td class="mono" style="padding:10px 12px;font-weight:700;font-size:14px;">SAR ${fmt(totalAmt)}</td><td class="mono" style="padding:10px 12px;color:#86efac;">SAR ${fmt(totalVAT)}</td><td colspan="2" style="padding:10px 12px;font-size:11px;color:var(--light);">${L==='ar'?'الإجمالي':'Total'}</td></tr>`;
+  if(tf)tf.innerHTML='<tr style="background:var(--navy);color:#fff;">'
+    +'<td colspan="4" style="padding:10px 12px;font-weight:700;font-size:12px;">'+activeFiltered.length+' '+(L==='ar'?'مصروف':'expenses')+'</td>'
+    +'<td style="padding:10px 12px;"><div style="font-family:'DM Mono',monospace;font-weight:700;font-size:13px;">SAR '+fmt(totalAmt)+'</div><div style="font-size:10px;color:var(--light);opacity:.8;">'+(L==='ar'?'إجمالي المصاريف':'Total Expenses')+'</div></td>'
+    +'<td style="padding:10px 12px;"><div style="font-family:'DM Mono',monospace;font-weight:700;font-size:13px;color:#86efac;">SAR '+fmt(totalVAT)+'</div><div style="font-size:10px;color:var(--light);opacity:.8;">'+(L==='ar'?'ضريبة قابلة للاسترداد':'Recoverable VAT')+'</div></td>'
+    +'<td colspan="3" style="padding:10px 12px;font-size:10px;color:var(--light);opacity:.7;">'+(L==='ar'?'من إجمالي الفلترة':'from filtered results')+'</td></tr>';
 }
 
 function expPage(dir){expCurrentPage+=dir;if(expCurrentPage<0)expCurrentPage=0;renderExpenses();}
@@ -1254,6 +1322,59 @@ async function uploadReceipt(file, expenseId) {
     console.warn('Upload failed:', e.message);
     return null;
   }
+}
+
+
+/* GL:EXP-LIST-EXTRAS */
+let activeQuickFilter = 'all';
+
+function setQuickFilter(qf) {
+  activeQuickFilter = qf;
+  document.querySelectorAll('.exp-qf-btn').forEach(b => b.classList.remove('active'));
+  const btn = document.getElementById('qf-' + (qf==='30days'?'30':qf==='review'?'review':qf==='month'?'month':qf==='quarter'?'quarter':'all'));
+  if(btn) btn.classList.add('active');
+  // Clear date filters when using quick filter
+  if(qf !== 'all') {
+    document.getElementById('exp-filter-from').value = '';
+    document.getElementById('exp-filter-to').value = '';
+  }
+  expCurrentPage = 0;
+  renderExpenses();
+}
+
+function getQuickFilterDates() {
+  const now = new Date();
+  const pad = n => String(n).padStart(2,'0');
+  const fmt = d => d.getFullYear()+'-'+pad(d.getMonth()+1)+'-'+pad(d.getDate());
+  if(activeQuickFilter === 'month') {
+    return { from: now.getFullYear()+'-'+pad(now.getMonth()+1)+'-01', to: fmt(now) };
+  }
+  if(activeQuickFilter === '30days') {
+    const d = new Date(now); d.setDate(d.getDate()-30);
+    return { from: fmt(d), to: fmt(now) };
+  }
+  if(activeQuickFilter === 'quarter') {
+    const q = Math.floor(now.getMonth()/3);
+    const qStart = new Date(now.getFullYear(), q*3, 1);
+    return { from: fmt(qStart), to: fmt(now) };
+  }
+  return null;
+}
+
+function renderInsightStrip() {
+  const strip = document.getElementById('exp-insight-strip');
+  if(!strip) return;
+  const active = expenses.filter(e => e.status !== 'reversed');
+  if(!active.length) { strip.style.display = 'none'; return; }
+  const totalRec = active.reduce((s,e) => s + (e.vat_recoverable||0), 0);
+  const needsReview = active.filter(e => e.has_vat && e.vat_deductible==='deductible' && !e.vendor && !e.reference && !e.receipt_url).length;
+  const thisMonth = (() => { const n=new Date(); return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0'); })();
+  const monthCount = active.filter(e => (e.expense_date||'').startsWith(thisMonth)).length;
+  strip.style.display = 'flex';
+  strip.innerHTML =
+    `<span class="exp-insight-item info">📊 ${monthCount} ${L==='ar'?'مصروف هذا الشهر':'expenses this month'}</span>` +
+    (totalRec > 0 ? `<span class="exp-insight-item ok">✔ ${L==='ar'?'ضريبة قابلة للاسترداد:':'Recoverable VAT:'} SAR ${(totalRec).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',')}</span>` : '') +
+    (needsReview > 0 ? `<span class="exp-insight-item warn">⚠ ${needsReview} ${L==='ar'?'قيد يحتاج مراجعة':'entr'+(needsReview>1?'ies':'y')+' need review'}</span>` : '');
 }
 
 </script>
