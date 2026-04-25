@@ -1156,7 +1156,6 @@ function clearItemForm(){
 
 /* ── AUTO-TRANSLATE PRODUCT NAME ── */
 async function autoTranslateName(){
-  // AR field blurred — translate AR→EN if EN is empty
   const arName = gval('fi-name-ar');
   const enEl   = document.getElementById('fi-name');
   const status = document.getElementById('fi-name-ar-status');
@@ -1164,15 +1163,10 @@ async function autoTranslateName(){
   if(enEl && !enEl.value.trim()) {
     if(status) status.textContent = 'جارٍ الترجمة...';
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages',{
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:80,
-          messages:[{role:'user',content:'Translate this Arabic product name to English. Return ONLY the English translation, nothing else. Keep brand names and numbers as-is.\n\nProduct: '+arName}]
-        })
-      });
+      const res = await fetch('https://api.mymemory.translated.net/get?q='+encodeURIComponent(arName)+'&langpair=ar|en');
       const data = await res.json();
-      const translated = (data.content?.[0]?.text||'').trim();
-      if(translated && /[a-zA-Z]/.test(translated)) {
+      const translated = (data.responseData && data.responseData.translatedText)||'';
+      if(translated && /[a-zA-Z]/.test(translated) && data.responseStatus===200) {
         enEl.value = translated;
         if(status) status.textContent = '✓';
       } else { if(status) status.textContent = ''; }
@@ -1181,7 +1175,6 @@ async function autoTranslateName(){
 }
 
 async function autoTranslateNameEN(){
-  // EN field blurred — translate EN→AR if AR is empty
   const enName = gval('fi-name');
   const arEl   = document.getElementById('fi-name-ar');
   const status = document.getElementById('fi-name-ar-status');
@@ -1189,15 +1182,10 @@ async function autoTranslateNameEN(){
   if(arEl && !arEl.value.trim()) {
     if(status) status.textContent = 'جارٍ الترجمة...';
     try {
-      const res = await fetch('https://api.anthropic.com/v1/messages',{
-        method:'POST', headers:{'Content-Type':'application/json'},
-        body:JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:80,
-          messages:[{role:'user',content:'Translate this product name to Arabic. Return ONLY the Arabic translation, nothing else. Keep brand names, numbers and units transliterated.\n\nProduct: '+enName}]
-        })
-      });
+      const res = await fetch('https://api.mymemory.translated.net/get?q='+encodeURIComponent(enName)+'&langpair=en|ar');
       const data = await res.json();
-      const translated = (data.content?.[0]?.text||'').trim();
-      if(translated && /[؀-ۿ]/.test(translated)) {
+      const translated = (data.responseData && data.responseData.translatedText)||'';
+      if(translated && /[؀-ۿ]/.test(translated) && data.responseStatus===200) {
         arEl.value = translated;
         if(status) status.textContent = '✓';
       } else { if(status) status.textContent = ''; }
