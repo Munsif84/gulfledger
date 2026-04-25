@@ -306,6 +306,43 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
 #sb-po-new::before,#sb-sup-inv-new::before,
 [id^="sb-new"]::before{content:'+ ';font-weight:700;color:var(--blue);font-size:16px;}
 
+
+/* GL:INV-KPI-STRIP */
+.inv-kpi-strip{display:flex;gap:10px;margin-bottom:16px;flex-wrap:wrap;}
+.inv-kpi-item{
+  flex:1;min-width:140px;height:72px;padding:12px 16px;
+  display:flex;flex-direction:column;justify-content:center;align-items:center;text-align:center;gap:2px;
+  background:#ffffff;border:1px solid #E5E7EB;border-radius:10px;cursor:pointer;
+  transition:box-shadow .15s,transform .1s;box-shadow:0 1px 3px rgba(0,0,0,0.06);
+}
+.inv-kpi-item:hover{box-shadow:0 4px 12px rgba(0,0,0,0.1);transform:translateY(-1px);}
+.inv-kpi-lbl{font-size:10px;font-weight:700;color:#6B7280;text-transform:uppercase;letter-spacing:.07em;white-space:nowrap;}
+.inv-kpi-val{font-family:'DM Mono',monospace;font-size:22px;font-weight:800;color:#111827;line-height:1.1;}
+.inv-kpi-sub{font-size:10px;font-weight:500;color:#9CA3AF;}
+.inv-kpi-item.kpi-neutral{border-top:3px solid #6B7280;}
+.inv-kpi-item.kpi-green{border-top:3px solid #10B981;} .inv-kpi-val.green{color:#065F46;}
+.inv-kpi-item.kpi-amber{border-top:3px solid #F59E0B;} .inv-kpi-val.amber{color:#92400E;}
+.inv-kpi-item.kpi-red  {border-top:3px solid #EF4444;} .inv-kpi-val.red{color:#991B1B;}
+/* Smart filter pills */
+.inv-filter-pill{padding:3px 10px;font-size:11px;font-weight:600;border:1px solid var(--border);border-radius:12px;background:var(--white);color:var(--muted);cursor:pointer;font-family:'Cairo',sans-serif;transition:all .15s;}
+.inv-filter-pill:hover,.inv-filter-pill.active{background:var(--blue);color:#fff;border-color:var(--blue);}
+/* Row status colors */
+.inv-row-out td{background:#fff5f5!important;}
+.inv-row-low td{background:#fffbeb!important;}
+/* ⋯ action menu */
+.inv-action-wrap{position:relative;display:inline-block;}
+.inv-action-btn{padding:4px 10px;background:transparent;border:1px solid var(--border);border-radius:6px;cursor:pointer;font-size:16px;color:var(--muted);}
+.inv-action-btn:hover{background:var(--tint);}
+.inv-action-menu{display:none;position:absolute;left:0;top:100%;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.12);z-index:200;min-width:130px;padding:4px 0;}
+[dir="rtl"] .inv-action-menu{left:auto;right:0;}
+.inv-action-menu.open{display:block;}
+.inv-action-menu a,.inv-action-menu button{display:flex;align-items:center;gap:8px;padding:8px 14px;font-size:12px;font-family:'Cairo',sans-serif;color:var(--ink);background:none;border:none;cursor:pointer;width:100%;text-align:right;}
+[dir="ltr"] .inv-action-menu a,[dir="ltr"] .inv-action-menu button{text-align:left;}
+.inv-action-menu a:hover,.inv-action-menu button:hover{background:var(--tint);color:var(--blue);}
+.inv-action-menu button.danger{color:var(--red);}
+.inv-action-menu button.danger:hover{background:#fff5f5;}
+@media(max-width:768px){.inv-kpi-item{flex:1 1 42%;height:auto;padding:10px;}}
+
 </style>
 </head>
 <body>
@@ -412,22 +449,45 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
   </div>
 
   <div class="main">
-    <div class="stats" style="grid-template-columns:repeat(3,1fr);" style="grid-template-columns:repeat(3,1fr);">
-      <div class="stat"><div class="stat-lbl" data-ar="إجمالي المنتجات" data-en="Total Products">إجمالي المنتجات</div><div class="stat-num c-navy" id="s-skus">0</div><div class="stat-sub" data-ar="منتج مسجّل" data-en="registered">منتج مسجّل</div></div>
-      <div class="stat"><div class="stat-lbl" data-ar="قيمة المخزون الإجمالية" data-en="Total Stock Value">قيمة المخزون الإجمالية</div><div class="stat-num c-navy" id="s-val">SAR 0</div><div class="stat-sub" data-ar="بناءً على آخر سعر شراء" data-en="based on last purchase price">بناءً على آخر سعر شراء</div></div>
-      <div class="stat s-red"><div class="stat-lbl" data-ar="نفد من المخزون" data-en="Out of Stock">نفد من المخزون</div><div class="stat-num c-red" id="s-out">0</div><div class="stat-sub" data-ar="منتج يحتاج تعبئة" data-en="needs restocking">منتج يحتاج تعبئة</div></div>
+   <div class="inv-kpi-strip">
+    <div class="inv-kpi-item kpi-red" onclick="setInvFilter('out')" title="انقر لعرض المنتجات النافدة">
+      <div class="inv-kpi-lbl" data-ar="❌ نافد من المخزون" data-en="❌ Out of Stock">❌ نافد من المخزون</div>
+      <div class="inv-kpi-val red" id="s-out">0</div>
+      <div class="inv-kpi-sub" data-ar="منتج" data-en="products">منتج</div>
     </div>
+    <div class="inv-kpi-item kpi-amber" onclick="setInvFilter('low')" title="انقر لعرض المنتجات التي تحتاج إعادة طلب">
+      <div class="inv-kpi-lbl" data-ar="⚠ يحتاج إعادة طلب" data-en="⚠ Needs Reorder">⚠ يحتاج إعادة طلب</div>
+      <div class="inv-kpi-val amber" id="s-low">0</div>
+      <div class="inv-kpi-sub" data-ar="منتج" data-en="products">منتج</div>
+    </div>
+    <div class="inv-kpi-item kpi-green" onclick="setInvFilter('all')" title="انقر لعرض قيمة المخزون">
+      <div class="inv-kpi-lbl" data-ar="📦 قيمة المخزون" data-en="📦 Inventory Value">📦 قيمة المخزون</div>
+      <div class="inv-kpi-val green" id="s-val">SAR 0</div>
+      <div class="inv-kpi-sub" data-ar="بناءً على سعر الشراء" data-en="at cost price">بناءً على سعر الشراء</div>
+    </div>
+    <div class="inv-kpi-item kpi-neutral" onclick="setInvFilter('all')" title="انقر لعرض كل المنتجات">
+      <div class="inv-kpi-lbl" data-ar="🧾 منتجات نشطة" data-en="🧾 Active Products">🧾 منتجات نشطة</div>
+      <div class="inv-kpi-val" id="s-skus">0</div>
+      <div class="inv-kpi-sub" data-ar="منتج مسجّل" data-en="registered">منتج مسجّل</div>
+    </div>
+  </div>
 
     <!-- TAB: STOCK LIST -->
     <div class="tc active" id="tc-stock">
       <div class="card">
-        <div class="card-hdr">
-          <span class="card-ttl" data-ar="قائمة المنتجات" data-en="Products List">قائمة المنتجات</span>
-          <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
-            <select id="filter-supplier" onchange="renderStock()" style="padding:6px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Cairo',sans-serif;font-size:12px;"><option value="" data-ar="كل الموردين" data-en="All Suppliers">كل الموردين</option></select>
-            <input type="text" id="stock-search" placeholder="بحث بالاسم أو SKU أو الباركود..." style="padding:6px 11px;border:1px solid var(--border);border-radius:6px;font-family:'Cairo',sans-serif;font-size:12px;width:200px;" oninput="renderStock()">
-            <button class="btn-s" onclick="exportStockReport()" style="font-size:11px;" data-ar="📥 تصدير Excel" data-en="📥 Export Excel">📥 تصدير Excel</button>
-          </div>
+        <!-- Quick filter pills -->
+        <div style="padding:6px 16px 0;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border);padding-bottom:8px;padding-top:8px;">
+          <button class="inv-filter-pill active" id="invf-all"    onclick="setInvFilter('all')"    data-ar="الكل"               data-en="All">الكل</button>
+          <button class="inv-filter-pill"        id="invf-out"    onclick="setInvFilter('out')"    data-ar="❌ نافد فقط"        data-en="❌ Out of Stock">❌ نافد فقط</button>
+          <button class="inv-filter-pill"        id="invf-low"    onclick="setInvFilter('low')"    data-ar="⚠ يحتاج إعادة طلب" data-en="⚠ Needs Reorder">⚠ يحتاج إعادة طلب</button>
+        </div>
+        <!-- Filter + Add button row -->
+        <div style="padding:8px 16px;border-bottom:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+          <input type="text" id="stock-search" placeholder="بحث بالاسم أو SKU أو الباركود..." style="padding:0 10px;height:32px;box-sizing:border-box;border:1px solid var(--border);border-radius:6px;font-family:'Cairo',sans-serif;font-size:12px;width:200px;" oninput="renderStock()">
+          <select id="filter-supplier" onchange="renderStock()" style="padding:0 10px;height:32px;box-sizing:border-box;border:1px solid var(--border);border-radius:6px;font-family:'Cairo',sans-serif;font-size:12px;"><option value="" data-ar="كل الموردين" data-en="All Suppliers">كل الموردين</option></select>
+          <button class="btn-s" onclick="renderStock()" style="font-size:11px;height:32px;padding:0 12px;box-sizing:border-box;" data-ar="↺" data-en="↺">↺</button>
+          <button onclick="goTab('registry')" style="margin-right:auto;padding:0 14px;height:32px;box-sizing:border-box;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Cairo',sans-serif;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;" data-ar="＋ إضافة منتج" data-en="＋ Add Product">＋ إضافة منتج</button>
+          <button class="btn-s" onclick="exportStockReport()" style="font-size:11px;height:32px;padding:0 12px;box-sizing:border-box;" data-ar="📥 Excel" data-en="📥 Excel">📥 Excel</button>
         </div>
         <div style="overflow-x:auto;"><table class="tbl">
           <thead><tr>
@@ -445,10 +505,7 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
           <tbody id="stock-tbody"><tr><td colspan="10" style="text-align:center;padding:20px;color:var(--muted);">جارٍ التحميل...</td></tr></tbody>
           <tfoot id="stock-tfoot"></tfoot>
         </table></div>
-        <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;">
-          <button class="btn-p" onclick="goTab('registry')" data-ar="+ إضافة منتج جديد" data-en="+ Add New Product">+ إضافة منتج جديد</button>
-          <button class="btn-s" onclick="goTab('receive')" data-ar="📥 استلام بضاعة" data-en="📥 Receive Stock">📥 استلام بضاعة</button>
-        </div>
+        
       </div>
     </div>
 
@@ -1212,7 +1269,7 @@ function toggleShelfLife(){const val=document.getElementById('fi-has-expiry')?.v
 function renderStats(){
   let val=0,low=0,out=0;
   invItems.forEach(i=>{val+=(i.cost_price||0)*(i.current_qty||0);if(i.current_qty===0)out++;else if(i.current_qty<=(i.alert_level||0))low++;});
-  set('s-skus',invItems.length);set('s-val','SAR '+fmt(val));set('s-out',out);
+  set('s-skus',invItems.length);set('s-val','SAR '+fmt(val));set('s-out',out);set('s-low',low);
   const csvEl=document.getElementById('current-stock-val');if(csvEl)csvEl.textContent='SAR '+fmt(val);
   const closeEl=document.getElementById('close-date');if(closeEl&&!closeEl.value)closeEl.value=today();
 }
@@ -1239,7 +1296,7 @@ function renderStock(){
   const supFilter=document.getElementById('filter-supplier')?.value||'';
   const supDd=document.getElementById('filter-supplier');
   if(supDd){const current=supDd.value;supDd.innerHTML='<option value="">'+(L==='ar'?'كل الموردين':'All Suppliers')+'</option>'+suppliers.map(s=>`<option value="${s.id}" ${s.id===current?'selected':''}>${s.supplier_code||'—'} — ${s.name}</option>`).join('');supDd.value=current;}
-  let items=invItems.filter(i=>{const ms=!search||i.name.toLowerCase().includes(search)||(i.sku||'').toLowerCase().includes(search)||(i.barcode||'').toLowerCase().includes(search);const msup=!supFilter||(i.supplier_id===supFilter);return ms&&msup;});
+  let items=invItems.filter(i=>{const ms=!search||i.name.toLowerCase().includes(search)||(i.sku||'').toLowerCase().includes(search)||(i.barcode||'').toLowerCase().includes(search);const msup=!supFilter||(i.supplier_id===supFilter);const mf=typeof activeInvFilter==='undefined'||activeInvFilter==='all'||( activeInvFilter==='out'&&i.current_qty===0)|| (activeInvFilter==='low'&&i.current_qty>0&&i.current_qty<=(i.alert_level||0));return ms&&msup&&mf;});
   const tb=document.getElementById('stock-tbody');
   if(!items.length){tb.innerHTML=`<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا توجد منتجات':'No products found'}</td></tr>`;const tf=document.getElementById('stock-tfoot');if(tf)tf.innerHTML='';return;}
 
@@ -1253,7 +1310,9 @@ function renderStock(){
                       ['bdg-ok',L==='ar'?'متاح':'OK'];
     const qc=item.current_qty===0?'c-red':item.current_qty<=(item.alert_level||0)?'c-amber':'c-green';
     const unitDisplay=L==='ar'?(item.unit||'قطعة'):(unitMap[item.unit||'قطعة']||(item.unit||'Piece'));
-    return `<tr>
+    const rowClass = item.current_qty===0?'inv-row-out':item.current_qty<=(item.alert_level||0)?'inv-row-low':'';
+    const menuId = 'menu-'+item.id;
+    return `<tr class="${rowClass}">
       <td><strong style="font-size:12px;">${item.name}</strong>${item.description?`<div style="font-size:10px;color:var(--muted);">${item.description}</div>`:''}${sup?`<div style="font-size:10px;color:var(--sky);">${sup.supplier_code||''} ${sup.name}</div>`:''}</td>
       <td><span class="sku-badge">${item.sku||'—'}</span></td>
       <td class="mono" style="font-size:10px;color:var(--muted);">${item.barcode||'—'}</td>
@@ -1263,9 +1322,16 @@ function renderStock(){
       <td class="mono ${qc}" style="font-weight:700;">${item.current_qty||0}</td>
       <td class="mono">SAR ${fmt((item.cost_price||0)*(item.current_qty||0))}</td>
       <td><span class="bdg ${stockStatus[0]}">${stockStatus[1]}</span></td>
-      <td style="white-space:nowrap;">
-        <button class="btn-e" onclick="openEditModal('${item.id}')" style="margin-left:4px;">${L==='ar'?'تعديل':'Edit'}</button>
-        <button class="btn-d" onclick="deleteItem('${item.id}')">${L==='ar'?'حذف':'Del'}</button>
+      <td>
+        <div class="inv-action-wrap">
+          <button class="inv-action-btn" onclick="toggleInvMenu('${menuId}',event)">⋯</button>
+          <div class="inv-action-menu" id="${menuId}">
+            <button onclick="openEditModal('${item.id}');closeAllInvMenus()">✏️ ${L==='ar'?'تعديل':'Edit'}</button>
+            <button onclick="quickAdjust('${item.id}');closeAllInvMenus()">🔧 ${L==='ar'?'تسوية':'Adjust'}</button>
+            <button onclick="goTab('receive');closeAllInvMenus()">📥 ${L==='ar'?'استلام':'Receive'}</button>
+            <button class="danger" onclick="deleteItem('${item.id}');closeAllInvMenus()">🗑 ${L==='ar'?'حذف':'Delete'}</button>
+          </div>
+        </div>
       </td>
     </tr>`;
   }).join('');
@@ -1276,13 +1342,13 @@ function renderStock(){
   const tf=document.getElementById('stock-tfoot');
   if(tf){
     const supLabel=supFilter?(suppliers.find(s=>s.id===supFilter)?.name||''):(L==='ar'?'جميع الموردين':'All Suppliers');
-    tf.innerHTML=`<tr style="background:var(--navy);color:#fff;">
-      <td colspan="4" style="padding:10px 12px;font-weight:700;font-size:12px;">${supLabel} — ${items.length} ${L==='ar'?'منتج':'products'}</td>
-      <td colspan="2" style="padding:10px 12px;color:var(--light);font-size:11px;">${L==='ar'?'إجمالي البيع: SAR ':'Total sale value: SAR '}${fmt(totalSaleVal)}</td>
-      <td class="mono" style="padding:10px 12px;font-weight:700;">${totalQty}</td>
-      <td class="mono" style="padding:10px 12px;font-weight:700;font-size:14px;">SAR ${fmt(totalVal)}</td>
-      <td colspan="2" style="padding:10px 12px;font-size:11px;color:var(--light);">${L==='ar'?'قيمة المخزون الإجمالية':'Total stock value'}</td>
-    </tr>`;
+    tf.innerHTML='<tr style="background:#F0FDF4;color:#065F46;border-top:2px solid #86efac;">'
+      +'<td colspan="4" style="padding:10px 12px;font-weight:700;font-size:12px;">'+items.length+' '+(L==='ar'?'منتج':'products')+'</td>'
+      +'<td colspan="2" style="padding:10px 12px;font-size:11px;opacity:.8;">'+(L==='ar'?'قيمة البيع: SAR ':'Sale value: SAR ')+fmt(totalSaleVal)+'</td>'
+      +'<td style="padding:10px 12px;font-weight:800;font-size:15px;">'+totalQty+'</td>'
+      +'<td style="padding:10px 12px;font-weight:800;font-size:15px;">SAR '+fmt(totalVal)+'</td>'
+      +'<td colspan="2" style="padding:10px 12px;font-size:10px;opacity:.7;">'+(L==='ar'?'إجمالي قيمة المخزون':'Total inventory value')+'</td>'
+      +'</tr>';
   }
 }
 
@@ -2192,6 +2258,35 @@ document.addEventListener('click',function(e){
   var w=document.getElementById('gl-qa-wrap');
   if(w&&!w.contains(e.target)){var m=document.getElementById('gl-qa-menu');if(m)m.classList.remove('open');}
 });
+
+/* GL:INV-FILTERS */
+var activeInvFilter = 'all';
+
+function setInvFilter(filter) {
+  activeInvFilter = filter;
+  document.querySelectorAll('.inv-filter-pill').forEach(function(b) {
+    b.classList.remove('active');
+  });
+  var btn = document.getElementById('invf-'+filter);
+  if(btn) btn.classList.add('active');
+  // If 'all' button doesn't exist for this filter, deactivate all
+  if(!btn) document.getElementById('invf-all') && document.getElementById('invf-all').classList.remove('active');
+  renderStock();
+}
+
+function toggleInvMenu(menuId, e) {
+  e.stopPropagation();
+  closeAllInvMenus();
+  var m = document.getElementById(menuId);
+  if(m) m.classList.toggle('open');
+}
+
+function closeAllInvMenus() {
+  document.querySelectorAll('.inv-action-menu').forEach(function(m) { m.classList.remove('open'); });
+}
+
+document.addEventListener('click', closeAllInvMenus);
+
 </script>
 </body>
 </html>
