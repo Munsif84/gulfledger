@@ -343,6 +343,17 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
 .inv-action-menu button.danger:hover{background:#fff5f5;}
 @media(max-width:768px){.inv-kpi-item{flex:1 1 42%;height:auto;padding:10px;}}
 
+
+/* GL:INV-MODAL */
+.inv-modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:800;display:flex;align-items:flex-start;justify-content:center;padding:20px;overflow-y:auto;}
+.inv-modal-box{background:#fff;border-radius:14px;width:100%;max-width:740px;margin:auto;box-shadow:0 20px 60px rgba(0,0,0,0.25);animation:slideUp .25s ease;position:relative;}
+.inv-modal-hdr{display:flex;align-items:center;justify-content:space-between;padding:14px 20px;border-bottom:1px solid var(--border);}
+.inv-modal-title{font-size:15px;font-weight:700;color:var(--navy);}
+.inv-modal-close{width:30px;height:30px;border-radius:50%;border:none;background:var(--tint);color:var(--muted);font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;}
+.inv-modal-close:hover{background:#fca5a5;color:var(--red);}
+.inv-modal-body{padding:18px 20px;max-height:80vh;overflow-y:auto;}
+.inv-modal-footer{padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;background:#f8fafc;border-radius:0 0 14px 14px;}
+
 </style>
 </head>
 <body>
@@ -475,6 +486,10 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
     <!-- TAB: STOCK LIST -->
     <div class="tc active" id="tc-stock">
       <div class="card">
+        <!-- Card header with + button (same as expenses) -->
+        <div style="padding:10px 16px;border-bottom:1px solid var(--border);">
+          <button onclick="openInvModal()" style="padding:7px 16px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Cairo',sans-serif;font-size:13px;font-weight:700;cursor:pointer;" data-ar="＋ إضافة منتج" data-en="＋ Add Product">＋ إضافة منتج</button>
+        </div>
         <!-- Quick filter pills -->
         <div style="padding:6px 16px 0;display:flex;gap:6px;flex-wrap:wrap;border-bottom:1px solid var(--border);padding-bottom:8px;padding-top:8px;">
           <button class="inv-filter-pill active" id="invf-all"    onclick="setInvFilter('all')"    data-ar="الكل"               data-en="All">الكل</button>
@@ -486,7 +501,6 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
           <input type="text" id="stock-search" placeholder="بحث بالاسم أو SKU أو الباركود..." style="padding:0 10px;height:32px;box-sizing:border-box;border:1px solid var(--border);border-radius:6px;font-family:'Cairo',sans-serif;font-size:12px;width:200px;" oninput="renderStock()">
           <select id="filter-supplier" onchange="renderStock()" style="padding:0 10px;height:32px;box-sizing:border-box;border:1px solid var(--border);border-radius:6px;font-family:'Cairo',sans-serif;font-size:12px;"><option value="" data-ar="كل الموردين" data-en="All Suppliers">كل الموردين</option></select>
           <button class="btn-s" onclick="renderStock()" style="font-size:11px;height:32px;padding:0 12px;box-sizing:border-box;" data-ar="↺" data-en="↺">↺</button>
-          <button onclick="goTab('registry')" style="margin-right:auto;padding:0 14px;height:32px;box-sizing:border-box;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Cairo',sans-serif;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap;" data-ar="＋ إضافة منتج" data-en="＋ Add Product">＋ إضافة منتج</button>
           <button class="btn-s" onclick="exportStockReport()" style="font-size:11px;height:32px;padding:0 12px;box-sizing:border-box;" data-ar="📥 Excel" data-en="📥 Excel">📥 Excel</button>
         </div>
         <div style="overflow-x:auto;"><table class="tbl">
@@ -505,7 +519,15 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
           <tbody id="stock-tbody"><tr><td colspan="10" style="text-align:center;padding:20px;color:var(--muted);">جارٍ التحميل...</td></tr></tbody>
           <tfoot id="stock-tfoot"></tfoot>
         </table></div>
-        
+        <!-- Pagination row — identical to expenses -->
+        <div style="padding:10px 16px;border-top:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;">
+          <span id="stock-page-info" style="font-size:12px;color:var(--muted);"></span>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <button class="btn-s" id="stock-prev" onclick="stockPage(-1)" style="font-size:11px;padding:5px 12px;" data-ar="← السابق" data-en="← Prev">← السابق</button>
+            <button class="btn-s" id="stock-next" onclick="stockPage(1)"  style="font-size:11px;padding:5px 12px;" data-ar="التالي →" data-en="Next →">التالي →</button>
+            <button class="btn-s" onclick="exportStockReport()" style="font-size:11px;padding:5px 12px;" data-ar="📥 Excel" data-en="📥 Excel">📥 Excel</button>
+          </div>
+        </div>
       </div>
     </div>
 
@@ -1297,13 +1319,24 @@ function renderStock(){
   const supDd=document.getElementById('filter-supplier');
   if(supDd){const current=supDd.value;supDd.innerHTML='<option value="">'+(L==='ar'?'كل الموردين':'All Suppliers')+'</option>'+suppliers.map(s=>`<option value="${s.id}" ${s.id===current?'selected':''}>${s.supplier_code||'—'} — ${s.name}</option>`).join('');supDd.value=current;}
   let items=invItems.filter(i=>{const ms=!search||i.name.toLowerCase().includes(search)||(i.sku||'').toLowerCase().includes(search)||(i.barcode||'').toLowerCase().includes(search);const msup=!supFilter||(i.supplier_id===supFilter);const mf=typeof activeInvFilter==='undefined'||activeInvFilter==='all'||( activeInvFilter==='out'&&i.current_qty===0)|| (activeInvFilter==='low'&&i.current_qty>0&&i.current_qty<=(i.alert_level||0));return ms&&msup&&mf;});
+  const totalItems = items.length;
+  const totalPages = Math.ceil(totalItems/STOCK_PAGE_SIZE)||1;
+  if(stockCurrentPage >= totalPages) stockCurrentPage = totalPages - 1;
+  const pageItems = items.slice(stockCurrentPage*STOCK_PAGE_SIZE, (stockCurrentPage+1)*STOCK_PAGE_SIZE);
+  // Update pagination UI
+  const pageInfo = document.getElementById('stock-page-info');
+  if(pageInfo) pageInfo.textContent = (L==='ar'?'صفحة':'Page')+' '+(stockCurrentPage+1)+' '+(L==='ar'?'من':'of')+' '+totalPages+' — '+totalItems+' '+(L==='ar'?'منتج':'products');
+  const prevBtn = document.getElementById('stock-prev');
+  const nextBtn = document.getElementById('stock-next');
+  if(prevBtn) prevBtn.disabled = stockCurrentPage === 0;
+  if(nextBtn) nextBtn.disabled = stockCurrentPage >= totalPages - 1;
   const tb=document.getElementById('stock-tbody');
-  if(!items.length){tb.innerHTML=`<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا توجد منتجات':'No products found'}</td></tr>`;const tf=document.getElementById('stock-tfoot');if(tf)tf.innerHTML='';return;}
+  if(!pageItems.length){tb.innerHTML=`<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:20px;">${L==='ar'?'لا توجد منتجات':'No products found'}</td></tr>`;const tf=document.getElementById('stock-tfoot');if(tf)tf.innerHTML='';return;}
 
   // Unit translation map
   const unitMap={'قطعة':'Piece','كيلو':'Kg','لتر':'Litre','كرتون':'Carton','علبة':'Box','متر':'Metre','كيس':'Bag'};
 
-  tb.innerHTML=items.map(item=>{
+  tb.innerHTML=pageItems.map(item=>{
     const sup=suppliers.find(s=>s.id===item.supplier_id);
     const stockStatus=item.current_qty===0?['bdg-out',L==='ar'?'نفد':'Out']:
                       item.current_qty<=(item.alert_level||0)?['bdg-low',L==='ar'?'يقترب من النفاد':'Low']:
@@ -1336,7 +1369,7 @@ function renderStock(){
     </tr>`;
   }).join('');
 
-  const totalQty=items.reduce((s,i)=>s+(i.current_qty||0),0);
+  const totalQty=items.reduce((s,i)=>s+(i.current_qty||0),0); // all filtered items
   const totalVal=items.reduce((s,i)=>s+(i.cost_price||0)*(i.current_qty||0),0);
   const totalSaleVal=items.reduce((s,i)=>s+(i.sale_price||0)*(i.current_qty||0),0);
   const tf=document.getElementById('stock-tfoot');
@@ -2287,6 +2320,113 @@ function closeAllInvMenus() {
 
 document.addEventListener('click', closeAllInvMenus);
 
+
+/* GL:INV-MODAL-JS */
+let stockCurrentPage = 0;
+const STOCK_PAGE_SIZE = 20;
+
+function openInvModal() {
+  clearItemForm();
+  document.getElementById('inv-prod-modal').style.display = 'flex';
+  previewSKU();
+  // set today's date if date field exists
+}
+
+function closeInvModal() {
+  document.getElementById('inv-prod-modal').style.display = 'none';
+  clearItemForm();
+}
+
+async function addItemFromModal(keepOpen) {
+  await addItem();
+  // addItem() calls notify and clearItemForm on success
+  // If keepOpen, stay in modal; otherwise close
+  if(!keepOpen) {
+    setTimeout(function(){ closeInvModal(); }, 800);
+  }
+}
+
+function stockPage(dir) {
+  stockCurrentPage += dir;
+  if(stockCurrentPage < 0) stockCurrentPage = 0;
+  renderStock();
+}
+
 </script>
+
+<!-- Add Product Modal -->
+<div class="inv-modal-overlay" id="inv-prod-modal" style="display:none;">
+  <div class="inv-modal-box">
+    <div class="inv-modal-hdr">
+      <span class="inv-modal-title" data-ar="إضافة منتج جديد" data-en="Add New Product">إضافة منتج جديد</span>
+      <button class="inv-modal-close" onclick="closeInvModal()" title="إغلاق">×</button>
+    </div>
+    <div class="inv-modal-body">
+      <div class="card-bdy">
+          <div class="note-box blue">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+            <span data-ar="رمز SKU يُنشأ تلقائياً — يمكن تعديله. الباركود للمسح الضوئي عند الاستلام. حدّد المورد لتتبع المخزون بالمورد." data-en="SKU auto-generated — can be edited. Barcode for scanning during receiving. Set supplier to track stock by supplier.">SKU تلقائي — الباركود للمسح — المورد لتتبع المخزون</span>
+          </div>
+          <div class="fg fg-3">
+            <div class="fld"><label data-ar="اسم الصنف (إنجليزي) *" data-en="Item Name (English) *">Item Name *</label><input type="text" id="fi-name" placeholder="Nescafe Classic 190g" oninput="previewSKU()" onblur="autoTranslateName()"></div>
+            <div class="fld"><label data-ar="اسم الصنف (عربي) *" data-en="Item Name (Arabic) *">اسم الصنف (عربي) *<span id="fi-name-ar-status" style="font-size:9px;margin-right:4px;color:var(--muted);"></span></label><input type="text" id="fi-name-ar" placeholder="نسكافيه كلاسيك 190غرام" style="direction:rtl;"></div>
+            <div class="fld"><label data-ar="الفئة *" data-en="Category *">الفئة *</label>
+              <select id="fi-cat" onchange="previewSKU()">
+                <option value="FOOD" data-ar="مواد غذائية" data-en="Food">مواد غذائية</option>
+                <option value="BEV"  data-ar="مشروبات"     data-en="Beverages">مشروبات</option>
+                <option value="CLN"  data-ar="منظفات"      data-en="Cleaning">منظفات</option>
+                <option value="ELEC" data-ar="إلكترونيات"  data-en="Electronics">إلكترونيات</option>
+                <option value="CLTH" data-ar="ملابس"       data-en="Clothing">ملابس</option>
+                <option value="HLTH" data-ar="صحة وجمال"   data-en="Health">صحة وجمال</option>
+                <option value="STAT" data-ar="قرطاسية"     data-en="Stationery">قرطاسية</option>
+                <option value="BLDG" data-ar="مواد بناء"   data-en="Building">مواد بناء</option>
+                <option value="ITM"  data-ar="أخرى"        data-en="Other">أخرى</option>
+              </select>
+            </div>
+            <div class="fld"><label data-ar="رمز SKU (تلقائي)" data-en="SKU (auto)">رمز SKU</label>
+              <div class="sku-auto"><input type="text" id="fi-sku" placeholder="FOOD-0001" style="font-family:'DM Mono',monospace;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase();this.dataset.userEdited='1'"><span class="sku-auto-badge" id="sku-auto-badge" data-ar="تلقائي" data-en="auto">تلقائي</span></div>
+            </div>
+          </div>
+          <div class="fg fg-3">
+            <div class="fld"><label data-ar="الباركود" data-en="Barcode">الباركود</label><input type="text" id="fi-barcode" placeholder="6291003080058" dir="ltr" style="font-family:'DM Mono',monospace;"></div>
+            <div class="fld"><label data-ar="وحدة القياس" data-en="Unit">وحدة القياس</label>
+              <select id="fi-unit">
+                <option value="قطعة"  data-ar="قطعة"  data-en="Piece">قطعة</option>
+                <option value="كيلو"  data-ar="كيلو"  data-en="Kg">كيلو</option>
+                <option value="لتر"   data-ar="لتر"   data-en="Litre">لتر</option>
+                <option value="كرتون" data-ar="كرتون" data-en="Carton">كرتون</option>
+                <option value="علبة"  data-ar="علبة"  data-en="Box">علبة</option>
+                <option value="متر"   data-ar="متر"   data-en="Metre">متر</option>
+              </select>
+            </div>
+            <div class="fld"><label data-ar="المورد الرئيسي" data-en="Main Supplier">المورد الرئيسي</label><select id="fi-supplier"><option value="" data-ar="— اختياري —" data-en="— Optional —">— اختياري —</option></select></div>
+          </div>
+          <div class="fg fg-4">
+            <div class="fld"><label data-ar="سعر الشراء (SAR) *" data-en="Cost Price *">سعر الشراء *</label><input type="number" id="fi-cost" placeholder="0.00" min="0" step="0.01"></div>
+            <div class="fld"><label data-ar="سعر البيع (SAR) *"  data-en="Sale Price *">سعر البيع *</label><input type="number" id="fi-price" placeholder="0.00" min="0" step="0.01"></div>
+            <div class="fld"><label data-ar="الكمية الافتتاحية" data-en="Opening Qty">الكمية الافتتاحية</label><input type="number" id="fi-qty" placeholder="0" min="0"></div>
+            <div class="fld"><label data-ar="حد التنبيه" data-en="Alert Level">حد التنبيه</label><input type="number" id="fi-alert" placeholder="10" min="0"></div>
+          </div>
+          <div class="fg fg-3">
+            <div class="fld" style="grid-column:span 2;"><label data-ar="الوصف / التعبئة" data-en="Description / Packing">الوصف / التعبئة</label><input type="text" id="fi-desc" placeholder="190g — 24 علبة في الكرتون"></div>
+            <div class="fld"><label data-ar="له تاريخ انتهاء؟" data-en="Has Expiry Date?">له تاريخ انتهاء؟</label>
+              <select id="fi-has-expiry" onchange="toggleShelfLife()">
+                <option value="0" data-ar="لا" data-en="No">لا</option>
+                <option value="1" data-ar="نعم" data-en="Yes">نعم</option>
+              </select>
+            </div>
+          </div>
+          <div class="fg fg-2" id="shelf-life-row" style="display:none;">
+            <div class="fld"><label data-ar="مدة الصلاحية (أيام)" data-en="Shelf Life (days)">مدة الصلاحية (أيام)</label><input type="number" id="fi-shelf-life" placeholder="365" min="1"></div>
+          </div>
+          
+    </div>
+    <div class="inv-modal-footer">
+      <button class="btn-p" onclick="addItemFromModal()" data-ar="💾 حفظ المنتج" data-en="💾 Save Product">💾 حفظ المنتج</button>
+      <button onclick="addItemFromModal(true)" style="padding:9px 16px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Cairo',sans-serif;font-size:14px;font-weight:600;cursor:pointer;" data-ar="＋ حفظ وإضافة جديد" data-en="＋ Save & Add New">＋ حفظ وإضافة جديد</button>
+      <button onclick="closeInvModal()" style="margin-right:auto;padding:9px 14px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:7px;font-family:'Cairo',sans-serif;font-size:14px;cursor:pointer;" data-ar="إغلاق" data-en="Close">إغلاق</button>
+    </div>
+  </div>
+</div>
 </body>
 </html>
