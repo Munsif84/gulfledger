@@ -1220,10 +1220,11 @@ async function previewSKU(){
 }
 
 async function addItem(){
-  const name=gval('fi-name');
-  if(!name){notify(L==='ar'?'أدخل اسم الصنف':'Enter item name','r');return;}
   const nameAr=gval('fi-name-ar');
-  if(!nameAr){notify(L==='ar'?'أدخل اسم الصنف بالعربية (مطلوب للامتثال)':'Arabic name required for ZATCA compliance','r');return;}
+  if(!nameAr){notify(L==='ar'?'أدخل اسم المنتج بالعربية':'Enter product name in Arabic','r');return;}
+  if(!supplierId){notify(L==='ar'?'اختر المورد (مطلوب)':'Supplier is required','r');return;}
+  // EN name: use AR name if EN not filled
+  let name=gval('fi-name')||nameAr;
   const cat=document.getElementById('fi-cat').value;
   let sku=gval('fi-sku');
   if(!sku)sku=await generateSKU(cat);
@@ -1233,7 +1234,7 @@ async function addItem(){
   const cost=parseFloat(document.getElementById('fi-cost').value)||0;
   const hasExpiry=document.getElementById('fi-has-expiry')?.value==='1';
   const shelfDays=parseInt(document.getElementById('fi-shelf-life')?.value)||0;
-  const supplierId=document.getElementById('fi-supplier')?.value||null;
+  var supplierId=supplierId0;
   const newItem={user_id:currentUser.id,business_id:currentBiz?.id,name,name_ar:nameAr||null,sku,barcode:gval('fi-barcode')||null,category:cat,unit:document.getElementById('fi-unit').value,cost_price:cost,sale_price:parseFloat(document.getElementById('fi-price').value)||0,current_qty:qty,alert_level:parseFloat(document.getElementById('fi-alert').value)||10,description:gval('fi-desc')||null,has_expiry:hasExpiry,shelf_life_days:shelfDays,supplier_id:supplierId||null};
   const {data,error}=await sb.from('inventory_items').insert(newItem).select().single();
   if(error){notify(error.message,'r');return;}
@@ -1302,7 +1303,11 @@ async function autoTranslateNameEN(){
   }
 }
 
-function toggleShelfLife(){const val=document.getElementById('fi-has-expiry')?.value;const row=document.getElementById('shelf-life-row');if(row)row.style.display=val==='1'?'grid':'none';}
+function toggleShelfLife(){
+  var val=document.getElementById('fi-has-expiry')?.value;
+  var row=document.getElementById('shelf-life-row');
+  if(row) row.style.display=val==='1'?'grid':'none';
+}
 
 function renderStats(){
   let val=0,low=0,out=0;
@@ -1663,7 +1668,14 @@ function renderSuppliers(){
 async function deleteSupplier(id){if(!confirm(L==='ar'?'هل تريد حذف هذا المورد؟':'Delete this supplier?'))return;await sb.from('suppliers').delete().eq('id',id);await loadSuppliers();}
 function clearSupForm(){['ns-name','ns-phone','ns-trn','ns-email','ns-city','ns-notes'].forEach(id=>{const el=document.getElementById(id);if(el)el.value='';});}
 function fillSupplier(){const id=document.getElementById('f-sup-sel').value;const s=suppliers.find(x=>x.id===id);if(s)document.getElementById('f-sup-name').value=s.name;}
-function refreshSupDropdown(){const sel=document.getElementById('f-sup-sel');if(!sel)return;sel.innerHTML='<option value="">'+(L==='ar'?'— اختر مورداً —':'— Select supplier —')+'</option>'+suppliers.map(s=>`<option value="${s.id}">${s.name} — ${s.phone}</option>`).join('');}
+function refreshSupDropdown(){
+  // Receive stock dropdown
+  const sel=document.getElementById('f-sup-sel');
+  if(sel)sel.innerHTML='<option value="">'+(L==='ar'?'— اختر مورداً —':'— Select supplier —')+'</option>'+suppliers.map(s=>'<option value="'+s.id+'">'+s.name+' — '+s.phone+'</option>').join('');
+  // Add product form dropdown — required field
+  const fiSup=document.getElementById('fi-supplier');
+  if(fiSup)fiSup.innerHTML='<option value="">'+(L==='ar'?'— اختر المورد * —':'— Select Supplier * —')+'</option>'+suppliers.map(s=>'<option value="'+s.id+'">'+s.name+'</option>').join('');
+}
 
 
 /* ── PRO GATE — check plan then open internal tab ── */
@@ -2343,6 +2355,7 @@ const STOCK_PAGE_SIZE = 20;
 
 function openInvModal() {
   clearItemForm();
+  refreshSupDropdown();
   setInvFormMode('manual');
   document.getElementById('inv-prod-modal').style.display = 'flex';
   previewSKU();
@@ -2355,12 +2368,14 @@ function closeInvModal() {
 }
 
 async function addItemFromModal(keepOpen) {
+  // Track whether addItem succeeded by checking invItems count before/after
+  const countBefore = invItems.length;
   await addItem();
-  // addItem() calls notify and clearItemForm on success
-  // If keepOpen, stay in modal; otherwise close
-  if(!keepOpen) {
-    setTimeout(function(){ closeInvModal(); }, 800);
+  const succeeded = invItems.length > countBefore;
+  if(succeeded && !keepOpen) {
+    setTimeout(function(){ closeInvModal(); }, 600);
   }
+  // If failed, modal stays open showing the error notify
 }
 
 function stockPage(dir) {
@@ -2467,8 +2482,8 @@ function updateAlertHint() {
         </select>
       </div>
       <div class="fld">
-        <label data-ar="المورد" data-en="Supplier">المورد</label>
-        <select id="fi-supplier"><option value="" data-ar="— اختياري —" data-en="— Optional —">— اختياري —</option></select>
+        <label data-ar="المورد *" data-en="Supplier *">المورد *</label>
+        <select id="fi-supplier"><option value="">— اختر المورد —</option></select>
       </div>
     </div>
 
@@ -2535,10 +2550,18 @@ function updateAlertHint() {
             </select>
           </div>
         </div>
-        <div class="fg fg-2" id="shelf-life-row" style="display:none;margin-top:12px;margin-bottom:0;">
+        <div class="fg fg-3" id="shelf-life-row" style="display:none;margin-top:12px;margin-bottom:0;">
           <div class="fld">
             <label data-ar="مدة الصلاحية (أيام)" data-en="Shelf Life (days)">مدة الصلاحية (أيام)</label>
             <input type="number" id="fi-shelf-life" placeholder="365" min="1">
+          </div>
+          <div class="fld">
+            <label data-ar="تاريخ الإنتاج" data-en="Production Date">تاريخ الإنتاج</label>
+            <input type="date" id="fi-manufacture-date" lang="en">
+          </div>
+          <div class="fld">
+            <label data-ar="تاريخ انتهاء الصلاحية" data-en="Expiry Date">تاريخ انتهاء الصلاحية</label>
+            <input type="date" id="fi-expiry-date" lang="en">
           </div>
         </div>
       </div>
@@ -2571,9 +2594,11 @@ function updateAlertHint() {
 
     <!-- Collapsible column list -->
     <div id="inv-col-list" style="display:none;background:var(--tint);border-radius:6px;padding:10px 12px;margin-bottom:12px;">
-      <div style="font-size:10px;font-weight:700;color:var(--navy);margin-bottom:6px;" data-ar="الأعمدة المطلوبة في الملف:" data-en="Required columns:">الأعمدة المطلوبة:</div>
-      <code style="font-size:10px;color:var(--blue);line-height:1.8;display:block;">Item Name* | Category | Unit | Barcode | Cost Price* | Sale Price | Opening Qty | Alert Level | Has Expiry | Shelf Life Days | Supplier Code</code>
-      <div style="font-size:10px;color:var(--muted);margin-top:6px;" data-ar="* إلزامي — SKU يُنشأ تلقائياً" data-en="* Required — SKU auto-generated">* إلزامي — SKU يُنشأ تلقائياً</div>
+      <div style="font-size:10px;font-weight:700;color:var(--navy);margin-bottom:6px;">الأعمدة المطلوبة في الملف:</div>
+      <div style="font-size:10px;color:var(--blue);line-height:2;font-family:'DM Mono',monospace;background:#fff;padding:8px;border-radius:5px;overflow-x:auto;white-space:nowrap;">
+        Item Name* (اسم المنتج) | Item Name Arabic (الاسم العربي) | Category (الفئة) | Unit (الوحدة) | Barcode (الباركود) | Cost Price* (سعر الشراء) | Sale Price (سعر البيع) | Opening Qty (الكمية) | Alert Level (حد التنبيه) | Has Expiry YES/NO (تاريخ انتهاء) | Shelf Life Days (أيام الصلاحية) | Supplier Code (كود المورد)*
+      </div>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px;">* إلزامي — SKU يُنشأ تلقائياً — Supplier Code يجب أن يطابق كود مسجّل</div>
       <!-- Supplier codes -->
       <div id="supplier-codes-ref" style="margin-top:8px;font-size:10px;color:var(--blue);font-family:'DM Mono',monospace;line-height:1.8;"></div>
     </div>
