@@ -339,6 +339,26 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
 .exp-modal-body{padding:18px 20px;max-height:80vh;overflow-y:auto;}
 .exp-modal-footer{padding:12px 20px;border-top:1px solid var(--border);display:flex;gap:8px;background:#f8fafc;border-radius:0 0 14px 14px;}
 
+
+/* GL:KPI-STRIP */
+.kpi-strip{display:flex;gap:0;margin-bottom:14px;border:1px solid var(--border);border-radius:10px;overflow:hidden;background:var(--white);}
+.kpi-item{flex:1;padding:10px 14px;cursor:pointer;border-left:1px solid var(--border);transition:background .15s;min-width:0;}
+.kpi-item:last-child{border-left:none;}
+.kpi-item:hover{filter:brightness(.97);}
+.kpi-item.kpi-white{background:var(--white);}
+.kpi-item.kpi-green{background:#f0fdf4;}
+.kpi-item.kpi-amber{background:#fffbeb;}
+.kpi-item.kpi-red{background:#fff1f2;}
+.kpi-item.kpi-gray{background:#f8fafc;}
+.kpi-lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;margin-bottom:3px;}
+.kpi-val{font-family:'DM Mono',monospace;font-size:18px;font-weight:700;color:var(--navy);line-height:1;}
+.kpi-val.green{color:var(--green);}
+.kpi-val.amber{color:#b45309;}
+.kpi-val.red{color:var(--red);}
+.kpi-val.gray{color:#64748b;}
+.kpi-sub{font-size:10px;color:var(--muted);margin-top:2px;}
+@media(max-width:768px){.kpi-strip{flex-wrap:wrap;}.kpi-item{flex:1 1 45%;border-left:none;border-bottom:1px solid var(--border);}}
+
 </style></head>
 <body>
 <div class="topnav">
@@ -392,13 +412,34 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
 
 <div class="main">
 
-  <!-- STATS -->
-  <div class="stats" style="grid-template-columns:1fr 1fr;margin-bottom:14px;">
-    <div class="stat"><div class="stat-lbl" data-ar="إجمالي هذا الشهر" data-en="This Month Total">إجمالي هذا الشهر</div><div class="stat-num" id="s-month">SAR 0</div><div class="stat-sub" id="s-month-count">0 مصروف</div></div>
-    <div class="stat s-green"><div class="stat-lbl" data-ar="ضريبة قابلة للاسترداد" data-en="VAT Recoverable">ضريبة قابلة للاسترداد</div><div class="stat-num c-green" id="s-vat">SAR 0</div><div class="stat-sub" data-ar="من مصاريف هذا الشهر" data-en="from this month">من مصاريف هذا الشهر</div></div>
+  <!-- KPI STRIP -->
+  <div class="kpi-strip" id="kpi-strip">
+    <div class="kpi-item kpi-white" onclick="setQuickFilter('all')" title="إجمالي كل المصاريف — انقر لعرض الكل">
+      <div class="kpi-lbl" data-ar="إجمالي المصاريف" data-en="Total Expenses">إجمالي المصاريف</div>
+      <div class="kpi-val" id="kpi-total">SAR 0</div>
+      <div class="kpi-sub" id="kpi-total-sub">0 مصروف</div>
+    </div>
+    <div class="kpi-item kpi-green" onclick="setQuickFilter('vat_rec')" title="انقر لعرض المصاريف القابلة للاسترداد">
+      <div class="kpi-lbl" data-ar="ضريبة قابلة للاسترداد" data-en="Recoverable VAT">ضريبة قابلة للاسترداد</div>
+      <div class="kpi-val green" id="kpi-vat">SAR 0</div>
+      <div class="kpi-sub" data-ar="هذا الشهر" data-en="this month">هذا الشهر</div>
+    </div>
+    <div class="kpi-item kpi-amber" onclick="setQuickFilter('review')" title="انقر لعرض القيود التي تحتاج مراجعة">
+      <div class="kpi-lbl" data-ar="⚠ يحتاج مراجعة" data-en="⚠ Needs Review">⚠ يحتاج مراجعة</div>
+      <div class="kpi-val amber" id="kpi-review">0</div>
+      <div class="kpi-sub" data-ar="قيد" data-en="entries">قيد</div>
+    </div>
+    <div class="kpi-item kpi-red" onclick="setQuickFilter('no_receipt')" title="انقر لعرض المصاريف بدون إيصالات">
+      <div class="kpi-lbl" data-ar="📎 بدون إيصال" data-en="📎 No Receipt">📎 بدون إيصال</div>
+      <div class="kpi-val red" id="kpi-no-receipt">0</div>
+      <div class="kpi-sub" data-ar="مصروف" data-en="expenses">مصروف</div>
+    </div>
+    <div class="kpi-item kpi-gray" onclick="setQuickFilter('non_ded')" title="انقر لعرض المصاريف غير القابلة للاسترداد">
+      <div class="kpi-lbl" data-ar="🚫 غير قابل للاسترداد" data-en="🚫 Non-Deductible VAT">🚫 غير قابل للاسترداد</div>
+      <div class="kpi-val gray" id="kpi-non-ded">SAR 0</div>
+      <div class="kpi-sub" data-ar="ضريبة مفقودة" data-en="lost VAT">ضريبة مفقودة</div>
+    </div>
   </div>
-
-
 
   <!-- TAB: EXPENSES LIST -->
   <div class="tc active" id="tc-list">
@@ -413,7 +454,6 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
         <button class="exp-qf-btn"        id="qf-month"   onclick="setQuickFilter('month')"   data-ar="هذا الشهر"     data-en="This Month">هذا الشهر</button>
         <button class="exp-qf-btn"        id="qf-30"      onclick="setQuickFilter('30days')"  data-ar="آخر 30 يوم"    data-en="Last 30 Days">آخر 30 يوم</button>
         <button class="exp-qf-btn"        id="qf-quarter" onclick="setQuickFilter('quarter')" data-ar="هذا الربع"     data-en="This Quarter">هذا الربع</button>
-        <button class="exp-qf-btn"        id="qf-review"  onclick="setQuickFilter('review')"  data-ar="⚠ يحتاج مراجعة" data-en="⚠ Needs Review">⚠ يحتاج مراجعة</button>
       </div>
 
       <!-- Filters -->
@@ -462,11 +502,7 @@ input[type="date"]{color-scheme:light;font-family:'DM Mono',monospace;}
       </div>
     </div>
 
-    <!-- Category breakdown -->
-    <div class="card">
-      <div class="card-hdr"><span class="card-ttl" data-ar="توزيع المصاريف بالفئة" data-en="Expenses by Category">توزيع المصاريف بالفئة</span></div>
-      <div class="card-bdy" id="cat-breakdown"></div>
-    </div>
+
   </div>
 
 </div>
@@ -791,9 +827,7 @@ async function loadExpenses(){
   expenses=data||[];
   renderExpenses();
   renderStats();
-  renderCatBreakdown();
   updateSidebarStats();
-  renderInsightStrip();
 }
 
 function editExpense(id){
@@ -890,30 +924,38 @@ async function reverseExpense(id){
 
 /* ── STATS ── */
 function renderStats(){
-  const now=new Date();
-  const monthStart=`${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}-01`;
-  const monthExp=expenses.filter(e=>e.expense_date>=monthStart&&e.status!=='reversed');
-  const monthTotal=monthExp.reduce((s,e)=>s+(e.total||0),0);
-  const monthVAT=monthExp.reduce((s,e)=>s+(e.vat_recoverable||0),0);
-  const monthCount=monthExp.length;
+  const now = new Date();
+  const monthStart = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-01';
+  const active = expenses.filter(e => e.status !== 'reversed');
+  const monthExp = active.filter(e => e.expense_date >= monthStart);
 
-  set('s-month','SAR '+fmt(monthTotal));
-  set('s-month-count',monthCount+(L==='ar'?' مصروف':' expenses'));
-  set('s-vat','SAR '+fmt(monthVAT));
+  // Totals (all time for strip, month for context)
+  const total    = active.reduce((s,e) => s+(e.total||0), 0);
+  const totalCnt = active.length;
+  const vatRec   = monthExp.reduce((s,e) => s+(e.vat_recoverable||0), 0);
+  const needsRev = active.filter(e =>
+    e.has_vat && e.vat_deductible==='deductible' && !e.vendor && !e.reference && !e.receipt_url
+  ).length;
+  const noReceipt = active.filter(e =>
+    e.has_vat && e.vat_deductible==='deductible' && !e.receipt_url
+  ).length;
+  const nonDed = active.filter(e => e.vat_deductible==='non_deductible');
+  const nonDedAmt = nonDed.reduce((s,e) => s+(e.vat_amount||0), 0);
 
-  // Top category — use language-aware name
-  const catTotals={};
-  monthExp.forEach(e=>{
-    if(e.category_name){
-      const cat=categories.find(c=>c.name_ar===e.category_name);
-      const displayName=L==='ar'?e.category_name:(cat?.name_en||e.category_name);
-      catTotals[displayName]=(catTotals[displayName]||0)+(e.total||0);
-    }
-  });
-  const topCat=Object.entries(catTotals).sort((a,b)=>b[1]-a[1])[0];
-  if(topCat){set('s-top-cat',topCat[0]);set('s-top-cat-amt','SAR '+fmt(topCat[1]));}
-  else{set('s-top-cat','—');set('s-top-cat-amt','');}
+  // Populate KPI strip
+  set('kpi-total',     'SAR '+fmt(total));
+  set('kpi-total-sub', totalCnt+' '+(L==='ar'?'مصروف':'expenses'));
+  set('kpi-vat',       'SAR '+fmt(vatRec));
+  set('kpi-review',    String(needsRev));
+  set('kpi-no-receipt',String(noReceipt));
+  set('kpi-non-ded',   'SAR '+fmt(nonDedAmt));
+
+  // Sidebar compat IDs (hidden spans)
+  set('s-month',       'SAR '+fmt(monthExp.reduce((s,e)=>s+(e.total||0),0)));
+  set('s-month-count', monthExp.length+(L==='ar'?' مصروف':' expenses'));
+  set('s-vat',         'SAR '+fmt(vatRec));
 }
+
 
 function updateSidebarStats(){
   const now=new Date();
@@ -984,7 +1026,7 @@ function goTab(name){
     var sb=document.getElementById('sb-'+t);
     if(sb) sb.classList.toggle('active', t===name);
   });
-  if(name==='list'){ renderExpenses(); renderCatBreakdown(); }
+  if(name==='list'){ renderExpenses(); }
 }
 
 /* ── HELPERS ── */
@@ -1054,7 +1096,10 @@ function renderExpenses(){
     var ef=qfDates?e.expense_date>=qfDates.from:(!fromDate||e.expense_date>=fromDate);
     var et=qfDates?e.expense_date<=qfDates.to:(!toDate||e.expense_date<=toDate);
     var mr=!isReviewFilter||(e.has_vat && e.vat_deductible==='deductible' && !e.vendor && !e.reference && !e.receipt_url);
-    return ms&&mc&&mm&&ef&&et&&mr;
+    var mn=!isNoReceiptFilter||(e.has_vat && e.vat_deductible==='deductible' && !e.receipt_url);
+    var md=!isNonDedFilter||(e.vat_deductible==='non_deductible');
+    var mv=!isVatRecFilter||(e.has_vat && e.vat_deductible==='deductible' && (e.vat_recoverable||0)>0);
+    return ms&&mc&&mm&&ef&&et&&mr&&mn&&md&&mv;
   });
 
   var total=filtered.length;
@@ -1301,10 +1346,15 @@ let activeQuickFilter = 'all';
 
 function setQuickFilter(qf) {
   activeQuickFilter = qf;
-  document.querySelectorAll('.exp-qf-btn').forEach(b => b.classList.remove('active'));
-  const btn = document.getElementById('qf-' + (qf==='30days'?'30':qf==='review'?'review':qf==='month'?'month':qf==='quarter'?'quarter':'all'));
-  if(btn) btn.classList.add('active');
-  // Clear date filters when using quick filter
+  // Update pill active states (only time-based pills)
+  ['all','month','30days','quarter'].forEach(function(f){
+    var btn = document.getElementById('qf-'+f);
+    if(btn) btn.classList.toggle('active', f===qf);
+  });
+  // For non-time filters, deactivate all pills
+  if(['review','no_receipt','non_ded','vat_rec'].indexOf(qf) > -1) {
+    document.querySelectorAll('.exp-qf-btn').forEach(function(b){ b.classList.remove('active'); });
+  }
   if(qf !== 'all') {
     document.getElementById('exp-filter-from').value = '';
     document.getElementById('exp-filter-to').value = '';
@@ -1312,6 +1362,8 @@ function setQuickFilter(qf) {
   expCurrentPage = 0;
   renderExpenses();
 }
+
+
 
 function getQuickFilterDates() {
   const now = new Date();
