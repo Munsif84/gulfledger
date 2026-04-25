@@ -1253,32 +1253,52 @@ function clearItemForm(){
 
 /* ── AUTO-TRANSLATE PRODUCT NAME ── */
 async function autoTranslateName(){
-  const name=gval('fi-name');
-  const arEl=document.getElementById('fi-name-ar');
-  const status=document.getElementById('fi-name-ar-status');
-  if(!name||!arEl)return;
-  if(arEl.value.trim())return; // already filled — don't overwrite
-  if(status)status.textContent=L==='ar'?'جارٍ الترجمة...':'Translating...';
-  try{
-    const res=await fetch('https://api.anthropic.com/v1/messages',{
-      method:'POST',
-      headers:{'Content-Type':'application/json'},
-      body:JSON.stringify({
-        model:'claude-sonnet-4-20250514',
-        max_tokens:100,
-        messages:[{role:'user',content:`Translate this product name to Arabic. Return ONLY the Arabic translation, nothing else. Keep brand names, numbers and units as-is transliterated to Arabic where appropriate.\n\nProduct: ${name}`}]
-      })
-    });
-    const data=await res.json();
-    const translated=(data.content?.[0]?.text||'').trim();
-    if(translated&&/[\u0600-\u06FF]/.test(translated)){
-      arEl.value=translated;
-      if(status)status.textContent='✓';
-    } else {
-      if(status)status.textContent=L==='ar'?'أدخل يدوياً':'Enter manually';
-    }
-  }catch(e){
-    if(status)status.textContent=L==='ar'?'أدخل يدوياً':'Enter manually';
+  // AR field blurred — translate AR→EN if EN is empty
+  const arName = gval('fi-name-ar');
+  const enEl   = document.getElementById('fi-name');
+  const status = document.getElementById('fi-name-ar-status');
+  if(!arName) return;
+  if(enEl && !enEl.value.trim()) {
+    if(status) status.textContent = 'جارٍ الترجمة...';
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages',{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:80,
+          messages:[{role:'user',content:'Translate this Arabic product name to English. Return ONLY the English translation, nothing else. Keep brand names and numbers as-is.\n\nProduct: '+arName}]
+        })
+      });
+      const data = await res.json();
+      const translated = (data.content?.[0]?.text||'').trim();
+      if(translated && /[a-zA-Z]/.test(translated)) {
+        enEl.value = translated;
+        if(status) status.textContent = '✓';
+      } else { if(status) status.textContent = ''; }
+    } catch(e) { if(status) status.textContent = ''; }
+  }
+}
+
+async function autoTranslateNameEN(){
+  // EN field blurred — translate EN→AR if AR is empty
+  const enName = gval('fi-name');
+  const arEl   = document.getElementById('fi-name-ar');
+  const status = document.getElementById('fi-name-ar-status');
+  if(!enName) return;
+  if(arEl && !arEl.value.trim()) {
+    if(status) status.textContent = 'جارٍ الترجمة...';
+    try {
+      const res = await fetch('https://api.anthropic.com/v1/messages',{
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ model:'claude-sonnet-4-20250514', max_tokens:80,
+          messages:[{role:'user',content:'Translate this product name to Arabic. Return ONLY the Arabic translation, nothing else. Keep brand names, numbers and units transliterated.\n\nProduct: '+enName}]
+        })
+      });
+      const data = await res.json();
+      const translated = (data.content?.[0]?.text||'').trim();
+      if(translated && /[؀-ۿ]/.test(translated)) {
+        arEl.value = translated;
+        if(status) status.textContent = '✓';
+      } else { if(status) status.textContent = ''; }
+    } catch(e) { if(status) status.textContent = ''; }
   }
 }
 
@@ -2323,9 +2343,10 @@ const STOCK_PAGE_SIZE = 20;
 
 function openInvModal() {
   clearItemForm();
+  setInvFormMode('manual');
   document.getElementById('inv-prod-modal').style.display = 'flex';
   previewSKU();
-  // set today's date if date field exists
+  updateAlertHint();
 }
 
 function closeInvModal() {
@@ -2348,6 +2369,38 @@ function stockPage(dir) {
   renderStock();
 }
 
+
+/* GL:INV-FORM-V2 */
+function setInvFormMode(mode) {
+  var isManual = mode === 'manual';
+  document.getElementById('inv-form-manual').style.display  = isManual ? 'block' : 'none';
+  document.getElementById('inv-form-excel').style.display   = isManual ? 'none'  : 'block';
+  document.getElementById('footer-manual-btns').style.display = isManual ? 'flex' : 'none';
+  var mBtn = document.getElementById('mode-manual');
+  var eBtn = document.getElementById('mode-excel');
+  if(mBtn){ mBtn.style.background = isManual ? 'var(--blue)' : 'transparent'; mBtn.style.color = isManual ? '#fff' : 'var(--muted)'; }
+  if(eBtn){ eBtn.style.background = isManual ? 'transparent' : 'var(--blue)'; eBtn.style.color = isManual ? 'var(--muted)' : '#fff'; }
+}
+
+function toggleAdvanced() {
+  var sec = document.getElementById('inv-adv-section');
+  var icon = document.getElementById('adv-toggle-icon');
+  var open = sec.style.display === 'block';
+  sec.style.display = open ? 'none' : 'block';
+  if(icon) icon.style.transform = open ? '' : 'rotate(90deg)';
+}
+
+function toggleColList() {
+  var el = document.getElementById('inv-col-list');
+  if(el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+function updateAlertHint() {
+  var val = document.getElementById('fi-alert').value;
+  var hint = document.getElementById('fi-alert-hint');
+  if(hint) hint.textContent = val ? '⚠ تنبيه عند النزول عن ' + val : '⚠ تنبيه عند النزول عن 10';
+}
+
 </script>
 
 <!-- Add Product Modal -->
@@ -2358,107 +2411,196 @@ function stockPage(dir) {
       <button class="inv-modal-close" onclick="closeInvModal()" title="إغلاق">×</button>
     </div>
     <div class="inv-modal-body">
-      <div class="card-bdy">
-          <div class="note-box blue">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
-            <span data-ar="رمز SKU يُنشأ تلقائياً — يمكن تعديله. الباركود للمسح الضوئي عند الاستلام. حدّد المورد لتتبع المخزون بالمورد." data-en="SKU auto-generated — can be edited. Barcode for scanning during receiving. Set supplier to track stock by supplier.">SKU تلقائي — الباركود للمسح — المورد لتتبع المخزون</span>
+
+  <!-- Mode toggle -->
+  <div style="display:flex;gap:0;border:1.5px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:18px;width:fit-content;">
+    <button id="mode-manual" onclick="setInvFormMode('manual')" style="padding:7px 20px;font-size:12px;font-weight:700;font-family:'Cairo',sans-serif;background:var(--blue);color:#fff;border:none;cursor:pointer;" data-ar="✏️ إدخال يدوي" data-en="✏️ Manual Entry">✏️ إدخال يدوي</button>
+    <button id="mode-excel"  onclick="setInvFormMode('excel')"  style="padding:7px 20px;font-size:12px;font-weight:700;font-family:'Cairo',sans-serif;background:transparent;color:var(--muted);border:none;cursor:pointer;" data-ar="📤 استيراد Excel" data-en="📤 Import Excel">📤 استيراد Excel</button>
+  </div>
+
+  <!-- MANUAL ENTRY FORM -->
+  <div id="inv-form-manual">
+
+    <!-- Section 1: Product Identity -->
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:0 0 6px;border-bottom:1px solid var(--border);margin-bottom:12px;display:flex;align-items:center;gap:6px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--sky);flex-shrink:0;display:inline-block;"></span><span data-ar="معلومات المنتج" data-en="Product Info">معلومات المنتج</span></div>
+
+    <!-- Row 1: AR name + EN name -->
+    <div class="fg fg-2" style="margin-bottom:12px;">
+      <div class="fld">
+        <label>
+          <span data-ar="اسم المنتج (عربي) *" data-en="Product Name (Arabic) *">اسم المنتج (عربي) *</span>
+          <span id="fi-name-ar-status" style="font-size:9px;margin-right:6px;color:var(--muted);font-weight:400;"></span>
+        </label>
+        <input type="text" id="fi-name-ar" placeholder="نسكافيه كلاسيك 190 غرام" style="direction:rtl;" onblur="autoTranslateName();previewSKU()">
+      </div>
+      <div class="fld">
+        <label data-ar="اسم المنتج (إنجليزي)" data-en="Product Name (English)">اسم المنتج (إنجليزي)</label>
+        <input type="text" id="fi-name" placeholder="Nescafe Classic 190g" onblur="autoTranslateNameEN()">
+      </div>
+    </div>
+
+    <!-- Row 2: Category + Unit + Supplier -->
+    <div class="fg fg-3" style="margin-bottom:12px;">
+      <div class="fld">
+        <label data-ar="الفئة *" data-en="Category *">الفئة *</label>
+        <select id="fi-cat" onchange="previewSKU()">
+          <option value="FOOD" data-ar="مواد غذائية" data-en="Food">مواد غذائية</option>
+          <option value="BEV"  data-ar="مشروبات"     data-en="Beverages">مشروبات</option>
+          <option value="CLN"  data-ar="منظفات"       data-en="Cleaning">منظفات</option>
+          <option value="ELEC" data-ar="إلكترونيات"  data-en="Electronics">إلكترونيات</option>
+          <option value="CLTH" data-ar="ملابس"        data-en="Clothing">ملابس</option>
+          <option value="HLTH" data-ar="صحة وجمال"   data-en="Health">صحة وجمال</option>
+          <option value="STAT" data-ar="قرطاسية"      data-en="Stationery">قرطاسية</option>
+          <option value="BLDG" data-ar="مواد بناء"   data-en="Building">مواد بناء</option>
+          <option value="ITM"  data-ar="أخرى"         data-en="Other">أخرى</option>
+        </select>
+      </div>
+      <div class="fld">
+        <label data-ar="وحدة القياس" data-en="Unit">وحدة القياس</label>
+        <select id="fi-unit">
+          <option value="قطعة"  data-ar="قطعة"   data-en="Piece">قطعة</option>
+          <option value="كيلو"  data-ar="كيلو"   data-en="Kg">كيلو</option>
+          <option value="لتر"   data-ar="لتر"    data-en="Litre">لتر</option>
+          <option value="كرتون" data-ar="كرتون"  data-en="Carton">كرتون</option>
+          <option value="علبة"  data-ar="علبة"   data-en="Box">علبة</option>
+          <option value="متر"   data-ar="متر"    data-en="Metre">متر</option>
+        </select>
+      </div>
+      <div class="fld">
+        <label data-ar="المورد" data-en="Supplier">المورد</label>
+        <select id="fi-supplier"><option value="" data-ar="— اختياري —" data-en="— Optional —">— اختياري —</option></select>
+      </div>
+    </div>
+
+    <!-- Section 2: Pricing & Stock -->
+    <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);padding:0 0 6px;border-bottom:1px solid var(--border);margin-bottom:12px;display:flex;align-items:center;gap:6px;"><span style="width:6px;height:6px;border-radius:50%;background:var(--amber);flex-shrink:0;display:inline-block;"></span><span data-ar="الأسعار والمخزون" data-en="Pricing & Stock">الأسعار والمخزون</span></div>
+
+    <!-- Row 3: Cost + Sale + Qty + Alert -->
+    <div class="fg fg-4" style="margin-bottom:12px;">
+      <div class="fld">
+        <label data-ar="سعر الشراء (SAR، بدون ضريبة)" data-en="Cost Price (SAR, excl. VAT)">سعر الشراء *</label>
+        <input type="number" id="fi-cost" placeholder="0.00" min="0" step="0.01" style="font-family:'DM Mono',monospace;">
+        <span style="font-size:10px;color:var(--muted);" data-ar="بدون ضريبة القيمة المضافة" data-en="Excl. VAT">بدون ضريبة</span>
+      </div>
+      <div class="fld">
+        <label data-ar="سعر البيع (SAR)" data-en="Sale Price (SAR)">سعر البيع *</label>
+        <input type="number" id="fi-price" placeholder="0.00" min="0" step="0.01" style="font-family:'DM Mono',monospace;">
+        <span style="font-size:10px;color:var(--muted);" data-ar="شامل الضريبة" data-en="Incl. VAT">شامل الضريبة</span>
+      </div>
+      <div class="fld">
+        <label data-ar="الكمية الافتتاحية" data-en="Opening Qty">الكمية (اختياري)</label>
+        <input type="number" id="fi-qty" placeholder="0" min="0" style="font-family:'DM Mono',monospace;">
+        <span style="font-size:10px;color:var(--muted);" data-ar="الرصيد الابتدائي" data-en="Opening balance">الرصيد الابتدائي</span>
+      </div>
+      <div class="fld">
+        <label data-ar="حد التنبيه" data-en="Alert Level">حد التنبيه</label>
+        <input type="number" id="fi-alert" placeholder="10" min="0" style="font-family:'DM Mono',monospace;" oninput="updateAlertHint()">
+        <span style="font-size:10px;color:var(--amber);font-weight:600;" id="fi-alert-hint">⚠ تنبيه عند النزول عن 10</span>
+      </div>
+    </div>
+
+    <!-- Section 3: Advanced (collapsible) -->
+    <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:4px;">
+      <button onclick="toggleAdvanced()" id="adv-toggle-btn" style="width:100%;display:flex;align-items:center;justify-content:space-between;padding:9px 14px;background:var(--tint);border:none;cursor:pointer;font-family:'Cairo',sans-serif;font-size:12px;font-weight:700;color:var(--navy);">
+        <span data-ar="خيارات إضافية" data-en="Advanced Options">خيارات إضافية</span>
+        <span id="adv-toggle-icon" style="font-size:11px;transition:transform .2s;">▸</span>
+      </button>
+      <div id="inv-adv-section" style="display:none;padding:14px;">
+        <!-- Row: Barcode + SKU -->
+        <div class="fg fg-2" style="margin-bottom:12px;">
+          <div class="fld">
+            <label data-ar="الباركود" data-en="Barcode">الباركود</label>
+            <input type="text" id="fi-barcode" placeholder="6291003080058" dir="ltr" style="font-family:'DM Mono',monospace;">
           </div>
-          <div class="fg fg-3">
-            <div class="fld"><label data-ar="اسم الصنف (إنجليزي) *" data-en="Item Name (English) *">Item Name *</label><input type="text" id="fi-name" placeholder="Nescafe Classic 190g" oninput="previewSKU()" onblur="autoTranslateName()"></div>
-            <div class="fld"><label data-ar="اسم الصنف (عربي) *" data-en="Item Name (Arabic) *">اسم الصنف (عربي) *<span id="fi-name-ar-status" style="font-size:9px;margin-right:4px;color:var(--muted);"></span></label><input type="text" id="fi-name-ar" placeholder="نسكافيه كلاسيك 190غرام" style="direction:rtl;"></div>
-            <div class="fld"><label data-ar="الفئة *" data-en="Category *">الفئة *</label>
-              <select id="fi-cat" onchange="previewSKU()">
-                <option value="FOOD" data-ar="مواد غذائية" data-en="Food">مواد غذائية</option>
-                <option value="BEV"  data-ar="مشروبات"     data-en="Beverages">مشروبات</option>
-                <option value="CLN"  data-ar="منظفات"      data-en="Cleaning">منظفات</option>
-                <option value="ELEC" data-ar="إلكترونيات"  data-en="Electronics">إلكترونيات</option>
-                <option value="CLTH" data-ar="ملابس"       data-en="Clothing">ملابس</option>
-                <option value="HLTH" data-ar="صحة وجمال"   data-en="Health">صحة وجمال</option>
-                <option value="STAT" data-ar="قرطاسية"     data-en="Stationery">قرطاسية</option>
-                <option value="BLDG" data-ar="مواد بناء"   data-en="Building">مواد بناء</option>
-                <option value="ITM"  data-ar="أخرى"        data-en="Other">أخرى</option>
-              </select>
+          <div class="fld">
+            <label data-ar="رمز SKU" data-en="SKU">رمز SKU</label>
+            <div class="sku-auto">
+              <input type="text" id="fi-sku" placeholder="FOOD-0001" style="font-family:'DM Mono',monospace;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase();this.dataset.userEdited='1'">
+              <span class="sku-auto-badge" id="sku-auto-badge" data-ar="تلقائي" data-en="auto">تلقائي</span>
             </div>
-            <div class="fld"><label data-ar="رمز SKU (تلقائي)" data-en="SKU (auto)">رمز SKU</label>
-              <div class="sku-auto"><input type="text" id="fi-sku" placeholder="FOOD-0001" style="font-family:'DM Mono',monospace;text-transform:uppercase;" oninput="this.value=this.value.toUpperCase();this.dataset.userEdited='1'"><span class="sku-auto-badge" id="sku-auto-badge" data-ar="تلقائي" data-en="auto">تلقائي</span></div>
-            </div>
-          </div>
-          <div class="fg fg-3">
-            <div class="fld"><label data-ar="الباركود" data-en="Barcode">الباركود</label><input type="text" id="fi-barcode" placeholder="6291003080058" dir="ltr" style="font-family:'DM Mono',monospace;"></div>
-            <div class="fld"><label data-ar="وحدة القياس" data-en="Unit">وحدة القياس</label>
-              <select id="fi-unit">
-                <option value="قطعة"  data-ar="قطعة"  data-en="Piece">قطعة</option>
-                <option value="كيلو"  data-ar="كيلو"  data-en="Kg">كيلو</option>
-                <option value="لتر"   data-ar="لتر"   data-en="Litre">لتر</option>
-                <option value="كرتون" data-ar="كرتون" data-en="Carton">كرتون</option>
-                <option value="علبة"  data-ar="علبة"  data-en="Box">علبة</option>
-                <option value="متر"   data-ar="متر"   data-en="Metre">متر</option>
-              </select>
-            </div>
-            <div class="fld"><label data-ar="المورد الرئيسي" data-en="Main Supplier">المورد الرئيسي</label><select id="fi-supplier"><option value="" data-ar="— اختياري —" data-en="— Optional —">— اختياري —</option></select></div>
-          </div>
-          <div class="fg fg-4">
-            <div class="fld"><label data-ar="سعر الشراء (SAR) *" data-en="Cost Price *">سعر الشراء *</label><input type="number" id="fi-cost" placeholder="0.00" min="0" step="0.01"></div>
-            <div class="fld"><label data-ar="سعر البيع (SAR) *"  data-en="Sale Price *">سعر البيع *</label><input type="number" id="fi-price" placeholder="0.00" min="0" step="0.01"></div>
-            <div class="fld"><label data-ar="الكمية الافتتاحية" data-en="Opening Qty">الكمية الافتتاحية</label><input type="number" id="fi-qty" placeholder="0" min="0"></div>
-            <div class="fld"><label data-ar="حد التنبيه" data-en="Alert Level">حد التنبيه</label><input type="number" id="fi-alert" placeholder="10" min="0"></div>
-          </div>
-          <div class="fg fg-3">
-            <div class="fld" style="grid-column:span 2;"><label data-ar="الوصف / التعبئة" data-en="Description / Packing">الوصف / التعبئة</label><input type="text" id="fi-desc" placeholder="190g — 24 علبة في الكرتون"></div>
-            <div class="fld"><label data-ar="له تاريخ انتهاء؟" data-en="Has Expiry Date?">له تاريخ انتهاء؟</label>
-              <select id="fi-has-expiry" onchange="toggleShelfLife()">
-                <option value="0" data-ar="لا" data-en="No">لا</option>
-                <option value="1" data-ar="نعم" data-en="Yes">نعم</option>
-              </select>
-            </div>
-          </div>
-          <div class="fg fg-2" id="shelf-life-row" style="display:none;">
-            <div class="fld"><label data-ar="مدة الصلاحية (أيام)" data-en="Shelf Life (days)">مدة الصلاحية (أيام)</label><input type="number" id="fi-shelf-life" placeholder="365" min="1"></div>
-          </div>
-          <div class="btn-row">
-            <button class="btn-p" onclick="addItem()" data-ar="إضافة للمخزون" data-en="Add to Inventory">إضافة للمخزون</button>
-            <button class="btn-s" onclick="clearItemForm()" data-ar="مسح" data-en="Clear">مسح</button>
-            <button class="btn-s" onclick="goTab('suppliers')" data-ar="إدارة الموردين ←" data-en="Manage Suppliers →">إدارة الموردين ←</button>
+            <span style="font-size:10px;color:var(--muted);" data-ar="يُنشأ تلقائياً — يمكن تعديله" data-en="Auto-generated — editable">يُنشأ تلقائياً</span>
           </div>
         </div>
-      <div style="margin-top:16px;">
-      <div class="card">
-        <div class="card-hdr"><span class="card-ttl" data-ar="رفع كتالوج المنتجات من Excel" data-en="Mass Upload from Excel">رفع كتالوج المنتجات من Excel</span></div>
-        <div class="card-bdy">
-          <div class="note-box amber">
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
-            <span data-ar="يجب تسجيل الموردين أولاً قبل الرفع — كود المورد في العمود Supplier Code يجب أن يطابق كود موجود في سجل الموردين (مثال: SUP-0001). الأصناف الموجودة بنفس الاسم أو الباركود تُحدَّث تلقائياً." data-en="Suppliers must be registered first — Supplier Code column must match an existing supplier code (e.g. SUP-0001). Existing items with same name or barcode are updated automatically.">الموردون يجب أن يكونوا مسجّلين أولاً</span>
+        <!-- Row: Description + Expiry toggle -->
+        <div class="fg fg-2" style="margin-bottom:0;">
+          <div class="fld">
+            <label data-ar="الوصف / التعبئة" data-en="Description / Packing">الوصف / التعبئة</label>
+            <input type="text" id="fi-desc" placeholder="190g — 24 علبة في الكرتون">
           </div>
-          <div style="background:var(--tint);border-radius:8px;padding:14px;margin-bottom:14px;">
-            <div style="font-size:12px;font-weight:700;color:var(--navy);margin-bottom:8px;" data-ar="أعمدة ملف Excel المطلوبة:" data-en="Required Excel columns:">أعمدة ملف Excel المطلوبة:</div>
-            <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--blue);background:#fff;padding:8px 12px;border-radius:6px;overflow-x:auto;white-space:nowrap;line-height:1.8;">Item Name* | Description | Category | Unit | Barcode | Cost Price* | Sale Price | Opening Qty | Alert Level | Has Expiry (YES/NO) | Shelf Life Days | Supplier Code*</div>
-            <div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
-              <button class="btn-s" onclick="downloadTemplate()" style="font-size:12px;" data-ar="📥 تحميل نموذج فارغ" data-en="📥 Download Empty Template">📥 تحميل نموذج فارغ</button>
-              <span style="font-size:11px;color:var(--muted);" data-ar="* إلزامي | SKU يُنشأ تلقائياً — لا تضعه في الملف" data-en="* Required | SKU auto-generated — do not include in file">* إلزامي | SKU يُنشأ تلقائياً</span>
-            </div>
+          <div class="fld">
+            <label data-ar="له تاريخ انتهاء؟" data-en="Has Expiry Date?">له تاريخ انتهاء؟</label>
+            <select id="fi-has-expiry" onchange="toggleShelfLife()">
+              <option value="0" data-ar="لا" data-en="No">لا</option>
+              <option value="1" data-ar="نعم" data-en="Yes">نعم</option>
+            </select>
           </div>
-          <div style="margin-bottom:14px;">
-            <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;margin-bottom:6px;" data-ar="أكواد الموردين المسجّلين (للرجوع إليها في الملف):" data-en="Registered supplier codes (for reference in file):">أكواد الموردين المسجّلة</div>
-            <div id="supplier-codes-ref" style="font-family:'DM Mono',monospace;font-size:11px;color:var(--blue);background:var(--tint);padding:8px 12px;border-radius:6px;line-height:1.8;"></div>
+        </div>
+        <div class="fg fg-2" id="shelf-life-row" style="display:none;margin-top:12px;margin-bottom:0;">
+          <div class="fld">
+            <label data-ar="مدة الصلاحية (أيام)" data-en="Shelf Life (days)">مدة الصلاحية (أيام)</label>
+            <input type="number" id="fi-shelf-life" placeholder="365" min="1">
           </div>
-          <div class="upload-zone" onclick="document.getElementById('excel-input').click()">
-            <div class="upload-zone-icon">📊</div>
-            <div style="font-size:14px;font-weight:600;color:var(--navy);margin-bottom:4px;" data-ar="اضغط لاختيار ملف Excel" data-en="Click to select Excel file">اضغط لاختيار ملف Excel</div>
-            <div style="font-size:12px;color:var(--muted);">.xlsx — الحجم الأقصى 5MB</div>
-            <input type="file" id="excel-input" accept=".xlsx,.xls" style="display:none;" onchange="handleExcelUpload(event)">
-          </div>
-          <div id="upload-progress" style="display:none;" class="upload-progress">
-            <div style="display:flex;justify-content:space-between;font-size:12px;"><span id="upload-status">جارٍ المعالجة...</span><span id="upload-pct">0%</span></div>
-            <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progress-fill" style="width:0%"></div></div>
-            <div id="upload-log" style="font-size:11px;color:var(--muted);margin-top:6px;max-height:140px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:6px;background:#fff;"></div>
-          </div>
-          <div id="upload-result" style="display:none;margin-top:12px;"></div>
         </div>
       </div>
-      </div></div>
+    </div>
+
+  </div><!-- /inv-form-manual -->
+
+  <!-- EXCEL IMPORT MODE -->
+  <div id="inv-form-excel" style="display:none;">
+    <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#92400e;font-weight:600;" data-ar="⚠ أنت الآن في وضع الاستيراد من Excel — سيتم تجاهل النموذج اليدوي" data-en="⚠ You are in Excel import mode — manual form is ignored">⚠ أنت الآن في وضع الاستيراد من Excel — سيتم تجاهل النموذج اليدوي</div>
+
+    <!-- 3-step instructions -->
+    <div style="display:flex;gap:0;margin-bottom:14px;border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+      <div style="flex:1;padding:12px;text-align:center;border-left:1px solid var(--border);">
+        <div style="font-size:20px;margin-bottom:4px;">1️⃣</div>
+        <div style="font-size:11px;font-weight:700;color:var(--navy);margin-bottom:4px;" data-ar="تحميل النموذج" data-en="Download Template">تحميل النموذج</div>
+        <button onclick="downloadTemplate()" class="btn-s" style="font-size:10px;padding:4px 10px;" data-ar="📥 تحميل" data-en="📥 Download">📥 تحميل</button>
+      </div>
+      <div style="flex:1;padding:12px;text-align:center;border-left:1px solid var(--border);">
+        <div style="font-size:20px;margin-bottom:4px;">2️⃣</div>
+        <div style="font-size:11px;font-weight:700;color:var(--navy);margin-bottom:4px;" data-ar="تعبئة البيانات" data-en="Fill in Data">تعبئة البيانات</div>
+        <button onclick="toggleColList()" class="btn-s" style="font-size:10px;padding:4px 10px;" data-ar="عرض الأعمدة" data-en="View Columns">عرض الأعمدة</button>
+      </div>
+      <div style="flex:1;padding:12px;text-align:center;">
+        <div style="font-size:20px;margin-bottom:4px;">3️⃣</div>
+        <div style="font-size:11px;font-weight:700;color:var(--navy);margin-bottom:4px;" data-ar="رفع الملف" data-en="Upload File">رفع الملف</div>
+        <div style="font-size:10px;color:var(--muted);" data-ar=".xlsx فقط" data-en=".xlsx only">.xlsx فقط</div>
+      </div>
+    </div>
+
+    <!-- Collapsible column list -->
+    <div id="inv-col-list" style="display:none;background:var(--tint);border-radius:6px;padding:10px 12px;margin-bottom:12px;">
+      <div style="font-size:10px;font-weight:700;color:var(--navy);margin-bottom:6px;" data-ar="الأعمدة المطلوبة في الملف:" data-en="Required columns:">الأعمدة المطلوبة:</div>
+      <code style="font-size:10px;color:var(--blue);line-height:1.8;display:block;">Item Name* | Category | Unit | Barcode | Cost Price* | Sale Price | Opening Qty | Alert Level | Has Expiry | Shelf Life Days | Supplier Code</code>
+      <div style="font-size:10px;color:var(--muted);margin-top:6px;" data-ar="* إلزامي — SKU يُنشأ تلقائياً" data-en="* Required — SKU auto-generated">* إلزامي — SKU يُنشأ تلقائياً</div>
+      <!-- Supplier codes -->
+      <div id="supplier-codes-ref" style="margin-top:8px;font-size:10px;color:var(--blue);font-family:'DM Mono',monospace;line-height:1.8;"></div>
+    </div>
+
+    <!-- Upload zone -->
+    <div class="upload-zone" onclick="document.getElementById('excel-input').click()">
+      <div class="upload-zone-icon">📂</div>
+      <div style="font-size:13px;font-weight:600;color:var(--navy);margin-bottom:3px;" data-ar="اسحب الملف أو اضغط للرفع" data-en="Drag file or click to upload">اسحب الملف أو اضغط للرفع</div>
+      <div style="font-size:11px;color:var(--muted);" data-ar="Excel فقط (.xlsx) — حتى 5MB" data-en="Excel only (.xlsx) — max 5MB">Excel فقط (.xlsx) — حتى 5MB</div>
+      <input type="file" id="excel-input" accept=".xlsx,.xls" style="display:none;" onchange="handleExcelUpload(event)">
+    </div>
+
+    <!-- Progress + result -->
+    <div id="upload-progress" style="display:none;" class="upload-progress">
+      <div style="display:flex;justify-content:space-between;font-size:11px;"><span id="upload-status">جارٍ المعالجة...</span><span id="upload-pct">0%</span></div>
+      <div class="progress-bar-wrap"><div class="progress-bar-fill" id="progress-fill" style="width:0%"></div></div>
+      <div id="upload-log" style="font-size:10px;color:var(--muted);margin-top:6px;max-height:120px;overflow-y:auto;border:1px solid var(--border);border-radius:6px;padding:6px;background:#fff;"></div>
+    </div>
+    <div id="upload-result" style="display:none;margin-top:10px;"></div>
+  </div><!-- /inv-form-excel -->
+
+
     <div class="inv-modal-footer">
-      <button class="btn-p" onclick="addItemFromModal()" data-ar="💾 حفظ المنتج" data-en="💾 Save Product">💾 حفظ المنتج</button>
-      <button onclick="addItemFromModal(true)" style="padding:9px 16px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Cairo',sans-serif;font-size:14px;font-weight:600;cursor:pointer;" data-ar="＋ حفظ وإضافة جديد" data-en="＋ Save & Add New">＋ حفظ وإضافة جديد</button>
+      <div id="footer-manual-btns" style="display:flex;gap:8px;">
+        <button class="btn-p" onclick="addItemFromModal()" data-ar="💾 حفظ المنتج" data-en="💾 Save Product">💾 حفظ المنتج</button>
+        <button onclick="addItemFromModal(true)" style="padding:9px 16px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Cairo',sans-serif;font-size:14px;font-weight:600;cursor:pointer;" data-ar="＋ حفظ وإضافة آخر" data-en="＋ Save & Add Another">＋ حفظ وإضافة آخر</button>
+      </div>
       <button onclick="closeInvModal()" style="margin-right:auto;padding:9px 14px;background:transparent;color:var(--muted);border:1px solid var(--border);border-radius:7px;font-family:'Cairo',sans-serif;font-size:14px;cursor:pointer;" data-ar="إغلاق" data-en="Close">إغلاق</button>
     </div>
   </div>
