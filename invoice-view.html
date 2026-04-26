@@ -435,7 +435,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:#E5EDE9;color:var(
         <div class="inv-parties">
           <div class="party-card">
             <div class="party-card-label">
-              <div class="bi-label" data-ar="البائع<span class='en'>Seller</span>" data-en="Seller<span class='en'>البائع</span>">البائع<span class="en">Seller</span></div>
+              <div class="bi-label"><span data-ar="البائع" data-en="Seller">البائع</span><span class="en" data-ar="Seller" data-en="البائع">Seller</span></div>
             </div>
             <div class="party-name-ar" id="seller-name-ar">—</div>
             <div class="party-name-en" id="seller-name-en"></div>
@@ -445,7 +445,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:#E5EDE9;color:var(
           </div>
           <div class="party-card">
             <div class="party-card-label">
-              <div class="bi-label" data-ar="المشتري<span class='en'>Buyer</span>" data-en="Buyer<span class='en'>المشتري</span>">المشتري<span class="en">Buyer</span></div>
+              <div class="bi-label"><span data-ar="المشتري" data-en="Buyer">المشتري</span><span class="en" data-ar="Buyer" data-en="المشتري">Buyer</span></div>
             </div>
             <div class="party-name-ar" id="buyer-name-ar">—</div>
             <div class="party-name-en" id="buyer-name-en"></div>
@@ -639,104 +639,167 @@ function generateToken(length = 20){
    INIT — detect mode and load invoice
 ═══════════════════════════════════════════════════════ */
 async function init(){
-  const params = new URLSearchParams(window.location.search);
-  const id = params.get('id');
-  const token = params.get('t');
-  const inv = params.get('inv');
+  try {
+    console.log('[GL invoice-view] init() starting');
+    const params = new URLSearchParams(window.location.search);
+    const id = params.get('id');
+    const token = params.get('t');
+    const inv = params.get('inv');
+    console.log('[GL invoice-view] params:', { id, token, inv });
 
-  /* Get current user (might be null if anonymous) */
-  const {data: {user}} = await sb.auth.getUser();
-  currentUser = user;
+    /* Get current user (might be null if anonymous) */
+    let user = null;
+    try {
+      const authResp = await sb.auth.getUser();
+      user = authResp?.data?.user || null;
+    } catch(authErr){
+      console.warn('[GL invoice-view] auth.getUser failed (anonymous mode):', authErr);
+    }
+    currentUser = user;
+    console.log('[GL invoice-view] currentUser:', user ? user.id : 'anonymous');
 
-  let invoice = null;
-  let mode = null;
+    let invoice = null;
+    let mode = null;
 
-  if(token){
-    /* PUBLIC MODE — lookup by token */
-    const {data, error} = await sb.from('invoices')
-      .select('*')
-      .eq('public_token', token)
-      .maybeSingle();
-    if(error || !data){
-      showError(currentLang==='ar' ? 'رابط غير صالح أو منتهي' : 'Invalid or expired link');
+    if(token){
+      /* PUBLIC MODE — lookup by token */
+      console.log('[GL invoice-view] Looking up by token');
+      const {data, error} = await sb.from('invoices')
+        .select('*')
+        .eq('public_token', token)
+        .maybeSingle();
+      if(error){
+        console.error('[GL invoice-view] Token lookup error:', error);
+        showError(currentLang==='ar' ? 'رابط غير صالح' : 'Invalid link', error.message);
+        return;
+      }
+      if(!data){
+        showError(currentLang==='ar' ? 'رابط غير صالح أو منتهي' : 'Invalid or expired link');
+        return;
+      }
+      invoice = data;
+      mode = 'public';
+    } else if(id){
+      /* SELLER MODE — lookup by uuid (RLS-protected) */
+      console.log('[GL invoice-view] Looking up by id (seller mode)');
+      if(!currentUser){
+        showError(currentLang==='ar' ? 'يجب تسجيل الدخول' : 'Login required',
+                  currentLang==='ar' ? 'هذه الفاتورة خاصة. سجّل دخولك للعرض.' : 'This invoice is private. Please log in.');
+        return;
+      }
+      const {data, error} = await sb.from('invoices')
+        .select('*')
+        .eq('id', id)
+        .maybeSingle();
+      if(error){
+        console.error('[GL invoice-view] ID lookup error:', error);
+        showError(currentLang==='ar' ? 'خطأ في تحميل الفاتورة' : 'Error loading invoice', error.message);
+        return;
+      }
+      if(!data){
+        showError(currentLang==='ar' ? 'لم يتم العثور على الفاتورة' : 'Invoice not found');
+        return;
+      }
+      invoice = data;
+      mode = 'seller';
+    } else if(inv){
+      /* LEGACY — lookup by invoice number (requires auth) */
+      console.log('[GL invoice-view] Looking up by invoice_number (legacy)');
+      if(!currentUser){
+        showError(currentLang==='ar' ? 'يجب تسجيل الدخول' : 'Login required');
+        return;
+      }
+      const {data, error} = await sb.from('invoices')
+        .select('*')
+        .eq('invoice_number', inv)
+        .eq('user_id', currentUser.id)
+        .maybeSingle();
+      if(error){
+        console.error('[GL invoice-view] Invoice number lookup error:', error);
+        showError(currentLang==='ar' ? 'خطأ في تحميل الفاتورة' : 'Error loading invoice', error.message);
+        return;
+      }
+      if(!data){
+        showError(currentLang==='ar' ? 'لم يتم العثور على الفاتورة' : 'Invoice not found');
+        return;
+      }
+      invoice = data;
+      mode = 'seller';
+    } else {
+      showError(currentLang==='ar' ? 'لم يتم تحديد فاتورة' : 'No invoice specified',
+                currentLang==='ar' ? 'تحقق من الرابط' : 'Check the URL');
       return;
     }
-    invoice = data;
-    mode = 'public';
-  } else if(id){
-    /* SELLER MODE — lookup by uuid (RLS-protected) */
-    if(!currentUser){
-      showError(currentLang==='ar' ? 'يجب تسجيل الدخول' : 'Login required',
-                currentLang==='ar' ? 'هذه الفاتورة خاصة. سجّل دخولك للعرض.' : 'This invoice is private. Please log in.');
-      return;
+
+    console.log('[GL invoice-view] Invoice loaded:', invoice.invoice_number, 'mode:', mode);
+    currentInvoice = invoice;
+    currentMode = mode;
+
+    /* Load business + items
+       NOTE: select('*') is defensive — returns whatever columns exist,
+       avoids errors if newer columns haven't been added yet */
+    let bizResp, itemsResp;
+    try {
+      [bizResp, itemsResp] = await Promise.all([
+        sb.from('businesses').select('*').eq('id', invoice.business_id).maybeSingle(),
+        sb.from('invoice_items').select('*').eq('invoice_id', invoice.id).order('sort_order')
+      ]);
+    } catch(loadErr){
+      console.error('[GL invoice-view] Error loading business/items:', loadErr);
+      bizResp = {data: null};
+      itemsResp = {data: []};
     }
-    const {data, error} = await sb.from('invoices')
-      .select('*')
-      .eq('id', id)
-      .maybeSingle();
-    if(error || !data){
-      showError();
-      return;
+
+    if(bizResp.error) console.warn('[GL invoice-view] Business load error:', bizResp.error);
+    if(itemsResp.error) console.warn('[GL invoice-view] Items load error:', itemsResp.error);
+
+    currentBiz = bizResp?.data || null;
+    const items = itemsResp?.data || [];
+    console.log('[GL invoice-view] Loaded', items.length, 'items, biz:', !!currentBiz);
+
+    /* If we have a customer_id, also load the customer (for structured buyer address) */
+    let buyerCustomer = null;
+    if(invoice.customer_id){
+      try {
+        const {data: cdata} = await sb.from('customers').select('*').eq('id', invoice.customer_id).maybeSingle();
+        buyerCustomer = cdata;
+      } catch(custErr){
+        console.warn('[GL invoice-view] Could not load customer:', custErr);
+      }
     }
-    invoice = data;
-    mode = 'seller';
-  } else if(inv){
-    /* LEGACY — lookup by invoice number (requires auth) */
-    if(!currentUser){
-      showError(currentLang==='ar' ? 'يجب تسجيل الدخول' : 'Login required');
-      return;
+    currentBuyerCustomer = buyerCustomer;
+
+    /* Apply brand color if set */
+    if(currentBiz?.brand_color){
+      document.documentElement.style.setProperty('--brand', currentBiz.brand_color);
+      document.documentElement.style.setProperty('--blue', currentBiz.brand_color);
     }
-    const {data, error} = await sb.from('invoices')
-      .select('*')
-      .eq('invoice_number', inv)
-      .eq('user_id', currentUser.id)
-      .maybeSingle();
-    if(error || !data){
-      showError();
-      return;
-    }
-    invoice = data;
-    mode = 'seller';
-  } else {
-    showError();
-    return;
+
+    /* Render the invoice */
+    console.log('[GL invoice-view] Rendering...');
+    renderInvoice();
+    renderItems(items);
+
+    /* Show/hide chrome based on mode */
+    applyMode();
+
+    /* Apply language to all data-ar/data-en elements */
+    applyLang();
+
+    /* Hide loading, show content */
+    hide('loading-state');
+    show('inv-content');
+    console.log('[GL invoice-view] ✓ Render complete');
+  } catch(err) {
+    console.error('[GL invoice-view] FATAL error in init:', err);
+    showError(
+      currentLang==='ar' ? 'حدث خطأ أثناء تحميل الفاتورة' : 'Error loading invoice',
+      err.message || String(err)
+    );
   }
-
-  currentInvoice = invoice;
-  currentMode = mode;
-
-  /* Load business + items */
-  const [bizResp, itemsResp] = await Promise.all([
-    sb.from('businesses')
-      .select('id,name,name_ar,name_en,trn,cr_number,building_number,additional_number,street_name,address,district,city,postal_code,logo_base64,brand_color,phone,email')
-      .eq('id', invoice.business_id).maybeSingle(),
-    sb.from('invoice_items')
-      .select('*').eq('invoice_id', invoice.id).order('sort_order')
-  ]);
-
-  currentBiz = bizResp.data;
-  const items = itemsResp.data || [];
-
-  /* Apply brand color if set */
-  if(currentBiz?.brand_color){
-    document.documentElement.style.setProperty('--brand', currentBiz.brand_color);
-    document.documentElement.style.setProperty('--blue', currentBiz.brand_color);
-  }
-
-  /* Render the invoice */
-  renderInvoice();
-  renderItems(items);
-
-  /* Show/hide chrome based on mode */
-  applyMode();
-
-  /* Apply language to all data-ar/data-en elements */
-  applyLang();
-
-  /* Hide loading, show content */
-  hide('loading-state');
-  show('inv-content');
 }
+
+let currentBuyerCustomer = null;
 
 /* ═══════════════════════════════════════════════════════
    APPLY MODE — show/hide chrome based on seller/public
@@ -873,15 +936,16 @@ function renderInvoice(){
   set('buyer-name-ar', buyerNameAr || (currentLang==='ar' ? 'عميل غير محدد' : 'No customer'));
   set('buyer-name-en', buyerNameEn);
   if(inv.buyer_trn) set('buyer-trn', 'TRN: ' + inv.buyer_trn);
-  setHTML('buyer-address', renderAddress({
-    building_number: inv.buyer_building,
-    street_name: inv.buyer_street,
-    additional_number: inv.buyer_additional,
-    district: inv.buyer_district,
-    city: inv.buyer_city,
-    postal_code: inv.buyer_postal,
-    address: inv.buyer_address
-  }));
+  /* Use linked customer record for structured address (preferred), fallback to invoice's stored strings */
+  if(currentBuyerCustomer){
+    setHTML('buyer-address', renderAddress(currentBuyerCustomer));
+  } else {
+    /* Fallback: use whatever invoice has (legacy single-string address) */
+    setHTML('buyer-address', renderAddress({
+      address: inv.buyer_address,
+      city: inv.buyer_city
+    }));
+  }
 
   /* Generate ZATCA QR */
   generateZatcaQR();
@@ -1027,17 +1091,22 @@ function generateZatcaQR(){
 }
 
 /* ═══════════════════════════════════════════════════════
-   APPLY LANGUAGE — toggle data-ar/data-en spans
+   APPLY LANGUAGE
+   The CSS rule [lang="ar"] [data-en], [lang="en"] [data-ar] {display:none}
+   handles the visual switching based on document lang attribute.
+   For elements with both attributes (siblings), CSS handles it.
+   For elements where text is the data-ar/data-en value (not children), set textContent.
 ═══════════════════════════════════════════════════════ */
 function applyLang(){
-  /* Already handled by CSS [lang="X"] [data-Y]{display:none} for spans */
-  /* For elements with data-ar AND data-en attributes (not children), set textContent */
+  document.documentElement.setAttribute('lang', currentLang);
+  document.documentElement.setAttribute('dir', currentLang === 'ar' ? 'rtl' : 'ltr');
+
+  /* For elements that have BOTH data-ar AND data-en AND no children:
+     swap text content based on language */
   document.querySelectorAll('[data-ar][data-en]').forEach(el => {
-    if(el.tagName === 'SPAN' && el.children.length === 0) return; /* siblings */
-    const newContent = currentLang === 'ar' ? el.getAttribute('data-ar') : el.getAttribute('data-en');
-    if(newContent && el.children.length === 0){
-      el.textContent = newContent;
-    }
+    if(el.children.length > 0) return; /* Has children, CSS handles it */
+    const txt = currentLang === 'ar' ? el.getAttribute('data-ar') : el.getAttribute('data-en');
+    if(txt != null) el.textContent = txt;
   });
 }
 
