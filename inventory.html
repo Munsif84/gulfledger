@@ -1598,18 +1598,26 @@ async function openReceiveModal(){
 async function fetchNextReceiptNumber(){
   const yr = new Date().getFullYear();
   const prefix = 'GRN'; /* Goods Receipt Note */
-  const {data} = await sb.from('stock_receipts')
+  /* Pull ALL numbers for this year (not just the "max" via string sort, which is unreliable
+     for mixed-width sequences). Parse each, find the true numeric max in JS. */
+  const {data, error} = await sb.from('stock_receipts')
     .select('receipt_number')
     .eq('business_id', currentBiz.id)
-    .ilike('receipt_number', `${prefix}-${yr}-%`)
-    .order('receipt_number', {ascending:false})
-    .limit(1);
-  let nextSeq = 1;
-  if(data && data[0]){
-    const m = data[0].receipt_number.match(/-(\d+)$/);
-    if(m) nextSeq = parseInt(m[1]) + 1;
+    .ilike('receipt_number', `${prefix}-${yr}-%`);
+  if(error){
+    console.warn('[GL] fetchNextReceiptNumber query failed:', error.message);
+    /* Fallback: timestamp-based to avoid collision */
+    return `${prefix}-${yr}-${Date.now().toString().slice(-6)}`;
   }
-  return `${prefix}-${yr}-${String(nextSeq).padStart(3,'0')}`;
+  let maxSeq = 0;
+  for(const row of (data || [])){
+    const m = (row.receipt_number || '').match(/-(\d+)$/);
+    if(m){
+      const n = parseInt(m[1], 10);
+      if(n > maxSeq) maxSeq = n;
+    }
+  }
+  return `${prefix}-${yr}-${String(maxSeq + 1).padStart(3,'0')}`;
 }
 
 /* PO load — stub for future PO module integration.
@@ -1781,11 +1789,16 @@ async function saveReceipt(){
   if(amountPaid >= total - 0.01) paymentStatus = 'paid';
   else if(amountPaid > 0) paymentStatus = 'partial';
 
-  /* 1. Insert stock_receipt header */
+  /* 1. Insert stock_receipt header
+        Regenerate the number at save-time (not modal-open time) to minimize collision
+        with concurrent saves or stale modal state. Retry once on unique-constraint violation. */
+  const freshNumber = await fetchNextReceiptNumber();
+  setVal('rcp-number', freshNumber); /* update visible field for user awareness */
+
   const receiptPayload = {
     user_id: currentUser.id,
     business_id: currentBiz.id,
-    receipt_number: v('rcp-number'),
+    receipt_number: freshNumber,
     supplier_id: v('rcp-supplier') || null,
     supplier_invoice_number: v('rcp-supplier-invoice') || null,
     po_number: v('rcp-po-number') || null,
@@ -1801,8 +1814,19 @@ async function saveReceipt(){
     status: 'posted'
   };
 
-  const {data:receipt, error:rcpError} = await sb.from('stock_receipts')
+  let {data:receipt, error:rcpError} = await sb.from('stock_receipts')
     .insert(receiptPayload).select().single();
+
+  /* Retry once on duplicate-key collision (race or stale data) */
+  if(rcpError && rcpError.code === '23505'){
+    console.warn('[GL] Receipt # collision on', receiptPayload.receipt_number, '— regenerating');
+    const retryNumber = await fetchNextReceiptNumber();
+    receiptPayload.receipt_number = retryNumber;
+    setVal('rcp-number', retryNumber);
+    ({data:receipt, error:rcpError} = await sb.from('stock_receipts')
+      .insert(receiptPayload).select().single());
+  }
+
   if(rcpError){
     notify(rcpError.message, 'error');
     return;
