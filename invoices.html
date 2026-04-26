@@ -367,11 +367,14 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .row-action-menu-wrap{position:relative;display:inline-block;}
 .row-action-more{padding:5px 10px;background:transparent;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;color:var(--muted);transition:all .15s;line-height:1;min-width:32px;}
 .row-action-more:hover{background:var(--bg);color:var(--ink);border-color:var(--muted);}
-.row-action-menu{display:none;position:absolute;top:calc(100% + 4px);min-width:170px;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.12);padding:4px;z-index:50;}
-[dir="rtl"] .row-action-menu{right:0;left:auto;}
-[dir="ltr"] .row-action-menu{left:0;right:auto;}
+/* Menu opens DOWN and toward page interior. In RTL the actions column is on the left of viewport,
+   so the menu must open to the RIGHT of the button (toward page center, not off-screen left).
+   In LTR the actions column is on the right side, so menu opens to the LEFT of the button. */
+.row-action-menu{display:none;position:absolute;top:calc(100% + 4px);min-width:200px;max-width:260px;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.15);padding:4px;z-index:50;}
+[dir="rtl"] .row-action-menu{left:0;right:auto;}
+[dir="ltr"] .row-action-menu{right:0;left:auto;}
 .row-action-menu.open{display:block;}
-.row-action-menu-item{display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;background:transparent;border:none;border-radius:6px;font-family:inherit;font-size:13px;font-weight:500;color:var(--ink);cursor:pointer;text-align:start;transition:background .12s;}
+.row-action-menu-item{display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;background:transparent;border:none;border-radius:6px;font-family:inherit;font-size:13px;font-weight:500;color:var(--ink);cursor:pointer;text-align:start;transition:background .12s;white-space:nowrap;}
 .row-action-menu-item:hover{background:var(--tint);}
 .row-action-menu-item.danger{color:var(--red);}
 .row-action-menu-item.danger:hover{background:#fee2e2;}
@@ -383,7 +386,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 /* List header row — column labels (must mirror .list-row grid exactly) */
 .list-header{display:grid;gap:16px;align-items:center;padding:10px 18px;background:var(--bg);border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;}
 .list-header.invoices-header{grid-template-columns:140px 100px 1fr 130px 110px 140px;}
-.list-header.customers-header{grid-template-columns:36px 90px 1fr 80px 110px 160px;}
+.list-header.customers-header{grid-template-columns:36px 90px 1fr 80px 110px 200px;}
 .list-header span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .list-header .h-amount{text-align:end;}
 .list-header .h-actions{text-align:end;}
@@ -428,10 +431,10 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 }
 
 /* Customer rows */
-.cust-row{display:grid;grid-template-columns:36px 90px 1fr 80px 110px 160px;gap:16px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--tint);transition:background .12s;cursor:pointer;}
+.cust-row{display:grid;grid-template-columns:36px 90px 1fr 80px 110px 200px;gap:16px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--tint);transition:background .12s;}
 .cust-row:last-child{border-bottom:none;}
 .cust-row:hover{background:#fafffe;}
-.cust-avatar{width:36px;height:36px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0;}
+.cust-avatar{width:36px;height:36px;border-radius:50%;background:var(--blue);color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;flex-shrink:0;cursor:default;user-select:none;}
 .cust-code{font-family:'DM Mono',monospace;font-size:11px;color:var(--muted);font-weight:700;}
 @media(max-width:900px){.cust-row{grid-template-columns:36px 1fr auto;gap:10px;}.cust-row > .cust-code,.cust-row > .cust-type,.cust-row > .cust-stats{display:none;}}
 
@@ -1736,12 +1739,12 @@ function renderCustList(){
     const typeBadge = isB2B
       ? '<span class="badge badge-b2b">B2B</span>'
       : '<span class="badge badge-b2c">B2C</span>';
-    return `<div class="cust-row" onclick="editCustomer('${cust.id}')">
+    return `<div class="cust-row">
       <div class="cust-avatar">${initial}</div>
       <div class="cust-code">${cust.customer_code || '—'}</div>
       <div class="row-buyer">
         <div style="font-weight:600;">${cust.name||cust.company_name||'—'}</div>
-        ${cust.company_name && cust.name ? '<div style="font-size:11px;color:var(--muted);">'+cust.company_name+'</div>' : ''}
+        ${(cust.company_name && cust.name && cust.company_name !== cust.name) ? '<div style="font-size:11px;color:var(--muted);">'+cust.company_name+'</div>' : ''}
       </div>
       <div class="cust-type">${typeBadge}</div>
       <div class="cust-stats" style="font-size:12px;color:var(--muted);">
@@ -1749,7 +1752,8 @@ function renderCustList(){
         <span style="font-family:'DM Mono',monospace;font-weight:600;color:var(--ink);">SAR ${fmt(cust.total_invoiced||0)}</span>
       </div>
       <div class="row-actions">
-        <button class="row-action-btn primary" onclick="event.stopPropagation();newInvoiceForCust('${cust.id}')">🧾 ${currentLang==='ar'?'فاتورة جديدة':'New Invoice'}</button>
+        <button class="row-action-btn" onclick="editCustomer('${cust.id}')" title="${currentLang==='ar'?'تعديل العميل':'Edit customer'}">✏️ ${currentLang==='ar'?'تعديل':'Edit'}</button>
+        <button class="row-action-btn primary" onclick="newInvoiceForCust('${cust.id}')">🧾 ${currentLang==='ar'?'فاتورة':'Invoice'}</button>
       </div>
     </div>`;
   }).join('') + '</div>';
