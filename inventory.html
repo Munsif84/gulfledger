@@ -116,7 +116,9 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .btn-sm{padding:5px 10px;font-size:12px;}
 
 /* Tables */
-.table-wrap{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+.table-wrap{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:visible;}
+/* Inner scroll wrapper to handle wide tables on mobile while keeping menus visible */
+.table-scroll{overflow-x:auto;border-radius:12px;}
 .tbl{width:100%;border-collapse:collapse;font-size:14px;}
 .tbl th,.tbl td{text-align:start;}
 .tbl th{padding:10px 14px;background:var(--tint);color:var(--ink);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-bottom:1px solid var(--border);white-space:nowrap;}
@@ -238,14 +240,44 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .row-actions{position:relative;display:inline-block;}
 .row-actions-btn{background:transparent;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;color:var(--muted);font-size:16px;line-height:1;}
 .row-actions-btn:hover{background:var(--tint);color:var(--ink);}
-.row-actions-menu{display:none;position:absolute;top:100%;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.12);min-width:180px;z-index:200;padding:4px;margin-top:4px;}
-[dir="ltr"] .row-actions-menu{right:0;}
-[dir="rtl"] .row-actions-menu{left:0;}
+/* Fixed positioning so the menu is never clipped by parent overflow.
+   JS sets top/left at toggle time relative to the button. */
+.row-actions-menu{display:none;position:fixed;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.18);min-width:200px;z-index:9000;padding:4px;}
 .row-actions-menu.open{display:block;}
 .row-action-item{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:13px;color:var(--ink);cursor:pointer;border-radius:6px;background:transparent;border:none;width:100%;text-align:start;font-family:inherit;}
 .row-action-item:hover{background:var(--tint);}
 .row-action-item.danger{color:var(--red);}
 .row-action-item.danger:hover{background:#fef2f2;}
+
+/* ─── COMBOBOX (searchable picker with optional add-new) ─── */
+.combo{position:relative;}
+.combo-input{width:100%;padding:8px 11px 8px 32px;border:1px solid var(--border);border-radius:7px;background:#fff;font-family:inherit;font-size:14px;color:var(--ink);transition:border .15s, box-shadow .15s;}
+[dir="rtl"] .combo-input{padding:8px 32px 8px 11px;}
+.combo-input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,108,53,0.12);}
+.combo-icon{position:absolute;top:50%;transform:translateY(-50%);color:var(--muted);font-size:13px;pointer-events:none;}
+[dir="ltr"] .combo-icon{left:11px;}
+[dir="rtl"] .combo-icon{right:11px;}
+.combo-clear{position:absolute;top:50%;transform:translateY(-50%);background:transparent;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:0 8px;border-radius:4px;display:none;}
+[dir="ltr"] .combo-clear{right:6px;}
+[dir="rtl"] .combo-clear{left:6px;}
+.combo-clear:hover{background:var(--tint);color:var(--ink);}
+.combo-clear.show{display:block;}
+.combo-dropdown{display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.12);max-height:240px;overflow-y:auto;z-index:200;}
+.combo-dropdown.open{display:block;}
+.combo-item{padding:8px 12px;font-size:13px;color:var(--ink);cursor:pointer;border-bottom:1px solid var(--tint);display:flex;align-items:center;gap:8px;}
+.combo-item:last-child{border-bottom:none;}
+.combo-item:hover,.combo-item.highlighted{background:var(--tint);}
+.combo-item .combo-name{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.combo-item .combo-meta{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;flex-shrink:0;}
+.combo-empty{padding:14px;text-align:center;font-size:12px;color:var(--muted);font-style:italic;}
+.combo-add-new{padding:9px 12px;font-size:13px;font-weight:600;color:var(--blue);cursor:pointer;border-top:1px solid var(--border);background:#fafbfa;display:flex;align-items:center;gap:6px;}
+.combo-add-new:hover{background:var(--tint);}
+.combo-add-new.combo-quick-add{color:var(--ink);background:var(--tint);font-weight:500;}
+.combo-add-new.combo-quick-add:hover{background:var(--light);}
+/* Tag for selected value (shown above input) */
+.combo-tag{display:inline-flex;align-items:center;gap:6px;background:var(--tint);border:1px solid var(--light);border-radius:18px;padding:3px 10px;font-size:13px;color:var(--ink);font-weight:600;}
+.combo-tag-clear{background:transparent;border:none;color:var(--muted);cursor:pointer;font-size:14px;padding:0;line-height:1;}
+.combo-tag-clear:hover{color:var(--red);}
 
 /* ─── VOIDED ROW ─── */
 .tbl tr.voided td{opacity:0.55;text-decoration:line-through;}
@@ -766,28 +798,28 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         </div>
       </div>
 
-      <div class="field">
-        <div class="field-label">
-          <span data-ar="المورد" data-en="Supplier">المورد</span>
-          <span class="req">*</span>
+      <div class="field-row" style="grid-template-columns:1fr 240px;gap:12px;">
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="المورد" data-en="Supplier">المورد</span>
+            <span class="req">*</span>
+          </div>
+          <div id="rcp-supplier-combo"></div>
+          <input type="hidden" id="rcp-supplier" value="">
         </div>
-        <select id="rcp-supplier">
-          <option value="">— <span data-ar="اختر مورد" data-en="Select supplier">اختر مورد</span> —</option>
-        </select>
-        <div class="field-hint" data-ar="إذا لم يكن المورد موجوداً، أضفه أولاً من تبويب الموردين" data-en="If supplier doesn't exist, add it first from the Suppliers tab">إذا لم يكن المورد موجوداً، أضفه أولاً من تبويب الموردين</div>
-      </div>
 
-      <!-- PO link — future-ready, when PO module is built it will pre-fill items -->
-      <div class="field">
-        <div class="field-label">
-          <span data-ar="رقم أمر الشراء (PO)" data-en="Purchase Order #">رقم أمر الشراء (PO)</span>
-          <span class="opt" data-ar="(اختياري — قريباً سيتم تعبئة الأصناف تلقائياً)" data-en="(optional — coming soon: auto-fill items)">(اختياري — قريباً سيتم تعبئة الأصناف تلقائياً)</span>
-        </div>
-        <div style="display:flex;gap:6px;">
-          <input type="text" id="rcp-po-number" class="mono" placeholder="PO-2026-001" dir="ltr" style="flex:1;">
-          <button class="btn btn-secondary btn-sm" onclick="loadFromPO()" type="button" title="Load items from PO" disabled style="opacity:0.5;cursor:not-allowed;">
-            ⬇ <span data-ar="تحميل من PO" data-en="Load from PO">تحميل من PO</span>
-          </button>
+        <!-- Compact PO field -->
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="أمر الشراء" data-en="PO #">أمر الشراء</span>
+            <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
+          </div>
+          <div style="display:flex;gap:4px;">
+            <input type="text" id="rcp-po-number" class="mono" placeholder="PO-2026-001" dir="ltr" style="flex:1;min-width:0;">
+            <button class="btn btn-secondary btn-sm" onclick="loadFromPO()" type="button" title="Load items from PO" disabled style="opacity:0.5;cursor:not-allowed;padding:6px 10px;flex-shrink:0;">
+              →
+            </button>
+          </div>
         </div>
       </div>
 
@@ -872,19 +904,19 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 </div>
 
 <!-- ════════════════════════════════════════════════
-     ITEM DETAIL DRAWER (slide-in from right)
+     SLIDE-IN DRAWER (item or receipt detail)
 ════════════════════════════════════════════════ -->
-<div class="drawer-backdrop" id="drawer-backdrop" onclick="closeItemDrawer()"></div>
-<div class="drawer" id="item-drawer">
+<div class="drawer-backdrop" id="drawer-backdrop" onclick="closeDrawer()"></div>
+<div class="drawer" id="app-drawer">
   <div class="drawer-head">
     <div style="min-width:0;flex:1;">
       <div class="drawer-title" id="drawer-title">—</div>
       <div class="drawer-sub" id="drawer-sub">—</div>
     </div>
-    <button class="drawer-close" onclick="closeItemDrawer()" aria-label="Close">×</button>
+    <button class="drawer-close" onclick="closeDrawer()" aria-label="Close">×</button>
   </div>
   <div class="drawer-body" id="drawer-body">
-    <!-- Filled by renderItemDrawer() -->
+    <!-- Filled by openItemDrawer() / openReceiptDrawer() -->
   </div>
 </div>
 
@@ -1270,7 +1302,8 @@ function renderSuppliers(){
     { label: arHeaders ? 'الرقم الضريبي' : 'TRN', cls: 'num' },
     { label: arHeaders ? 'مدة السداد' : 'Terms', cls: 'num' },
     { label: arHeaders ? 'إجمالي المشتريات' : 'Total Purchases', cls: 'num' },
-    { label: arHeaders ? 'مستحق' : 'Outstanding', cls: 'num' }
+    { label: arHeaders ? 'مستحق' : 'Outstanding', cls: 'num' },
+    { label: '', cls: 'center' }  /* Actions */
   ];
 
   wrap.innerHTML = `
@@ -1293,10 +1326,43 @@ function renderSuppliers(){
               <td class="num" style="color:${outstanding > 0 ? 'var(--amber)' : 'var(--muted)'};font-weight:${outstanding > 0 ? '700' : '500'};">
                 SAR ${fmt(outstanding)}
               </td>
+              <td class="center">
+                <div class="row-actions">
+                  <button class="row-actions-btn" onclick="event.stopPropagation();toggleRowMenu(this)" title="${arHeaders?'إجراءات':'Actions'}">⋮</button>
+                  <div class="row-actions-menu" onclick="event.stopPropagation()">
+                    <button class="row-action-item" onclick="closeAllMenus();openSupplierModal('${s.id}')">✏️ ${arHeaders?'تعديل المورد':'Edit supplier'}</button>
+                    <button class="row-action-item" onclick="closeAllMenus();filterReceiptsBySupplier('${s.id}')">📥 ${arHeaders?'عرض الاستلامات':'View receipts'}</button>
+                    <button class="row-action-item danger" onclick="closeAllMenus();deleteSupplierFromMenu('${s.id}')">🗑️ ${arHeaders?'حذف':'Delete'}</button>
+                  </div>
+                </div>
+              </td>
             </tr>`;
         }).join('')}
       </tbody>
     </table>`;
+}
+
+/* Helpers triggered from supplier row menu */
+async function deleteSupplierFromMenu(id){
+  /* Open modal so the existing delete flow can prompt for confirmation, then auto-trigger delete */
+  currentSupplierId = id;
+  const s = allSuppliers.find(x => x.id === id);
+  if(!s) return;
+  /* Skip the modal — directly call the existing delete logic */
+  await deleteSupplier();
+}
+
+function filterReceiptsBySupplier(supplierId){
+  /* Switch to Receive tab and filter by this supplier name */
+  switchTab('receive');
+  const sup = allSuppliers.find(s => s.id === supplierId);
+  if(sup){
+    const searchEl = document.getElementById('search-receipts');
+    if(searchEl){
+      searchEl.value = displayName(sup);
+      renderReceipts();
+    }
+  }
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -1356,7 +1422,7 @@ function renderReceipts(){
           else if(r.payment_status === 'partial'){ payClass = 'low'; payLabel = arHeaders?'جزئي':'Partial'; }
           else { payClass = 'out'; payLabel = arHeaders?'غير مدفوع':'Unpaid'; }
           return `
-            <tr class="${isVoided ? 'voided' : ''}">
+            <tr class="clickable ${isVoided ? 'voided' : ''}" onclick="openReceiptDrawer('${r.id}')">
               <td class="num">${r.receipt_date}</td>
               <td class="num"><strong>${escHTML(r.receipt_number)}</strong></td>
               <td>${escHTML(supName)}</td>
@@ -1364,13 +1430,13 @@ function renderReceipts(){
               <td class="num"><strong>SAR ${fmt(r.total)}</strong></td>
               <td class="center"><span class="stock-badge ${payClass}">${payLabel}</span></td>
               <td class="center">
-                ${isVoided ? '' : `
                 <div class="row-actions">
                   <button class="row-actions-btn" onclick="event.stopPropagation();toggleRowMenu(this)" title="${arHeaders?'إجراءات':'Actions'}">⋮</button>
                   <div class="row-actions-menu" onclick="event.stopPropagation()">
-                    <button class="row-action-item danger" onclick="closeAllMenus();voidReceipt('${r.id}')">🚫 ${arHeaders?'إلغاء الاستلام':'Void receipt'}</button>
+                    <button class="row-action-item" onclick="closeAllMenus();openReceiptDrawer('${r.id}')">📋 ${arHeaders?'عرض التفاصيل':'View details'}</button>
+                    ${!isVoided ? `<button class="row-action-item danger" onclick="closeAllMenus();voidReceipt('${r.id}')">🚫 ${arHeaders?'إلغاء الاستلام':'Void receipt'}</button>` : ''}
                   </div>
-                </div>`}
+                </div>
               </td>
             </tr>`;
         }).join('')}
@@ -1429,6 +1495,8 @@ function nextItemSKU(){
 function closeItemModal(){
   document.getElementById('item-modal').classList.remove('open');
   currentItemId = null;
+  /* Discard any pending combobox callback if user dismissed without saving */
+  pendingComboboxCallback = null;
 }
 
 async function saveItem(){
@@ -1466,14 +1534,17 @@ async function saveItem(){
     updated_at: new Date().toISOString()
   };
 
-  let error;
+  let error, savedItem;
   if(currentItemId){
     /* Don't update current_qty manually — only via movements */
     delete payload.current_qty;
     ({error} = await sb.from('inventory_items').update(payload).eq('id', currentItemId));
+    savedItem = { id: currentItemId };
   } else {
     payload.current_qty = 0;
-    ({error} = await sb.from('inventory_items').insert(payload));
+    const result = await sb.from('inventory_items').insert(payload).select().single();
+    error = result.error;
+    savedItem = result.data;
   }
 
   if(error){
@@ -1490,6 +1561,13 @@ async function saveItem(){
   await loadItems();
   renderItems();
   computeStats();
+
+  /* If a combobox triggered this save, fire its callback with the new id */
+  if(pendingComboboxCallback && savedItem?.id){
+    const cb = pendingComboboxCallback;
+    pendingComboboxCallback = null;
+    await cb(savedItem.id);
+  }
 }
 
 async function deleteItem(){
@@ -1575,6 +1653,8 @@ function nextSupplierCode(){
 function closeSupplierModal(){
   document.getElementById('supplier-modal').classList.remove('open');
   currentSupplierId = null;
+  /* Discard any pending combobox callback if user dismissed without saving */
+  pendingComboboxCallback = null;
 }
 
 async function saveSupplier(){
@@ -1604,11 +1684,14 @@ async function saveSupplier(){
     updated_at: new Date().toISOString()
   };
 
-  let error;
+  let error, savedSupplier;
   if(currentSupplierId){
     ({error} = await sb.from('suppliers').update(payload).eq('id', currentSupplierId));
+    savedSupplier = { id: currentSupplierId };
   } else {
-    ({error} = await sb.from('suppliers').insert(payload));
+    const result = await sb.from('suppliers').insert(payload).select().single();
+    error = result.error;
+    savedSupplier = result.data;
   }
 
   if(error){
@@ -1626,6 +1709,13 @@ async function saveSupplier(){
   renderSuppliers();
   computeStats();
   populateSupplierDropdown();
+
+  /* If a combobox triggered this save, fire its callback with the new id */
+  if(pendingComboboxCallback && savedSupplier?.id){
+    const cb = pendingComboboxCallback;
+    pendingComboboxCallback = null;
+    await cb(savedSupplier.id);
+  }
 }
 
 async function deleteSupplier(){
@@ -1656,6 +1746,189 @@ async function deleteSupplier(){
 }
 
 /* ═══════════════════════════════════════════════════════
+   COMBOBOX — searchable picker with optional quick-add + full-add
+   
+   Usage:
+     mountCombobox({
+       wrapEl: HTMLElement,         // container div, will be filled
+       placeholder: 'Search...',    // input placeholder
+       items: [{id, label, meta}],  // searchable list
+       value: 'selected-id' || '',  // initial selection
+       onSelect: (id, item) => {},  // called when user picks
+       onQuickAdd: query => {},     // optional: shows ⚡ "Quick add" with typed text
+       onAddNew: query => {},       // optional: shows "+ Full add (open form)"
+       quickAddLabel: 'Quick add',  // label prefix for quick add (default: 'Quick add')
+       addNewLabel: '+ Add new ...',// label for full-add row
+     });
+   Returns: { setValue, getValue, refresh, focus, close }
+═══════════════════════════════════════════════════════ */
+function mountCombobox(opts){
+  const {wrapEl, placeholder, items, value, onSelect, onAddNew, onQuickAdd, addNewLabel, quickAddLabel} = opts;
+
+  let currentValue = value || '';
+  let currentItems = items || [];
+  let highlightIdx = -1;
+  let isOpen = false;
+
+  /* Build the structural HTML once */
+  wrapEl.classList.add('combo');
+  wrapEl.innerHTML = `
+    <span class="combo-icon">🔍</span>
+    <input type="text" class="combo-input" placeholder="${escHTML(placeholder || '')}" autocomplete="off">
+    <button type="button" class="combo-clear" tabindex="-1" aria-label="Clear">×</button>
+    <div class="combo-dropdown"></div>
+  `;
+  const input = wrapEl.querySelector('.combo-input');
+  const clearBtn = wrapEl.querySelector('.combo-clear');
+  const dropdown = wrapEl.querySelector('.combo-dropdown');
+
+  function renderInput(){
+    /* Show current selection's label in the input box */
+    const selected = currentItems.find(it => it.id === currentValue);
+    input.value = selected ? selected.label : '';
+    clearBtn.classList.toggle('show', !!currentValue);
+  }
+
+  function getFilteredItems(query){
+    const q = (query || '').trim().toLowerCase();
+    if(!q) return currentItems;
+    return currentItems.filter(it =>
+      (it.label || '').toLowerCase().includes(q) ||
+      (it.meta || '').toLowerCase().includes(q)
+    );
+  }
+
+  function renderDropdown(query){
+    const filtered = getFilteredItems(query);
+    const q = (input.value || '').trim();
+    let html = '';
+    if(filtered.length === 0){
+      html = `<div class="combo-empty">${currentLang==='ar'?'لا توجد نتائج':'No matches'}</div>`;
+    } else {
+      html = filtered.map((it, idx) => `
+        <div class="combo-item ${idx === highlightIdx ? 'highlighted' : ''}" data-id="${escHTML(it.id)}">
+          <span class="combo-name">${escHTML(it.label)}</span>
+          ${it.meta ? `<span class="combo-meta">${escHTML(it.meta)}</span>` : ''}
+        </div>`).join('');
+    }
+    /* Footer: quick-add + full-add (if provided). Quick-add only shown when there's a query. */
+    if(onQuickAdd && q){
+      const qLabel = quickAddLabel || (currentLang==='ar' ? 'إضافة سريعة' : 'Quick add');
+      html += `<div class="combo-add-new combo-quick-add" data-quick-add="1" style="border-top-color:var(--border);">⚡ ${qLabel}: "<span style="font-weight:600;">${escHTML(q)}</span>"</div>`;
+    }
+    if(onAddNew){
+      const label = addNewLabel || (currentLang==='ar' ? '+ فتح النموذج الكامل' : '+ Open full form');
+      html += `<div class="combo-add-new" data-add-new="1" style="font-weight:600;color:var(--muted);font-size:12px;">${label}</div>`;
+    }
+    dropdown.innerHTML = html;
+    isOpen = true;
+    dropdown.classList.add('open');
+  }
+
+  function closeDropdown(){
+    isOpen = false;
+    dropdown.classList.remove('open');
+    highlightIdx = -1;
+    /* Restore display of selected item label (in case user typed something) */
+    renderInput();
+  }
+
+  function selectItem(id){
+    currentValue = id;
+    const item = currentItems.find(it => it.id === id);
+    renderInput();
+    closeDropdown();
+    if(onSelect) onSelect(id, item);
+  }
+
+  /* Event wiring */
+  input.addEventListener('focus', () => {
+    /* Clear input on focus to allow typing immediately */
+    input.value = '';
+    renderDropdown('');
+  });
+  input.addEventListener('input', e => {
+    highlightIdx = -1;
+    renderDropdown(e.target.value);
+  });
+  input.addEventListener('keydown', e => {
+    const filtered = getFilteredItems(input.value);
+    if(e.key === 'ArrowDown'){
+      e.preventDefault();
+      highlightIdx = Math.min(highlightIdx + 1, filtered.length - 1);
+      renderDropdown(input.value);
+    } else if(e.key === 'ArrowUp'){
+      e.preventDefault();
+      highlightIdx = Math.max(highlightIdx - 1, 0);
+      renderDropdown(input.value);
+    } else if(e.key === 'Enter'){
+      e.preventDefault();
+      if(highlightIdx >= 0 && filtered[highlightIdx]){
+        selectItem(filtered[highlightIdx].id);
+      } else if(filtered.length === 0 && onQuickAdd && input.value.trim()){
+        /* Enter with no matches and a query → trigger quick-add */
+        const q = input.value.trim();
+        closeDropdown();
+        onQuickAdd(q);
+      }
+    } else if(e.key === 'Escape'){
+      closeDropdown();
+      input.blur();
+    }
+  });
+
+  dropdown.addEventListener('mousedown', e => {
+    /* mousedown so it fires before input blur */
+    const item = e.target.closest('.combo-item');
+    const quickAdd = e.target.closest('[data-quick-add]');
+    const addNew = e.target.closest('[data-add-new]');
+    if(item){
+      e.preventDefault();
+      selectItem(item.dataset.id);
+    } else if(quickAdd && onQuickAdd){
+      e.preventDefault();
+      const q = input.value.trim();
+      closeDropdown();
+      onQuickAdd(q);
+    } else if(addNew && onAddNew){
+      e.preventDefault();
+      const q = input.value.trim();
+      closeDropdown();
+      onAddNew(q);
+    }
+  });
+
+  clearBtn.addEventListener('click', e => {
+    e.preventDefault();
+    currentValue = '';
+    renderInput();
+    if(onSelect) onSelect('', null);
+    input.focus();
+  });
+
+  /* Close on outside click */
+  document.addEventListener('mousedown', e => {
+    if(isOpen && !wrapEl.contains(e.target)) closeDropdown();
+  });
+
+  /* Initial render */
+  renderInput();
+
+  return {
+    setValue: id => { currentValue = id; renderInput(); },
+    getValue: () => currentValue,
+    refresh: newItems => {
+      currentItems = newItems;
+      renderInput();
+      if(isOpen) renderDropdown(input.value);
+    },
+    focus: () => input.focus(),
+    close: closeDropdown,
+    el: wrapEl
+  };
+}
+
+/* ═══════════════════════════════════════════════════════
    RECEIVE STOCK MODAL
 ═══════════════════════════════════════════════════════ */
 async function openReceiveModal(){
@@ -1676,6 +1949,9 @@ async function openReceiveModal(){
   setVal('rcp-due-date','');
   setVal('rcp-notes','');
   setVal('rcp-payment-method','credit');
+  setVal('rcp-supplier','');  /* Hidden field — combobox writes here */
+  /* Reset combobox handle so it gets a fresh value=empty mount */
+  supplierCombo = null;
 
   /* Generate next receipt number */
   const nextNum = await fetchNextReceiptNumber();
@@ -1726,14 +2002,99 @@ function loadFromPO(){
     : '🚧 Purchase Orders module is in development. The field saves the reference only for now.', 'info');
 }
 
+/* Module-level combobox handle for the supplier picker (so we can refresh after add-new) */
+let supplierCombo = null;
+/* Callback invoked by saveSupplier/saveItem after a successful create from a combobox flow.
+   The callback receives the new entity id so the combo can auto-select it. */
+let pendingComboboxCallback = null;
+
 function populateSupplierDropdown(){
-  const sel = document.getElementById('rcp-supplier');
-  if(!sel) return;
-  const placeholder = currentLang==='ar'?'اختر مورد':'Select supplier';
-  sel.innerHTML = `<option value="">— ${placeholder} —</option>` +
-    allSuppliers.filter(s => s.is_active !== false)
-      .map(s => `<option value="${s.id}">${escHTML(displayName(s))}${s.supplier_code ? ' · ' + escHTML(s.supplier_code) : ''}</option>`)
-      .join('');
+  /* Mount/re-mount the supplier combobox into its container */
+  const wrap = document.getElementById('rcp-supplier-combo');
+  if(!wrap) return;
+
+  const items = allSuppliers.filter(s => s.is_active !== false).map(s => ({
+    id: s.id,
+    label: displayName(s),
+    meta: s.supplier_code || s.mobile || ''
+  }));
+
+  /* Read previously-selected value (if combo already exists) so we don't clobber it */
+  const previousValue = supplierCombo ? supplierCombo.getValue() : (document.getElementById('rcp-supplier').value || '');
+
+  supplierCombo = mountCombobox({
+    wrapEl: wrap,
+    placeholder: currentLang==='ar'?'ابحث أو اختر مورد...':'Search or pick supplier...',
+    items,
+    value: previousValue,
+    onSelect: (id, item) => {
+      document.getElementById('rcp-supplier').value = id;
+      /* If user picked a supplier and payment method is credit, recompute due date based on terms */
+      if(id && v('rcp-payment-method') === 'credit'){
+        const sup = allSuppliers.find(s => s.id === id);
+        const days = sup?.payment_terms_days || 30;
+        const due = new Date();
+        due.setDate(due.getDate() + days);
+        setVal('rcp-due-date', due.toISOString().slice(0,10));
+      }
+    },
+    onQuickAdd: async (name) => {
+      /* Quick-create supplier with name + auto-code, payment_terms=30 */
+      const ar = currentLang === 'ar';
+      const code = nextSupplierCode();
+      const payload = {
+        user_id: currentUser.id,
+        business_id: currentBiz.id,
+        name: name,
+        name_ar: name,
+        supplier_code: code,
+        payment_terms_days: 30,
+        country: 'SA',
+        is_active: true,
+        updated_at: new Date().toISOString()
+      };
+      const {data, error} = await sb.from('suppliers').insert(payload).select().single();
+      if(error){ notify(error.message, 'error'); return; }
+      notify(ar?`✅ تم إنشاء المورد "${name}" (${code})`:`✅ Created "${name}" (${code})`, 'success');
+      /* Reload suppliers and re-mount combo with new selection */
+      await loadSuppliers();
+      computeStats();
+      populateSupplierDropdown();
+      if(supplierCombo){
+        supplierCombo.setValue(data.id);
+        document.getElementById('rcp-supplier').value = data.id;
+        /* Update due date based on default terms */
+        if(v('rcp-payment-method') === 'credit'){
+          const due = new Date();
+          due.setDate(due.getDate() + 30);
+          setVal('rcp-due-date', due.toISOString().slice(0,10));
+        }
+      }
+    },
+    onAddNew: (queryName) => {
+      /* Open the full supplier modal, pre-fill the typed name, set callback to auto-select on save */
+      openSupplierModal();
+      if(queryName){
+        setVal('sup-name-ar', queryName);
+      }
+      pendingComboboxCallback = async (newSupplierId) => {
+        await loadSuppliers();
+        computeStats();
+        populateSupplierDropdown();
+        if(supplierCombo){
+          supplierCombo.setValue(newSupplierId);
+          document.getElementById('rcp-supplier').value = newSupplierId;
+          if(v('rcp-payment-method') === 'credit'){
+            const sup = allSuppliers.find(s => s.id === newSupplierId);
+            const days = sup?.payment_terms_days || 30;
+            const due = new Date();
+            due.setDate(due.getDate() + days);
+            setVal('rcp-due-date', due.toISOString().slice(0,10));
+          }
+        }
+      };
+    }
+  });
 }
 
 function closeReceiveModal(){
@@ -1779,10 +2140,6 @@ function removeReceiptItem(idx){
 
 function renderReceiptItems(){
   const tbody = document.getElementById('rcp-items-body');
-  const itemOptions = `<option value="">— ${currentLang==='ar'?'اختر منتج':'Select item'} —</option>` +
-    allItems.filter(it => it.is_active !== false)
-      .map(it => `<option value="${it.id}">${escHTML(displayName(it))}${it.sku ? ' · ' + escHTML(it.sku) : ''}</option>`)
-      .join('');
 
   tbody.innerHTML = receiptItems.map((row, idx) => {
     const item = allItems.find(it => it.id === row.item_id);
@@ -1796,11 +2153,7 @@ function renderReceiptItems(){
     return `
       <tr data-row-idx="${idx}">
         <td class="tbl-num">${idx+1}</td>
-        <td>
-          <select onchange="updateReceiptItem(${idx},'item_id',this.value)">
-            ${itemOptions.replace(`value="${row.item_id}"`, `value="${row.item_id}" selected`)}
-          </select>
-        </td>
+        <td><div id="rcp-item-combo-${idx}"></div></td>
         <td><input type="number" class="mono" min="0" step="0.001" value="${row.quantity || ''}"
                    oninput="updateReceiptItem(${idx},'quantity',this.value)"></td>
         <td><input type="number" class="mono" min="0" step="0.01" value="${row.unit_cost || ''}"
@@ -1811,6 +2164,79 @@ function renderReceiptItems(){
         <td><button class="row-del" onclick="removeReceiptItem(${idx})">×</button></td>
       </tr>`;
   }).join('');
+
+  /* Mount a combobox into each row's item picker container.
+     Note: each row gets a fresh combobox bound to its index. */
+  const items = allItems.filter(it => it.is_active !== false).map(it => ({
+    id: it.id,
+    label: displayName(it),
+    meta: it.sku || ''
+  }));
+  receiptItems.forEach((row, idx) => {
+    const wrap = document.getElementById('rcp-item-combo-' + idx);
+    if(!wrap) return;
+    mountCombobox({
+      wrapEl: wrap,
+      placeholder: currentLang==='ar'?'ابحث أو اختر منتج...':'Search or pick item...',
+      items,
+      value: row.item_id || '',
+      onSelect: (id) => {
+        updateReceiptItem(idx, 'item_id', id);
+      },
+      onQuickAdd: async (name) => {
+        /* Create item with name + auto-SKU; cost from current row if entered */
+        const ar = currentLang === 'ar';
+        const sku = nextItemSKU();
+        const rowCost = parseFloat(receiptItems[idx].unit_cost) || 0;
+        const payload = {
+          user_id: currentUser.id,
+          business_id: currentBiz.id,
+          name: name,
+          name_ar: name,
+          sku: sku,
+          unit: 'pcs',
+          cost_price: rowCost,
+          sale_price: 0,
+          current_qty: 0,
+          is_active: true,
+          updated_at: new Date().toISOString()
+        };
+        const {data, error} = await sb.from('inventory_items').insert(payload).select().single();
+        if(error){ notify(error.message, 'error'); return; }
+        notify(ar?`✅ تم إنشاء المنتج "${name}" (${sku})`:`✅ Created "${name}" (${sku})`, 'success');
+        await loadItems();
+        computeStats();
+        /* Update this row's item_id to the new item, and re-render rows (which remounts comboboxes with the new item) */
+        receiptItems[idx].item_id = data.id;
+        if(!receiptItems[idx].unit_cost) receiptItems[idx].unit_cost = rowCost;
+        renderReceiptItems();
+        computeReceiptTotals();
+      },
+      onAddNew: (queryName) => {
+        /* Open the full item modal, pre-fill the typed name + cost from row, callback to auto-select on save */
+        openItemModal();
+        if(queryName){
+          setVal('item-name-ar', queryName);
+        }
+        const rowCost = parseFloat(receiptItems[idx].unit_cost) || 0;
+        if(rowCost > 0){
+          setVal('item-cost-price', rowCost);
+        }
+        pendingComboboxCallback = async (newItemId) => {
+          await loadItems();
+          computeStats();
+          receiptItems[idx].item_id = newItemId;
+          /* Pull cost from the newly-saved item if row didn't have one */
+          const newItem = allItems.find(it => it.id === newItemId);
+          if(newItem && !receiptItems[idx].unit_cost){
+            receiptItems[idx].unit_cost = parseFloat(newItem.cost_price) || 0;
+          }
+          renderReceiptItems();
+          computeReceiptTotals();
+        };
+      }
+    });
+  });
 }
 
 function updateReceiptItem(idx, field, value){
@@ -2345,42 +2771,98 @@ function categoryLabel(code){
 }
 
 /* ═══════════════════════════════════════════════════════
-   ROW ACTION MENU (⋮) — toggle, close on outside click
+   ROW ACTION MENU (⋮) — toggle, position via JS so it's
+   never clipped by parent overflow. Auto-flips upward if
+   it would overflow the viewport bottom edge.
 ═══════════════════════════════════════════════════════ */
 function toggleRowMenu(btn){
   const menu = btn.nextElementSibling;
   const isOpen = menu.classList.contains('open');
   closeAllMenus();
-  if(!isOpen) menu.classList.add('open');
+  if(isOpen) return;
+
+  /* Show first to measure dimensions */
+  menu.classList.add('open');
+  const btnRect = btn.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  const viewportH = window.innerHeight;
+  const viewportW = window.innerWidth;
+  const isRTL = document.documentElement.dir === 'rtl';
+
+  /* Vertical: place below button by default; flip up if overflow */
+  let top = btnRect.bottom + 4;
+  if(top + menuRect.height > viewportH - 8){
+    top = btnRect.top - menuRect.height - 4;
+  }
+
+  /* Horizontal: align to button edge appropriate for direction */
+  let left;
+  if(isRTL){
+    /* In RTL, align menu's right edge with button's right edge */
+    left = btnRect.right - menuRect.width;
+    if(left < 8) left = 8;
+  } else {
+    /* In LTR, align menu's right edge with button's right edge (so menu opens to the left of the dots) */
+    left = btnRect.right - menuRect.width;
+    if(left < 8) left = 8;
+    if(left + menuRect.width > viewportW - 8) left = viewportW - menuRect.width - 8;
+  }
+
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
 }
 function closeAllMenus(){
-  document.querySelectorAll('.row-actions-menu.open').forEach(m => m.classList.remove('open'));
+  document.querySelectorAll('.row-actions-menu.open').forEach(m => {
+    m.classList.remove('open');
+    m.style.top = '';
+    m.style.left = '';
+  });
 }
 /* Close menus when clicking outside any menu */
 document.addEventListener('click', e => {
-  if(!e.target.closest('.row-actions')) closeAllMenus();
+  if(!e.target.closest('.row-actions') && !e.target.closest('.row-actions-menu')) closeAllMenus();
 });
+/* Also close on scroll/resize since fixed positioning doesn't track parent */
+window.addEventListener('scroll', closeAllMenus, true);
+window.addEventListener('resize', closeAllMenus);
 
 /* ═══════════════════════════════════════════════════════
-   ITEM DETAIL DRAWER
+   ITEM / RECEIPT DRAWER (slide-in)
 ═══════════════════════════════════════════════════════ */
 let currentDrawerItemId = null;
+let currentDrawerReceiptId = null;
 
-async function openItemDrawer(itemId){
-  currentDrawerItemId = itemId;
-  const item = allItems.find(it => it.id === itemId);
-  if(!item){ notify(currentLang==='ar'?'المنتج غير موجود':'Item not found','error'); return; }
-
-  /* Open drawer immediately with placeholder */
+function openDrawerShell(title, sub){
   document.getElementById('drawer-backdrop').classList.add('open');
-  document.getElementById('item-drawer').classList.add('open');
-  setText('drawer-title', displayName(item));
-  setText('drawer-sub', `${item.sku || '—'}${item.category ? ' · ' + categoryLabel(item.category) : ''} · ${item.unit || 'pcs'}`);
+  document.getElementById('app-drawer').classList.add('open');
+  setText('drawer-title', title || '—');
+  setText('drawer-sub', sub || '');
   document.getElementById('drawer-body').innerHTML = `
     <div class="loading-state" style="padding:30px 10px;">
       <div class="loading-spinner">📦</div>
       <div style="font-size:12px;">${currentLang==='ar'?'جارٍ التحميل...':'Loading...'}</div>
     </div>`;
+}
+
+function closeDrawer(){
+  document.getElementById('drawer-backdrop').classList.remove('open');
+  document.getElementById('app-drawer').classList.remove('open');
+  currentDrawerItemId = null;
+  currentDrawerReceiptId = null;
+}
+/* Backwards-compat alias */
+function closeItemDrawer(){ closeDrawer(); }
+
+async function openItemDrawer(itemId){
+  currentDrawerItemId = itemId;
+  currentDrawerReceiptId = null;
+  const item = allItems.find(it => it.id === itemId);
+  if(!item){ notify(currentLang==='ar'?'المنتج غير موجود':'Item not found','error'); return; }
+
+  openDrawerShell(
+    displayName(item),
+    `${item.sku || '—'}${item.category ? ' · ' + categoryLabel(item.category) : ''} · ${item.unit || 'pcs'}`
+  );
 
   /* Fetch batches + movements in parallel */
   const [batchesRes, movementsRes] = await Promise.all([
@@ -2404,10 +2886,146 @@ async function openItemDrawer(itemId){
   renderItemDrawer(item, batches, movements);
 }
 
-function closeItemDrawer(){
-  document.getElementById('drawer-backdrop').classList.remove('open');
-  document.getElementById('item-drawer').classList.remove('open');
+async function openReceiptDrawer(receiptId){
+  currentDrawerReceiptId = receiptId;
   currentDrawerItemId = null;
+  const receipt = allReceipts.find(r => r.id === receiptId);
+  if(!receipt){ notify(currentLang==='ar'?'الاستلام غير موجود':'Receipt not found','error'); return; }
+
+  const sup = allSuppliers.find(s => s.id === receipt.supplier_id);
+  const supName = sup ? displayName(sup) : '—';
+
+  openDrawerShell(
+    receipt.receipt_number,
+    `${receipt.receipt_date} · ${supName}`
+  );
+
+  /* Fetch line items joined with item info */
+  const {data:lineItems, error} = await sb.from('stock_receipt_items')
+    .select('*')
+    .eq('receipt_id', receiptId)
+    .order('sort_order', {ascending: true});
+
+  if(error){
+    document.getElementById('drawer-body').innerHTML = `<div class="drawer-empty">${error.message}</div>`;
+    return;
+  }
+
+  renderReceiptDrawer(receipt, sup, lineItems || []);
+}
+
+function renderReceiptDrawer(receipt, sup, lineItems){
+  const ar = currentLang === 'ar';
+  const isVoided = receipt.status === 'voided';
+
+  /* Payment status display */
+  let payClass = 'neutral', payLabel = '—';
+  if(isVoided){ payClass = 'neutral'; payLabel = ar?'ملغي':'Voided'; }
+  else if(receipt.payment_status === 'paid'){ payClass = 'green'; payLabel = ar?'مدفوع':'Paid'; }
+  else if(receipt.payment_status === 'partial'){ payClass = 'amber'; payLabel = ar?'جزئي':'Partial'; }
+  else { payClass = 'red'; payLabel = ar?'غير مدفوع':'Unpaid'; }
+
+  /* Payment method label */
+  const methodLabels = {
+    cash:   ar?'نقد':'Cash',
+    bank:   ar?'تحويل بنكي':'Bank',
+    credit: ar?'آجل':'Credit'
+  };
+  const methodLabel = methodLabels[receipt.payment_method] || receipt.payment_method || '—';
+
+  /* Build line items rows */
+  const linesHTML = lineItems.length === 0
+    ? `<tr><td colspan="5" class="drawer-empty">${ar?'لا توجد أصناف':'No line items'}</td></tr>`
+    : lineItems.map((line, idx) => {
+        const item = allItems.find(it => it.id === line.item_id);
+        const itemName = item ? displayName(item) : (ar?'منتج محذوف':'Deleted item');
+        return `
+          <tr>
+            <td>${idx+1}</td>
+            <td><strong>${escHTML(itemName)}</strong>${item?.sku ? `<div style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;">${escHTML(item.sku)}</div>` : ''}</td>
+            <td class="num">${parseFloat(line.quantity)||0}</td>
+            <td class="num">${fmt(line.unit_cost)}</td>
+            <td class="num"><strong>${fmt(line.total)}</strong></td>
+          </tr>`;
+      }).join('');
+
+  document.getElementById('drawer-body').innerHTML = `
+    ${isVoided ? `<div style="background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:var(--red);font-weight:700;">⚠️ ${ar?'هذا الاستلام ملغي':'This receipt has been voided'}</div>` : ''}
+
+    <!-- Stat cards -->
+    <div class="drawer-section">
+      <div class="drawer-stat-grid">
+        <div class="drawer-stat ${payClass==='green'?'green':payClass==='amber'?'amber':payClass==='red'?'red':''}">
+          <div class="lbl">${ar?'حالة الدفع':'Payment status'}</div>
+          <div class="val">${payLabel}</div>
+        </div>
+        <div class="drawer-stat">
+          <div class="lbl">${ar?'طريقة الدفع':'Payment method'}</div>
+          <div class="val" style="font-family:inherit;font-size:14px;">${methodLabel}</div>
+        </div>
+        <div class="drawer-stat">
+          <div class="lbl">${ar?'المدفوع':'Paid'}</div>
+          <div class="val">SAR ${fmt(receipt.amount_paid)}</div>
+        </div>
+        <div class="drawer-stat ${parseFloat(receipt.total) - parseFloat(receipt.amount_paid) > 0 ? 'amber' : ''}">
+          <div class="lbl">${ar?'المتبقي':'Remaining'}</div>
+          <div class="val">SAR ${fmt((parseFloat(receipt.total)||0) - (parseFloat(receipt.amount_paid)||0))}</div>
+        </div>
+      </div>
+      ${!isVoided ? `
+      <div class="drawer-actions">
+        <button class="btn btn-danger" onclick="closeDrawer();voidReceipt('${receipt.id}')">
+          🚫 ${ar?'إلغاء الاستلام':'Void receipt'}
+        </button>
+      </div>` : ''}
+    </div>
+
+    <!-- Receipt details -->
+    <div class="drawer-section">
+      <div class="drawer-section-title">📋 ${ar?'تفاصيل':'Details'}</div>
+      <div style="font-size:12px;">
+        ${sup ? `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--tint);"><span style="color:var(--muted);">${ar?'المورد':'Supplier'}</span><span style="color:var(--ink);font-weight:600;">${escHTML(displayName(sup))}</span></div>` : ''}
+        ${receipt.supplier_invoice_number ? `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--tint);"><span style="color:var(--muted);">${ar?'فاتورة المورد':'Supplier invoice'}</span><span style="color:var(--ink);font-family:'DM Mono',monospace;">${escHTML(receipt.supplier_invoice_number)}</span></div>` : ''}
+        ${receipt.po_number ? `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--tint);"><span style="color:var(--muted);">${ar?'أمر الشراء':'PO #'}</span><span style="color:var(--ink);font-family:'DM Mono',monospace;">${escHTML(receipt.po_number)}</span></div>` : ''}
+        <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--tint);"><span style="color:var(--muted);">${ar?'تاريخ الاستلام':'Receipt date'}</span><span style="color:var(--ink);font-family:'DM Mono',monospace;">${receipt.receipt_date}</span></div>
+        ${receipt.due_date ? `<div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--tint);"><span style="color:var(--muted);">${ar?'تاريخ الاستحقاق':'Due date'}</span><span style="color:var(--ink);font-family:'DM Mono',monospace;">${receipt.due_date}</span></div>` : ''}
+        ${receipt.notes ? `<div style="margin-top:8px;padding:8px 10px;background:var(--tint);border-radius:6px;font-size:12px;color:var(--ink);">${escHTML(receipt.notes)}</div>` : ''}
+      </div>
+    </div>
+
+    <!-- Line items -->
+    <div class="drawer-section">
+      <div class="drawer-section-title">📦 ${ar?'الأصناف المستلمة':'Items received'} <span style="margin-inline-start:auto;font-weight:500;color:var(--muted);text-transform:none;letter-spacing:0;font-size:10px;">${lineItems.length} ${ar?'بند':'lines'}</span></div>
+      <table class="drawer-table">
+        <thead>
+          <tr>
+            <th>#</th>
+            <th>${ar?'المنتج':'Item'}</th>
+            <th class="num">${ar?'الكمية':'Qty'}</th>
+            <th class="num">${ar?'تكلفة':'Cost'}</th>
+            <th class="num">${ar?'الإجمالي':'Total'}</th>
+          </tr>
+        </thead>
+        <tbody>${linesHTML}</tbody>
+      </table>
+    </div>
+
+    <!-- Totals -->
+    <div class="drawer-section" style="background:var(--tint);border-radius:8px;padding:10px 12px;">
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);padding:3px 0;">
+        <span>${ar?'المجموع الفرعي':'Subtotal'}</span>
+        <span class="mono">SAR ${fmt(receipt.subtotal)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--muted);padding:3px 0;">
+        <span>${ar?'ضريبة القيمة المضافة':'VAT'}</span>
+        <span class="mono">SAR ${fmt(receipt.vat_amount)}</span>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:14px;font-weight:800;color:var(--ink);padding:6px 0 0;border-top:1px solid var(--border);margin-top:4px;">
+        <span>${ar?'الإجمالي':'Total'}</span>
+        <span class="mono">SAR ${fmt(receipt.total)}</span>
+      </div>
+    </div>
+  `;
 }
 
 function renderItemDrawer(item, batches, movements){
@@ -2745,8 +3363,8 @@ document.querySelectorAll('.modal-overlay').forEach(el => {
 /* ESC key closes drawer or any open modal */
 document.addEventListener('keydown', e => {
   if(e.key === 'Escape'){
-    if(document.getElementById('item-drawer').classList.contains('open')){
-      closeItemDrawer();
+    if(document.getElementById('app-drawer').classList.contains('open')){
+      closeDrawer();
     } else {
       document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
     }
