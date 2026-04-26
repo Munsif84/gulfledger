@@ -1088,6 +1088,9 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
       <button class="btn btn-secondary" id="btn-save-draft" onclick="btnAction(this, saveDraft, 'تم الحفظ')">
         <span data-ar="حفظ كمسودة" data-en="Save Draft">حفظ كمسودة</span>
       </button>
+      <button class="btn btn-secondary" id="btn-preview" onclick="btnAction(this, previewInvoice, 'فتح المعاينة')">
+        👁 <span data-ar="معاينة" data-en="Preview">معاينة</span>
+      </button>
       <button class="btn btn-primary" id="btn-generate" onclick="btnAction(this, generateInvoice, 'تم التصدير')">
         <span data-ar="تصدير الفاتورة" data-en="Generate Invoice">تصدير الفاتورة</span>
       </button>
@@ -1523,10 +1526,45 @@ async function init(){
   loadInvoices();
   loadCustomers();
 
-  /* If URL hash is #new, open invoice modal */
-  if(window.location.hash === '#new'){
+  /* URL param handling — flows from invoice-view.html preview mode */
+  const urlParams = new URLSearchParams(window.location.search);
+  const confirmId = urlParams.get('confirm');
+  const editId = urlParams.get('edit');
+
+  if(confirmId){
+    /* Coming from preview "Confirm & Generate" — load draft, open modal, auto-trigger generate */
+    setTimeout(() => loadDraftAndConfirm(confirmId), 600);
+  } else if(editId){
+    /* Coming from preview "Edit Draft" — load draft and open modal for editing */
+    setTimeout(() => loadDraftForEdit(editId), 600);
+  } else if(window.location.hash === '#new'){
+    /* If URL hash is #new, open invoice modal */
     setTimeout(openInvoiceModal, 200);
   }
+}
+
+/* Load a draft invoice and immediately confirm-generate it (called from preview "Confirm" button) */
+async function loadDraftAndConfirm(draftId){
+  /* Load the draft + its items into the form */
+  const loaded = await openInvoiceModalWithDraft(draftId);
+  if(!loaded){
+    notify(currentLang==='ar'?'تعذّر تحميل المسودة':'Could not load draft', 'r');
+    return;
+  }
+  /* Wait a tick for modal to fully populate, then click Generate */
+  setTimeout(() => {
+    /* Clean URL */
+    history.replaceState(null, '', 'invoices.html');
+    const btn = document.getElementById('btn-generate');
+    if(btn) btn.click();
+  }, 300);
+}
+
+/* Load a draft into the invoice modal for editing (called from preview "Edit" button) */
+async function loadDraftForEdit(draftId){
+  await openInvoiceModalWithDraft(draftId);
+  /* Clean URL */
+  history.replaceState(null, '', 'invoices.html');
 }
 
 async function logout(){
@@ -2429,6 +2467,95 @@ async function saveDraft(){
 }
 
 /* ═══════════════════════════════════════════════════════
+   PREVIEW INVOICE — saves as draft, redirects to invoice-view
+   in preview mode. NO invoice number assigned, NO journal posted,
+   NO inventory consumed. User can review then click "Confirm & Generate"
+   from the preview to commit. This avoids messy reversals from typos.
+═══════════════════════════════════════════════════════ */
+async function previewInvoice(){
+  if(!currentUser) throw new Error('not authenticated');
+
+  /* Compute totals */
+  const totals = computeInvoiceTotals();
+
+  /* Soft validation only — don't block preview, but skip invoice number */
+  const validItems = items.filter(it => (it.qty||0) > 0 && (it.price||0) > 0);
+  if(!validItems.length){
+    notify(currentLang==='ar'?'أضف على الأقل بنداً واحداً للمعاينة':'Add at least one item to preview','r');
+    throw new Error('no items');
+  }
+
+  /* Build payload — save as draft, NO invoice_number (will be assigned on confirm) */
+  const payload = {
+    user_id: currentUser.id,
+    business_id: currentBiz?.id,
+    /* Keep invoice_number from form if present (for edit-existing-draft case),
+       else null (number assigned on confirm-and-generate) */
+    invoice_number: v('f-invnum') || null,
+    invoice_type: v('f-type'),
+    issue_date: v('f-date') || todayISO(),
+    due_date: v('f-duedate') || null,
+    buyer_name: selectedCustomer ? custNameAr(selectedCustomer) : '',
+    buyer_name_en: selectedCustomer ? (custNameEn(selectedCustomer) || null) : null,
+    buyer_trn: selectedCustomer?.trn || '',
+    buyer_address: selectedCustomer ? buildBuyerAddressString(selectedCustomer) : '',
+    buyer_city: selectedCustomer?.city || '',
+    buyer_mobile: selectedCustomer?.mobile || '',
+    customer_id: selectedCustomer?.id || null,
+    po_number: v('f-po-num') || null,
+    subtotal: totals.sub,
+    discount_pct: totals.discPct,
+    discount_amount: totals.discAmt,
+    vat_amount: totals.vat,
+    total: totals.total,
+    notes: v('f-notes'),
+    status: 'draft',
+    zatca_submitted: false,
+    updated_at: new Date().toISOString()
+  };
+
+  /* Save (insert if new, update if existing draft) */
+  let invoiceId = currentInvoiceId;
+  if(invoiceId){
+    const {error} = await sb.from('invoices').update(payload).eq('id', invoiceId);
+    if(error){notify(error.message,'r');throw error;}
+  } else {
+    const {data, error} = await sb.from('invoices').insert(payload).select().single();
+    if(error){notify(error.message,'r');throw error;}
+    invoiceId = data.id;
+  }
+
+  /* Save items */
+  await sb.from('invoice_items').delete().eq('invoice_id', invoiceId);
+  const itemRows = validItems.map((it, idx) => {
+    const sub = (it.qty||0) * (it.price||0);
+    const discAmt = sub * ((it.disc||0)/100);
+    const net = sub - discAmt;
+    return {
+      invoice_id: invoiceId,
+      description: it.desc,
+      description_ar: it.desc_ar || null,
+      quantity: it.qty,
+      unit_price: it.price,
+      discount_pct: it.disc || 0,
+      discount_amt: Math.round(discAmt*100)/100,
+      subtotal: Math.round(net*100)/100,
+      vat_amount: Math.round(net*0.15*100)/100,
+      total: Math.round(net*1.15*100)/100,
+      sort_order: idx
+    };
+  });
+  if(itemRows.length) await sb.from('invoice_items').insert(itemRows);
+
+  /* Close modal and navigate to preview */
+  closeInvoiceModal();
+  notify(currentLang==='ar'?'فتح المعاينة...':'Opening preview...', 'g');
+  setTimeout(() => {
+    window.location.href = 'invoice-view.html?id=' + encodeURIComponent(invoiceId);
+  }, 400);
+}
+
+/* ═══════════════════════════════════════════════════════
    GENERATE INVOICE — full validation + ledger posting
 ═══════════════════════════════════════════════════════ */
 async function generateInvoice(){
@@ -2810,14 +2937,25 @@ async function consumeFIFOBatches(itemId, qtyNeeded, businessId){
    DRAFT — Edit / Delete
 ═══════════════════════════════════════════════════════ */
 async function editDraft(id){
+  const ok = await openInvoiceModalWithDraft(id);
+  return ok;
+}
+
+/* Loads a draft invoice into the modal. Returns true on success. */
+async function openInvoiceModalWithDraft(id){
   const {data:inv} = await sb.from('invoices').select('*').eq('id', id).single();
   const {data:invItems} = await sb.from('invoice_items').select('*').eq('invoice_id', id).order('sort_order');
-  if(!inv) return;
+  if(!inv) return false;
 
   await openInvoiceModal();
 
   currentInvoiceId = id;
-  setVal('f-invnum', inv.invoice_number || '');
+  /* Set invoice number — if draft was created via "Preview" with no number, fetch the next one */
+  if(inv.invoice_number){
+    setVal('f-invnum', inv.invoice_number);
+  } else {
+    await fetchNextInvoiceNumber();
+  }
   setVal('f-date', inv.issue_date || todayISO());
   if(inv.due_date) setVal('f-duedate', inv.due_date);
   setVal('f-po-num', inv.po_number || '');
@@ -2843,6 +2981,7 @@ async function editDraft(id){
 
   renderItems();
   renderTotals();
+  return true;
 }
 
 async function deleteDraft(id, num){

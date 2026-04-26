@@ -263,6 +263,43 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:#E5EDE9;color:var(
 @keyframes notifyIn{from{transform:translate(-50%,-10px);opacity:0;}to{transform:translate(-50%,0);opacity:1;}}
 
 /* ───────────────────────────────────────────
+   PREVIEW MODE — visible draft warnings
+   Shown when invoice.status = 'draft' (user clicked Preview not Generate)
+─────────────────────────────────────────── */
+.preview-banner{background:#FEF3C7;border-bottom:1px solid #FCD34D;padding:14px 22px;display:flex;align-items:center;justify-content:space-between;gap:14px;flex-wrap:wrap;}
+.preview-banner-text{display:flex;align-items:center;gap:10px;font-size:13px;color:#92400e;}
+.preview-banner-text .icon{font-size:20px;}
+.preview-banner-text .title{font-weight:800;}
+.preview-banner-text .sub{font-weight:500;opacity:0.85;}
+.preview-banner-actions{display:flex;gap:8px;flex-shrink:0;}
+
+/* DRAFT watermark — diagonal text across the document */
+.inv-doc.is-preview{position:relative;}
+.inv-doc.is-preview::before{
+  content:"DRAFT · مسودة";
+  position:absolute;
+  top:50%;
+  left:50%;
+  transform:translate(-50%, -50%) rotate(-30deg);
+  font-size:120px;
+  font-weight:900;
+  color:rgba(201, 146, 10, 0.08);
+  white-space:nowrap;
+  pointer-events:none;
+  z-index:1;
+  font-family:'Tajawal',sans-serif;
+  letter-spacing:.05em;
+}
+.inv-doc.is-preview > *{position:relative;z-index:2;}
+
+/* Preview mode placeholder for invoice number */
+.preview-num-placeholder{font-size:12px!important;font-weight:600;color:rgba(255,255,255,0.65)!important;font-style:italic;}
+
+/* Preview mode QR placeholder */
+.preview-qr-placeholder{display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#9CA3AF;font-size:10px;text-align:center;line-height:1.5;padding:20px;}
+.preview-qr-placeholder .icon{font-size:28px;opacity:0.4;}
+
+/* ───────────────────────────────────────────
    PRINT MODE — A4 with repeating header & multi-page support
    On screen, QR pushes to bottom via flex (visual A4 paper feel).
    In print, document flows naturally: header → items → totals → QR → footer.
@@ -275,7 +312,8 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:#E5EDE9;color:var(
 @media print{
   body{background:#fff!important;}
   .inv-page-header,.inv-status-bar,.pay-cta-banner,
-  .inv-public-footer,.share-modal-overlay,.notify{display:none!important;}
+  .inv-public-footer,.share-modal-overlay,.notify,
+  .preview-banner{display:none!important;}
   .inv-doc-wrap{padding:0!important;background:#fff!important;}
   /* Reset all the screen-mode flex/min-height tricks — natural flow in print */
   .inv-doc{box-shadow:none!important;border-radius:0!important;border:none!important;width:100%!important;max-width:100%!important;min-height:0!important;display:block!important;}
@@ -352,6 +390,33 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:#E5EDE9;color:var(
   <!-- ═════════════════════════════════════════════════════════════
        PAGE HEADER — adaptive based on mode
   ═════════════════════════════════════════════════════════════ -->
+
+  <!-- Preview mode header -->
+  <div class="inv-page-header" id="preview-header" style="display:none;">
+    <a href="invoices.html" class="inv-page-back">
+      <span class="arrow">→</span>
+      <span data-ar="العودة للمبيعات" data-en="Back to Sales">العودة للمبيعات</span>
+    </a>
+    <div class="inv-page-actions">
+      <button class="btn btn-secondary" onclick="onEditDraftClick()">
+        ✏️ <span data-ar="تعديل المسودة" data-en="Edit Draft">تعديل المسودة</span>
+      </button>
+      <button class="btn btn-primary" onclick="onConfirmAndGenerateClick()" id="btn-confirm-generate">
+        ✅ <span data-ar="تأكيد وإصدار الفاتورة" data-en="Confirm & Generate">تأكيد وإصدار الفاتورة</span>
+      </button>
+    </div>
+  </div>
+
+  <!-- Preview banner (visible only when invoice is draft) -->
+  <div class="preview-banner" id="preview-banner" style="display:none;">
+    <div class="preview-banner-text">
+      <span class="icon">⚠️</span>
+      <div>
+        <span class="title" data-ar="معاينة المسودة" data-en="DRAFT PREVIEW">معاينة المسودة</span>
+        <span class="sub" data-ar=" — لم يتم إصدار الفاتورة بعد. تحقّق من البيانات قبل التأكيد." data-en=" — Invoice not yet issued. Review carefully before confirming."> — لم يتم إصدار الفاتورة بعد. تحقّق من البيانات قبل التأكيد.</span>
+      </div>
+    </div>
+  </div>
 
   <!-- Seller mode header -->
   <div class="inv-page-header" id="seller-header" style="display:none;">
@@ -787,6 +852,12 @@ async function init(){
     currentInvoice = invoice;
     currentMode = mode;
 
+    /* If invoice is a draft and viewer is the seller (not public), switch to preview mode */
+    if(mode === 'seller' && invoice.status === 'draft'){
+      currentMode = 'preview';
+      console.log('[GL invoice-view] Draft detected — preview mode active');
+    }
+
     /* Load business + items
        NOTE: select('*') is defensive — returns whatever columns exist,
        avoids errors if newer columns haven't been added yet */
@@ -857,6 +928,26 @@ let currentBuyerCustomer = null;
    APPLY MODE — show/hide chrome based on seller/public
 ═══════════════════════════════════════════════════════ */
 function applyMode(){
+  if(currentMode === 'preview'){
+    /* Preview mode — draft invoice, not yet generated */
+    show('preview-header', 'flex');
+    show('preview-banner', 'flex');
+    /* Add watermark class to the invoice document */
+    document.querySelector('.inv-doc')?.classList.add('is-preview');
+    /* Show invoice number placeholder */
+    const meta = document.getElementById('meta-invnum');
+    if(meta){
+      meta.textContent = currentLang === 'ar' ? '(يُحدد عند التأكيد)' : '(assigned on confirm)';
+      meta.classList.add('preview-num-placeholder');
+    }
+    /* Replace QR with placeholder */
+    const qrBox = document.getElementById('qr-box');
+    if(qrBox){
+      qrBox.innerHTML = `<div class="preview-qr-placeholder"><span class="icon">🔄</span><span>${currentLang==='ar'?'يظهر بعد الإصدار':'Appears after generation'}</span></div>`;
+    }
+    return;
+  }
+
   if(currentMode === 'seller'){
     show('seller-header', 'flex');
     show('status-bar', 'flex');
@@ -1105,6 +1196,8 @@ function escapeHTML(s){
    ZATCA QR — Phase 1 (5-tag TLV)
 ═══════════════════════════════════════════════════════ */
 function generateZatcaQR(){
+  /* Skip QR generation in preview mode — placeholder shown by applyMode() */
+  if(currentMode === 'preview') return;
   const inv = currentInvoice;
   const biz = currentBiz;
   const container = document.getElementById('qr-box');
@@ -1178,6 +1271,36 @@ function onPayClick(){
 function onReverseClick(){
   /* Redirect to invoices.html with reverse action */
   window.location.href = 'invoices.html?reverse=' + encodeURIComponent(currentInvoice.id);
+}
+
+/* ═══════════════════════════════════════════════════════
+   ACTION HANDLERS (preview mode)
+═══════════════════════════════════════════════════════ */
+function onEditDraftClick(){
+  /* Redirect back to invoices.html with edit param */
+  window.location.href = 'invoices.html?edit=' + encodeURIComponent(currentInvoice.id);
+}
+
+function onConfirmAndGenerateClick(){
+  /* Confirm dialog — make sure user understands this commits the invoice */
+  const msg = currentLang === 'ar'
+    ? 'تأكيد إصدار الفاتورة؟\n\n' +
+      '🔹 سيتم تخصيص رقم فاتورة دائم.\n' +
+      '🔹 سيتم تسجيل القيود المحاسبية وخصم المخزون.\n' +
+      '🔹 لا يمكن التعديل بعد التأكيد (فقط الإلغاء بإشعار دائن).\n\n' +
+      'هل تريد المتابعة؟'
+    : 'Confirm invoice generation?\n\n' +
+      '🔹 A permanent invoice number will be assigned.\n' +
+      '🔹 Journal entries will be posted and inventory consumed.\n' +
+      '🔹 Cannot be edited after confirmation (only reversed via credit note).\n\n' +
+      'Continue?';
+
+  if(!confirm(msg)) return;
+
+  /* Redirect to invoices.html with confirm param — invoices.html will load the
+     draft, open the modal, and auto-trigger generateInvoice() */
+  notify(currentLang==='ar'?'جارٍ إصدار الفاتورة...':'Generating invoice...', 'info');
+  window.location.href = 'invoices.html?confirm=' + encodeURIComponent(currentInvoice.id);
 }
 
 function downloadPDF(){
