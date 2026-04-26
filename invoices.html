@@ -46,6 +46,38 @@
     CREATE UNIQUE INDEX IF NOT EXISTS idx_customers_code
       ON customers(business_id, customer_code) WHERE customer_code IS NOT NULL;
 
+    -- ─── Bilingual name fields (ZATCA: Arabic name is mandatory) ─────
+    -- The original 'name' and 'company_name' columns held a single value (often duplicated).
+    -- ZATCA requires the buyer name to appear in Arabic on tax invoices. We now split into:
+    --   name_ar / company_name_ar         → REQUIRED (Arabic, mandatory)
+    --   name_en / company_name_en         → OPTIONAL (English, for international/B2B)
+    -- Legacy 'name' / 'company_name' columns are kept in sync for backward compatibility
+    -- and will eventually be deprecated.
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS name_ar text;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS name_en text;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS company_name_ar text;
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS company_name_en text;
+
+    -- Buyer name on invoice gets bilingual support too (so the rendered invoice
+    -- can show buyer name in BOTH languages — Arabic for ZATCA, English for B2B)
+    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS buyer_name_en text;
+
+    -- One-time backfill: for existing customers without name_ar/name_en, detect
+    -- the language of the legacy 'name' field and populate appropriately.
+    -- Run this AFTER the columns above are created. It's idempotent (only
+    -- updates rows where new fields are NULL).
+    UPDATE customers
+       SET name_ar = name
+     WHERE name_ar IS NULL
+       AND name IS NOT NULL
+       AND name ~ '[\u0600-\u06FF]';
+
+    UPDATE customers
+       SET name_en = name
+     WHERE name_en IS NULL
+       AND name IS NOT NULL
+       AND name !~ '[\u0600-\u06FF]';
+
     -- ─── ZATCA Phase 2 forward-compatibility ───────────────────────
     -- These columns are populated when Fatoora integration is built (later phase).
     -- Adding now to avoid migration on a busy invoices table later.
@@ -490,6 +522,10 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .field-label{font-size:11px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;display:flex;align-items:center;gap:4px;}
 .field-label .opt{font-weight:400;text-transform:none;letter-spacing:0;color:var(--muted);font-size:11px;opacity:.85;}
 .field-label .req{color:var(--red);font-weight:700;}
+.field-label .zatca-tag{font-size:9px;font-weight:800;background:#dcfce7;color:#166534;padding:2px 6px;border-radius:4px;letter-spacing:.05em;cursor:help;}
+.lang-hint{font-size:11px;color:var(--amber);margin-top:4px;display:none;line-height:1.5;}
+.lang-hint.show{display:block;}
+.lang-hint::before{content:'⚠ ';font-weight:700;}
 .field input,.field select,.field textarea{padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;color:var(--ink);background:var(--white);width:100%;transition:all .15s;}
 .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(61,170,101,0.15);}
 .field input[readonly]{background:var(--tint);color:var(--muted);font-family:'DM Mono',monospace;}
@@ -1051,14 +1087,27 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
         </button>
       </div>
 
-      <!-- Basic info: Name + Mobile -->
+      <!-- Customer name (bilingual — ZATCA requires Arabic) -->
+      <div class="field-row single">
+        <div class="field">
+          <label class="field-label">
+            <span id="cm-name-ar-label" data-ar="الاسم بالعربية" data-en="Name in Arabic">الاسم بالعربية</span>
+            <span class="req">*</span>
+            <span class="zatca-tag" title="مطلوب لزاتكا · Required for ZATCA">ZATCA</span>
+          </label>
+          <input type="text" id="cm-name-ar" placeholder="أحمد محمد" dir="rtl" oninput="onNameInput('ar')">
+          <div class="lang-hint" id="cm-name-ar-hint"></div>
+        </div>
+      </div>
+
       <div class="field-row double">
         <div class="field">
           <label class="field-label">
-            <span id="cm-name-label" data-ar="الاسم · Name" data-en="Name · الاسم">الاسم · Name</span>
-            <span class="req">*</span>
+            <span id="cm-name-en-label" data-ar="الاسم بالإنجليزية" data-en="Name in English">الاسم بالإنجليزية</span>
+            <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
           </label>
-          <input type="text" id="cm-name" placeholder="أحمد محمد">
+          <input type="text" id="cm-name-en" placeholder="Ahmed Mohammed" dir="ltr" oninput="onNameInput('en')">
+          <div class="lang-hint" id="cm-name-en-hint"></div>
         </div>
         <div class="field">
           <label class="field-label">
@@ -1318,6 +1367,24 @@ function formatMobile(m){
   return m;
 }
 
+/* ── Customer name helpers (bilingual support) ──
+   Arabic name is primary (ZATCA mandate). English is optional secondary.
+   For backward compatibility, fall back to legacy 'name' field. */
+function custNameAr(c){
+  return c?.name_ar || c?.company_name_ar || (
+    /[\u0600-\u06FF]/.test(c?.name || '') ? c.name : ''
+  ) || c?.name || '';
+}
+function custNameEn(c){
+  return c?.name_en || c?.company_name_en || (
+    !/[\u0600-\u06FF]/.test(c?.name || '') ? c.name : ''
+  ) || '';
+}
+function custDisplayName(c){
+  /* Returns the Arabic name if present, else English, else legacy name, else placeholder */
+  return custNameAr(c) || custNameEn(c) || c?.name || '';
+}
+
 /* ── Button loading utility ── */
 async function btnAction(btn, asyncFn, successMsg){
   const original = btn.innerHTML;
@@ -1495,6 +1562,7 @@ function renderInvList(){
     list = list.filter(i =>
       (i.invoice_number||'').toLowerCase().includes(search) ||
       (i.buyer_name||'').toLowerCase().includes(search) ||
+      (i.buyer_name_en||'').toLowerCase().includes(search) ||
       (i.buyer_mobile||'').includes(search)
     );
   }
@@ -1559,10 +1627,13 @@ function renderInvList(){
       </div>`;
     }
 
-    return `<div class="list-row${isVoided?' voided':''}" onclick="viewInvoice('${inv.id}')">
+    /* Pick display name based on UI language: Arabic UI shows Arabic name; English UI prefers English (falls back to Arabic) */
+    const buyerDisplay = (currentLang === 'en' && inv.buyer_name_en) ? inv.buyer_name_en : (inv.buyer_name || '');
+    const rowClick = `viewInvoice('${inv.id}')`;
+    return `<div class="list-row${isVoided?' voided':''}" onclick="${rowClick}">
       <div class="row-num">${inv.invoice_number||'—'}</div>
       <div class="row-date">${formatDateDDMMYYYY(inv.issue_date)||'—'}</div>
-      <div class="row-buyer">${inv.buyer_name || (currentLang==='ar'?'عميل غير محدد':'No customer')}</div>
+      <div class="row-buyer">${buyerDisplay || (currentLang==='ar'?'عميل غير محدد':'No customer')}</div>
       <div class="row-amount">SAR ${fmt(inv.total)}</div>
       <div>${badge}</div>
       <div class="row-actions">${primaryBtn}${menuHtml}</div>
@@ -1707,7 +1778,11 @@ function renderCustList(){
   if(currentCustFilter !== 'all') list = list.filter(c => (c.customer_type||'b2c') === currentCustFilter);
   if(search){
     list = list.filter(c =>
+      (c.name_ar||'').toLowerCase().includes(search) ||
+      (c.name_en||'').toLowerCase().includes(search) ||
       (c.name||'').toLowerCase().includes(search) ||
+      (c.company_name_ar||'').toLowerCase().includes(search) ||
+      (c.company_name_en||'').toLowerCase().includes(search) ||
       (c.company_name||'').toLowerCase().includes(search) ||
       (c.mobile||'').includes(search) ||
       (c.trn||'').includes(search) ||
@@ -1734,7 +1809,9 @@ function renderCustList(){
     `<span class="h-actions">${currentLang==='ar'?'إجراءات':'Actions'}</span>` +
     '</div>' +
     '<div class="list-rows">' + list.map(cust => {
-    const initial = ((cust.name||cust.company_name||'?')[0]||'?').toUpperCase();
+    const nameAr = custNameAr(cust);
+    const nameEn = custNameEn(cust);
+    const initial = ((nameEn || nameAr || '?')[0]||'?').toUpperCase();
     const isB2B = cust.customer_type === 'b2b';
     const typeBadge = isB2B
       ? '<span class="badge badge-b2b">B2B</span>'
@@ -1743,8 +1820,8 @@ function renderCustList(){
       <div class="cust-avatar">${initial}</div>
       <div class="cust-code">${cust.customer_code || '—'}</div>
       <div class="row-buyer">
-        <div style="font-weight:600;">${cust.name||cust.company_name||'—'}</div>
-        ${(cust.company_name && cust.name && cust.company_name !== cust.name) ? '<div style="font-size:11px;color:var(--muted);">'+cust.company_name+'</div>' : ''}
+        <div style="font-weight:600;">${nameAr || nameEn || '—'}</div>
+        ${(nameEn && nameAr && nameEn !== nameAr) ? '<div style="font-size:11px;color:var(--muted);direction:ltr;text-align:start;">'+nameEn+'</div>' : ''}
       </div>
       <div class="cust-type">${typeBadge}</div>
       <div class="cust-stats" style="font-size:12px;color:var(--muted);">
@@ -1879,7 +1956,11 @@ function doCustomerSearch(query){
   let matches;
   if(query){
     matches = pool.filter(c =>
+      (c.name_ar||'').toLowerCase().includes(query) ||
+      (c.name_en||'').toLowerCase().includes(query) ||
       (c.name||'').toLowerCase().includes(query) ||
+      (c.company_name_ar||'').toLowerCase().includes(query) ||
+      (c.company_name_en||'').toLowerCase().includes(query) ||
       (c.company_name||'').toLowerCase().includes(query) ||
       (c.mobile||'').includes(query) ||
       (c.trn||'').includes(query) ||
@@ -1892,10 +1973,15 @@ function doCustomerSearch(query){
   let html = matches.map(c => {
     const isB2B = c.customer_type === 'b2b';
     const typeBadge = isB2B ? '<span class="cust-item-badge badge-b2b">B2B</span>' : '<span class="cust-item-badge badge-b2c">B2C</span>';
+    const nameAr = custNameAr(c);
+    const nameEn = custNameEn(c);
+    const primary = nameAr || nameEn || '—';
+    const secondary = (nameEn && nameAr && nameEn !== nameAr) ? nameEn : '';
     const meta = [c.customer_code, formatMobile(c.mobile), c.trn].filter(Boolean).join(' · ');
     return `<div class="cust-item" onclick="selectCustomerById('${c.id}')">
       <div class="cust-item-info">
-        <div class="cust-item-name">${c.name || c.company_name || '—'}</div>
+        <div class="cust-item-name">${primary}</div>
+        ${secondary ? '<div style="font-size:11px;color:var(--muted);direction:ltr;text-align:start;">'+secondary+'</div>' : ''}
         ${meta ? '<div class="cust-item-meta">'+meta+'</div>' : ''}
       </div>
       ${typeBadge}
@@ -1927,14 +2013,17 @@ function selectCustomer(c){
   document.getElementById('customer-lookup-wrap').style.display = 'none';
 
   const wrap = document.getElementById('selected-customer-wrap');
-  setText('selected-customer-name', c.name || c.company_name || '—');
-  const meta = [
-    c.customer_code,
-    formatMobile(c.mobile),
-    c.trn ? 'TRN: '+c.trn : '',
-    c.customer_type === 'b2b' ? 'B2B' : 'B2C'
-  ].filter(Boolean).join(' · ');
-  setText('selected-customer-meta', meta);
+  /* Show Arabic name as primary (ZATCA-compliant). English shows in meta if different. */
+  const nameAr = custNameAr(c);
+  const nameEn = custNameEn(c);
+  setText('selected-customer-name', nameAr || nameEn || '—');
+  const metaParts = [];
+  if(nameEn && nameAr && nameEn !== nameAr) metaParts.push(nameEn);
+  if(c.customer_code) metaParts.push(c.customer_code);
+  if(c.mobile) metaParts.push(formatMobile(c.mobile));
+  if(c.trn) metaParts.push('TRN: '+c.trn);
+  metaParts.push(c.customer_type === 'b2b' ? 'B2B' : 'B2C');
+  setText('selected-customer-meta', metaParts.join(' · '));
   wrap.style.display = 'block';
 }
 
@@ -2161,7 +2250,8 @@ async function saveDraft(){
     invoice_number: v('f-invnum'),
     invoice_type: v('f-type'),
     issue_date: v('f-date') || todayISO(),
-    buyer_name: selectedCustomer ? (selectedCustomer.name || selectedCustomer.company_name) : '',
+    buyer_name: selectedCustomer ? custNameAr(selectedCustomer) : '',
+    buyer_name_en: selectedCustomer ? (custNameEn(selectedCustomer) || null) : null,
     buyer_trn: selectedCustomer?.trn || '',
     buyer_address: selectedCustomer ? buildBuyerAddressString(selectedCustomer) : '',
     buyer_city: selectedCustomer?.city || '',
@@ -2289,7 +2379,8 @@ async function generateInvoice(){
     invoice_number: v('f-invnum'),
     invoice_type: v('f-type'),
     issue_date: v('f-date') || todayISO(),
-    buyer_name: selectedCustomer ? (selectedCustomer.name || selectedCustomer.company_name) : '',
+    buyer_name: selectedCustomer ? custNameAr(selectedCustomer) : '',
+    buyer_name_en: selectedCustomer ? (custNameEn(selectedCustomer) || null) : null,
     buyer_trn: selectedCustomer?.trn || '',
     buyer_address: selectedCustomer ? buildBuyerAddressString(selectedCustomer) : '',
     buyer_city: selectedCustomer?.city || '',
@@ -2834,13 +2925,34 @@ function openAddCustomerModal(opts){
   _customerModalContext = opts;
   editingCustomerId = null;
 
-  /* Reset form */
-  ['cm-name','cm-mobile','cm-trn','cm-cr','cm-email',
+  /* Reset form — clear all fields including new bilingual name fields */
+  ['cm-name-ar','cm-name-en','cm-mobile','cm-trn','cm-cr','cm-email',
    'cm-building','cm-street','cm-additional','cm-district','cm-city','cm-postal','cm-notes'
   ].forEach(id => setVal(id,''));
 
-  /* Pre-fill name from search */
-  if(opts.prefillName) setVal('cm-name', opts.prefillName);
+  /* Clear language hints */
+  ['cm-name-ar-hint','cm-name-en-hint'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el){ el.classList.remove('show'); el.textContent = ''; }
+  });
+
+  /* Pre-fill name — auto-detect language and route to correct field */
+  if(opts.prefillName){
+    const isArabicText = /[\u0600-\u06FF]/.test(opts.prefillName);
+    if(isArabicText){
+      setVal('cm-name-ar', opts.prefillName);
+    } else {
+      setVal('cm-name-en', opts.prefillName);
+      /* Show hint that Arabic name is still needed */
+      const hintEl = document.getElementById('cm-name-ar-hint');
+      if(hintEl){
+        hintEl.textContent = currentLang==='ar'
+          ? 'الاسم بالعربية مطلوب لإصدار فاتورة ضريبية'
+          : 'Arabic name is required to issue a tax invoice';
+        hintEl.classList.add('show');
+      }
+    }
+  }
 
   /* Set type */
   setCustomerType(opts.isB2B ? 'b2b' : 'b2c');
@@ -2853,7 +2965,8 @@ function openAddCustomerModal(opts){
 
   document.getElementById('customer-modal').classList.add('show');
   document.body.style.overflow = 'hidden';
-  setTimeout(() => document.getElementById('cm-name')?.focus(), 100);
+  /* Focus Arabic name field first (it's required) */
+  setTimeout(() => document.getElementById('cm-name-ar')?.focus(), 100);
 }
 
 function closeAddCustomerModal(){
@@ -2871,7 +2984,23 @@ async function editCustomer(id){
   editingCustomerId = id;
   _customerModalContext = null;
 
-  setVal('cm-name', c.name || c.company_name || '');
+  /* Populate bilingual name fields. For old customers without name_ar/name_en,
+     fall back to legacy 'name' field. Use auto-detection to route legacy name correctly. */
+  if(c.name_ar || c.name_en){
+    setVal('cm-name-ar', c.name_ar || '');
+    setVal('cm-name-en', c.name_en || '');
+  } else {
+    /* Legacy customer: fall back to single 'name' field. Detect language and route. */
+    const legacyName = c.name || c.company_name || '';
+    const isArabicText = /[\u0600-\u06FF]/.test(legacyName);
+    if(isArabicText){
+      setVal('cm-name-ar', legacyName);
+      setVal('cm-name-en', '');
+    } else {
+      setVal('cm-name-ar', '');  /* user will need to add Arabic name */
+      setVal('cm-name-en', legacyName);
+    }
+  }
   setVal('cm-mobile', c.mobile || '');
   setVal('cm-trn', c.trn || '');
   setVal('cm-cr', c.cr_number || '');
@@ -2883,6 +3012,12 @@ async function editCustomer(id){
   setVal('cm-city', c.city || '');
   setVal('cm-postal', c.postal_code || '');
   setVal('cm-notes', c.notes || '');
+
+  /* Clear language hints */
+  ['cm-name-ar-hint','cm-name-en-hint'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el){ el.classList.remove('show'); el.textContent = ''; }
+  });
 
   setCustomerType(c.customer_type === 'b2b' ? 'b2b' : 'b2c');
 
@@ -2907,9 +3042,20 @@ function setCustomerType(type){
   document.getElementById('cm-b2b-row1').style.display = isB2B ? '' : 'none';
   document.getElementById('cm-address-group').style.display = isB2B ? '' : 'none';
   document.getElementById('cm-b2c-hint').style.display = isB2B ? 'none' : 'block';
-  setText('cm-name-label', isB2B
-    ? (currentLang==='ar' ? 'اسم الشركة · Company' : 'Company · اسم الشركة')
-    : (currentLang==='ar' ? 'الاسم · Name' : 'Name · الاسم'));
+
+  /* Update name labels — for B2C: "Name", for B2B: "Company Name" */
+  setText('cm-name-ar-label', isB2B
+    ? (currentLang==='ar' ? 'اسم الشركة بالعربية' : 'Company Name in Arabic')
+    : (currentLang==='ar' ? 'الاسم بالعربية' : 'Name in Arabic'));
+  setText('cm-name-en-label', isB2B
+    ? (currentLang==='ar' ? 'اسم الشركة بالإنجليزية' : 'Company Name in English')
+    : (currentLang==='ar' ? 'الاسم بالإنجليزية' : 'Name in English'));
+
+  /* Update placeholders to match context */
+  const arInput = document.getElementById('cm-name-ar');
+  const enInput = document.getElementById('cm-name-en');
+  if(arInput) arInput.placeholder = isB2B ? 'شركة الأمانة للتجارة' : 'أحمد محمد';
+  if(enInput) enInput.placeholder = isB2B ? 'Al-Amana Trading Co.' : 'Ahmed Mohammed';
 
   /* Speed badge */
   const badge = document.getElementById('cm-speed-badge');
@@ -2920,7 +3066,59 @@ function setCustomerType(type){
   }
 }
 
-/* Generate next customer code (simple sequential) */
+/* ═══════════════════════════════════════════════════════
+   LANGUAGE DETECTION FOR NAME FIELDS
+   ZATCA requires Arabic name. Gentle hint if user types wrong language.
+═══════════════════════════════════════════════════════ */
+function onNameInput(field){
+  /* field = 'ar' (Arabic field) or 'en' (English field) */
+  const inputId = field === 'ar' ? 'cm-name-ar' : 'cm-name-en';
+  const hintId = field === 'ar' ? 'cm-name-ar-hint' : 'cm-name-en-hint';
+  const value = (document.getElementById(inputId)?.value || '').trim();
+  const hintEl = document.getElementById(hintId);
+  if(!hintEl) return;
+
+  /* If empty, no hint */
+  if(!value){
+    hintEl.classList.remove('show');
+    hintEl.textContent = '';
+    return;
+  }
+
+  /* Detect script. Arabic Unicode range: U+0600–U+06FF (and similar) */
+  const arabicChars = (value.match(/[\u0600-\u06FF]/g) || []).length;
+  const latinChars = (value.match(/[a-zA-Z]/g) || []).length;
+  const totalLetters = arabicChars + latinChars;
+
+  if(totalLetters < 2){
+    /* Too short to detect reliably */
+    hintEl.classList.remove('show');
+    return;
+  }
+
+  /* Determine what language the user actually typed */
+  const arabicRatio = arabicChars / totalLetters;
+  const looksArabic = arabicRatio > 0.5;
+  const looksEnglish = arabicRatio < 0.3;
+
+  if(field === 'ar' && looksEnglish){
+    /* User typed English in the Arabic field */
+    hintEl.textContent = currentLang==='ar'
+      ? 'هذا يبدو إنجليزياً — هل تقصد كتابة الاسم بالعربية؟'
+      : 'This looks English — did you mean to type the Arabic name?';
+    hintEl.classList.add('show');
+  } else if(field === 'en' && looksArabic){
+    /* User typed Arabic in the English field */
+    hintEl.textContent = currentLang==='ar'
+      ? 'هذا يبدو عربياً — هل تقصد كتابته في حقل الاسم بالعربية؟'
+      : 'This looks Arabic — did you mean to type in the Arabic name field?';
+    hintEl.classList.add('show');
+  } else {
+    hintEl.classList.remove('show');
+  }
+}
+
+
 async function generateCustomerCode(){
   if(!currentBiz?.id) return null;
   const {data} = await sb.from('customers')
@@ -2941,12 +3139,22 @@ async function saveCustomer(){
   if(!currentUser) throw new Error('not authenticated');
 
   const isB2B = currentCustomerType === 'b2b';
-  const name = v('cm-name');
+  const nameAr = v('cm-name-ar');
+  const nameEn = v('cm-name-en');
   const mobile = v('cm-mobile');
 
-  /* Validation */
-  if(!name){
-    notify(currentLang==='ar'?'أدخل الاسم':'Enter name','r');
+  /* Validation: Arabic name is REQUIRED (ZATCA mandate). English is optional. */
+  if(!nameAr){
+    notify(currentLang==='ar'
+      ?'الاسم بالعربية مطلوب (متطلب زاتكا)'
+      :'Arabic name is required (ZATCA mandate)','r');
+    throw new Error('validation');
+  }
+  /* Verify Arabic name actually contains Arabic chars */
+  if(!/[\u0600-\u06FF]/.test(nameAr)){
+    notify(currentLang==='ar'
+      ?'حقل الاسم بالعربية يجب أن يحتوي على حروف عربية'
+      :'Arabic name field must contain Arabic letters','r');
     throw new Error('validation');
   }
   if(!mobile){
@@ -2981,25 +3189,32 @@ async function saveCustomer(){
   /* Check duplicate by mobile (within same business) */
   if(!editingCustomerId && currentBiz?.id){
     const {data:dup} = await sb.from('customers')
-      .select('id,name')
+      .select('id,name,name_ar')
       .eq('business_id', currentBiz.id)
       .eq('mobile', mobile)
       .maybeSingle();
     if(dup){
-      notify(currentLang==='ar'?`عميل بنفس الرقم موجود: ${dup.name}`:`Customer with this mobile exists: ${dup.name}`,'a');
+      const dupName = dup.name_ar || dup.name || '?';
+      notify(currentLang==='ar'?`عميل بنفس الرقم موجود: ${dupName}`:`Customer with this mobile exists: ${dupName}`,'a');
       throw new Error('validation');
     }
   }
 
+  /* Build payload — write to NEW bilingual columns AND keep LEGACY 'name' for backward compatibility */
   const payload = {
     user_id: currentUser.id,
     business_id: currentBiz?.id,
-    name: name,
+    name_ar: nameAr,
+    name_en: nameEn || null,
+    name: nameAr,  /* legacy column — keep in sync with primary (Arabic) name for backward compatibility */
     mobile: mobile,
     customer_type: isB2B ? 'b2b' : 'b2c',
     trn: v('cm-trn') || null,
     cr_number: v('cm-cr') || null,
-    company_name: isB2B ? name : null,
+    /* For B2B: company name fields mirror the primary name fields (since we only use one set of inputs) */
+    company_name_ar: isB2B ? nameAr : null,
+    company_name_en: isB2B ? (nameEn || null) : null,
+    company_name: isB2B ? nameAr : null,  /* legacy */
     email: v('cm-email') || null,
     notes: v('cm-notes') || null,
     is_active: true,
