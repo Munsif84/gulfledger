@@ -292,6 +292,16 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 
 /* ─── LIST ROWS (clean, no decorative cards) ─── */
 .list-rows{display:flex;flex-direction:column;}
+
+/* List header row — column labels */
+.list-header{display:grid;gap:16px;align-items:center;padding:10px 18px;background:var(--bg);border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;}
+.list-header.invoices-header{grid-template-columns:140px 100px 1fr 130px 110px auto;}
+.list-header.customers-header{grid-template-columns:36px 90px 1fr 130px 80px 110px auto;}
+.list-header span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.list-header .h-amount{text-align:end;}
+.list-header .h-actions-spacer{min-width:140px;}
+@media(max-width:900px){.list-header{display:none;}}
+
 .list-row{display:grid;grid-template-columns:140px 100px 1fr 130px 110px auto;gap:16px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--tint);cursor:pointer;transition:background .12s;}
 .list-row:last-child{border-bottom:none;}
 .list-row:hover{background:#fafffe;}
@@ -1342,6 +1352,21 @@ async function loadInvoices(){
     .order('created_at', {ascending: false})
     .limit(200);
 
+  /* DIAGNOSTIC: temporary logging — remove once "missing invoices" issue is resolved */
+  console.log('[GulfLedger] loadInvoices fetched:', data?.length || 0, 'rows');
+  if(data && data.length > 0){
+    const statusBreakdown = {};
+    data.forEach(inv => {
+      const s = inv.status || '(null)';
+      statusBreakdown[s] = (statusBreakdown[s]||0) + 1;
+    });
+    console.log('[GulfLedger] Status breakdown:', statusBreakdown);
+    console.log('[GulfLedger] First 3 invoices:', data.slice(0,3).map(i => ({
+      number: i.invoice_number, status: i.status, payment_status: i.payment_status, total: i.total
+    })));
+  }
+  if(error) console.error('[GulfLedger] loadInvoices error:', error);
+
   if(error){
     document.getElementById('inv-list').innerHTML = '<div class="empty-state"><div class="empty-state-icon">⚠️</div><div class="empty-state-text">'+error.message+'</div></div>';
     return;
@@ -1387,7 +1412,15 @@ function renderInvList(){
     return;
   }
 
-  c.innerHTML = '<div class="list-rows">' + list.map(inv => {
+  c.innerHTML = '<div class="list-header invoices-header">' +
+    `<span>${currentLang==='ar'?'رقم الفاتورة':'Invoice #'}</span>` +
+    `<span>${currentLang==='ar'?'التاريخ':'Date'}</span>` +
+    `<span>${currentLang==='ar'?'العميل':'Customer'}</span>` +
+    `<span class="h-amount">${currentLang==='ar'?'المبلغ':'Amount'}</span>` +
+    `<span>${currentLang==='ar'?'الحالة':'Status'}</span>` +
+    `<span class="h-actions-spacer"></span>` +
+    '</div>' +
+    '<div class="list-rows">' + list.map(inv => {
     const isVoided = inv.status === 'voided';
     const isDraft = inv.status === 'draft';
     const paid = inv.payment_status === 'paid';
@@ -1521,7 +1554,16 @@ function renderCustList(){
     return;
   }
 
-  c.innerHTML = '<div class="list-rows">' + list.map(cust => {
+  c.innerHTML = '<div class="list-header customers-header">' +
+    `<span></span>` +
+    `<span>${currentLang==='ar'?'الكود':'Code'}</span>` +
+    `<span>${currentLang==='ar'?'الاسم':'Name'}</span>` +
+    `<span>${currentLang==='ar'?'الجوال':'Mobile'}</span>` +
+    `<span>${currentLang==='ar'?'النوع':'Type'}</span>` +
+    `<span>${currentLang==='ar'?'الإحصائيات':'Stats'}</span>` +
+    `<span></span>` +
+    '</div>' +
+    '<div class="list-rows">' + list.map(cust => {
     const initial = ((cust.name||cust.company_name||'?')[0]||'?').toUpperCase();
     const isB2B = cust.customer_type === 'b2b';
     const typeBadge = isB2B
@@ -2090,7 +2132,8 @@ async function generateInvoice(){
     vat_amount: totals.vat,
     total: totals.total,
     notes: v('f-notes'),
-    status: 'posted',  /* not draft */
+    /* status omitted — DB default handles it. Original code never set status on generate.
+       Constraint: status IS NULL OR IN ('draft','posted','voided','final') */
     zatca_submitted: false,
     updated_at: new Date().toISOString()
   };
