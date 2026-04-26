@@ -1,448 +1,1199 @@
 <!DOCTYPE html>
+<!--
+═══════════════════════════════════════════════════════════════════════════════
+  GulfLedger — invoice-view.html
+  Renders a single invoice in three modes:
+    1. SELLER  — logged-in user viewing their own invoice (?id={uuid})
+    2. PUBLIC  — anonymous viewer with valid token (?t={token})
+    3. PRINT   — browser print dialog (CSS @media print, hides chrome)
+
+  Backward-compatible with old links: ?inv={number} falls through auth.
+
+  REQUIRED SQL MIGRATION (run once in Supabase):
+  ───────────────────────────────────────────────
+    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS public_token text UNIQUE;
+    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS public_token_created_at timestamptz;
+    CREATE INDEX IF NOT EXISTS idx_invoices_public_token
+      ON invoices(public_token) WHERE public_token IS NOT NULL;
+
+    -- Customer payment terms (auto-fill due date)
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS payment_terms_days integer DEFAULT 30;
+
+    -- Invoice due date column (if missing)
+    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS due_date date;
+
+  PRESERVED FROM ORIGINAL (do not change):
+  ────────────────────────────────────────
+    - buildTLV / tlvEncode (ZATCA Phase 1 QR — 5 tags)
+    - QRCode library (qrcodejs)
+    - Supabase queries
+
+  PHASE 2 ROADMAP:
+  ────────────────
+  When ZATCA Phase 2 ships, swap computed QR for `inv.zatca_qr_tlv` from DB
+  (returned by Fatoora after clearance).
+═══════════════════════════════════════════════════════════════════════════════
+-->
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<meta name="theme-color" content="#006C35">
 <title>فاتورة — GulfLedger</title>
-<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700&family=Playfair+Display:wght@700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;600;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<script>
+/* Apply language before render — prevents flash */
+(function(){
+  var lang = localStorage.getItem('gl_lang') || 'ar';
+  document.documentElement.setAttribute('lang', lang);
+  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+})();
+</script>
 <style>
-:root{--navy:#1A3C2A;--blue:#006C35;--sky:#3DAA65;--light:#A8D9BC;--tint:#E6F4EC;--green:#1D9E75;--red:#C62828;--amber:#C9920A;--ink:#0D2618;--muted:#4A7A5E;--border:#C3DECE;--bg:#f0f4f8;--white:#ffffff;--brand:#0C447C;}
+:root{
+  --navy:#1A3C2A;--blue:#006C35;--sky:#3DAA65;--light:#A8D9BC;--tint:#E6F4EC;
+  --green:#1D9E75;--red:#C62828;--amber:#C9920A;--ink:#0D2618;--muted:#4A7A5E;
+  --border:#C3DECE;--bg:#F4F9F6;--white:#ffffff;
+  /* Brand color (overridden by business settings) */
+  --brand:#006C35;
+}
 *{box-sizing:border-box;margin:0;padding:0;}
-body{font-family:'Cairo',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;}
+html,body{font-family:'Tajawal','Cairo',sans-serif;background:#E5EDE9;color:var(--ink);min-height:100vh;}
 
-/* TOPBAR */
-.topbar{background:var(--brand);padding:12px 20px;display:flex;align-items:center;justify-content:space-between;}
-.topbar-logo{font-family:'Playfair Display',serif;font-size:16px;color:#fff;display:flex;align-items:center;gap:8px;}
-.tl-bars{display:flex;gap:3px;height:18px;}
-.tl-bar{width:3px;border-radius:2px;background:#fff;}
-.tl-bar.dim{background:rgba(255,255,255,0.45);}
-.topbar-btns{display:flex;gap:8px;}
-.btn-dl{padding:8px 18px;background:#fff;color:var(--brand);border:none;border-radius:8px;font-family:'Cairo',sans-serif;font-size:15px;font-weight:700;cursor:pointer;}
-.btn-dl:hover{background:var(--tint);}
+/* Hide elements based on language */
+[lang="ar"] [data-en],[lang="en"] [data-ar]{display:none;}
 
-/* PAGE */
-.page{max-width:680px;margin:0 auto;padding:20px 16px 60px;}
-.inv-meta-bar{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;flex-wrap:wrap;gap:8px;}
-.inv-num-tag{font-family:'DM Mono',monospace;font-size:15px;color:var(--muted);background:var(--white);padding:5px 12px;border-radius:8px;border:1px solid var(--border);}
-.zatca-tag{display:flex;align-items:center;gap:5px;background:#f0fdf4;border:1px solid #86efac;border-radius:8px;padding:5px 10px;font-size:13px;font-weight:700;color:#166534;}
+/* ───────────────────────────────────────────
+   PAGE HEADER — slim, adaptive
+   Seller mode: back link + actions
+   Public mode: brand + minimal actions
+─────────────────────────────────────────── */
+.inv-page-header{background:#fff;border-bottom:1px solid var(--border);padding:14px 22px;display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.inv-page-back{display:inline-flex;align-items:center;gap:8px;color:var(--blue);text-decoration:none;font-size:14px;font-weight:600;padding:6px 10px;border-radius:6px;transition:background .15s;}
+.inv-page-back:hover{background:var(--tint);}
+.inv-page-back .arrow{display:inline-block;}
+[dir="rtl"] .inv-page-back .arrow{transform:rotate(180deg);}
 
-/* INVOICE CARD */
-.inv-card{background:var(--white);border-radius:16px;overflow:hidden;box-shadow:0 4px 32px rgba(12,68,124,0.1);}
+.inv-public-brand{display:flex;align-items:center;gap:10px;}
+.inv-public-brand-bars{display:flex;gap:3px;height:18px;}
+.inv-public-brand-bar{width:3px;border-radius:2px;background:var(--blue);}
+.inv-public-brand-bar.dim{background:var(--light);}
+.inv-public-brand-name{font-size:15px;font-weight:800;color:var(--blue);}
 
-/* HEADER */
-.inv-head{background:var(--brand);padding:24px;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-.inv-head-inner{display:flex;align-items:center;justify-content:space-between;}
-.inv-biz-logo{width:52px;height:52px;background:rgba(255,255,255,0.15);border-radius:12px;display:flex;align-items:center;justify-content:center;overflow:hidden;margin-left:12px;}
-.inv-biz-logo img{width:100%;height:100%;object-fit:contain;}
-.inv-biz-name{font-family:'Playfair Display',serif;font-size:22px;color:#fff;}
-.inv-biz-sub{font-size:12px;color:rgba(255,255,255,0.65);letter-spacing:.12em;margin-top:2px;}
-.inv-head-right{text-align:left;}
-.inv-head-num{font-family:'DM Mono',monospace;font-size:15px;color:#fff;font-weight:700;}
-.inv-head-type{font-size:9px;font-weight:700;padding:3px 9px;border-radius:6px;background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.85);display:inline-block;margin-top:5px;letter-spacing:.06em;}
+.inv-page-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center;}
+.btn{padding:9px 16px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;border:none;white-space:nowrap;transition:all .15s;}
+.btn-primary{background:var(--blue);color:#fff;}
+.btn-primary:hover{background:var(--navy);}
+.btn-secondary{background:#fff;color:var(--blue);border:1.5px solid var(--light);}
+.btn-secondary:hover{background:var(--tint);}
+.btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border);}
+.btn-ghost:hover{background:var(--bg);color:var(--ink);}
+.btn-more{background:transparent;color:var(--muted);border:1px solid var(--border);padding:9px 12px;}
 
-/* BODY */
-.inv-body{padding:20px 24px;}
+/* More dropdown */
+.btn-more-wrap{position:relative;}
+.more-menu{display:none;position:absolute;top:calc(100% + 4px);min-width:200px;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 8px 24px rgba(0,0,0,0.15);padding:4px;z-index:50;}
+[dir="rtl"] .more-menu{left:0;right:auto;}
+[dir="ltr"] .more-menu{right:0;left:auto;}
+.more-menu.open{display:block;}
+.more-menu-item{display:flex;align-items:center;gap:8px;width:100%;padding:8px 12px;background:transparent;border:none;border-radius:6px;font-family:inherit;font-size:13px;font-weight:500;color:var(--ink);cursor:pointer;text-align:start;transition:background .12s;white-space:nowrap;}
+.more-menu-item:hover{background:var(--tint);}
+.more-menu-item.danger{color:var(--red);}
+.more-menu-divider{height:1px;background:var(--border);margin:4px 8px;}
 
-/* PARTIES */
-.inv-parties{display:grid;grid-template-columns:1fr 1fr;border:1px solid var(--border);border-radius:10px;overflow:hidden;margin-bottom:18px;}
-.party-box{padding:14px 16px;text-align:center;}
-.party-box:first-child{border-left:1px solid var(--border);}
-.party-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:6px;}
-.party-name{font-size:16px;font-weight:700;color:var(--navy);margin-bottom:3px;}
-.party-detail{font-size:12px;color:var(--muted);line-height:1.6;}
-.party-trn{font-family:'DM Mono',monospace;font-size:12px;color:var(--sky);margin-top:2px;}
+/* ───────────────────────────────────────────
+   PAY CTA BANNER (public mode only)
+─────────────────────────────────────────── */
+.pay-cta-banner{background:linear-gradient(135deg, var(--blue), var(--green));color:#fff;padding:18px 28px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;}
+.pay-cta-text-ar{font-size:14px;font-weight:600;line-height:1.4;}
+.pay-cta-text-en{font-size:12px;opacity:0.85;margin-top:2px;}
+.pay-cta-amount{font-family:'DM Mono',monospace;font-size:22px;font-weight:800;}
+.pay-cta-btn{background:#fff;color:var(--blue);padding:12px 22px;border-radius:8px;border:none;font-family:inherit;font-size:14px;font-weight:800;cursor:pointer;display:inline-flex;align-items:center;gap:8px;}
+.pay-cta-btn:hover{background:var(--tint);}
+.pay-cta-disabled{opacity:.65;cursor:not-allowed;}
 
-/* DATE ROW */
-.inv-date-row{display:flex;gap:20px;background:var(--tint);border-radius:8px;padding:10px 14px;margin-bottom:18px;}
-.inv-date-item{display:flex;flex-direction:column;gap:2px;}
-.inv-date-lbl{font-size:9px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);}
-.inv-date-val{font-size:16px;color:var(--navy);font-weight:600;}
+/* ───────────────────────────────────────────
+   STATUS BAR (seller mode only)
+─────────────────────────────────────────── */
+.inv-status-bar{background:var(--bg);padding:10px 22px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;font-size:12px;}
+.inv-status-left{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.status-pill{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:6px;font-size:11px;font-weight:700;}
+.pill-paid{background:#dcfce7;color:#166534;}
+.pill-unpaid{background:#fff1f2;color:#be123c;}
+.pill-partial{background:#fef3c7;color:#92400e;}
+.pill-voided{background:#f1f5f9;color:#64748b;}
+.pill-zatca-soon{background:#f3e8ff;color:#6b21a8;border:1px dashed #c4b5fd;}
+.pill-zatca-pending{background:#fef3c7;color:#92400e;}
+.pill-zatca-cleared{background:#dcfce7;color:#166534;}
+.pill-zatca-rejected{background:#fee2e2;color:#991b1b;}
+.inv-status-right{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;}
 
-/* TABLE */
-.inv-tbl{width:100%;border-collapse:collapse;margin-bottom:16px;font-size:13px;direction:ltr;}
-.inv-tbl th{padding:7px 8px;background:var(--navy);color:#fff;font-size:9px;font-weight:700;text-transform:uppercase;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-.inv-tbl th:first-child{text-align:left;}
-.inv-tbl td{padding:7px 8px;border-bottom:1px solid var(--tint);vertical-align:top;}
-.inv-tbl td:first-child{text-align:left;}
-.inv-tbl td:not(:first-child){text-align:right;font-family:'DM Mono',monospace;}
-.inv-tbl tr:last-child td{border-bottom:none;}
+/* ───────────────────────────────────────────
+   DOC AREA — the actual invoice document
+─────────────────────────────────────────── */
+.inv-doc-wrap{padding:24px 22px;background:#FAFBFA;}
+.inv-doc{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden;max-width:780px;margin:0 auto;box-shadow:0 2px 10px rgba(0,0,0,0.04);}
 
-/* FOOTER */
-.inv-footer{display:flex;justify-content:flex-end;margin-bottom:16px;}
-.inv-totals{min-width:220px;}
-.tot-row{display:flex;justify-content:space-between;padding:4px 0;font-size:13px;color:var(--muted);}
-.tot-row.grand{border-top:1.5px solid var(--navy);margin-top:6px;padding-top:8px;font-size:15px;font-weight:700;color:var(--navy);}
-.tot-val{font-family:'DM Mono',monospace;font-weight:600;}
+/* Three-column header: logo+name | type-badge centered | meta */
+.inv-doc-header{background:var(--brand);color:#fff;padding:24px 28px;display:grid;grid-template-columns:1fr auto 1fr;gap:20px;align-items:center;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+.inv-doc-logo{display:flex;align-items:center;gap:14px;min-width:0;}
+.inv-logo-circle{width:56px;height:56px;background:rgba(255,255,255,0.18);border-radius:12px;display:flex;align-items:center;justify-content:center;font-size:24px;font-weight:800;flex-shrink:0;overflow:hidden;}
+.inv-logo-circle img{width:100%;height:100%;object-fit:contain;}
+.inv-biz-name-ar{font-size:18px;font-weight:800;line-height:1.3;}
+.inv-biz-name-en{font-size:13px;font-weight:500;color:rgba(255,255,255,0.85);margin-top:2px;}
 
-/* QR STRIP */
-.inv-qr-strip{display:flex;align-items:center;gap:14px;padding:12px 16px;background:var(--tint);border-radius:8px;border:1px solid var(--light);-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-.inv-qr-box{width:80px;height:80px;background:#fff;display:flex;align-items:center;justify-content:center;border-radius:6px;border:1px solid var(--border);flex-shrink:0;}
-.inv-qr-info{flex:1;}
-.inv-qr-title{font-size:12px;font-weight:700;color:var(--blue);letter-spacing:.05em;margin-bottom:4px;}
-.inv-qr-sub{font-size:12px;color:var(--muted);line-height:1.6;}
+/* Centered type badge */
+.inv-type-center{text-align:center;}
+.inv-type-badge{font-size:11px;font-weight:800;background:rgba(255,255,255,0.18);padding:8px 16px;border-radius:8px;letter-spacing:.06em;display:inline-block;line-height:1.5;}
+.inv-type-badge .ar{display:block;font-size:13px;}
+.inv-type-badge .en{font-size:10px;opacity:0.85;}
 
-/* NOTES */
-.inv-notes{margin-top:14px;padding:10px 14px;background:var(--tint);border-radius:8px;font-size:16px;color:var(--muted);border-right:3px solid var(--light);}
+/* Right-side meta block: number, dates, PO */
+.inv-doc-meta{text-align:end;direction:ltr;font-family:'DM Mono',monospace;}
+[dir="rtl"] .inv-doc-meta{text-align:start;}
+.inv-meta-row{font-size:11px;line-height:1.7;}
+.inv-meta-row .lbl{color:rgba(255,255,255,0.65);font-weight:500;font-size:9px;text-transform:uppercase;letter-spacing:.05em;}
+.inv-meta-row .val{color:#fff;font-weight:600;font-size:12px;}
+.inv-meta-row.primary .val{font-size:16px;font-weight:800;}
 
-/* LOADING / ERROR */
+/* Body */
+.inv-doc-body{padding:22px 28px;}
+
+/* Bilingual labels (Arabic primary, English secondary) */
+.bi-label{font-size:9px;font-weight:800;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);line-height:1.3;}
+.bi-label .en{display:block;font-weight:600;color:#9CA3AF;font-size:8px;margin-top:1px;}
+
+/* Parties grid */
+.inv-parties{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px;}
+.party-card{border:1px solid var(--border);border-radius:10px;padding:14px;background:#fafbfa;}
+.party-card-label{margin-bottom:8px;}
+.party-name-ar{font-size:15px;font-weight:700;color:var(--ink);margin-bottom:1px;line-height:1.4;}
+.party-name-en{font-size:11px;color:var(--muted);margin-bottom:6px;}
+.party-detail{font-size:11px;color:var(--muted);line-height:1.7;margin-top:4px;}
+.party-trn{font-family:'DM Mono',monospace;font-size:11px;color:var(--blue);font-weight:600;margin-top:3px;}
+
+/* National address (B2B) */
+.party-address-block{margin-top:6px;font-size:11px;color:var(--muted);line-height:1.7;}
+.address-line{margin-bottom:1px;}
+.address-tag{font-weight:700;color:var(--ink);font-family:'DM Mono',monospace;font-size:10px;margin-inline-end:4px;}
+
+/* Items table — generous spacing for readability */
+.inv-items-tbl{width:100%;border-collapse:collapse;margin-bottom:14px;font-size:12px;}
+.inv-items-tbl th{padding:10px 10px;background:var(--ink);color:#fff;font-size:9px;font-weight:700;text-transform:uppercase;text-align:start;letter-spacing:.05em;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+.inv-items-tbl th.ta-end{text-align:end;}
+.inv-items-tbl td{padding:14px 10px;border-bottom:1px solid #f0f4f0;vertical-align:top;}
+.inv-items-tbl td.mono{font-family:'DM Mono',monospace;text-align:end;}
+.inv-items-tbl td.desc-cell{font-weight:500;line-height:1.5;}
+.inv-items-tbl td.desc-cell .desc-secondary{color:var(--muted);font-weight:400;font-size:11px;margin-top:2px;}
+.inv-items-tbl tr:last-child td{border-bottom:none;}
+
+/* Totals */
+.inv-totals-area{display:flex;justify-content:flex-end;margin-bottom:18px;}
+.inv-totals-box{width:320px;border:1px solid var(--border);border-radius:8px;overflow:hidden;background:#fafbfa;}
+.tot-line{display:flex;justify-content:space-between;padding:10px 14px;font-size:12px;color:var(--muted);border-bottom:1px solid var(--tint);}
+.tot-line:last-child{border-bottom:none;}
+.tot-line.discount{color:var(--amber);}
+.tot-line.grand{background:var(--ink);color:#fff;font-size:14px;font-weight:700;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+.tot-line.grand.with-paid{padding-bottom:6px;}
+.tot-line.amount-paid{background:#fafbfa;color:var(--green);font-size:12px;}
+.tot-line.amount-due{background:#fff1f2;color:var(--red);font-size:13px;font-weight:700;}
+.tot-line .v{font-family:'DM Mono',monospace;font-weight:600;}
+
+/* QR strip */
+.inv-qr-area{display:grid;grid-template-columns:90px 1fr;gap:14px;background:var(--tint);border-radius:8px;padding:14px;border:1px solid var(--light);-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+.inv-qr-img{width:90px;height:90px;background:#fff;border-radius:6px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:9px;color:var(--muted);overflow:hidden;}
+.inv-qr-img img,.inv-qr-img canvas{width:100%;height:100%;}
+.inv-qr-text-title{font-size:12px;font-weight:700;color:var(--blue);margin-bottom:4px;}
+.inv-qr-text-sub{font-size:11px;color:var(--muted);line-height:1.6;}
+
+/* Notes */
+.inv-notes-block{margin-top:14px;padding:12px 14px;background:#FFFBEB;border:1px solid #FEF3C7;border-radius:8px;font-size:12px;color:#92400e;border-inline-start:3px solid var(--amber);}
+.inv-notes-block .label{font-weight:700;font-size:10px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;}
+
+/* Doc footer */
+.inv-doc-footer{padding:16px 28px;background:#fafbfa;border-top:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted);flex-wrap:wrap;gap:8px;}
+.doc-footer-link{color:var(--blue);text-decoration:none;font-weight:600;}
+
+/* Public footer (Mode 2 only) */
+.inv-public-footer{padding:24px 22px;text-align:center;font-size:12px;color:var(--muted);border-top:1px solid var(--border);background:#fafbfa;}
+.public-footer-contact{margin-bottom:12px;}
+.public-footer-contact-row{display:flex;align-items:center;justify-content:center;gap:6px;margin:4px 0;flex-wrap:wrap;}
+.public-footer-powered{font-size:11px;opacity:0.7;margin-top:14px;}
+
+/* Loading & error states */
 .loading-state{text-align:center;padding:80px 20px;color:var(--muted);}
 .loading-spinner{font-size:36px;margin-bottom:12px;animation:pulse 1.5s ease-in-out infinite;}
 @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
 .error-state{text-align:center;padding:60px 20px;}
 .error-icon{font-size:48px;margin-bottom:16px;}
 
-/* POWERED BY */
-.powered-by{text-align:center;margin-top:24px;font-size:13px;color:var(--muted);}
-.powered-by a{color:var(--blue);text-decoration:none;font-weight:600;}
+/* Share modal */
+.share-modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:100;align-items:center;justify-content:center;padding:20px;}
+.share-modal-overlay.show{display:flex;}
+.share-modal{background:#fff;border-radius:14px;max-width:440px;width:100%;padding:24px;box-shadow:0 20px 60px rgba(0,0,0,0.25);}
+.share-modal h3{font-size:16px;font-weight:800;margin-bottom:6px;color:var(--ink);}
+.share-modal p{font-size:13px;color:var(--muted);margin-bottom:16px;}
+.share-link-row{display:flex;gap:8px;margin-bottom:14px;}
+.share-link-input{flex:1;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-family:'DM Mono',monospace;font-size:12px;color:var(--ink);background:#fafbfa;}
+.share-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;}
+.share-action-btn{padding:12px;border-radius:8px;border:1px solid var(--border);background:#fafbfa;cursor:pointer;font-family:inherit;font-size:13px;font-weight:600;color:var(--ink);display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:all .15s;}
+.share-action-btn:hover{background:var(--tint);border-color:var(--blue);color:var(--blue);}
+.share-modal-footer{margin-top:16px;display:flex;justify-content:space-between;align-items:center;font-size:11px;color:var(--muted);}
+.share-modal-close{background:none;border:none;color:var(--muted);font-size:22px;cursor:pointer;padding:0;line-height:1;float:right;}
+.share-revoke-btn{font-size:11px;color:var(--red);background:none;border:none;cursor:pointer;font-family:inherit;font-weight:600;}
 
-/* PRINT */
+/* Notify */
+.notify{position:fixed;top:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:200;display:none;}
+.notify.show{display:block;animation:notifyIn .2s ease;}
+.notify.success{background:var(--green);}
+.notify.error{background:var(--red);}
+@keyframes notifyIn{from{transform:translate(-50%,-10px);opacity:0;}to{transform:translate(-50%,0);opacity:1;}}
+
+/* ───────────────────────────────────────────
+   PRINT MODE — hide all chrome
+─────────────────────────────────────────── */
 @media print{
   body{background:#fff!important;}
-  .topbar,.topbar-btns,.powered-by{display:none!important;}
-  .page{padding:0!important;max-width:100%!important;}
-  .inv-card{box-shadow:none!important;border-radius:0!important;}
+  .inv-page-header,.inv-status-bar,.pay-cta-banner,
+  .inv-public-footer,.share-modal-overlay,.notify{display:none!important;}
+  .inv-doc-wrap{padding:0!important;background:#fff!important;}
+  .inv-doc{box-shadow:none!important;border-radius:0!important;border:none!important;max-width:100%!important;}
   *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
-  .inv-head{background:var(--brand)!important;}
-  .inv-tbl th{background:var(--navy)!important;}
 }
 
-/* MOBILE */
-@media(max-width:600px){
-  .page{padding:12px 10px 40px;}
-  .inv-body{padding:14px 14px;}
+/* ───────────────────────────────────────────
+   MOBILE
+─────────────────────────────────────────── */
+@media(max-width:700px){
+  .inv-page-header{padding:12px 14px;}
+  .inv-doc-wrap{padding:14px 10px;}
+  .inv-doc-body{padding:16px 16px;}
+  .inv-doc-header{grid-template-columns:1fr;gap:14px;text-align:center;padding:18px;}
+  .inv-doc-logo{justify-content:center;}
+  .inv-doc-meta{text-align:center;}
   .inv-parties{grid-template-columns:1fr;}
-  .party-box:first-child{border-left:none;border-bottom:1px solid var(--border);}
-  .inv-tbl{font-size:12px;}
+  .inv-items-tbl{font-size:11px;}
+  .inv-items-tbl th,.inv-items-tbl td{padding:8px 6px;}
+  .inv-totals-box{width:100%;}
+  .pay-cta-banner{flex-direction:column;text-align:center;align-items:center;}
 }
-
-/* GL:QA-v3 */
-.gl-qa-wrap{position:relative;}
-.gl-qa-btn{display:flex;align-items:center;gap:6px;padding:5px 13px;background:var(--sky);color:#fff;border:none;border-radius:6px;font-family:'Cairo',sans-serif;font-size:15px;font-weight:700;cursor:pointer;white-space:nowrap;transition:background .15s;}
-.gl-qa-btn:hover{background:var(--light);color:var(--navy);}
-.gl-qa-btn .qa-plus{font-size:16px;font-weight:300;line-height:1;}
-.gl-qa-menu{display:none;position:fixed;top:90px;min-width:220px;background:#fff;border:1px solid var(--border);border-radius:12px;box-shadow:0 12px 40px rgba(12,68,124,0.18);padding:6px;z-index:9999;}
-[dir="rtl"] .gl-qa-menu{right:20px;left:auto;}
-[dir="ltr"] .gl-qa-menu{left:20px;right:auto;}
-.gl-qa-menu.open{display:block;}
-.gl-qa-cat{font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;padding:8px 10px 4px;}
-.gl-qa-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:8px;font-size:15px;font-weight:500;color:var(--ink);text-decoration:none;transition:background .12s;}
-.gl-qa-item:hover{background:var(--tint);color:var(--blue);}
-.gl-qa-icon{font-size:15px;width:22px;text-align:center;flex-shrink:0;}
-.gl-qa-div{height:1px;background:var(--border);margin:4px 8px;}
-
 </style>
 </head>
 <body>
 
-<div class="topbar">
-  <div class="topbar-logo">
-    <div class="tl-bars">
-      <div class="tl-bar"></div>
-      <div class="tl-bar dim"></div>
-    </div>
-    GulfLedger
-  </div>
-  <div class="topbar-btns">
-    <button class="btn-dl" onclick="window.print()">🖨 طباعة / PDF</button>
-  </div>
+<!-- Notification -->
+<div class="notify" id="notify"></div>
+
+<!-- Loading state -->
+<div class="loading-state" id="loading-state">
+  <div class="loading-spinner">📄</div>
+  <div data-ar="جارٍ تحميل الفاتورة..." data-en="Loading invoice...">جارٍ تحميل الفاتورة...</div>
 </div>
 
-<div class="page">
+<!-- Error state -->
+<div class="error-state" id="error-state" style="display:none;">
+  <div class="error-icon">❌</div>
+  <div style="font-size:18px;font-weight:700;color:var(--ink);margin-bottom:8px;" id="error-title">لم يتم العثور على الفاتورة</div>
+  <div style="font-size:13px;color:var(--muted);" id="error-message">تحقق من الرابط أو تواصل مع المُصدِر.</div>
+</div>
 
-  <!-- Loading -->
-  <div class="loading-state" id="loading-state">
-    <div class="loading-spinner">📄</div>
-    <div>جارٍ تحميل الفاتورة...</div>
-  </div>
+<!-- Main content (hidden until loaded) -->
+<div id="inv-content" style="display:none;">
 
-  <!-- Error -->
-  <div class="error-state" id="error-state" style="display:none;">
-    <div class="error-icon">❌</div>
-    <div style="font-size:18px;font-weight:700;color:var(--navy);margin-bottom:8px;">لم يتم العثور على الفاتورة</div>
-    <div style="font-size:13px;color:var(--muted);">تحقق من الرابط أو تواصل مع المُصدِر.</div>
-  </div>
+  <!-- ═════════════════════════════════════════════════════════════
+       PAGE HEADER — adaptive based on mode
+  ═════════════════════════════════════════════════════════════ -->
 
-  <!-- Invoice -->
-  <div id="inv-content" style="display:none;">
-
-    <div class="inv-meta-bar">
-      <span class="inv-num-tag" id="view-inv-num">—</span>
-      <span class="zatca-tag">✅ فاتورة زاتكا متوافقة</span>
+  <!-- Seller mode header -->
+  <div class="inv-page-header" id="seller-header" style="display:none;">
+    <a href="invoices.html" class="inv-page-back">
+      <span class="arrow">→</span>
+      <span data-ar="العودة للمبيعات" data-en="Back to Sales">العودة للمبيعات</span>
+    </a>
+    <div class="inv-page-actions">
+      <button class="btn btn-primary" id="btn-pay" onclick="onPayClick()">
+        💰 <span data-ar="تسجيل دفعة" data-en="Record Payment">تسجيل دفعة</span>
+      </button>
+      <button class="btn btn-secondary" onclick="openShareModal()">
+        🔗 <span data-ar="مشاركة" data-en="Share">مشاركة</span>
+      </button>
+      <button class="btn btn-ghost" onclick="window.print()">
+        🖨 <span data-ar="طباعة" data-en="Print">طباعة</span>
+      </button>
+      <div class="btn-more-wrap">
+        <button class="btn btn-more" onclick="toggleMoreMenu(event)" aria-label="More actions">⋯</button>
+        <div class="more-menu" id="more-menu">
+          <button class="more-menu-item" onclick="closeMoreMenu();downloadPDF()">
+            📥 <span data-ar="تحميل PDF" data-en="Download PDF">تحميل PDF</span>
+          </button>
+          <button class="more-menu-item" onclick="closeMoreMenu();sendWhatsApp()" id="menu-whatsapp">
+            💬 <span data-ar="إرسال واتساب" data-en="Send via WhatsApp">إرسال واتساب</span>
+          </button>
+          <button class="more-menu-item" onclick="closeMoreMenu();copyInvoiceNumber()">
+            📋 <span data-ar="نسخ رقم الفاتورة" data-en="Copy invoice number">نسخ رقم الفاتورة</span>
+          </button>
+          <div class="more-menu-divider"></div>
+          <button class="more-menu-item danger" onclick="closeMoreMenu();onReverseClick()">
+            ↩ <span data-ar="إلغاء (إشعار دائن)" data-en="Reverse (Credit Note)">إلغاء (إشعار دائن)</span>
+          </button>
+        </div>
+      </div>
     </div>
+  </div>
 
-    <div class="inv-card">
+  <!-- Public mode header -->
+  <div class="inv-page-header" id="public-header" style="display:none;">
+    <div class="inv-public-brand">
+      <div class="inv-public-brand-bars">
+        <div class="inv-public-brand-bar"></div>
+        <div class="inv-public-brand-bar dim"></div>
+      </div>
+      <div class="inv-public-brand-name">GulfLedger</div>
+    </div>
+    <div class="inv-page-actions">
+      <button class="btn btn-ghost" onclick="window.print()">
+        🖨 <span data-ar="طباعة" data-en="Print">طباعة</span>
+      </button>
+      <button class="btn btn-ghost" onclick="downloadPDF()">
+        📥 <span data-ar="تحميل" data-en="Download">تحميل</span>
+      </button>
+    </div>
+  </div>
 
-      <!-- Header -->
-      <div class="inv-head">
-        <div class="inv-head-inner">
-          <div style="display:flex;align-items:center;">
-            <div class="inv-biz-logo" id="view-logo-box">
-              <div style="font-family:'Playfair Display',serif;font-size:18px;color:#fff;" id="view-logo-initial">G</div>
-            </div>
-            <div>
-              <div class="inv-biz-name" id="view-biz-name">GulfLedger</div>
-              <div class="inv-biz-sub">INVOICE · فاتورة</div>
-            </div>
+  <!-- Pay CTA banner (public mode only, when unpaid) -->
+  <div class="pay-cta-banner" id="pay-cta-banner" style="display:none;">
+    <div>
+      <div class="pay-cta-text-ar" data-ar="المبلغ المستحق" data-en="Amount Due">المبلغ المستحق</div>
+      <div class="pay-cta-text-en">
+        <span class="pay-cta-amount" id="pay-cta-amount">SAR 0.00</span>
+      </div>
+    </div>
+    <button class="pay-cta-btn pay-cta-disabled" onclick="alert(currentLang==='ar'?'سيتم تفعيل الدفع الإلكتروني قريباً':'Online payment coming soon')">
+      💳 <span data-ar="ادفع الآن" data-en="Pay Online">ادفع الآن</span>
+    </button>
+  </div>
+
+  <!-- Status bar (seller mode only) -->
+  <div class="inv-status-bar" id="status-bar" style="display:none;">
+    <div class="inv-status-left" id="status-pills"></div>
+    <div class="inv-status-right" id="status-updated"></div>
+  </div>
+
+  <!-- ═════════════════════════════════════════════════════════════
+       INVOICE DOCUMENT — same in all modes
+  ═════════════════════════════════════════════════════════════ -->
+  <div class="inv-doc-wrap">
+    <div class="inv-doc">
+
+      <!-- Three-column header: logo+name | type centered | meta -->
+      <div class="inv-doc-header">
+        <!-- Left: Logo + Business name (bilingual) -->
+        <div class="inv-doc-logo">
+          <div class="inv-logo-circle" id="biz-logo"><span id="biz-logo-letter">G</span></div>
+          <div>
+            <div class="inv-biz-name-ar" id="biz-name-ar">—</div>
+            <div class="inv-biz-name-en" id="biz-name-en"></div>
           </div>
-          <div class="inv-head-right">
-            <div class="inv-head-num" id="view-inv-num2">—</div>
-            <div class="inv-head-type" id="view-inv-type">TAX INVOICE</div>
+        </div>
+
+        <!-- Center: Type badge -->
+        <div class="inv-type-center">
+          <div class="inv-type-badge">
+            <span class="ar" id="type-ar">فاتورة ضريبية</span>
+            <span class="en" id="type-en">TAX INVOICE</span>
+          </div>
+        </div>
+
+        <!-- Right: Invoice metadata (number, dates, PO) -->
+        <div class="inv-doc-meta">
+          <div class="inv-meta-row primary">
+            <div class="lbl">Invoice No.</div>
+            <div class="val" id="meta-invnum">—</div>
+          </div>
+          <div class="inv-meta-row" style="margin-top:8px;">
+            <div class="lbl">Issue Date</div>
+            <div class="val" id="meta-issuedate">—</div>
+          </div>
+          <div class="inv-meta-row" id="meta-duedate-row" style="margin-top:4px;display:none;">
+            <div class="lbl">Due Date</div>
+            <div class="val" id="meta-duedate">—</div>
+          </div>
+          <div class="inv-meta-row" id="meta-po-row" style="margin-top:4px;display:none;">
+            <div class="lbl">PO No.</div>
+            <div class="val" id="meta-po">—</div>
           </div>
         </div>
       </div>
 
       <!-- Body -->
-      <div class="inv-body">
+      <div class="inv-doc-body">
 
-        <!-- Parties -->
+        <!-- Parties: Seller + Buyer (bilingual + ZATCA national address) -->
         <div class="inv-parties">
-          <div class="party-box">
-            <div class="party-lbl">البائع · Seller</div>
-            <div class="party-name" id="view-seller-name">—</div>
-            <div class="party-detail" id="view-seller-addr"></div>
-            <div class="party-trn" id="view-seller-trn"></div>
-            <div class="party-detail" id="view-seller-cr"></div>
+          <div class="party-card">
+            <div class="party-card-label">
+              <div class="bi-label" data-ar="البائع<span class='en'>Seller</span>" data-en="Seller<span class='en'>البائع</span>">البائع<span class="en">Seller</span></div>
+            </div>
+            <div class="party-name-ar" id="seller-name-ar">—</div>
+            <div class="party-name-en" id="seller-name-en"></div>
+            <div class="party-trn" id="seller-trn"></div>
+            <div class="party-detail" id="seller-cr"></div>
+            <div class="party-address-block" id="seller-address"></div>
           </div>
-          <div class="party-box">
-            <div class="party-lbl">المشتري · Buyer</div>
-            <div class="party-name" id="view-buyer-name">—</div>
-            <div class="party-trn" id="view-buyer-trn"></div>
-            <div class="party-detail" id="view-buyer-addr"></div>
-          </div>
-        </div>
-
-        <!-- Dates -->
-        <div class="inv-date-row">
-          <div class="inv-date-item">
-            <span class="inv-date-lbl">تاريخ الإصدار · Issue Date</span>
-            <span class="inv-date-val" id="view-date">—</span>
-          </div>
-          <div class="inv-date-item">
-            <span class="inv-date-lbl">رقم الفاتورة · Invoice No.</span>
-            <span class="inv-date-val" style="font-family:'DM Mono',monospace;" id="view-inv-num3">—</span>
+          <div class="party-card">
+            <div class="party-card-label">
+              <div class="bi-label" data-ar="المشتري<span class='en'>Buyer</span>" data-en="Buyer<span class='en'>المشتري</span>">المشتري<span class="en">Buyer</span></div>
+            </div>
+            <div class="party-name-ar" id="buyer-name-ar">—</div>
+            <div class="party-name-en" id="buyer-name-en"></div>
+            <div class="party-trn" id="buyer-trn"></div>
+            <div class="party-address-block" id="buyer-address"></div>
           </div>
         </div>
 
-        <!-- Items Table -->
-        <table class="inv-tbl">
+        <!-- Items table -->
+        <table class="inv-items-tbl">
           <thead>
             <tr>
-              <th style="width:35%;">Description / الوصف</th>
-              <th>Qty</th>
-              <th>Unit Price</th>
-              <th>Disc%</th>
-              <th>Subtotal</th>
-              <th>VAT 15%</th>
-              <th>Total</th>
+              <th style="width:38%" data-ar="الوصف · Description" data-en="Description · الوصف">الوصف · Description</th>
+              <th class="ta-end" data-ar="الكمية · Qty" data-en="Qty · الكمية">الكمية · Qty</th>
+              <th class="ta-end" data-ar="السعر · Unit" data-en="Unit · السعر">السعر · Unit</th>
+              <th class="ta-end" data-ar="خصم% · Disc" data-en="Disc% · خصم">خصم% · Disc</th>
+              <th class="ta-end" data-ar="الإجمالي · Sub" data-en="Sub · الإجمالي">الإجمالي · Sub</th>
+              <th class="ta-end" data-ar="ضريبة 15% · VAT" data-en="VAT 15% · ضريبة">ضريبة · VAT</th>
+              <th class="ta-end" data-ar="المجموع · Total" data-en="Total · المجموع">المجموع · Total</th>
             </tr>
           </thead>
-          <tbody id="view-items"></tbody>
+          <tbody id="items-body"></tbody>
         </table>
 
         <!-- Totals -->
-        <div class="inv-footer">
-          <div class="inv-totals">
-            <div class="tot-row">
-              <span>Subtotal / الإجمالي قبل الضريبة</span>
-              <span class="tot-val" id="view-sub">SAR 0.00</span>
+        <div class="inv-totals-area">
+          <div class="inv-totals-box">
+            <div class="tot-line">
+              <span data-ar="الإجمالي · Subtotal" data-en="Subtotal · الإجمالي">الإجمالي · Subtotal</span>
+              <span class="v" id="tot-subtotal">SAR 0.00</span>
             </div>
-            <div class="tot-row">
-              <span>VAT 15% / ضريبة القيمة المضافة</span>
-              <span class="tot-val" id="view-vat">SAR 0.00</span>
+            <div class="tot-line discount" id="tot-discount-row" style="display:none;">
+              <span data-ar="الخصم · Discount" data-en="Discount · الخصم">الخصم · Discount</span>
+              <span class="v" id="tot-discount">SAR 0.00</span>
             </div>
-            <div class="tot-row grand">
-              <span>Total / الإجمالي شامل الضريبة</span>
-              <span class="tot-val" id="view-total">SAR 0.00</span>
+            <div class="tot-line">
+              <span data-ar="ضريبة القيمة المضافة 15%" data-en="VAT 15%">ضريبة القيمة المضافة 15%</span>
+              <span class="v" id="tot-vat">SAR 0.00</span>
+            </div>
+            <div class="tot-line grand" id="tot-grand-row">
+              <span data-ar="الإجمالي شامل الضريبة" data-en="Total Inc. VAT">الإجمالي شامل الضريبة</span>
+              <span class="v" id="tot-grand">SAR 0.00</span>
+            </div>
+            <div class="tot-line amount-paid" id="tot-paid-row" style="display:none;">
+              <span data-ar="المدفوع · Paid" data-en="Paid · المدفوع">المدفوع · Paid</span>
+              <span class="v" id="tot-paid">SAR 0.00</span>
+            </div>
+            <div class="tot-line amount-due" id="tot-due-row" style="display:none;">
+              <span data-ar="المتبقي · Balance Due" data-en="Balance Due · المتبقي">المتبقي · Balance Due</span>
+              <span class="v" id="tot-due">SAR 0.00</span>
             </div>
           </div>
         </div>
 
-        <!-- QR Strip -->
-        <div class="inv-qr-strip">
-          <div class="inv-qr-box" id="view-qr"></div>
-          <div class="inv-qr-info">
-            <div class="inv-qr-title">ZATCA Phase 2 · فاتورة إلكترونية</div>
-            <div class="inv-qr-sub">امسح رمز QR للتحقق من صحة الفاتورة عبر تطبيق زاتكا<br>Scan QR to verify via ZATCA app</div>
+        <!-- ZATCA QR strip -->
+        <div class="inv-qr-area">
+          <div class="inv-qr-img" id="qr-box"></div>
+          <div>
+            <div class="inv-qr-text-title" data-ar="رمز التحقق · ZATCA QR" data-en="ZATCA QR · رمز التحقق">رمز التحقق · ZATCA QR</div>
+            <div class="inv-qr-text-sub" data-ar="امسح الرمز للتحقق من الفاتورة عبر تطبيق زاتكا<br>Scan via ZATCA app to verify" data-en="Scan via ZATCA app to verify<br>امسح الرمز للتحقق من الفاتورة">امسح الرمز للتحقق من الفاتورة عبر تطبيق زاتكا<br>Scan via ZATCA app to verify</div>
           </div>
         </div>
 
-        <!-- Notes -->
-        <div id="view-notes" style="display:none;" class="inv-notes"></div>
+        <!-- Notes (customer-facing only) -->
+        <div class="inv-notes-block" id="notes-block" style="display:none;">
+          <div class="label" data-ar="ملاحظات · Notes" data-en="Notes · ملاحظات">ملاحظات · Notes</div>
+          <div id="notes-text"></div>
+        </div>
 
       </div>
-    </div>
 
-    <div class="powered-by">
-      مدعوم بـ <a href="https://gulfledger.net">GulfLedger</a> · منصة المحاسبة السعودية
-    </div>
+      <!-- Doc footer -->
+      <div class="inv-doc-footer">
+        <span data-ar="شكراً لتعاملكم معنا" data-en="Thank you for your business">شكراً لتعاملكم معنا</span>
+        <span>
+          <span data-ar="أُنشئت عبر" data-en="Created with">أُنشئت عبر</span>
+          <a href="https://gulfledger.vercel.app" class="doc-footer-link">GulfLedger</a>
+        </span>
+      </div>
 
+    </div>
+  </div>
+
+  <!-- Public footer (Mode 2 only) -->
+  <div class="inv-public-footer" id="public-footer" style="display:none;">
+    <div class="public-footer-contact">
+      <div class="public-footer-contact-row" style="font-weight:700;color:var(--ink);">
+        <span data-ar="للاستفسار" data-en="Need help?">للاستفسار</span>
+      </div>
+      <div class="public-footer-contact-row" id="public-seller-info"></div>
+    </div>
+    <div class="public-footer-powered">
+      <span data-ar="مدعوم بـ" data-en="Powered by">مدعوم بـ</span>
+      <a href="https://gulfledger.vercel.app" style="color:var(--blue);text-decoration:none;font-weight:600;">GulfLedger</a>
+      <span data-ar=" · منصة الفوترة المتوافقة مع زاتكا" data-en=" · ZATCA-compliant invoicing"> · منصة الفوترة المتوافقة مع زاتكا</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- ═════════════════════════════════════════════════════════════
+     SHARE MODAL
+═════════════════════════════════════════════════════════════ -->
+<div class="share-modal-overlay" id="share-modal-overlay" onclick="if(event.target===this)closeShareModal()">
+  <div class="share-modal">
+    <button class="share-modal-close" onclick="closeShareModal()">×</button>
+    <h3 data-ar="مشاركة الفاتورة" data-en="Share Invoice">مشاركة الفاتورة</h3>
+    <p data-ar="أي شخص لديه الرابط يمكنه عرض الفاتورة. لا يمكن للزوار التعديل." data-en="Anyone with the link can view this invoice. Visitors cannot edit.">أي شخص لديه الرابط يمكنه عرض الفاتورة. لا يمكن للزوار التعديل.</p>
+    <div class="share-link-row">
+      <input type="text" class="share-link-input" id="share-link-input" readonly>
+      <button class="btn btn-secondary" onclick="copyShareLink()" data-ar="نسخ" data-en="Copy">نسخ</button>
+    </div>
+    <div class="share-actions">
+      <button class="share-action-btn" onclick="shareViaWhatsApp()">
+        💬 <span data-ar="واتساب" data-en="WhatsApp">واتساب</span>
+      </button>
+      <button class="share-action-btn" onclick="shareViaEmail()">
+        ✉️ <span data-ar="بريد إلكتروني" data-en="Email">بريد إلكتروني</span>
+      </button>
+    </div>
+    <div class="share-modal-footer">
+      <span data-ar="الرابط نشط" data-en="Link is active">الرابط نشط</span>
+      <button class="share-revoke-btn" onclick="revokeShareLink()" data-ar="إلغاء الرابط" data-en="Revoke link">إلغاء الرابط</button>
+    </div>
   </div>
 </div>
 
 <script>
-const SUPABASE_URL='https://ykzivnasjwtuhvjxfxzf.supabase.co';
-const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
-const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+/* ═══════════════════════════════════════════════════════
+   GulfLedger — invoice-view.html JavaScript
+═══════════════════════════════════════════════════════ */
+const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-function fmt(n){return(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');}
-function set(id,v){const e=document.getElementById(id);if(e)e.textContent=v;}
+const PUBLIC_URL_BASE = 'https://gulfledger.vercel.app';
 
-async function init(){
-  const params=new URLSearchParams(window.location.search);
-  const invNum=params.get('inv');
-  if(!invNum){showError();return;}
+let currentMode = null;     /* 'seller' | 'public' | null (still loading) */
+let currentInvoice = null;
+let currentBiz = null;
+let currentUser = null;
+let currentLang = localStorage.getItem('gl_lang') || 'ar';
 
-  // Load invoice
-  const {data:inv,error}=await sb.from('invoices')
-    .select('*').eq('invoice_number',invNum).single();
-  if(error||!inv){showError();return;}
+/* ── Helpers ── */
+function fmt(n){ return (n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ','); }
+function set(id, v){ const e = document.getElementById(id); if(e) e.textContent = v; }
+function setHTML(id, v){ const e = document.getElementById(id); if(e) e.innerHTML = v; }
+function show(id, display='block'){ const e = document.getElementById(id); if(e) e.style.display = display; }
+function hide(id){ const e = document.getElementById(id); if(e) e.style.display = 'none'; }
 
-  // Load invoice items
-  const {data:invItems}=await sb.from('invoice_items')
-    .select('*').eq('invoice_id',inv.id).order('sort_order');
-
-  // Load business
-  const {data:biz}=await sb.from('businesses')
-    .select('name,name_ar,trn,cr_number,building_number,address,district,city,postal_code,logo_base64')
-    .eq('id',inv.business_id).single();
-
-  renderInvoice(inv, invItems||[], biz);
+function formatDateDDMMYYYY(iso){
+  if(!iso) return '—';
+  const d = new Date(iso + 'T00:00:00Z');
+  if(isNaN(d.getTime())) return iso;
+  const dd = String(d.getUTCDate()).padStart(2,'0');
+  const mm = String(d.getUTCMonth()+1).padStart(2,'0');
+  const yyyy = d.getUTCFullYear();
+  return `${dd}/${mm}/${yyyy}`;
 }
 
-function renderInvoice(inv, items, biz){
-  // Business
-  const bizName=biz?.name_ar||biz?.name||'GulfLedger';
-  set('view-biz-name', bizName);
-  set('view-logo-initial', bizName[0]||'G');
+function notify(msg, type='info'){
+  const n = document.getElementById('notify');
+  n.textContent = msg;
+  n.className = 'notify show ' + (type === 'error' ? 'error' : type === 'success' ? 'success' : '');
+  setTimeout(() => n.classList.remove('show'), 3000);
+}
+
+/* Customer name helpers (bilingual) */
+function getNameAr(obj){
+  return obj?.name_ar || obj?.company_name_ar || (
+    /[\u0600-\u06FF]/.test(obj?.name || '') ? obj.name : ''
+  ) || obj?.name || '';
+}
+function getNameEn(obj){
+  return obj?.name_en || obj?.company_name_en || (
+    !/[\u0600-\u06FF]/.test(obj?.name || '') ? obj.name : ''
+  ) || '';
+}
+
+/* Random token generator (for share links) */
+function generateToken(length = 20){
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let token = '';
+  const arr = new Uint32Array(length);
+  crypto.getRandomValues(arr);
+  for(let i = 0; i < length; i++) token += chars[arr[i] % chars.length];
+  return token;
+}
+
+/* ═══════════════════════════════════════════════════════
+   INIT — detect mode and load invoice
+═══════════════════════════════════════════════════════ */
+async function init(){
+  const params = new URLSearchParams(window.location.search);
+  const id = params.get('id');
+  const token = params.get('t');
+  const inv = params.get('inv');
+
+  /* Get current user (might be null if anonymous) */
+  const {data: {user}} = await sb.auth.getUser();
+  currentUser = user;
+
+  let invoice = null;
+  let mode = null;
+
+  if(token){
+    /* PUBLIC MODE — lookup by token */
+    const {data, error} = await sb.from('invoices')
+      .select('*')
+      .eq('public_token', token)
+      .maybeSingle();
+    if(error || !data){
+      showError(currentLang==='ar' ? 'رابط غير صالح أو منتهي' : 'Invalid or expired link');
+      return;
+    }
+    invoice = data;
+    mode = 'public';
+  } else if(id){
+    /* SELLER MODE — lookup by uuid (RLS-protected) */
+    if(!currentUser){
+      showError(currentLang==='ar' ? 'يجب تسجيل الدخول' : 'Login required',
+                currentLang==='ar' ? 'هذه الفاتورة خاصة. سجّل دخولك للعرض.' : 'This invoice is private. Please log in.');
+      return;
+    }
+    const {data, error} = await sb.from('invoices')
+      .select('*')
+      .eq('id', id)
+      .maybeSingle();
+    if(error || !data){
+      showError();
+      return;
+    }
+    invoice = data;
+    mode = 'seller';
+  } else if(inv){
+    /* LEGACY — lookup by invoice number (requires auth) */
+    if(!currentUser){
+      showError(currentLang==='ar' ? 'يجب تسجيل الدخول' : 'Login required');
+      return;
+    }
+    const {data, error} = await sb.from('invoices')
+      .select('*')
+      .eq('invoice_number', inv)
+      .eq('user_id', currentUser.id)
+      .maybeSingle();
+    if(error || !data){
+      showError();
+      return;
+    }
+    invoice = data;
+    mode = 'seller';
+  } else {
+    showError();
+    return;
+  }
+
+  currentInvoice = invoice;
+  currentMode = mode;
+
+  /* Load business + items */
+  const [bizResp, itemsResp] = await Promise.all([
+    sb.from('businesses')
+      .select('id,name,name_ar,name_en,trn,cr_number,building_number,additional_number,street_name,address,district,city,postal_code,logo_base64,brand_color,phone,email')
+      .eq('id', invoice.business_id).maybeSingle(),
+    sb.from('invoice_items')
+      .select('*').eq('invoice_id', invoice.id).order('sort_order')
+  ]);
+
+  currentBiz = bizResp.data;
+  const items = itemsResp.data || [];
+
+  /* Apply brand color if set */
+  if(currentBiz?.brand_color){
+    document.documentElement.style.setProperty('--brand', currentBiz.brand_color);
+    document.documentElement.style.setProperty('--blue', currentBiz.brand_color);
+  }
+
+  /* Render the invoice */
+  renderInvoice();
+  renderItems(items);
+
+  /* Show/hide chrome based on mode */
+  applyMode();
+
+  /* Apply language to all data-ar/data-en elements */
+  applyLang();
+
+  /* Hide loading, show content */
+  hide('loading-state');
+  show('inv-content');
+}
+
+/* ═══════════════════════════════════════════════════════
+   APPLY MODE — show/hide chrome based on seller/public
+═══════════════════════════════════════════════════════ */
+function applyMode(){
+  if(currentMode === 'seller'){
+    show('seller-header', 'flex');
+    show('status-bar', 'flex');
+    renderStatusBar();
+
+    /* Voided invoices: hide Pay button, hide Reverse menu item */
+    if(currentInvoice.status === 'voided'){
+      hide('btn-pay');
+      const reverseBtn = document.querySelector('.more-menu-item.danger');
+      if(reverseBtn) reverseBtn.style.display = 'none';
+    }
+    /* Paid: hide Pay button */
+    if(currentInvoice.payment_status === 'paid'){
+      hide('btn-pay');
+    }
+    /* No buyer mobile: hide WhatsApp option */
+    if(!currentInvoice.buyer_mobile){
+      hide('menu-whatsapp');
+    }
+  } else {
+    /* Public mode */
+    show('public-header', 'flex');
+    show('public-footer');
+
+    /* Pay CTA banner — only show if unpaid and not voided */
+    if(currentInvoice.status !== 'voided' && currentInvoice.payment_status !== 'paid'){
+      show('pay-cta-banner', 'flex');
+      const due = (currentInvoice.total || 0) - (currentInvoice.amount_paid || 0);
+      set('pay-cta-amount', 'SAR ' + fmt(due));
+    }
+
+    /* Public footer seller info */
+    const sellerNameAr = getNameAr(currentBiz);
+    const sellerNameEn = getNameEn(currentBiz);
+    const contactParts = [];
+    if(currentBiz?.email) contactParts.push('📧 ' + currentBiz.email);
+    if(currentBiz?.phone) contactParts.push('📱 ' + currentBiz.phone);
+    setHTML('public-seller-info',
+      (sellerNameAr || sellerNameEn || 'GulfLedger') +
+      (contactParts.length ? '<br>' + contactParts.join(' · ') : '')
+    );
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+   RENDER STATUS BAR (seller mode)
+═══════════════════════════════════════════════════════ */
+function renderStatusBar(){
+  const inv = currentInvoice;
+  const pills = [];
+
+  /* Payment status pill */
+  if(inv.status === 'voided'){
+    pills.push(`<span class="status-pill pill-voided">↩ ${currentLang==='ar'?'ملغية':'Reversed'}</span>`);
+  } else if(inv.payment_status === 'paid'){
+    pills.push(`<span class="status-pill pill-paid">✅ ${currentLang==='ar'?'مدفوع':'Paid'}</span>`);
+  } else if(inv.payment_status === 'partial'){
+    pills.push(`<span class="status-pill pill-partial">⚡ ${currentLang==='ar'?'جزئي':'Partial'}</span>`);
+  } else {
+    pills.push(`<span class="status-pill pill-unpaid">⏳ ${currentLang==='ar'?'غير مدفوع':'Unpaid'}</span>`);
+  }
+
+  /* ZATCA pill */
+  const zs = inv.zatca_status;
+  if(zs === 'cleared'){
+    pills.push(`<span class="status-pill pill-zatca-cleared">✅ ${currentLang==='ar'?'زاتكا معتمدة':'ZATCA Cleared'}</span>`);
+  } else if(zs === 'pending' || zs === 'submitted'){
+    pills.push(`<span class="status-pill pill-zatca-pending">🟡 ${currentLang==='ar'?'زاتكا معلق':'ZATCA Pending'}</span>`);
+  } else if(zs === 'rejected'){
+    pills.push(`<span class="status-pill pill-zatca-rejected">🔴 ${currentLang==='ar'?'زاتكا مرفوض':'ZATCA Rejected'}</span>`);
+  } else {
+    pills.push(`<span class="status-pill pill-zatca-soon">🔜 ${currentLang==='ar'?'زاتكا قريباً':'ZATCA Coming Soon'}</span>`);
+  }
+
+  setHTML('status-pills', pills.join(''));
+
+  /* Last updated */
+  if(inv.updated_at){
+    const d = new Date(inv.updated_at);
+    set('status-updated', `${currentLang==='ar'?'آخر تحديث':'Last updated'}: ${formatDateDDMMYYYY(d.toISOString().slice(0,10))} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+   RENDER INVOICE — fill in all fields
+═══════════════════════════════════════════════════════ */
+function renderInvoice(){
+  const inv = currentInvoice;
+  const biz = currentBiz;
+
+  /* Business name (bilingual) */
+  const bizNameAr = getNameAr(biz) || 'GulfLedger';
+  const bizNameEn = getNameEn(biz) || '';
+  set('biz-name-ar', bizNameAr);
+  set('biz-name-en', bizNameEn);
+  set('biz-logo-letter', (bizNameEn || bizNameAr || 'G')[0]?.toUpperCase());
   if(biz?.logo_base64){
-    const box=document.getElementById('view-logo-box');
-    box.innerHTML=`<img src="${biz.logo_base64}" alt="logo">`;
+    const box = document.getElementById('biz-logo');
+    box.innerHTML = `<img src="${biz.logo_base64}" alt="logo">`;
   }
 
-  // Apply brand color if stored
-  if(inv.brand_color){
-    document.documentElement.style.setProperty('--brand', inv.brand_color);
-    document.documentElement.style.setProperty('--navy', inv.brand_color);
+  /* Type badge */
+  const isB2B = inv.invoice_type === 'b2b';
+  set('type-ar', isB2B ? 'فاتورة ضريبية' : 'فاتورة مبسطة');
+  set('type-en', isB2B ? 'TAX INVOICE' : 'SIMPLIFIED INVOICE');
+
+  /* Meta block (right side of header) */
+  set('meta-invnum', inv.invoice_number || '—');
+  set('meta-issuedate', formatDateDDMMYYYY(inv.issue_date));
+  if(inv.due_date){
+    show('meta-duedate-row');
+    set('meta-duedate', formatDateDDMMYYYY(inv.due_date));
+  }
+  if(inv.po_number){
+    show('meta-po-row');
+    set('meta-po', inv.po_number);
   }
 
-  // Invoice numbers
-  ['view-inv-num','view-inv-num2','view-inv-num3'].forEach(id=>set(id,inv.invoice_number));
-  set('view-inv-type', inv.invoice_type==='b2b'?'B2B TAX INVOICE · فاتورة ضريبية':'B2C SIMPLIFIED · فاتورة مبسطة');
+  /* Seller info */
+  set('seller-name-ar', bizNameAr);
+  set('seller-name-en', bizNameEn);
+  if(biz?.trn) set('seller-trn', 'TRN: ' + biz.trn);
+  if(biz?.cr_number) set('seller-cr', 'CR: ' + biz.cr_number);
+  setHTML('seller-address', renderAddress(biz));
 
-  // Seller
-  set('view-seller-name', bizName);
-  const addr=[biz?.building_number,biz?.address,biz?.district,biz?.city,biz?.postal_code].filter(Boolean).join('، ');
-  set('view-seller-addr', addr);
-  set('view-seller-trn',  biz?.trn  ? 'TRN: '+biz.trn  : '');
-  set('view-seller-cr',   biz?.cr_number ? 'CR: '+biz.cr_number : '');
+  /* Buyer info */
+  const buyerNameAr = inv.buyer_name || '';
+  const buyerNameEn = inv.buyer_name_en || '';
+  set('buyer-name-ar', buyerNameAr || (currentLang==='ar' ? 'عميل غير محدد' : 'No customer'));
+  set('buyer-name-en', buyerNameEn);
+  if(inv.buyer_trn) set('buyer-trn', 'TRN: ' + inv.buyer_trn);
+  setHTML('buyer-address', renderAddress({
+    building_number: inv.buyer_building,
+    street_name: inv.buyer_street,
+    additional_number: inv.buyer_additional,
+    district: inv.buyer_district,
+    city: inv.buyer_city,
+    postal_code: inv.buyer_postal,
+    address: inv.buyer_address
+  }));
 
-  // Buyer
-  set('view-buyer-name', inv.buyer_name||'—');
-  set('view-buyer-trn',  inv.buyer_trn ? 'TRN: '+inv.buyer_trn : '');
-  set('view-buyer-addr', [inv.buyer_address, inv.buyer_city].filter(Boolean).join('، '));
+  /* Generate ZATCA QR */
+  generateZatcaQR();
 
-  // Date
-  set('view-date', inv.issue_date||'—');
+  /* Notes */
+  if(inv.notes){
+    show('notes-block');
+    set('notes-text', inv.notes);
+  }
 
-  // Items
-  const tb=document.getElementById('view-items');
-  tb.innerHTML=(items||[]).map(it=>{
-    const disc=it.discount_pct||0;
-    const discAmt=it.subtotal*(disc/100)||it.discount_amt||0;
-    const netSub=it.subtotal||0;
-    const vat=it.vat_amount||0;
-    const tot=it.total||0;
+  /* Page title */
+  document.title = (inv.invoice_number || 'Invoice') + ' — ' + bizNameAr;
+}
+
+/* Render national address structure (bilingual) */
+function renderAddress(obj){
+  if(!obj) return '';
+  const parts = [];
+
+  /* Line 1: Building + Street + (Additional) */
+  const line1Parts = [];
+  if(obj.building_number) line1Parts.push(`<span class="address-tag">Bldg</span>${obj.building_number}`);
+  if(obj.street_name) line1Parts.push(obj.street_name);
+  if(obj.additional_number) line1Parts.push(`<span class="address-tag">Add</span>${obj.additional_number}`);
+  if(line1Parts.length) parts.push(`<div class="address-line">${line1Parts.join(' · ')}</div>`);
+
+  /* Line 2: District + City + Postal */
+  const line2Parts = [];
+  if(obj.district) line2Parts.push(obj.district);
+  if(obj.city) line2Parts.push(obj.city);
+  if(obj.postal_code) line2Parts.push(obj.postal_code);
+  if(line2Parts.length) parts.push(`<div class="address-line">${line2Parts.join('، ')}</div>`);
+
+  /* Fallback to legacy address string if no structured data */
+  if(parts.length === 0 && obj.address){
+    parts.push(`<div class="address-line">${obj.address}</div>`);
+  }
+
+  /* Country */
+  if(parts.length > 0){
+    parts.push(`<div class="address-line" style="font-size:10px;opacity:0.8;">${currentLang==='ar'?'المملكة العربية السعودية':'Saudi Arabia'}</div>`);
+  }
+
+  return parts.join('');
+}
+
+/* ═══════════════════════════════════════════════════════
+   RENDER ITEMS + TOTALS
+═══════════════════════════════════════════════════════ */
+function renderItems(items){
+  const tbody = document.getElementById('items-body');
+  tbody.innerHTML = items.map(it => {
+    const disc = parseFloat(it.discount_pct) || 0;
+    const subtotal = parseFloat(it.subtotal) || 0;
+    const vat = parseFloat(it.vat_amount) || 0;
+    const total = parseFloat(it.total) || 0;
     return `<tr>
-      <td>${it.description||'—'}${disc>0?`<div style="font-size:9px;color:var(--amber);">خصم ${disc}% = SAR ${fmt(discAmt)}</div>`:''}</td>
-      <td>${it.quantity||0}</td>
-      <td>SAR ${fmt(it.unit_price)}</td>
-      <td>${disc>0?disc+'%':'—'}</td>
-      <td>SAR ${fmt(netSub)}</td>
-      <td>SAR ${fmt(vat)}</td>
-      <td style="font-weight:700;">SAR ${fmt(tot)}</td>
+      <td class="desc-cell">${escapeHTML(it.description || '—')}</td>
+      <td class="mono">${parseFloat(it.quantity)||0}</td>
+      <td class="mono">SAR ${fmt(it.unit_price)}</td>
+      <td class="mono">${disc > 0 ? disc + '%' : '—'}</td>
+      <td class="mono">SAR ${fmt(subtotal)}</td>
+      <td class="mono">SAR ${fmt(vat)}</td>
+      <td class="mono" style="font-weight:700;">SAR ${fmt(total)}</td>
     </tr>`;
   }).join('');
 
-  // Totals
-  set('view-sub',   'SAR '+fmt(inv.subtotal));
-  set('view-vat',   'SAR '+fmt(inv.vat_amount));
-  set('view-total', 'SAR '+fmt(inv.total));
-
-  // Notes
-  if(inv.notes){
-    const n=document.getElementById('view-notes');
-    n.style.display='block';
-    n.textContent=inv.notes;
+  /* Totals */
+  const inv = currentInvoice;
+  set('tot-subtotal', 'SAR ' + fmt(inv.subtotal));
+  if(inv.discount_amount && inv.discount_amount > 0){
+    show('tot-discount-row', 'flex');
+    set('tot-discount', '- SAR ' + fmt(inv.discount_amount));
   }
+  set('tot-vat', 'SAR ' + fmt(inv.vat_amount));
+  set('tot-grand', 'SAR ' + fmt(inv.total));
 
-  // QR Code
-  generateQR(bizName, biz?.trn, inv.issue_date, inv.total, inv.vat_amount);
-
-  // Show
-  document.getElementById('loading-state').style.display='none';
-  document.getElementById('inv-content').style.display='block';
-
-  // Page title
-  document.title=`فاتورة ${inv.invoice_number} — ${bizName}`;
+  /* Show paid/due rows if any payment */
+  const amtPaid = parseFloat(inv.amount_paid) || 0;
+  if(amtPaid > 0){
+    show('tot-paid-row', 'flex');
+    set('tot-paid', 'SAR ' + fmt(amtPaid));
+    const due = (inv.total || 0) - amtPaid;
+    if(due > 0.01){
+      show('tot-due-row', 'flex');
+      set('tot-due', 'SAR ' + fmt(due));
+    }
+  }
 }
 
-function generateQR(name, trn, date, total, vat){
-  const container=document.getElementById('view-qr');
-  container.innerHTML='';
-  if(!name&&!trn)return;
+function escapeHTML(s){
+  return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+}
 
-  function tlvEncode(tag,value){
-    const v=new TextEncoder().encode(value);
-    return new Uint8Array([tag,v.length,...v]);
+/* ═══════════════════════════════════════════════════════
+   ZATCA QR — Phase 1 (5-tag TLV)
+═══════════════════════════════════════════════════════ */
+function generateZatcaQR(){
+  const inv = currentInvoice;
+  const biz = currentBiz;
+  const container = document.getElementById('qr-box');
+  container.innerHTML = '';
+
+  /* If Phase 2 cleared and we have stored TLV, use it */
+  if(inv.zatca_qr_tlv){
+    try {
+      new QRCode(container, {text: inv.zatca_qr_tlv, width: 86, height: 86, correctLevel: QRCode.CorrectLevel.M});
+      return;
+    } catch(e){ /* fall through to compute */ }
   }
-  function buildTLV(name,trn,date,total,vat){
-    const parts=[
-      tlvEncode(1,name),tlvEncode(2,trn||''),
-      tlvEncode(3,date+'T00:00:00Z'),
-      tlvEncode(4,(total||0).toFixed(2)),
-      tlvEncode(5,(vat||0).toFixed(2))
+
+  const sellerName = getNameAr(biz) || biz?.name || 'GulfLedger';
+  const trn = biz?.trn || '';
+  const date = inv.issue_date || '';
+  const total = inv.total || 0;
+  const vat = inv.vat_amount || 0;
+
+  function tlvEncode(tag, value){
+    const v = new TextEncoder().encode(value);
+    return new Uint8Array([tag, v.length, ...v]);
+  }
+  function buildTLV(){
+    const parts = [
+      tlvEncode(1, sellerName),
+      tlvEncode(2, trn),
+      tlvEncode(3, date + 'T00:00:00Z'),
+      tlvEncode(4, total.toFixed(2)),
+      tlvEncode(5, vat.toFixed(2))
     ];
-    const len=parts.reduce((s,p)=>s+p.length,0);
-    const result=new Uint8Array(len);
-    let offset=0;
-    parts.forEach(p=>{result.set(p,offset);offset+=p.length;});
+    const len = parts.reduce((s, p) => s + p.length, 0);
+    const result = new Uint8Array(len);
+    let offset = 0;
+    parts.forEach(p => { result.set(p, offset); offset += p.length; });
     return result;
   }
-  try{
-    const tlv=buildTLV(name,trn||'',date||'',total||0,vat||0);
-    const b64=btoa(String.fromCharCode(...tlv));
-    new QRCode(container,{text:b64,width:76,height:76,colorDark:'#000',colorLight:'#fff',correctLevel:QRCode.CorrectLevel.M});
-  }catch(e){container.innerHTML='<div style="font-size:9px;color:var(--muted);text-align:center;">QR</div>';}
+  try {
+    const tlv = buildTLV();
+    const b64 = btoa(String.fromCharCode(...tlv));
+    new QRCode(container, {text: b64, width: 86, height: 86, colorDark: '#000', colorLight: '#fff', correctLevel: QRCode.CorrectLevel.M});
+  } catch(e){
+    container.innerHTML = '<div style="font-size:9px;color:var(--muted);text-align:center;">QR error</div>';
+  }
 }
 
-function showError(){
-  document.getElementById('loading-state').style.display='none';
-  document.getElementById('error-state').style.display='block';
+/* ═══════════════════════════════════════════════════════
+   APPLY LANGUAGE — toggle data-ar/data-en spans
+═══════════════════════════════════════════════════════ */
+function applyLang(){
+  /* Already handled by CSS [lang="X"] [data-Y]{display:none} for spans */
+  /* For elements with data-ar AND data-en attributes (not children), set textContent */
+  document.querySelectorAll('[data-ar][data-en]').forEach(el => {
+    if(el.tagName === 'SPAN' && el.children.length === 0) return; /* siblings */
+    const newContent = currentLang === 'ar' ? el.getAttribute('data-ar') : el.getAttribute('data-en');
+    if(newContent && el.children.length === 0){
+      el.textContent = newContent;
+    }
+  });
 }
+
+/* ═══════════════════════════════════════════════════════
+   ACTION HANDLERS (seller mode)
+═══════════════════════════════════════════════════════ */
+function onPayClick(){
+  /* Redirect to invoices.html with pay action — that's where the payment modal lives */
+  window.location.href = 'invoices.html?pay=' + encodeURIComponent(currentInvoice.id);
+}
+
+function onReverseClick(){
+  /* Redirect to invoices.html with reverse action */
+  window.location.href = 'invoices.html?reverse=' + encodeURIComponent(currentInvoice.id);
+}
+
+function downloadPDF(){
+  /* Use browser's print → save as PDF */
+  notify(currentLang==='ar'
+    ? 'استخدم "حفظ كـ PDF" من نافذة الطباعة'
+    : 'Use "Save as PDF" from the print dialog', 'info');
+  setTimeout(() => window.print(), 500);
+}
+
+function sendWhatsApp(){
+  if(!currentInvoice.buyer_mobile){
+    notify(currentLang==='ar'?'لا يوجد رقم جوال للعميل':'No customer mobile', 'error');
+    return;
+  }
+  const link = getOrCreateShareLink();
+  link.then(url => {
+    const msg = currentLang==='ar'
+      ? `فاتورتك ${currentInvoice.invoice_number} من ${getNameAr(currentBiz)}\nالمبلغ: SAR ${fmt(currentInvoice.total)}\n${url}`
+      : `Your invoice ${currentInvoice.invoice_number} from ${getNameAr(currentBiz)||getNameEn(currentBiz)}\nAmount: SAR ${fmt(currentInvoice.total)}\n${url}`;
+    const phone = String(currentInvoice.buyer_mobile).replace(/\D/g,'');
+    const fullPhone = phone.startsWith('966') ? phone : ('966' + phone.replace(/^0/,''));
+    window.open(`https://wa.me/${fullPhone}?text=${encodeURIComponent(msg)}`, '_blank');
+  });
+}
+
+function copyInvoiceNumber(){
+  navigator.clipboard.writeText(currentInvoice.invoice_number || '');
+  notify(currentLang==='ar'?'تم نسخ الرقم':'Copied to clipboard', 'success');
+}
+
+function toggleMoreMenu(e){
+  e.stopPropagation();
+  document.getElementById('more-menu').classList.toggle('open');
+}
+function closeMoreMenu(){
+  document.getElementById('more-menu').classList.remove('open');
+}
+document.addEventListener('click', e => {
+  if(!e.target.closest('.btn-more-wrap')){
+    closeMoreMenu();
+  }
+});
+
+/* ═══════════════════════════════════════════════════════
+   SHARE — token generation, modal, copy
+═══════════════════════════════════════════════════════ */
+async function getOrCreateShareLink(){
+  if(currentInvoice.public_token){
+    return PUBLIC_URL_BASE + '/invoice-view.html?t=' + currentInvoice.public_token;
+  }
+  /* Generate new token */
+  const token = generateToken();
+  const {error} = await sb.from('invoices').update({
+    public_token: token,
+    public_token_created_at: new Date().toISOString()
+  }).eq('id', currentInvoice.id);
+  if(error){
+    notify('Error: ' + error.message, 'error');
+    return null;
+  }
+  currentInvoice.public_token = token;
+  return PUBLIC_URL_BASE + '/invoice-view.html?t=' + token;
+}
+
+async function openShareModal(){
+  const url = await getOrCreateShareLink();
+  if(!url) return;
+  document.getElementById('share-link-input').value = url;
+  document.getElementById('share-modal-overlay').classList.add('show');
+}
+function closeShareModal(){
+  document.getElementById('share-modal-overlay').classList.remove('show');
+}
+
+function copyShareLink(){
+  const input = document.getElementById('share-link-input');
+  input.select();
+  navigator.clipboard.writeText(input.value);
+  notify(currentLang==='ar'?'تم نسخ الرابط':'Link copied', 'success');
+}
+
+function shareViaWhatsApp(){
+  const url = document.getElementById('share-link-input').value;
+  const msg = currentLang==='ar'
+    ? `فاتورتك ${currentInvoice.invoice_number}\nالمبلغ: SAR ${fmt(currentInvoice.total)}\n${url}`
+    : `Your invoice ${currentInvoice.invoice_number}\nAmount: SAR ${fmt(currentInvoice.total)}\n${url}`;
+  let phone = '';
+  if(currentInvoice.buyer_mobile){
+    phone = String(currentInvoice.buyer_mobile).replace(/\D/g,'');
+    if(!phone.startsWith('966')) phone = '966' + phone.replace(/^0/,'');
+  }
+  window.open(`https://wa.me/${phone}?text=${encodeURIComponent(msg)}`, '_blank');
+  closeShareModal();
+}
+
+function shareViaEmail(){
+  const url = document.getElementById('share-link-input').value;
+  const subject = currentLang==='ar' ? `فاتورة ${currentInvoice.invoice_number}` : `Invoice ${currentInvoice.invoice_number}`;
+  const body = currentLang==='ar'
+    ? `يمكنكم عرض الفاتورة عبر الرابط التالي:\n\n${url}\n\nالمبلغ المستحق: SAR ${fmt(currentInvoice.total)}\n\nشكراً.`
+    : `You can view the invoice at:\n\n${url}\n\nAmount due: SAR ${fmt(currentInvoice.total)}\n\nThank you.`;
+  window.location.href = `mailto:?subject=${encodeURIComponent(subject)}&body=${encodeURIComponent(body)}`;
+  closeShareModal();
+}
+
+async function revokeShareLink(){
+  if(!confirm(currentLang==='ar'
+    ? 'إلغاء الرابط؟ سيتم إنشاء رابط جديد عند المشاركة مرة أخرى.'
+    : 'Revoke this link? A new one will be created next time you share.')) return;
+  const {error} = await sb.from('invoices').update({
+    public_token: null,
+    public_token_created_at: null
+  }).eq('id', currentInvoice.id);
+  if(error){
+    notify('Error: ' + error.message, 'error');
+    return;
+  }
+  currentInvoice.public_token = null;
+  notify(currentLang==='ar'?'تم إلغاء الرابط':'Link revoked', 'success');
+  closeShareModal();
+}
+
+/* ═══════════════════════════════════════════════════════
+   ERROR STATE
+═══════════════════════════════════════════════════════ */
+function showError(title, message){
+  hide('loading-state');
+  if(title) set('error-title', title);
+  if(message) set('error-message', message);
+  show('error-state');
+}
+
+/* ESC to close modals */
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape'){
+    closeShareModal();
+    closeMoreMenu();
+  }
+});
 
 init();
-</script>
-<script>
-/* GL:QA-v3 */
-function glQAToggle(e){
-  e.stopPropagation();
-  var menu=document.getElementById('gl-qa-menu');
-  if(!menu)return;
-  if(menu.classList.contains('open')){menu.classList.remove('open');return;}
-  var btn=e.currentTarget;
-  var r=btn.getBoundingClientRect();
-  var isRTL=document.documentElement.getAttribute('dir')==='rtl';
-  menu.style.top=(r.bottom+6)+'px';
-  if(isRTL){menu.style.right=(window.innerWidth-r.right)+'px';menu.style.left='auto';}
-  else{menu.style.left=r.left+'px';menu.style.right='auto';}
-  menu.classList.add('open');
-}
-document.addEventListener('click',function(e){
-  var w=document.getElementById('gl-qa-wrap');
-  if(w&&!w.contains(e.target)){var m=document.getElementById('gl-qa-menu');if(m)m.classList.remove('open');}
-});
 </script>
 </body>
 </html>

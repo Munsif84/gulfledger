@@ -78,6 +78,23 @@
        AND name IS NOT NULL
        AND name !~ '[\u0600-\u06FF]';
 
+    -- ─── Payment terms + due date ───────────────────────────────────
+    -- Each customer has a default payment terms value (Net-X days).
+    -- When generating an invoice for that customer, due_date auto-fills
+    -- as issue_date + payment_terms_days. User can always override.
+    ALTER TABLE customers ADD COLUMN IF NOT EXISTS payment_terms_days integer DEFAULT 30;
+    ALTER TABLE invoices  ADD COLUMN IF NOT EXISTS due_date date;
+
+    -- ─── Public share tokens (invoice-view.html) ────────────────────
+    -- When seller clicks "Share" in invoice-view.html, a random token is
+    -- generated and stored. Anyone with the token URL can view the invoice
+    -- (?t={token}) without authentication. Sellers can revoke at any time
+    -- (regenerate or set to NULL).
+    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS public_token text UNIQUE;
+    ALTER TABLE invoices ADD COLUMN IF NOT EXISTS public_token_created_at timestamptz;
+    CREATE INDEX IF NOT EXISTS idx_invoices_public_token
+      ON invoices(public_token) WHERE public_token IS NOT NULL;
+
     -- ─── ZATCA Phase 2 forward-compatibility ───────────────────────
     -- These columns are populated when Fatoora integration is built (later phase).
     -- Adding now to avoid migration on a busy invoices table later.
@@ -559,6 +576,8 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .meta-strip{display:grid;gap:10px;margin-bottom:14px;padding:10px 14px;background:var(--bg);border:1px solid var(--border);border-radius:8px;}
 .meta-strip.cols-2{grid-template-columns:1fr 1fr;}
 .meta-strip.cols-3{grid-template-columns:1fr 1fr 1fr;}
+.meta-strip.cols-4{grid-template-columns:1fr 1fr 1fr 1fr;}
+@media(max-width:600px){.meta-strip.cols-4{grid-template-columns:1fr 1fr;}}
 .meta-cell{display:flex;flex-direction:column;gap:2px;min-width:0;}
 .meta-label{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;}
 .meta-input{padding:4px 0;font-size:14px;font-family:'DM Mono',monospace;background:transparent;border:none;width:100%;color:var(--ink);font-weight:600;}
@@ -947,8 +966,12 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
           <input type="text" class="meta-input" id="f-invnum" readonly>
         </div>
         <div class="meta-cell">
-          <span class="meta-label" data-ar="التاريخ · Date" data-en="Date · التاريخ">التاريخ · Date</span>
-          <input type="date" class="meta-input" id="f-date" lang="en">
+          <span class="meta-label" data-ar="التاريخ · Issue Date" data-en="Issue Date · التاريخ">التاريخ · Issue Date</span>
+          <input type="date" class="meta-input" id="f-date" lang="en" oninput="autoFillDueDate()">
+        </div>
+        <div class="meta-cell" id="duedate-cell" style="display:none;">
+          <span class="meta-label" data-ar="تاريخ الاستحقاق · Due Date" data-en="Due Date · تاريخ الاستحقاق">تاريخ الاستحقاق · Due Date</span>
+          <input type="date" class="meta-input" id="f-duedate" lang="en">
         </div>
         <div class="meta-cell" id="po-cell" style="display:none;">
           <span class="meta-label" data-ar="أمر الشراء · PO No. (اختياري)" data-en="PO No. · أمر الشراء (optional)">أمر الشراء · PO No. (اختياري)</span>
@@ -1143,6 +1166,25 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
             <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
           </label>
           <input type="text" id="cm-cr" class="mono" placeholder="1010123456" dir="ltr">
+        </div>
+      </div>
+
+      <!-- Payment terms (B2B — used to auto-fill due date on invoices) -->
+      <div class="field-row single" id="cm-payment-terms-row" style="display:none;">
+        <div class="field">
+          <label class="field-label">
+            <span data-ar="مدة السداد · Payment Terms" data-en="Payment Terms · مدة السداد">مدة السداد · Payment Terms</span>
+            <span class="opt" data-ar="(يستخدم لاحتساب تاريخ الاستحقاق)" data-en="(used to calculate due date)">(يستخدم لاحتساب تاريخ الاستحقاق)</span>
+          </label>
+          <select id="cm-payment-terms" class="mono">
+            <option value="0">فوري · Immediate (Net 0)</option>
+            <option value="7">7 أيام · Net 7</option>
+            <option value="15">15 يوم · Net 15</option>
+            <option value="30" selected>30 يوم · Net 30</option>
+            <option value="45">45 يوم · Net 45</option>
+            <option value="60">60 يوم · Net 60</option>
+            <option value="90">90 يوم · Net 90</option>
+          </select>
         </div>
       </div>
 
@@ -1641,7 +1683,7 @@ function renderInvList(){
       if(!paid){
         primaryBtn = `<button class="row-action-btn primary" onclick="event.stopPropagation();openPaymentModal('${inv.id}','${(inv.invoice_number||'').replace(/'/g,"\\'")}',${inv.total||0},'${(inv.buyer_name||'').replace(/'/g,"\\'")}',${amtPaid})">💰 ${currentLang==='ar'?'دفعة':'Pay'}</button>`;
         if(inv.buyer_mobile){
-          menuItems.push({label: '📩 ' + (currentLang==='ar'?'تذكير العميل (واتساب)':'Send WhatsApp reminder'), fn: `sendReminder('${inv.buyer_mobile}','${(inv.invoice_number||'').replace(/'/g,"\\'")}',${remaining},'${(inv.buyer_name||'').replace(/'/g,"\\'")}')`});
+          menuItems.push({label: '📩 ' + (currentLang==='ar'?'تذكير العميل (واتساب)':'Send WhatsApp reminder'), fn: `sendReminder('${inv.buyer_mobile}','${(inv.invoice_number||'').replace(/'/g,"\\'")}',${remaining},'${(inv.buyer_name||'').replace(/'/g,"\\'")}','${inv.id}')`});
         }
       }
       menuItems.push({label: '🖨 ' + (currentLang==='ar'?'عرض / طباعة':'View / Print'), fn: `viewInvoice('${inv.id}')`});
@@ -1956,11 +1998,13 @@ function setInvType(type){
   document.getElementById('pill-quick').classList.toggle('active', !isTax);
   document.getElementById('pill-tax').classList.toggle('active', isTax);
 
-  /* Meta strip: 2 cols (Quick) vs 3 cols (Tax with PO) */
+  /* Meta strip: 2 cols (Quick) vs 4 cols (Tax with Due Date + PO) */
   const meta = document.getElementById('meta-strip');
   meta.classList.toggle('cols-2', !isTax);
-  meta.classList.toggle('cols-3', isTax);
+  meta.classList.toggle('cols-4', isTax);
+  meta.classList.remove('cols-3');
   document.getElementById('po-cell').style.display = isTax ? '' : 'none';
+  document.getElementById('duedate-cell').style.display = isTax ? '' : 'none';
 
   /* ZATCA banner */
   document.getElementById('zatca-banner').style.display = isTax ? 'flex' : 'none';
@@ -2071,6 +2115,35 @@ function selectCustomer(c){
   metaParts.push(c.customer_type === 'b2b' ? 'B2B' : 'B2C');
   setText('selected-customer-meta', metaParts.join(' · '));
   wrap.style.display = 'block';
+
+  /* Auto-fill due date for B2B customers based on their payment terms */
+  autoFillDueDate();
+}
+
+/* Auto-fill due date = issue_date + customer.payment_terms_days
+   Called when issue date changes OR when customer is selected. */
+function autoFillDueDate(){
+  const dueDateInput = document.getElementById('f-duedate');
+  if(!dueDateInput) return;
+  const issueDate = v('f-date');
+  if(!issueDate) return;
+
+  /* Use customer's payment terms if available, default 30 for B2B, 0 for B2C */
+  let termsDays = 30;
+  if(selectedCustomer && selectedCustomer.payment_terms_days != null){
+    termsDays = parseInt(selectedCustomer.payment_terms_days) || 0;
+  } else if(currentInvType !== 'tax'){
+    /* B2C without selected customer — typically immediate */
+    termsDays = 0;
+  }
+
+  /* Calculate due date */
+  const issue = new Date(issueDate + 'T00:00:00');
+  const due = new Date(issue.getTime() + termsDays * 24 * 60 * 60 * 1000);
+  const yyyy = due.getFullYear();
+  const mm = String(due.getMonth() + 1).padStart(2, '0');
+  const dd = String(due.getDate()).padStart(2, '0');
+  dueDateInput.value = `${yyyy}-${mm}-${dd}`;
 }
 
 function clearSelectedCustomer(){
@@ -2296,6 +2369,7 @@ async function saveDraft(){
     invoice_number: v('f-invnum'),
     invoice_type: v('f-type'),
     issue_date: v('f-date') || todayISO(),
+    due_date: v('f-duedate') || null,
     buyer_name: selectedCustomer ? custNameAr(selectedCustomer) : '',
     buyer_name_en: selectedCustomer ? (custNameEn(selectedCustomer) || null) : null,
     buyer_trn: selectedCustomer?.trn || '',
@@ -2425,6 +2499,7 @@ async function generateInvoice(){
     invoice_number: v('f-invnum'),
     invoice_type: v('f-type'),
     issue_date: v('f-date') || todayISO(),
+    due_date: v('f-duedate') || null,
     buyer_name: selectedCustomer ? custNameAr(selectedCustomer) : '',
     buyer_name_en: selectedCustomer ? (custNameEn(selectedCustomer) || null) : null,
     buyer_trn: selectedCustomer?.trn || '',
@@ -2744,6 +2819,7 @@ async function editDraft(id){
   currentInvoiceId = id;
   setVal('f-invnum', inv.invoice_number || '');
   setVal('f-date', inv.issue_date || todayISO());
+  if(inv.due_date) setVal('f-duedate', inv.due_date);
   setVal('f-po-num', inv.po_number || '');
   setVal('f-notes', inv.notes || '');
   setVal('f-disc-pct', inv.discount_pct || 0);
@@ -2947,11 +3023,39 @@ async function confirmPayment(){
 
 /* ═══════════════════════════════════════════════════════
    WHATSAPP REMINDER
+   Uses public_token for shareable link (auto-generates if missing)
 ═══════════════════════════════════════════════════════ */
-function sendReminder(mobile, num, remaining, buyerName){
+async function sendReminder(mobile, num, remaining, buyerName, invoiceId){
   if(!mobile){notify(currentLang==='ar'?'لا يوجد رقم جوال':'No mobile','r');return;}
   const sellerName = currentBiz?.name_ar || currentBiz?.name || 'GulfLedger';
-  const url = `${PUBLIC_URL_BASE}/invoice-view.html?inv=${encodeURIComponent(num)}`;
+
+  /* Get or create public token for this invoice */
+  let url;
+  if(invoiceId){
+    const inv = allInvoices.find(i => i.id === invoiceId);
+    if(inv && !inv.public_token){
+      /* Generate token */
+      const token = generateShareToken();
+      const {error} = await sb.from('invoices').update({
+        public_token: token,
+        public_token_created_at: new Date().toISOString()
+      }).eq('id', invoiceId);
+      if(!error){
+        inv.public_token = token;
+        url = `${PUBLIC_URL_BASE}/invoice-view.html?t=${token}`;
+      } else {
+        url = `${PUBLIC_URL_BASE}/invoice-view.html?inv=${encodeURIComponent(num)}`;
+      }
+    } else if(inv && inv.public_token){
+      url = `${PUBLIC_URL_BASE}/invoice-view.html?t=${inv.public_token}`;
+    } else {
+      url = `${PUBLIC_URL_BASE}/invoice-view.html?inv=${encodeURIComponent(num)}`;
+    }
+  } else {
+    /* Fallback when invoiceId not provided */
+    url = `${PUBLIC_URL_BASE}/invoice-view.html?inv=${encodeURIComponent(num)}`;
+  }
+
   const msg = currentLang==='ar'
     ? `مرحباً ${buyerName||''}\n\nتذكير بفاتورة مستحقة رقم *${num}* من ${sellerName}\n\n💰 المبلغ المستحق: *SAR ${fmt(remaining)}*\n\n📄 ${url}\n\nنرجو السداد في أقرب وقت 🙏`
     : `Hello ${buyerName||''}\n\nReminder for invoice *${num}* from ${sellerName}\n\n💰 Due: *SAR ${fmt(remaining)}*\n\n📄 ${url}\n\nKindly arrange payment 🙏`;
@@ -2959,6 +3063,16 @@ function sendReminder(mobile, num, remaining, buyerName){
   if(waNum.startsWith('05')) waNum = '966' + waNum.slice(1);
   if(waNum.startsWith('5') && waNum.length === 9) waNum = '966' + waNum;
   window.open(`https://wa.me/${waNum}?text=${encodeURIComponent(msg)}`, '_blank');
+}
+
+/* Random token generator for share links */
+function generateShareToken(length = 20){
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789';
+  let token = '';
+  const arr = new Uint32Array(length);
+  crypto.getRandomValues(arr);
+  for(let i = 0; i < length; i++) token += chars[arr[i] % chars.length];
+  return token;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -2975,6 +3089,8 @@ function openAddCustomerModal(opts){
   ['cm-name-ar','cm-name-en','cm-mobile','cm-trn','cm-cr','cm-email',
    'cm-building','cm-street','cm-additional','cm-district','cm-city','cm-postal','cm-notes'
   ].forEach(id => setVal(id,''));
+  /* Reset payment terms to default Net-30 */
+  setVal('cm-payment-terms', '30');
 
   /* Clear language hints */
   ['cm-name-ar-hint','cm-name-en-hint'].forEach(id => {
@@ -3070,6 +3186,8 @@ async function editCustomer(id){
   setVal('cm-city', c.city || '');
   setVal('cm-postal', c.postal_code || '');
   setVal('cm-notes', c.notes || '');
+  /* Payment terms (default 30 if missing) */
+  setVal('cm-payment-terms', String(c.payment_terms_days != null ? c.payment_terms_days : 30));
 
   /* Clear language hints */
   ['cm-name-ar-hint','cm-name-en-hint'].forEach(id => {
@@ -3109,6 +3227,7 @@ function setCustomerType(type){
   document.getElementById('cust-pill-b2c').classList.toggle('active', !isB2B);
   document.getElementById('cust-pill-b2b').classList.toggle('active', isB2B);
   document.getElementById('cm-b2b-row1').style.display = isB2B ? '' : 'none';
+  document.getElementById('cm-payment-terms-row').style.display = isB2B ? '' : 'none';
   document.getElementById('cm-address-group').style.display = isB2B ? '' : 'none';
   document.getElementById('cm-b2c-hint').style.display = isB2B ? 'none' : 'block';
 
@@ -3301,6 +3420,9 @@ async function saveCustomer(){
     payload.city = v('cm-city');
     payload.postal_code = v('cm-postal');
     payload.country = 'SA';
+    /* Payment terms (used to auto-fill due date on invoices) */
+    const ptDays = parseInt(v('cm-payment-terms')) || 30;
+    payload.payment_terms_days = ptDays;
   }
 
   let savedCustomer;
