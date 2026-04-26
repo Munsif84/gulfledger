@@ -1843,13 +1843,16 @@ async function saveReceipt(){
     const lineVat = Math.round(lineSub * r.vat_pct/100 * 100) / 100;
     const lineTotal = Math.round((lineSub + lineVat) * 100) / 100;
 
-    /* Create batch first to get its ID */
+    /* Create batch first to get its ID.
+       Note: some installs have a qty_received NOT NULL column (legacy schema).
+       We write both qty_received and original_qty to be compatible with either. */
     const {data:batch, error:batchError} = await sb.from('inventory_batches').insert({
       user_id: currentUser.id,
       business_id: currentBiz.id,
       item_id: r.item_id,
+      qty_received: r.quantity,    /* legacy schema column */
       qty_remaining: r.quantity,
-      original_qty: r.quantity,
+      original_qty: r.quantity,    /* newer schema column (idempotent) */
       unit_cost: r.unit_cost,
       received_date: receiptPayload.receipt_date,
       is_depleted: false,
@@ -2098,8 +2101,9 @@ async function saveAdjustment(){
       user_id: currentUser.id,
       business_id: currentBiz.id,
       item_id: currentAdjItem.id,
+      qty_received: qty,         /* legacy schema column */
       qty_remaining: qty,
-      original_qty: qty,
+      original_qty: qty,         /* newer schema column */
       unit_cost: unitCost,
       received_date: adjDate,
       is_depleted: false,
