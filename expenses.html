@@ -118,6 +118,17 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .pay-badge.unpaid{background:#fef2f2;color:var(--red);}
 .pay-badge.voided{background:var(--tint);color:var(--muted);}
 
+/* Receipt status pill */
+.receipt-pill{display:inline-flex;align-items:center;justify-content:center;width:24px;height:24px;border-radius:5px;font-size:13px;font-family:'DM Mono',monospace;}
+.receipt-pill.has{background:#dcfce7;color:#166534;}
+.receipt-pill.missing{background:#fef2f2;color:var(--red);}
+
+/* URL-filter banner */
+.url-filter-banner{margin-bottom:14px;padding:10px 14px;background:#dbeafe;border:1px solid #93c5fd;border-radius:9px;display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;}
+.url-filter-banner .lbl{font-size:13px;color:#1e40af;font-weight:600;display:flex;align-items:center;gap:6px;flex:1;min-width:200px;}
+.url-filter-banner .clear-btn{padding:5px 12px;background:#1e40af;color:#fff;border:none;border-radius:6px;font-family:inherit;font-size:12px;font-weight:700;cursor:pointer;text-decoration:none;display:inline-flex;align-items:center;gap:4px;}
+.url-filter-banner .clear-btn:hover{background:#1e3a8a;}
+
 /* Category pill */
 .cat-pill{display:inline-block;padding:2px 8px;border-radius:5px;font-size:11px;font-weight:600;background:var(--tint);color:var(--ink);}
 
@@ -994,6 +1005,7 @@ let currentBiz = null;
 let currentTab = 'expenses';
 let allExpenses = [];
 let allVendors = [];
+let urlFilter = ''; /* 'no_receipt' | 'overdue' | 'no_trn' (vendor tab) */
 
 /* Expense category catalog with bilingual labels + account code mapping
    account = chart-of-accounts code for journal posting
@@ -1062,8 +1074,17 @@ async function init(){
   setLang(currentLang);
   await loadAll();
 
+  /* Read URL params: tab, filter */
   const tab = (window.location.search.match(/tab=([a-z]+)/)?.[1]) || 'expenses';
+  const filterParam = (window.location.search.match(/filter=([a-z_]+)/)?.[1]) || '';
+  urlFilter = filterParam;
   if(['expenses','vendors'].includes(tab)) switchTab(tab);
+
+  /* If a URL filter was set, re-render to apply it and show the banner */
+  if(urlFilter){
+    if(currentTab === 'expenses') renderExpenses();
+    else if(currentTab === 'vendors') renderVendors();
+  }
 
   document.getElementById('page').style.display = '';
 }
@@ -1171,6 +1192,7 @@ function renderExpenses(){
   updateClearButtonVisibility();
   const wrap = document.getElementById('expenses-table-wrap');
   if(!wrap) return;
+  const ar = currentLang === 'ar';
 
   let list = allExpenses.slice();
   const q = v('search-expenses').toLowerCase();
@@ -1214,29 +1236,54 @@ function renderExpenses(){
     );
   }
 
+  /* URL filters from drill-down (e.g. ?filter=no_receipt|overdue) */
+  let urlFilterBanner = '';
+  if(urlFilter === 'no_receipt'){
+    list = list.filter(e => e.status === 'posted' && !e.receipt_path);
+    urlFilterBanner = `
+      <div class="url-filter-banner">
+        <span class="lbl">📎 ${ar?'عرض المصاريف بدون إيصال فقط':'Showing only expenses missing receipts'} (${list.length})</span>
+        <a href="expenses.html" class="clear-btn">${ar?'مسح الفلتر':'Clear filter'} ✕</a>
+      </div>`;
+  } else if(urlFilter === 'overdue'){
+    const today = new Date().toISOString().slice(0,10);
+    list = list.filter(e => e.status === 'posted' && e.payment_status !== 'paid' && e.due_date && e.due_date < today);
+    urlFilterBanner = `
+      <div class="url-filter-banner">
+        <span class="lbl">⏰ ${ar?'عرض الفواتير المتأخرة فقط':'Showing only overdue bills'} (${list.length})</span>
+        <a href="expenses.html" class="clear-btn">${ar?'مسح الفلتر':'Clear filter'} ✕</a>
+      </div>`;
+  }
+
   if(list.length === 0){
     if(allExpenses.length === 0){
       wrap.innerHTML = `
         <div class="empty-state">
           <div class="icon">📋</div>
-          <div class="title">${currentLang==='ar'?'ابدأ بتسجيل أول مصروف':'Start by recording your first expense'}</div>
-          <div class="text">${currentLang==='ar'
+          <div class="title">${ar?'ابدأ بتسجيل أول مصروف':'Start by recording your first expense'}</div>
+          <div class="text">${ar
             ? 'سجل كل ما تصرفه: إيجار، رواتب، فواتير، خدمات. يتم تتبع ضريبة المدخلات تلقائياً للاسترداد.'
             : 'Track everything you spend: rent, salaries, bills, services. Input VAT is auto-tracked for recovery.'}</div>
-          <button class="btn btn-primary" onclick="openExpenseModal()">+ ${currentLang==='ar'?'مصروف جديد':'New Expense'}</button>
+          <button class="btn btn-primary" onclick="openExpenseModal()">+ ${ar?'مصروف جديد':'New Expense'}</button>
         </div>`;
     } else {
       wrap.innerHTML = `
+        ${urlFilterBanner}
         <div class="empty-state">
-          <div class="icon">🔍</div>
-          <div class="title">${currentLang==='ar'?'لا توجد نتائج':'No matches'}</div>
-          <div class="text">${currentLang==='ar'?'حاول تعديل الفلاتر':'Try adjusting your filters'}</div>
+          <div class="icon">${urlFilter === 'no_receipt' ? '✅' : urlFilter === 'overdue' ? '✅' : '🔍'}</div>
+          <div class="title">${urlFilter === 'no_receipt'
+            ? (ar?'ممتاز — كل مصاريفك لها إيصالات':'Excellent — all your expenses have receipts')
+            : urlFilter === 'overdue'
+            ? (ar?'ممتاز — لا توجد فواتير متأخرة':'Excellent — no overdue bills')
+            : (ar?'لا توجد نتائج':'No matches')}</div>
+          <div class="text">${urlFilter
+            ? (ar?'لا يوجد ما يحتاج اهتمامك في هذا الفلتر.':'Nothing needs your attention with this filter.')
+            : (ar?'حاول تعديل الفلاتر':'Try adjusting your filters')}</div>
         </div>`;
     }
     return;
   }
 
-  const ar = currentLang === 'ar';
   const cols = [
     { label: ar ? 'التاريخ' : 'Date',          cls: 'num' },
     { label: ar ? 'الرقم' : 'EXP #',           cls: 'num' },
@@ -1244,11 +1291,13 @@ function renderExpenses(){
     { label: ar ? 'الوصف' : 'Description',     cls: '' },
     { label: ar ? 'المورد' : 'Vendor',          cls: '' },
     { label: ar ? 'الإجمالي' : 'Total',         cls: 'num' },
+    { label: ar ? '📎' : '📎',                 cls: 'center' },
     { label: ar ? 'الدفع' : 'Payment',          cls: 'center' },
     { label: '', cls: 'center' }
   ];
 
   wrap.innerHTML = `
+    ${urlFilterBanner}
     <div class="table-wrap">
       <table class="tbl">
         <thead>
@@ -1265,6 +1314,7 @@ function renderExpenses(){
 
             const vendorName = e.vendor_name_snapshot || '—';
             const desc = e.description || '—';
+            const hasReceipt = !!e.receipt_path;
 
             return `
               <tr class="clickable ${isVoided ? 'voided' : ''}" onclick="openExpenseDrawer('${e.id}')">
@@ -1274,6 +1324,7 @@ function renderExpenses(){
                 <td>${escHTML(desc)}</td>
                 <td>${escHTML(vendorName)}</td>
                 <td class="num"><strong>SAR ${fmt(e.total)}</strong></td>
+                <td class="center"><span class="receipt-pill ${hasReceipt ? 'has' : 'missing'}" title="${hasReceipt ? (ar?'مرفق':'Attached') : (ar?'مفقود':'Missing')}">${hasReceipt ? '✓' : '✕'}</span></td>
                 <td class="center"><span class="pay-badge ${payClass}">${payLabel}</span></td>
                 <td class="center">
                   <div class="row-actions">
@@ -1297,6 +1348,7 @@ function renderVendors(){
   updateClearButtonVisibility();
   const wrap = document.getElementById('vendors-table-wrap');
   if(!wrap) return;
+  const ar = currentLang === 'ar';
 
   let list = allVendors.slice();
   const q = v('search-vendors').toLowerCase();
@@ -1310,28 +1362,41 @@ function renderVendors(){
     );
   }
 
+  /* URL filter: ?filter=no_trn */
+  let urlFilterBanner = '';
+  if(currentTab === 'vendors' && urlFilter === 'no_trn'){
+    list = list.filter(s => s.is_active !== false && (!s.trn || s.trn.trim() === ''));
+    urlFilterBanner = `
+      <div class="url-filter-banner">
+        <span class="lbl">🏢 ${ar?'عرض الموردين بدون رقم ضريبي فقط':'Showing only vendors without TRN'} (${list.length})</span>
+        <a href="expenses.html?tab=vendors" class="clear-btn">${ar?'مسح الفلتر':'Clear filter'} ✕</a>
+      </div>`;
+  }
+
   if(list.length === 0){
     if(allVendors.length === 0){
       wrap.innerHTML = `
         <div class="empty-state">
           <div class="icon">🏢</div>
-          <div class="title">${currentLang==='ar'?'لا يوجد موردون بعد':'No vendors yet'}</div>
-          <div class="text">${currentLang==='ar'
+          <div class="title">${ar?'لا يوجد موردون بعد':'No vendors yet'}</div>
+          <div class="text">${ar
             ? 'أضف الموردين الذين تدفع لهم بانتظام: شركة الكهرباء، الإيجار، الاتصالات، إلخ.'
             : 'Add the vendors you pay regularly: utilities, landlord, telecom, etc.'}</div>
-          <button class="btn btn-primary" onclick="openVendorModal()">+ ${currentLang==='ar'?'مورد جديد':'New Vendor'}</button>
+          <button class="btn btn-primary" onclick="openVendorModal()">+ ${ar?'مورد جديد':'New Vendor'}</button>
         </div>`;
     } else {
       wrap.innerHTML = `
+        ${urlFilterBanner}
         <div class="empty-state">
-          <div class="icon">🔍</div>
-          <div class="title">${currentLang==='ar'?'لا توجد نتائج':'No matches'}</div>
+          <div class="icon">${urlFilter === 'no_trn' ? '✅' : '🔍'}</div>
+          <div class="title">${urlFilter === 'no_trn'
+            ? (ar?'ممتاز — كل الموردين لديهم رقم ضريبي':'Excellent — all vendors have a TRN')
+            : (ar?'لا توجد نتائج':'No matches')}</div>
         </div>`;
     }
     return;
   }
 
-  const ar = currentLang === 'ar';
   const cols = [
     { label: ar ? 'الاسم' : 'Name',                cls: '' },
     { label: ar ? 'الرمز' : 'Code',                cls: 'num' },
@@ -1343,6 +1408,7 @@ function renderVendors(){
   ];
 
   wrap.innerHTML = `
+    ${urlFilterBanner}
     <div class="table-wrap">
       <table class="tbl">
         <thead>
