@@ -243,6 +243,63 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .calc-cell .val{font-family:'DM Mono',monospace;font-size:16px;font-weight:700;color:var(--ink);}
 .calc-cell.green .val{color:var(--green);}
 
+/* ─── DRAWER (slide-in detail panel) ─── */
+.drawer-backdrop{position:fixed;inset:0;background:rgba(0,0,0,0.35);z-index:550;opacity:0;pointer-events:none;transition:opacity .2s ease;}
+.drawer-backdrop.open{opacity:1;pointer-events:auto;}
+.drawer{position:fixed;top:0;bottom:0;width:min(440px, 92vw);background:#fff;z-index:560;box-shadow:-4px 0 20px rgba(0,0,0,0.12);transform:translateX(100%);transition:transform .25s ease;display:flex;flex-direction:column;}
+[dir="rtl"] .drawer{box-shadow:4px 0 20px rgba(0,0,0,0.12);transform:translateX(-100%);}
+[dir="ltr"] .drawer{right:0;left:auto;}
+[dir="rtl"] .drawer{left:0;right:auto;}
+.drawer.open{transform:translateX(0);}
+.drawer-head{padding:14px 18px;border-bottom:1px solid var(--tint);display:flex;justify-content:space-between;align-items:start;gap:8px;background:linear-gradient(135deg,var(--tint),#fff);}
+.drawer-title{font-size:15px;font-weight:800;color:var(--ink);font-family:'DM Mono',monospace;}
+.drawer-sub{font-size:12px;color:var(--muted);margin-top:2px;}
+.drawer-close{background:transparent;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1;padding:4px 8px;border-radius:6px;flex-shrink:0;}
+.drawer-close:hover{background:var(--tint);color:var(--ink);}
+.drawer-body{flex:1;overflow-y:auto;padding:14px 18px;}
+.drawer-section{margin-bottom:16px;}
+.drawer-section-title{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+.drawer-stat-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-bottom:10px;}
+.drawer-stat{background:var(--tint);padding:9px 11px;border-radius:8px;}
+.drawer-stat.green{background:#dcfce7;}
+.drawer-stat.amber{background:#fef3c7;}
+.drawer-stat.red{background:#fef2f2;}
+.drawer-stat .lbl{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);margin-bottom:2px;}
+.drawer-stat.green .lbl{color:#166534;}
+.drawer-stat.amber .lbl{color:#92400e;}
+.drawer-stat.red .lbl{color:var(--red);}
+.drawer-stat .val{font-family:'DM Mono',monospace;font-size:15px;font-weight:700;color:var(--ink);line-height:1.2;}
+.drawer-stat.green .val{color:#166534;}
+.drawer-stat.amber .val{color:#92400e;}
+.drawer-stat.red .val{color:var(--red);}
+.drawer-actions{display:flex;gap:6px;margin-bottom:12px;flex-wrap:wrap;}
+.drawer-actions .btn{flex:1;justify-content:center;padding:7px 10px;font-size:12px;}
+.detail-row{display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--tint);font-size:13px;gap:10px;}
+.detail-row:last-child{border-bottom:none;}
+.detail-row .lbl{color:var(--muted);flex-shrink:0;}
+.detail-row .val{color:var(--ink);font-weight:600;text-align:end;word-break:break-word;}
+.detail-row .val.mono{font-family:'DM Mono',monospace;}
+.receipt-preview{background:var(--tint);border-radius:9px;padding:12px;text-align:center;}
+.receipt-preview img{max-width:100%;max-height:300px;border-radius:6px;display:block;margin:0 auto 8px;}
+.receipt-preview .receipt-meta{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-bottom:8px;}
+.audit-log-list{font-size:12px;}
+.audit-entry{padding:8px 10px;border-bottom:1px solid var(--tint);}
+.audit-entry:last-child{border-bottom:none;}
+.audit-entry .audit-time{font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;margin-bottom:2px;}
+.audit-entry .audit-action{font-weight:700;color:var(--ink);}
+.audit-entry .audit-action.created{color:var(--green);}
+.audit-entry .audit-action.voided{color:var(--red);}
+.audit-entry .audit-action.edited{color:var(--amber);}
+.audit-entry .audit-reason{font-size:12px;color:var(--muted);margin-top:3px;font-style:italic;}
+.audit-entry .audit-user{font-size:11px;color:var(--muted);margin-top:2px;}
+
+/* Voided banner */
+.voided-banner{background:#fef2f2;border:1px solid #fca5a5;border-radius:8px;padding:8px 12px;margin-bottom:12px;font-size:12px;color:var(--red);font-weight:700;}
+
+@media (max-width:850px){
+  .drawer{width:100vw;}
+}
+
 /* Mobile */
 @media (max-width:768px){
   .topnav{padding:8px 12px;}
@@ -626,6 +683,71 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeExpenseModal()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
       <button class="btn btn-primary" id="btn-save-expense" onclick="saveExpense()" data-ar="حفظ ونشر" data-en="Save & Post">حفظ ونشر</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════
+     EXPENSE DETAIL DRAWER (slide-in)
+════════════════════════════════════════════════ -->
+<div class="drawer-backdrop" id="drawer-backdrop" onclick="closeDrawer()"></div>
+<div class="drawer" id="expense-drawer">
+  <div class="drawer-head">
+    <div style="min-width:0;flex:1;">
+      <div class="drawer-title" id="drawer-title">—</div>
+      <div class="drawer-sub" id="drawer-sub">—</div>
+    </div>
+    <button class="drawer-close" onclick="closeDrawer()" aria-label="Close">×</button>
+  </div>
+  <div class="drawer-body" id="drawer-body">
+    <!-- Filled by openExpenseDrawer() -->
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════
+     VOID EXPENSE MODAL (with required reason)
+════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="void-modal">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-head">
+      <span class="modal-title" data-ar="إلغاء المصروف" data-en="Void Expense">إلغاء المصروف</span>
+      <button class="modal-close" onclick="closeVoidModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="warning-banner red" style="margin-bottom:14px;">
+        ⚠ <span><strong data-ar="تحذير:" data-en="Warning:">تحذير:</strong>
+        <span data-ar=" هذا الإجراء سيقوم بعكس قيد اليومية وتقليل رصيد المورد المستحق. يبقى السجل محفوظاً للتدقيق." data-en=" This will reverse the journal entry and reduce vendor outstanding. The record stays preserved for audit.">سيقوم بعكس قيد اليومية وتقليل رصيد المورد المستحق. يبقى السجل محفوظاً للتدقيق.</span></span>
+      </div>
+
+      <div class="detail-row">
+        <span class="lbl" data-ar="المصروف:" data-en="Expense:">المصروف:</span>
+        <span class="val mono" id="void-exp-number">—</span>
+      </div>
+      <div class="detail-row">
+        <span class="lbl" data-ar="الإجمالي:" data-en="Total:">الإجمالي:</span>
+        <span class="val mono" id="void-exp-total">—</span>
+      </div>
+      <div class="detail-row">
+        <span class="lbl" data-ar="المورد:" data-en="Vendor:">المورد:</span>
+        <span class="val" id="void-exp-vendor">—</span>
+      </div>
+
+      <div class="field" style="margin-top:14px;">
+        <div class="field-label">
+          <span data-ar="سبب الإلغاء" data-en="Void Reason">سبب الإلغاء</span>
+          <span class="req">*</span>
+          <span class="opt" data-ar="(مطلوب للتدقيق)" data-en="(required for audit)">(مطلوب للتدقيق)</span>
+        </div>
+        <textarea id="void-reason" rows="3"
+                  placeholder="مثل: تم إدخال مبلغ خاطئ، تم تكرار التسجيل، إلخ"
+                  data-ph-ar="مثل: تم إدخال مبلغ خاطئ، تم تكرار التسجيل، إلخ"
+                  data-ph-en="e.g. wrong amount, duplicate entry, etc."></textarea>
+        <div class="field-hint" data-ar="هذا السبب يحفظ في سجل التدقيق ولا يمكن تعديله لاحقاً" data-en="This reason is saved permanently in the audit log">هذا السبب يحفظ في سجل التدقيق ولا يمكن تعديله لاحقاً</div>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeVoidModal()" data-ar="تراجع" data-en="Cancel">تراجع</button>
+      <button class="btn btn-danger" id="btn-confirm-void" onclick="confirmVoidExpense()" data-ar="تأكيد الإلغاء" data-en="Confirm Void">تأكيد الإلغاء</button>
     </div>
   </div>
 </div>
@@ -2118,9 +2240,343 @@ async function writeAuditLog({entity_type, entity_id, entity_reference, action, 
   }
 }
 
-/* ─── stub modal handlers (drawer + void in Delivery 4) ─── */
-function openExpenseDrawer(id){ notify(currentLang==='ar'?'تفاصيل المصروف قريباً':'Expense detail coming in next delivery','info'); }
-function voidExpense(id){ notify(currentLang==='ar'?'الإلغاء قريباً':'Void coming in next delivery','info'); }
+/* ═══════════════════════════════════════════════════════════════════
+   EXPENSE DETAIL DRAWER
+   ═══════════════════════════════════════════════════════════════════ */
+let currentDrawerExpenseId = null;
+
+function closeDrawer(){
+  document.getElementById('drawer-backdrop').classList.remove('open');
+  document.getElementById('expense-drawer').classList.remove('open');
+  currentDrawerExpenseId = null;
+}
+
+async function openExpenseDrawer(id){
+  currentDrawerExpenseId = id;
+  const exp = allExpenses.find(e => e.id === id);
+  if(!exp){ notify(currentLang==='ar'?'المصروف غير موجود':'Expense not found','error'); return; }
+
+  /* Open shell immediately with loading */
+  document.getElementById('drawer-backdrop').classList.add('open');
+  document.getElementById('expense-drawer').classList.add('open');
+  setText('drawer-title', exp.expense_number);
+  const vendor = allVendors.find(s => s.id === exp.supplier_id);
+  setText('drawer-sub', `${exp.expense_date} · ${exp.vendor_name_snapshot || (vendor ? displayName(vendor) : '—')}`);
+  document.getElementById('drawer-body').innerHTML = `
+    <div class="loading-state" style="padding:30px 10px;">
+      <div class="loading-spinner">📋</div>
+      <div style="font-size:12px;">${currentLang==='ar'?'جارٍ التحميل...':'Loading...'}</div>
+    </div>`;
+
+  /* Fetch audit log + signed receipt URL in parallel */
+  const [auditRes, receiptUrl] = await Promise.all([
+    sb.from('audit_log')
+      .select('*')
+      .eq('entity_type', 'expense')
+      .eq('entity_id', id)
+      .eq('user_id', currentUser.id)
+      .order('created_at', {ascending: true}),
+    exp.receipt_path ? generateReceiptSignedUrl(exp.receipt_path) : Promise.resolve(null)
+  ]);
+  const auditEntries = auditRes.data || [];
+
+  renderExpenseDrawer(exp, vendor, auditEntries, receiptUrl);
+}
+
+async function generateReceiptSignedUrl(path){
+  try {
+    const {data, error} = await sb.storage.from('expense-receipts').createSignedUrl(path, 3600);
+    if(error){ console.warn('[GL] signed URL failed:', error.message); return null; }
+    return data?.signedUrl || null;
+  } catch(e){
+    console.warn('[GL] signed URL error:', e);
+    return null;
+  }
+}
+
+function renderExpenseDrawer(exp, vendor, auditEntries, receiptUrl){
+  const ar = currentLang === 'ar';
+  const isVoided = exp.status === 'voided';
+
+  /* Payment badge */
+  let payClass, payLabel;
+  if(isVoided){ payClass = 'red'; payLabel = ar?'ملغي':'Voided'; }
+  else if(exp.payment_status === 'paid'){ payClass = 'green'; payLabel = ar?'مدفوع':'Paid'; }
+  else if(exp.payment_status === 'partial'){ payClass = 'amber'; payLabel = ar?'جزئي':'Partial'; }
+  else { payClass = 'red'; payLabel = ar?'غير مدفوع':'Unpaid'; }
+
+  const methodLabels = {
+    cash:   ar?'نقد':'Cash',
+    bank:   ar?'تحويل بنكي':'Bank',
+    credit: ar?'آجل':'Credit'
+  };
+
+  /* Receipt section HTML */
+  let receiptHTML = '';
+  if(exp.receipt_path && receiptUrl){
+    const isImg = (exp.receipt_mime_type || '').startsWith('image/');
+    receiptHTML = `
+      <div class="receipt-preview">
+        ${isImg ? `<img src="${receiptUrl}" alt="receipt">` : ''}
+        <div class="receipt-meta">${escHTML(exp.receipt_filename || '—')} · ${exp.receipt_size_bytes ? (exp.receipt_size_bytes/1024).toFixed(1)+' KB' : '—'}</div>
+        <a href="${receiptUrl}" target="_blank" rel="noopener" class="btn btn-secondary btn-sm" style="display:inline-flex;">
+          ${isImg ? '🔍' : '📥'} ${ar?'فتح / تحميل':'Open / Download'}
+        </a>
+      </div>`;
+  } else if(exp.receipt_path && !receiptUrl){
+    receiptHTML = `<div class="warning-banner amber">⚠ ${ar?'تعذر تحميل الإيصال':'Could not load receipt'}</div>`;
+  } else {
+    receiptHTML = `<div class="warning-banner amber">⚠ ${ar?'لا يوجد إيصال مرفق — موصى به للامتثال ZATCA':'No receipt attached — recommended for ZATCA compliance'}</div>`;
+  }
+
+  /* Audit entries HTML */
+  const auditHTML = auditEntries.length === 0
+    ? `<div class="audit-entry" style="text-align:center;color:var(--muted);">${ar?'لا توجد سجلات':'No audit entries'}</div>`
+    : auditEntries.map(a => {
+        const dt = a.created_at ? new Date(a.created_at) : null;
+        const when = dt ? dt.toLocaleString(ar?'ar-SA':'en-GB',{dateStyle:'medium',timeStyle:'short'}) : '—';
+        const actionLabels = {
+          created: ar?'إنشاء':'Created',
+          edited:  ar?'تعديل':'Edited',
+          voided:  ar?'إلغاء':'Voided',
+          paid:    ar?'تسديد':'Paid',
+          restored:ar?'استعادة':'Restored'
+        };
+        const actionLabel = actionLabels[a.action] || a.action;
+        return `
+          <div class="audit-entry">
+            <div class="audit-time">${when}</div>
+            <div class="audit-action ${a.action}">${actionLabel}</div>
+            ${a.user_email ? `<div class="audit-user">👤 ${escHTML(a.user_email)}</div>` : ''}
+            ${a.reason ? `<div class="audit-reason">"${escHTML(a.reason)}"</div>` : ''}
+          </div>`;
+      }).join('');
+
+  document.getElementById('drawer-body').innerHTML = `
+    ${isVoided ? `
+      <div class="voided-banner">
+        ⚠ ${ar?'هذا المصروف ملغي':'This expense has been voided'}
+        ${exp.void_reason ? `<div style="font-weight:500;margin-top:4px;font-style:italic;">"${escHTML(exp.void_reason)}"</div>` : ''}
+      </div>` : ''}
+
+    <!-- Stat cards -->
+    <div class="drawer-section">
+      <div class="drawer-stat-grid">
+        <div class="drawer-stat ${payClass}">
+          <div class="lbl">${ar?'حالة الدفع':'Payment'}</div>
+          <div class="val" style="font-family:inherit;font-size:14px;">${payLabel}</div>
+        </div>
+        <div class="drawer-stat">
+          <div class="lbl">${ar?'الإجمالي':'Total'}</div>
+          <div class="val">SAR ${fmt(exp.total)}</div>
+        </div>
+        <div class="drawer-stat ${exp.vat_recoverable === false ? '' : 'green'}">
+          <div class="lbl">${exp.vat_recoverable === false ? (ar?'ضريبة (غير قابلة للاسترداد)':'VAT (non-recoverable)') : (ar?'ضريبة قابلة للاسترداد':'VAT recoverable')}</div>
+          <div class="val">SAR ${fmt(exp.vat_amount)}</div>
+        </div>
+        <div class="drawer-stat ${(parseFloat(exp.total)||0) - (parseFloat(exp.amount_paid)||0) > 0 && !isVoided ? 'amber' : ''}">
+          <div class="lbl">${ar?'المتبقي':'Remaining'}</div>
+          <div class="val">SAR ${fmt((parseFloat(exp.total)||0) - (parseFloat(exp.amount_paid)||0))}</div>
+        </div>
+      </div>
+      ${!isVoided ? `
+      <div class="drawer-actions">
+        <button class="btn btn-danger" onclick="openVoidModal('${exp.id}')">
+          🚫 ${ar?'إلغاء المصروف':'Void expense'}
+        </button>
+      </div>` : ''}
+    </div>
+
+    <!-- Details -->
+    <div class="drawer-section">
+      <div class="drawer-section-title">📋 ${ar?'تفاصيل':'Details'}</div>
+      <div class="detail-row"><span class="lbl">${ar?'الفئة':'Category'}</span><span class="val">${categoryLabel(exp.category)}</span></div>
+      <div class="detail-row"><span class="lbl">${ar?'الوصف':'Description'}</span><span class="val">${escHTML(exp.description || '—')}</span></div>
+      <div class="detail-row"><span class="lbl">${ar?'تاريخ المصروف':'Expense date'}</span><span class="val mono">${exp.expense_date || '—'}</span></div>
+      ${exp.vendor_name_snapshot ? `<div class="detail-row"><span class="lbl">${ar?'المورد':'Vendor'}</span><span class="val">${escHTML(exp.vendor_name_snapshot)}</span></div>` : ''}
+      ${exp.vendor_trn_snapshot ? `<div class="detail-row"><span class="lbl">${ar?'الرقم الضريبي':'TRN'}</span><span class="val mono">${escHTML(exp.vendor_trn_snapshot)}</span></div>` : ''}
+      ${exp.vendor_invoice_number ? `<div class="detail-row"><span class="lbl">${ar?'فاتورة المورد':'Vendor invoice #'}</span><span class="val mono">${escHTML(exp.vendor_invoice_number)}</span></div>` : ''}
+      ${exp.vendor_invoice_date ? `<div class="detail-row"><span class="lbl">${ar?'تاريخ الفاتورة':'Invoice date'}</span><span class="val mono">${exp.vendor_invoice_date}</span></div>` : ''}
+      <div class="detail-row"><span class="lbl">${ar?'طريقة الدفع':'Payment method'}</span><span class="val">${methodLabels[exp.payment_method] || exp.payment_method}</span></div>
+      <div class="detail-row"><span class="lbl">${ar?'مدفوع':'Paid'}</span><span class="val mono">SAR ${fmt(exp.amount_paid)}</span></div>
+      ${exp.due_date ? `<div class="detail-row"><span class="lbl">${ar?'تاريخ الاستحقاق':'Due date'}</span><span class="val mono">${exp.due_date}</span></div>` : ''}
+      ${exp.account_code ? `<div class="detail-row"><span class="lbl">${ar?'حساب اليومية':'Journal account'}</span><span class="val mono">${escHTML(exp.account_code)}</span></div>` : ''}
+      ${exp.notes ? `<div style="margin-top:8px;padding:8px 10px;background:var(--tint);border-radius:6px;font-size:12px;color:var(--ink);">${escHTML(exp.notes)}</div>` : ''}
+    </div>
+
+    <!-- Amounts -->
+    <div class="drawer-section" style="background:var(--tint);border-radius:9px;padding:10px 12px;">
+      <div class="detail-row" style="border:none;"><span class="lbl">${ar?'المجموع الفرعي':'Subtotal'}</span><span class="val mono">SAR ${fmt(exp.subtotal)}</span></div>
+      <div class="detail-row" style="border:none;"><span class="lbl">${ar?'ضريبة القيمة المضافة':'VAT'} (${exp.vat_pct || 0}%)</span><span class="val mono">SAR ${fmt(exp.vat_amount)}</span></div>
+      <div class="detail-row" style="font-size:14px;font-weight:800;border-top:1px solid var(--border);margin-top:4px;padding-top:6px;border-bottom:none;"><span class="lbl" style="color:var(--ink);font-weight:800;">${ar?'الإجمالي':'Total'}</span><span class="val mono">SAR ${fmt(exp.total)}</span></div>
+    </div>
+
+    <!-- Receipt -->
+    <div class="drawer-section">
+      <div class="drawer-section-title">📎 ${ar?'إيصال الإثبات':'Proof Receipt'}</div>
+      ${receiptHTML}
+    </div>
+
+    <!-- Audit log -->
+    <div class="drawer-section">
+      <div class="drawer-section-title">🔒 ${ar?'سجل التدقيق':'Audit Log'}</div>
+      <div class="audit-log-list">${auditHTML}</div>
+    </div>
+  `;
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   VOID FLOW
+   ═══════════════════════════════════════════════════════════════════ */
+let currentVoidExpenseId = null;
+
+function voidExpense(id){
+  /* Direct void from row menu — open the void modal */
+  openVoidModal(id);
+}
+
+function openVoidModal(id){
+  currentVoidExpenseId = id;
+  const exp = allExpenses.find(e => e.id === id);
+  if(!exp) return;
+
+  setText('void-exp-number', exp.expense_number);
+  setText('void-exp-total', 'SAR ' + fmt(exp.total));
+  setText('void-exp-vendor', exp.vendor_name_snapshot || '—');
+  setVal('void-reason', '');
+  document.getElementById('void-modal').classList.add('open');
+  /* Focus the reason field after the modal animates in */
+  setTimeout(() => document.getElementById('void-reason')?.focus(), 100);
+}
+
+function closeVoidModal(){
+  document.getElementById('void-modal').classList.remove('open');
+  currentVoidExpenseId = null;
+}
+
+async function confirmVoidExpense(){
+  if(!currentVoidExpenseId) return;
+  const reason = v('void-reason');
+  if(!reason || reason.length < 3){
+    notify(currentLang==='ar'?'سبب الإلغاء مطلوب (3 أحرف على الأقل)':'Void reason is required (min 3 chars)','error');
+    return;
+  }
+
+  const exp = allExpenses.find(e => e.id === currentVoidExpenseId);
+  if(!exp){ notify(currentLang==='ar'?'المصروف غير موجود':'Expense not found','error'); return; }
+  if(exp.status === 'voided'){ notify(currentLang==='ar'?'ملغي بالفعل':'Already voided','error'); return; }
+
+  const btn = document.getElementById('btn-confirm-void');
+  btn.disabled = true;
+
+  /* 1. Update vendor outstanding (subtract the unpaid portion that we previously added) */
+  if(exp.supplier_id){
+    const vendor = allVendors.find(s => s.id === exp.supplier_id);
+    if(vendor){
+      const wasOutstanding = (parseFloat(exp.total)||0) - (parseFloat(exp.amount_paid)||0);
+      const newOutstanding = Math.max(0, (parseFloat(vendor.total_outstanding)||0) - wasOutstanding);
+      const newPurchases = Math.max(0, (parseFloat(vendor.total_purchases)||0) - (parseFloat(exp.total)||0));
+      await sb.from('suppliers').update({
+        total_purchases: newPurchases,
+        total_outstanding: newOutstanding,
+        updated_at: new Date().toISOString()
+      }).eq('id', exp.supplier_id);
+    }
+  }
+
+  /* 2. Mark expense voided */
+  const {error} = await sb.from('expenses').update({
+    status: 'voided',
+    voided_at: new Date().toISOString(),
+    voided_by_id: currentUser.id,
+    void_reason: reason,
+    updated_at: new Date().toISOString()
+  }).eq('id', currentVoidExpenseId);
+  if(error){ btn.disabled = false; notify(error.message,'error'); return; }
+
+  /* 3. Post reversing journal entry */
+  await postExpenseVoidJournal(exp);
+
+  /* 4. Audit log */
+  await writeAuditLog({
+    entity_type: 'expense',
+    entity_id: currentVoidExpenseId,
+    entity_reference: exp.expense_number,
+    action: 'voided',
+    before_data: exp,
+    reason: reason
+  });
+
+  btn.disabled = false;
+  notify(currentLang==='ar'?'✅ تم إلغاء المصروف':'✅ Expense voided','success');
+  closeVoidModal();
+  closeDrawer();
+  await loadAll();
+}
+
+async function postExpenseVoidJournal(exp){
+  /* Reverses the original entry with mirrored debit/credit */
+  if((parseFloat(exp.total)||0) <= 0) return;
+  const ar = currentLang === 'ar';
+  const cat = categoryByCode(exp.category);
+  const expenseAcct = exp.account_code || cat?.account || '6900';
+  const expenseAcctName = ar ? (cat?.ar || 'مصروف') : (cat?.en || 'Expense');
+
+  let creditAcct, creditName;
+  if(exp.payment_method === 'cash'){ creditAcct = '1100'; creditName = ar?'الصندوق':'Cash'; }
+  else if(exp.payment_method === 'bank'){ creditAcct = '1101'; creditName = ar?'البنك':'Bank'; }
+  else { creditAcct = '2100'; creditName = ar?'موردون - حسابات دائنة':'Accounts Payable'; }
+
+  try {
+    const {data:entry, error} = await sb.from('journal_entries').insert({
+      user_id: currentUser.id,
+      business_id: currentBiz.id,
+      entry_date: todayISO(),
+      reference: exp.expense_number + ' (VOID)',
+      description: ar ? `إلغاء مصروف — ${exp.description}` : `Void expense — ${exp.description}`,
+      source_type: 'expense_void',
+      source_id: exp.id,
+      total_debit: exp.total,
+      total_credit: exp.total
+    }).select().single();
+    if(error){ console.warn('[GL] Void journal not posted:', error.message); return; }
+
+    const subtotal = parseFloat(exp.subtotal) || 0;
+    const vatAmount = parseFloat(exp.vat_amount) || 0;
+    const recoverable = exp.vat_recoverable !== false;
+    const expenseAmount = recoverable ? subtotal : (subtotal + vatAmount);
+
+    /* Reverse: original was DR exp + DR VAT + CR cash/AP
+                void:     DR cash/AP + CR exp + CR VAT */
+    const lines = [];
+    lines.push({
+      journal_entry_id: entry.id,
+      account_code: creditAcct,
+      account_name: creditName,
+      debit: parseFloat(exp.total) || 0, credit: 0,
+      description: 'Void: ' + exp.description
+    });
+    lines.push({
+      journal_entry_id: entry.id,
+      account_code: expenseAcct,
+      account_name: expenseAcctName,
+      debit: 0, credit: expenseAmount,
+      description: 'Void: ' + exp.description
+    });
+    if(recoverable && vatAmount > 0){
+      lines.push({
+        journal_entry_id: entry.id,
+        account_code: '2200',
+        account_name: ar ? 'ضريبة المدخلات' : 'Input VAT',
+        debit: 0, credit: vatAmount,
+        description: 'Void: ' + exp.description
+      });
+    }
+    await sb.from('journal_lines').insert(lines);
+  } catch(e){
+    console.warn('[GL] Void journal posting failed:', e);
+  }
+}
 
 /* ─── row action menu (⋮) ─── */
 function toggleRowMenu(btn){
@@ -2188,7 +2644,12 @@ document.querySelectorAll('.modal-overlay').forEach(el => {
 
 document.addEventListener('keydown', e => {
   if(e.key === 'Escape'){
-    document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+    /* Drawer takes priority over modals */
+    if(document.getElementById('expense-drawer').classList.contains('open')){
+      closeDrawer();
+    } else {
+      document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+    }
     closeAllMenus();
   }
 });
