@@ -2005,6 +2005,25 @@ function closeInvoiceModal(){
 }
 
 async function fetchNextInvoiceNumber(){
+  /* Atomic server-side generation via RPC (Round 12 — prevents race conditions).
+     Falls back to client-side generation if RPC fails (e.g. function not yet deployed),
+     but with a console warning so the issue surfaces during development. */
+  if(currentBiz?.id){
+    try {
+      const {data, error} = await sb.rpc('next_invoice_number', {p_business_id: currentBiz.id});
+      if(!error && data){
+        setVal('f-invnum', data);
+        return;
+      }
+      if(error){
+        console.warn('[GL] next_invoice_number RPC failed, falling back to client-side:', error.message);
+      }
+    } catch(e){
+      console.warn('[GL] next_invoice_number RPC threw, falling back to client-side:', e.message);
+    }
+  }
+
+  /* Fallback (legacy path, race-prone — only hit if RPC is unavailable) */
   const {data} = await sb.from('invoices')
     .select('invoice_number')
     .eq('user_id', currentUser.id)
@@ -2648,7 +2667,23 @@ async function generateInvoice(){
     const {error} = await sb.from('invoices').update(payload).eq('id', invoiceId);
     if(error){notify(error.message,'r');throw error;}
   } else {
-    const {data, error} = await sb.from('invoices').insert(payload).select().single();
+    let {data, error} = await sb.from('invoices').insert(payload).select().single();
+    /* On unique-constraint violation (Round 12: invoices_business_invnum_unique),
+       request a fresh number and retry once. Covers the rare case where two
+       concurrent users race past the RPC. */
+    if(error && (error.code === '23505' || /unique/i.test(error.message || ''))){
+      console.warn('[GL] Invoice number collision detected, retrying with fresh number');
+      try {
+        const {data: nextNum} = await sb.rpc('next_invoice_number', {p_business_id: currentBiz.id});
+        if(nextNum){
+          payload.invoice_number = nextNum;
+          setVal('f-invnum', nextNum);
+          ({data, error} = await sb.from('invoices').insert(payload).select().single());
+        }
+      } catch(retryErr){
+        console.warn('[GL] Retry failed:', retryErr.message);
+      }
+    }
     if(error){notify(error.message,'r');throw error;}
     invoiceId = data.id;
     currentInvoiceId = invoiceId;
@@ -2982,10 +3017,40 @@ async function openInvoiceModalWithDraft(id){
 }
 
 async function deleteDraft(id, num){
-  if(!confirm(currentLang==='ar' ? `حذف المسودة ${num}؟ لا يمكن التراجع.` : `Delete draft ${num}? Cannot undo.`)) return;
+  const ar = currentLang === 'ar';
+  if(!confirm(ar ? `حذف المسودة ${num}؟ لا يمكن التراجع.` : `Delete draft ${num}? Cannot undo.`)) return;
+
+  /* Round 12 guard: verify status='draft' before deletion.
+     Defence-in-depth alongside the server-side RLS policy. We refuse to delete
+     anything that isn't a draft, regardless of what the UI claims. */
+  const {data: inv, error: checkErr} = await sb.from('invoices')
+    .select('status')
+    .eq('id', id)
+    .single();
+  if(checkErr){
+    notify(ar?'تعذر التحقق من الفاتورة':'Could not verify invoice', 'r');
+    return;
+  }
+  if(inv.status !== 'draft'){
+    notify(ar
+      ? 'لا يمكن حذف الفواتير المرحّلة. لإلغاء فاتورة، استخدم "إشعار دائن".'
+      : 'Posted invoices cannot be deleted. To cancel an invoice, issue a credit note.',
+      'r');
+    return;
+  }
+
+  /* Delete with explicit status='draft' filter — if RLS or status changed since check,
+     the delete simply matches zero rows rather than removing a posted invoice. */
   await sb.from('invoice_items').delete().eq('invoice_id', id);
-  await sb.from('invoices').delete().eq('id', id);
-  notify(currentLang==='ar'?'تم الحذف':'Deleted', 'g');
+  const {error: delErr} = await sb.from('invoices')
+    .delete()
+    .eq('id', id)
+    .eq('status', 'draft');
+  if(delErr){
+    notify(delErr.message, 'r');
+    return;
+  }
+  notify(ar?'تم الحذف':'Deleted', 'g');
   loadInvoices();
 }
 

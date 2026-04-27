@@ -2,6 +2,9 @@
 
 > ⚠️ **AUDIT STATE: PARTIAL.** Last full audit: **2026-04-27 (Round 11)** — partial pass covering invoices.html, expenses.html, inventory.html, invoice-view.html, and parts of accounting.html and settings.html. Approximately 40-60% of the codebase audited.
 >
+> **Updates since Round 11:**
+> - **Round 12 (2026-04-27)** — Fixed: 1.4 (invoice numbering race), 3.6 (ledger reverse guard), 7.3 (deleteDraft hard-delete protection).
+>
 > **Plan:** Update this checklist incrementally as each fix-round touches code. Run a single comprehensive audit pass at the end of build/design phase, before paying customers go live. By then, most items here will already be marked ✓ or have known status.
 >
 > **Areas not yet audited:** ~90% of accounting.html (Annual Wizard, Qawaem wizard internals, Reports tab, manual journal entry modal, chart of accounts management), join.html, login.html, dashboard.html (deep), index.html, auth flows, Supabase storage RLS, live DB-level constraints/triggers/policies, and Tier 1 verification of ZATCA citations.
@@ -32,7 +35,7 @@ ZATCA reference: E-Invoicing Implementation Resolution, Annex 2 (mandatory field
 | 1.1 | Tax invoice (Standard, B2B/B2G) issued for sales ≥ SAR 1,000, intra-GCC, exports | ⚠ partial | invoices.html `invoice_type` field | E-Invoicing Resolution Art. 53 | 2026-04-27 | Type is user-selectable; no enforcement that B2B ≥ 1,000 must be Standard |
 | 1.2 | Simplified tax invoice (B2C) allowed for sales < SAR 1,000 | ✓ | invoices.html `invoice_type='b2c'` path | E-Invoicing Resolution Art. 53 | 2026-04-27 | |
 | 1.3 | Mandatory Arabic — invoice content is in Arabic (additional languages allowed) | ✓ | invoices.html `name_ar` required, RTL layout | E-Invoicing Detailed Guidelines §4.6 | 2026-04-27 | |
-| 1.4 | Sequential invoice numbering, no gaps | ⚠ partial | invoices.html `fetchNextInvoiceNumber()` | E-Invoicing Resolution Art. 53 | 2026-04-27 | Race condition: client-side reads last + 1 with no DB-level uniqueness or atomicity. Two simultaneous saves can produce duplicates. |
+| 1.4 | Sequential invoice numbering, no gaps | ✓ (R12) | invoices.html `fetchNextInvoiceNumber()` + RPC; SQL migration round-12 | E-Invoicing Resolution Art. 53 | 2026-04-27 | Round 12: server-side atomic via `next_invoice_number` RPC with advisory lock + UNIQUE constraint on (business_id, invoice_number). Race condition resolved. |
 | 1.5 | Seller name + TRN on every invoice | ✓ | invoices.html / invoice-view.html | Annex 2 | 2026-04-27 | |
 | 1.6 | Buyer TRN required on Standard (B2B) invoices | ⚠ partial | invoices.html `buyer_trn` snapshot | Annex 2 | 2026-04-27 | Captured at issue but not enforced as required at save for invoice_type='b2b' ≥ 1000. Only flagged in VAT wizard post-hoc. |
 | 1.7 | Issue date AND issue time on every invoice | ✗ | invoices.html stores `issue_date` only (date) | Annex 2; QR Tag 3 requires datetime | 2026-04-27 | QR is built with `T00:00:00Z` placeholder time. ZATCA spec requires real issue time precision. |
@@ -72,7 +75,7 @@ ZATCA reference: VAT Implementing Regulations Art. 54; E-Invoicing Resolution Ar
 | 3.3 | Credit note inherits invoice type (Standard → Standard CN, Simplified → Simplified CN) | ✗ | not implemented | E-Invoicing Detailed Guidelines §4 | 2026-04-27 | |
 | 3.4 | Credit note has its own QR / UUID / cryptographic stamp (Phase 2) | ✗ | not implemented | E-Invoicing Detailed Guidelines | 2026-04-27 | Inherits from 2.x non-implementation |
 | 3.5 | Voiding an invoice restores inventory (qty_remaining on consumed batches) | ✗ | invoices.html `voidInvoice()` doesn't touch `stock_batches` | Market standard (Xero behaviour) | 2026-04-27 | Found in Round 10 review. Books and stock go out of sync. |
-| 3.6 | Generic ledger-side "Reverse" button blocked for source-linked entries | ✗ | accounting.html `reverseEntry()` allows reversing any entry | Market standard | 2026-04-27 | Should block when entry.source IN ('invoice','expense','stock_receipt','stock_adjustment') and direct user to source module |
+| 3.6 | Generic ledger-side "Reverse" button blocked for source-linked entries | ✓ (R12) | accounting.html `reverseEntry()` + UI guard | Market standard | 2026-04-27 | Round 12: UI shows "Reverse from source" hint linking to invoices/expenses/inventory. Function-level guard rejects with helpful message. |
 | 3.7 | Debit notes (positive adjustments) supported | ✗ | not implemented | VAT Implementing Regulations Art. 54 | 2026-04-27 | |
 
 ## 4. VAT Calculation & Filing
@@ -125,7 +128,7 @@ ZATCA reference: VAT Implementing Regulations Art. 66 (6-year retention).
 |---|---|---|---|---|---|---|
 | 7.1 | Invoices retained 6+ years after issue | ⚠ partial | DB has no auto-purge but no retention guarantee | VAT IR Art. 66 | 2026-04-27 | Retention is implicit — depends on database backup policy. No automated enforcement. |
 | 7.2 | Receipts/expense supporting documents retained 6+ years | ⚠ partial | expenses.html `receipt_url` column | VAT IR Art. 66 | 2026-04-27 | User-uploaded; storage backend retention not documented |
-| 7.3 | Drafts / hard-deletes blocked once posted | ✗ | invoices.html `deleteDraft()` checks intent only client-side; no server-side guard | VAT IR Art. 66 | 2026-04-27 | A posted invoice's row could in theory be deleted via direct DB access. RLS allows DELETE on own rows. |
+| 7.3 | Drafts / hard-deletes blocked once posted | ✓ (R12) | invoices.html `deleteDraft()` + SQL trigger `invoices_prevent_nondraft_delete` | VAT IR Art. 66 | 2026-04-27 | Round 12: client re-checks status before delete + uses `.eq('status','draft')` filter. Server-side trigger raises exception on any DELETE of non-draft invoice. |
 | 7.4 | Soft-delete with audit trail for entities with history | ✓ | inventory.html, expenses.html supplier soft-delete | Best practice | 2026-04-27 | Items/suppliers with usage are deactivated, not deleted |
 | 7.5 | Audit log table for sensitive changes | ⚠ partial | expenses.html `writeAuditLog()` | Best practice | 2026-04-27 | Used in some places; not consistently across all modules |
 

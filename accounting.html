@@ -2436,11 +2436,34 @@ function renderJournalEntryCard(entry, lines){
       <span class="cr-val">${fmt(l.credit)}</span>
     </div>`).join('');
 
-  /* Reverse button — only on non-voided, non-reversal entries that haven't been reversed already */
-  const canReverse = !isVoided && !isReversal && !reversedBy;
-  const reverseBtn = canReverse
-    ? `<a href="#" onclick="event.preventDefault();reverseEntry('${entry.id}');" style="color:var(--blue);font-weight:700;font-size:11px;text-decoration:none;">↩ ${ar?'عكس':'Reverse'}</a>`
-    : '';
+  /* Reverse button (Round 12: only allowed on truly manual entries).
+     Source-linked entries (invoice/expense/stock_*) must be reversed from their source module
+     — otherwise the journal flips but the source document and inventory stay out of sync. */
+  const sourceLinked = entry.source && !['manual', 'reversal', 'opening_balance'].includes(entry.source);
+  const canReverse = !isVoided && !isReversal && !reversedBy && !sourceLinked;
+
+  /* Helper text for blocked reversal: tells the user where to go */
+  const sourceModule = ({
+    invoice: { ar: 'الفواتير', en: 'Invoices', href: 'invoices.html' },
+    credit_note: { ar: 'الفواتير', en: 'Invoices', href: 'invoices.html' },
+    expense: { ar: 'المصروفات', en: 'Expenses', href: 'expenses.html' },
+    expense_payment: { ar: 'المصروفات', en: 'Expenses', href: 'expenses.html' },
+    expense_void: { ar: 'المصروفات', en: 'Expenses', href: 'expenses.html' },
+    stock_receipt: { ar: 'المخزون', en: 'Inventory', href: 'inventory.html' },
+    stock_receipt_void: { ar: 'المخزون', en: 'Inventory', href: 'inventory.html' },
+    stock_adjustment: { ar: 'المخزون', en: 'Inventory', href: 'inventory.html' }
+  })[entry.source];
+
+  let reverseBtn = '';
+  if(canReverse){
+    reverseBtn = `<a href="#" onclick="event.preventDefault();reverseEntry('${entry.id}');" style="color:var(--blue);font-weight:700;font-size:11px;text-decoration:none;">↩ ${ar?'عكس':'Reverse'}</a>`;
+  } else if(sourceLinked && !isVoided && !isReversal && !reversedBy && sourceModule){
+    /* Show greyed-out hint instead of nothing — explains why and where to go */
+    const hint = ar
+      ? `للعكس، افتح ${sourceModule.ar} وأنشئ إشعار دائن`
+      : `To reverse, open ${sourceModule.en} and issue a credit note`;
+    reverseBtn = `<a href="${sourceModule.href}" title="${escHTML(hint)}" style="color:var(--muted);font-weight:600;font-size:11px;text-decoration:none;cursor:help;border-bottom:1px dashed var(--muted);">↩ ${ar?'العكس من المصدر':'Reverse from source'}</a>`;
+  }
 
   return `
     <div class="je-card ${isVoided ? 'voided' : ''} ${isReversal ? 'reversal' : ''} ${reversedBy && !isVoided ? 'was-reversed' : ''} ${!balanced && !isVoided ? 'unbalanced' : ''}" id="je-${entry.id}">
@@ -3041,6 +3064,27 @@ async function reverseEntry(entryId){
   const ar = currentLang === 'ar';
   const orig = ledgerEntryIndex[entryId];
   if(!orig){ notify(ar?'لم يتم العثور على القيد':'Entry not found','error'); return; }
+
+  /* Round 12 guard: only reverse manual / opening-balance entries from this UI.
+     Source-linked entries must be reversed via their source module (invoice → credit note,
+     stock receipt → void receipt, etc.) so books and source records stay in sync. */
+  if(orig.source && !['manual', 'reversal', 'opening_balance'].includes(orig.source)){
+    const moduleName = ({
+      invoice: ar?'الفواتير':'Invoices',
+      credit_note: ar?'الفواتير':'Invoices',
+      expense: ar?'المصروفات':'Expenses',
+      expense_payment: ar?'المصروفات':'Expenses',
+      expense_void: ar?'المصروفات':'Expenses',
+      stock_receipt: ar?'المخزون':'Inventory',
+      stock_receipt_void: ar?'المخزون':'Inventory',
+      stock_adjustment: ar?'المخزون':'Inventory'
+    })[orig.source] || orig.source;
+    notify(ar
+      ? `هذا القيد ناتج عن ${moduleName}. للعكس، افتح ${moduleName} وأنشئ إشعار دائن أو ألغِ المستند الأصلي.`
+      : `This entry was created by ${moduleName}. To reverse it, open ${moduleName} and issue a credit note or void the source document.`,
+      'error');
+    return;
+  }
 
   /* Confirm */
   const confirmMsg = ar
