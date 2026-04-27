@@ -1074,9 +1074,13 @@ async function init(){
   setLang(currentLang);
   await loadAll();
 
-  /* Read URL params: tab, filter */
+  /* Read URL params: tab, filter, expense, action, vendor */
   const tab = (window.location.search.match(/tab=([a-z]+)/)?.[1]) || 'expenses';
   const filterParam = (window.location.search.match(/filter=([a-z_]+)/)?.[1]) || '';
+  const expenseId = (window.location.search.match(/expense=([a-f0-9-]+)/)?.[1]) || '';
+  const action = (window.location.search.match(/action=([a-z_]+)/)?.[1]) || '';
+  const vendorId = (window.location.search.match(/vendor=([a-f0-9-]+)/)?.[1]) || '';
+
   urlFilter = filterParam;
   if(['expenses','vendors'].includes(tab)) switchTab(tab);
 
@@ -1087,6 +1091,43 @@ async function init(){
   }
 
   document.getElementById('page').style.display = '';
+
+  /* Direct-action handlers — auto-open the right drawer/modal */
+  if(expenseId){
+    /* Wait briefly for drawer DOM to be present, then open */
+    setTimeout(() => {
+      const exp = allExpenses.find(e => e.id === expenseId);
+      if(!exp){
+        notify(currentLang==='ar'?'المصروف غير موجود':'Expense not found','error');
+        return;
+      }
+      openExpenseDrawer(expenseId);
+
+      /* Auto-trigger sub-action after drawer is rendered */
+      if(action === 'attach_receipt'){
+        setTimeout(() => {
+          const fileInput = document.getElementById(`drawer-file-input-${expenseId}`);
+          if(fileInput){
+            /* Click the file picker for the user */
+            fileInput.click();
+          }
+        }, 400);
+      } else if(action === 'pay'){
+        setTimeout(() => {
+          openPayModal(expenseId);
+        }, 400);
+      }
+    }, 200);
+  } else if(vendorId && currentTab === 'vendors'){
+    setTimeout(() => {
+      const v = allVendors.find(s => s.id === vendorId);
+      if(!v){
+        notify(currentLang==='ar'?'المورد غير موجود':'Vendor not found','error');
+        return;
+      }
+      openVendorModal(vendorId);
+    }, 200);
+  }
 }
 
 async function loadAll(){
@@ -2453,6 +2494,78 @@ function closeDrawer(){
   currentDrawerExpenseId = null;
 }
 
+/* Attach a receipt to an existing expense from the drawer */
+async function attachReceiptToExpense(expenseId, files){
+  const ar = currentLang === 'ar';
+  if(!files || files.length === 0) return;
+  const file = files[0];
+
+  /* Validate */
+  const ALLOWED = ['application/pdf','image/png','image/jpeg','image/jpg','image/webp'];
+  if(!ALLOWED.includes(file.type)){
+    notify(ar?'نوع ملف غير مدعوم — استخدم PDF/JPG/PNG':'Unsupported file type — use PDF/JPG/PNG','error');
+    return;
+  }
+  if(file.size > 5 * 1024 * 1024){
+    notify(ar?'الملف أكبر من 5MB':'File larger than 5MB','error');
+    return;
+  }
+
+  /* Upload */
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
+  const path = `${currentUser.id}/${expenseId}/${safeName}`;
+
+  const drop = document.getElementById(`drawer-file-drop-${expenseId}`);
+  if(drop) drop.innerHTML = `<div class="file-drop-icon">⏳</div><div class="file-drop-text">${ar?'جارٍ الرفع...':'Uploading...'}</div>`;
+
+  const {error: upErr} = await sb.storage.from('expense-receipts').upload(path, file, {
+    contentType: file.type,
+    upsert: false
+  });
+  if(upErr){
+    notify((ar?'فشل رفع الملف: ':'Upload failed: ') + upErr.message, 'error');
+    /* Restore drop UI */
+    if(drop) drop.innerHTML = `
+      <div class="file-drop-icon">📎</div>
+      <div class="file-drop-text">${ar?'انقر لإرفاق إيصال الآن':'Click to attach a receipt now'}</div>
+      <div class="file-drop-hint">${ar?'PDF / JPG / PNG · حتى 5MB':'PDF / JPG / PNG · up to 5MB'}</div>
+      <input type="file" id="drawer-file-input-${expenseId}" accept="application/pdf,image/png,image/jpeg,image/jpg,image/webp" onchange="attachReceiptToExpense('${expenseId}', this.files)" style="display:none;">`;
+    return;
+  }
+
+  /* Update expense row */
+  const {error: updErr} = await sb.from('expenses').update({
+    receipt_path: path,
+    receipt_filename: file.name,
+    receipt_mime: file.type,
+    receipt_size_bytes: file.size
+  }).eq('id', expenseId);
+  if(updErr){
+    notify(ar?'فشل تحديث المصروف':'Failed to update expense','error');
+    /* Best-effort cleanup */
+    sb.storage.from('expense-receipts').remove([path]).catch(() => {});
+    return;
+  }
+
+  /* Audit log */
+  await sb.from('expense_audit_log').insert({
+    user_id: currentUser.id,
+    expense_id: expenseId,
+    action: 'edited',
+    user_email: currentUser.email,
+    reason: ar?'تم إرفاق إيصال':'Receipt attached'
+  }).then(() => {}).catch(() => {});
+
+  notify(ar?'تم إرفاق الإيصال':'Receipt attached','success');
+
+  /* Refresh local cache + redraw drawer */
+  await loadExpenses();
+  computeStats();
+  renderExpenses();
+  /* Re-open drawer with fresh data */
+  openExpenseDrawer(expenseId);
+}
+
 async function openExpenseDrawer(id){
   currentDrawerExpenseId = id;
   const exp = allExpenses.find(e => e.id === id);
@@ -2528,7 +2641,15 @@ function renderExpenseDrawer(exp, vendor, auditEntries, receiptUrl){
   } else if(exp.receipt_path && !receiptUrl){
     receiptHTML = `<div class="warning-banner amber">⚠ ${ar?'تعذر تحميل الإيصال':'Could not load receipt'}</div>`;
   } else {
-    receiptHTML = `<div class="warning-banner amber">⚠ ${ar?'لا يوجد إيصال مرفق — موصى به للامتثال ZATCA':'No receipt attached — recommended for ZATCA compliance'}</div>`;
+    /* No receipt — show inline upload UI */
+    receiptHTML = `
+      <div class="warning-banner amber" style="margin-bottom:10px;">⚠ ${ar?'لا يوجد إيصال مرفق — موصى به للامتثال ZATCA':'No receipt attached — recommended for ZATCA compliance'}</div>
+      <div class="file-drop" id="drawer-file-drop-${exp.id}" onclick="document.getElementById('drawer-file-input-${exp.id}').click()">
+        <div class="file-drop-icon">📎</div>
+        <div class="file-drop-text">${ar?'انقر لإرفاق إيصال الآن':'Click to attach a receipt now'}</div>
+        <div class="file-drop-hint">${ar?'PDF / JPG / PNG · حتى 5MB':'PDF / JPG / PNG · up to 5MB'}</div>
+        <input type="file" id="drawer-file-input-${exp.id}" accept="application/pdf,image/png,image/jpeg,image/jpg,image/webp" onchange="attachReceiptToExpense('${exp.id}', this.files)" style="display:none;">
+      </div>`;
   }
 
   /* Audit entries HTML */
