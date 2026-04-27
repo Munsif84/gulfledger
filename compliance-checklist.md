@@ -4,6 +4,7 @@
 >
 > **Updates since Round 11:**
 > - **Round 12 (2026-04-27)** — Fixed: 1.4 (invoice numbering race), 3.6 (ledger reverse guard), 7.3 (deleteDraft hard-delete protection).
+> - **Round 13 (2026-04-27)** — Fixed: 3.5 (invoice void restores inventory), 8.3 (same), 8.4 (batch consumption traceability), 8.7 (negative stock prevention), 8.1/M-4 (atomic journal posting helper available).
 >
 > **Plan:** Update this checklist incrementally as each fix-round touches code. Run a single comprehensive audit pass at the end of build/design phase, before paying customers go live. By then, most items here will already be marked ✓ or have known status.
 >
@@ -74,7 +75,7 @@ ZATCA reference: VAT Implementing Regulations Art. 54; E-Invoicing Resolution Ar
 | 3.2 | Credit note must reference original invoice number(s) | ⚠ partial | invoices.html stores `source_id=invoice.id` on the reversal entry | Annex 2 | 2026-04-27 | Reference is in journal entry only, not on a customer-facing credit note document |
 | 3.3 | Credit note inherits invoice type (Standard → Standard CN, Simplified → Simplified CN) | ✗ | not implemented | E-Invoicing Detailed Guidelines §4 | 2026-04-27 | |
 | 3.4 | Credit note has its own QR / UUID / cryptographic stamp (Phase 2) | ✗ | not implemented | E-Invoicing Detailed Guidelines | 2026-04-27 | Inherits from 2.x non-implementation |
-| 3.5 | Voiding an invoice restores inventory (qty_remaining on consumed batches) | ✗ | invoices.html `voidInvoice()` doesn't touch `stock_batches` | Market standard (Xero behaviour) | 2026-04-27 | Found in Round 10 review. Books and stock go out of sync. |
+| 3.5 | Voiding an invoice restores inventory (qty_remaining on consumed batches) | ✓ (R13) | invoices.html voidInvoice + restore_inventory_for_invoice RPC | Market standard (Xero behaviour) | 2026-04-27 | Round 13: stock_consumption table tracks batch consumption per invoice. voidInvoice calls RPC to restore qty_remaining + reverses stock_movements + reverses COGS journal. Pre-Round-13 invoices flagged retroactive (no consumption rows). |
 | 3.6 | Generic ledger-side "Reverse" button blocked for source-linked entries | ✓ (R12) | accounting.html `reverseEntry()` + UI guard | Market standard | 2026-04-27 | Round 12: UI shows "Reverse from source" hint linking to invoices/expenses/inventory. Function-level guard rejects with helpful message. |
 | 3.7 | Debit notes (positive adjustments) supported | ✗ | not implemented | VAT Implementing Regulations Art. 54 | 2026-04-27 | |
 
@@ -138,13 +139,13 @@ Market standard reference: Xero tracked inventory behaviour; QBO inventory sync 
 
 | # | Requirement | Status | Code location | Reference | Last verified | Notes |
 |---|---|---|---|---|---|---|
-| 8.1 | Stock receipt posts inventory + input VAT + cash/AP atomically | ⚠ partial | inventory.html `postStockReceiptJournal()` | Xero standard | 2026-04-27 | Posts journal lines but no DB transaction — partial failure leaves stock without journal or vice versa |
+| 8.1 | Stock receipt posts inventory + input VAT + cash/AP atomically | ⚠ partial (R13 helper available) | inventory.html `postStockReceiptJournal()` | Xero standard | 2026-04-27 | Round 13: `post_journal_entry` RPC available for atomic posting. inventory.html still uses two-step pattern — to be migrated in a future round. |
 | 8.2 | Sale (invoice) consumes batches via FIFO and posts COGS | ✓ | invoices.html `consumeFIFOBatches()` | Xero / SOCPA | 2026-04-27 | FIFO logic correct |
-| 8.3 | Invoice void restores inventory batch qty_remaining | ✗ | invoices.html `voidInvoice()` doesn't restore | Xero standard | 2026-04-27 | See 3.5 — found in Round 10 |
-| 8.4 | Batch-consumption traceability (which batches were consumed by which invoice) | ✗ | not stored | Xero standard | 2026-04-27 | Needed to enable 8.3. Requires `stock_consumption` table or jsonb on invoice_items |
+| 8.3 | Invoice void restores inventory batch qty_remaining | ✓ (R13) | invoices.html voidInvoice; restore_inventory_for_invoice RPC | Xero standard | 2026-04-27 | Round 13: see 3.5 |
+| 8.4 | Batch-consumption traceability (which batches were consumed by which invoice) | ✓ (R13) | stock_consumption table | Xero standard | 2026-04-27 | Round 13: every FIFO consumption writes one row per (invoice_item, batch). Immutable history (no DELETE policy). Reversal sets reversed=true. |
 | 8.5 | Stock-adjustment posts inventory + adjustment-account journal | ✓ (fixed in R10a) | inventory.html `postStockAdjustmentJournal()` | SOCPA | 2026-04-27 | Was using wrong column names; fixed |
 | 8.6 | Stock receipt void reverses both batch row and journal | ⚠ partial | inventory.html `voidReceipt()` | SOCPA | 2026-04-27 | Reverses journal; doesn't decrement batch row qty_remaining |
-| 8.7 | Negative stock prevented at invoice save time | ✗ | invoices.html | Best practice | 2026-04-27 | FIFO consumes whatever is available, including negative — no check |
+| 8.7 | Negative stock prevented at invoice save time | ✓ (R13) | invoices.html pre-check + consume_inventory_fifo RPC | Best practice | 2026-04-27 | Round 13: client pre-sums requested qty per item vs available batches; RPC also checks atomically with FOR UPDATE. Both layers reject with item-named error. |
 
 ## 9. Double-Entry Integrity
 

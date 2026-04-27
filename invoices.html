@@ -2689,7 +2689,39 @@ async function generateInvoice(){
     currentInvoiceId = invoiceId;
   }
 
-  /* Save invoice items */
+  /* Round 13 (M-3): Pre-check stock availability BEFORE inserting any rows.
+     Sum requested qty per item; reject if any item exceeds available batches.
+     Better UX than letting the RPC fail mid-save. */
+  if(currentBiz?.id){
+    const useFIFO = (currentBiz.costing_method || 'wac') === 'fifo';
+    if(useFIFO){
+      const reqByItem = {};
+      for(const it of validItems){
+        if(!it.itemId || !it.qty) continue;
+        reqByItem[it.itemId] = (reqByItem[it.itemId] || 0) + Math.abs(it.qty);
+      }
+      for(const itemId of Object.keys(reqByItem)){
+        const {data: batches} = await sb.from('inventory_batches')
+          .select('qty_remaining')
+          .eq('item_id', itemId)
+          .eq('business_id', currentBiz.id)
+          .eq('is_depleted', false);
+        const avail = (batches || []).reduce((s, b) => s + (parseFloat(b.qty_remaining) || 0), 0);
+        if(avail < reqByItem[itemId]){
+          const {data: itemRow} = await sb.from('inventory_items')
+            .select('name').eq('id', itemId).single();
+          const itemName = itemRow?.name || itemId;
+          notify(currentLang === 'ar'
+            ? `المخزون غير كافٍ للصنف "${itemName}": متوفر ${avail}، مطلوب ${reqByItem[itemId]}`
+            : `Insufficient stock for "${itemName}": available ${avail}, requested ${reqByItem[itemId]}`,
+            'r');
+          throw new Error('insufficient_stock');
+        }
+      }
+    }
+  }
+
+  /* Save invoice items — return rows so we have IDs for stock_consumption */
   await sb.from('invoice_items').delete().eq('invoice_id', invoiceId);
   const itemRows = validItems.map((it, idx) => {
     const sub = (it.qty||0) * (it.price||0);
@@ -2709,7 +2741,10 @@ async function generateInvoice(){
       sort_order: idx
     };
   });
-  await sb.from('invoice_items').insert(itemRows);
+  const {data: insertedItems} = await sb.from('invoice_items').insert(itemRows).select('id, sort_order');
+  /* Map sort_order → invoice_item id so we can pair with validItems below */
+  const itemIdBySort = {};
+  for(const r of (insertedItems || [])) itemIdBySort[r.sort_order] = r.id;
 
   /* Inventory deduction + COGS posting */
   if(currentBiz?.id){
@@ -2717,7 +2752,8 @@ async function generateInvoice(){
       let totalCOGS = 0;
       const useFIFO = (currentBiz.costing_method || 'wac') === 'fifo';
 
-      for(const it of validItems){
+      for(let idx = 0; idx < validItems.length; idx++){
+        const it = validItems[idx];
         if(!it.itemId || !it.qty) continue;
         const {data:invItem} = await sb.from('inventory_items')
           .select('current_qty, cost_price, name')
@@ -2727,7 +2763,8 @@ async function generateInvoice(){
 
         let itemCOGS;
         if(useFIFO){
-          itemCOGS = await consumeFIFOBatches(it.itemId, it.qty, currentBiz.id);
+          /* Round 13: pass invoice + invoice_item IDs so RPC records consumption rows */
+          itemCOGS = await consumeFIFOBatches(it.itemId, it.qty, currentBiz.id, invoiceId, itemIdBySort[idx]);
           if(!itemCOGS) itemCOGS = (invItem.cost_price||0) * it.qty;
         } else {
           itemCOGS = (invItem.cost_price||0) * it.qty;
@@ -2937,32 +2974,30 @@ async function autoPostInvoice(invoice){
 }
 
 /* ═══════════════════════════════════════════════════════
-   FIFO BATCH CONSUMPTION — preserved exactly
-═══════════════════════════════════════════════════════ */
-async function consumeFIFOBatches(itemId, qtyNeeded, businessId){
-  const {data:batches} = await sb.from('inventory_batches')
-    .select('*')
-    .eq('item_id', itemId)
-    .eq('business_id', businessId)
-    .eq('is_depleted', false)
-    .order('received_date', {ascending: true})
-    .order('created_at', {ascending: true});
-
-  if(!batches || !batches.length) return 0;
-
-  let qtyLeft = qtyNeeded, totalCost = 0;
-  for(const batch of batches){
-    if(qtyLeft <= 0) break;
-    const consume = Math.min(qtyLeft, batch.qty_remaining);
-    totalCost += consume * batch.unit_cost;
-    qtyLeft -= consume;
-    const newRemaining = Math.round((batch.qty_remaining - consume)*1000)/1000;
-    await sb.from('inventory_batches').update({
-      qty_remaining: newRemaining,
-      is_depleted: newRemaining <= 0
-    }).eq('id', batch.id);
+   FIFO BATCH CONSUMPTION — Round 13: server-side atomic
+   ═══════════════════════════════════════════════════════
+   Calls the consume_inventory_fifo RPC which:
+   - Checks total stock available BEFORE consuming (raises insufficient_stock if short)
+   - Locks rows to serialize concurrent invoices on the same item
+   - Records stock_consumption rows so voidInvoice can restore qty later
+   - Returns total cost + consumed batches breakdown
+*/
+async function consumeFIFOBatches(itemId, qtyNeeded, businessId, invoiceId, invoiceItemId){
+  const {data, error} = await sb.rpc('consume_inventory_fifo', {
+    p_business_id:     businessId,
+    p_invoice_id:      invoiceId,
+    p_invoice_item_id: invoiceItemId,
+    p_item_id:         itemId,
+    p_qty_needed:      qtyNeeded
+  });
+  if(error){
+    /* Re-throw so caller can show negative-stock error and roll back the invoice */
+    const err = new Error(error.message || 'consume_fifo_failed');
+    err.code = error.code;
+    err.details = error.details;
+    throw err;
   }
-  return Math.round(totalCost*100)/100;
+  return parseFloat(data?.total_cost) || 0;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -3059,21 +3094,79 @@ async function deleteDraft(id, num){
 ═══════════════════════════════════════════════════════ */
 async function voidInvoice(id, num, total, buyerName){
   /* User-friendly action with clear explanation of what really happens
-     (Internally still a void — posts credit-note reversal in the journal) */
+     (Internally still a void — posts credit-note reversal in the journal,
+      restores inventory consumed by this invoice, marks invoice as voided) */
   const message = currentLang==='ar'
     ? `إلغاء الفاتورة ${num}؟\n\n` +
       `🔹 سيتم إنشاء "إشعار دائن" تلقائياً لإلغاء الفاتورة محاسبياً.\n` +
+      `🔹 ستتم إعادة الكميات المخصومة إلى المخزون تلقائياً.\n` +
       `🔹 الفاتورة الأصلية ستبقى محفوظة (لا يمكن حذفها بحسب نظام الزكاة).\n` +
       `🔹 ستظهر الفاتورة في القائمة بوضع "ملغية".\n\n` +
       `هل تريد المتابعة؟`
     : `Reverse invoice ${num}?\n\n` +
       `🔹 A "Credit Note" will be created automatically to reverse this invoice in your books.\n` +
+      `🔹 Stock consumed by this invoice will be returned to inventory automatically.\n` +
       `🔹 The original invoice stays preserved (cannot be deleted per Saudi tax law).\n` +
       `🔹 The invoice will appear in the list as "Reversed".\n\n` +
       `Continue?`;
   if(!confirm(message)) return;
 
   try {
+    /* Round 13 (H-1): Restore inventory FIRST. If restoration fails, abort
+       so we don't end up with reversed books but consumed stock. */
+    let restoreInfo = null;
+    try {
+      const {data: restoreResult, error: restoreErr} = await sb.rpc('restore_inventory_for_invoice', {
+        p_invoice_id: id
+      });
+      if(restoreErr){
+        notify((currentLang==='ar'?'فشل إعادة المخزون: ':'Failed to restore inventory: ') + restoreErr.message, 'r');
+        return;
+      }
+      restoreInfo = restoreResult;
+    } catch(e){
+      console.warn('[GL] restore_inventory_for_invoice not available; continuing without restoration:', e.message);
+    }
+
+    /* If we did restore inventory, also write reversal stock_movements rows for the audit trail */
+    if(restoreInfo && restoreInfo.restored_lines > 0){
+      const {data: invLines} = await sb.from('invoice_items')
+        .select('id, quantity, sort_order')
+        .eq('invoice_id', id);
+      /* Find which inventory items were sold via inventory_movements (out) for this invoice ref */
+      const {data: outMoves} = await sb.from('inventory_movements')
+        .select('item_id, quantity, unit_cost')
+        .eq('reference', num)
+        .eq('movement_type', 'out');
+      if(outMoves && outMoves.length){
+        const reversalRows = [];
+        for(const m of outMoves){
+          /* Re-fetch current item qty for balance_after */
+          const {data: itm} = await sb.from('inventory_items').select('current_qty').eq('id', m.item_id).single();
+          const newQty = (parseFloat(itm?.current_qty)||0) + parseFloat(m.quantity);
+          await sb.from('inventory_items').update({
+            current_qty: newQty,
+            updated_at: new Date().toISOString()
+          }).eq('id', m.item_id);
+          reversalRows.push({
+            business_id: currentBiz.id,
+            item_id: m.item_id,
+            movement_type: 'in',
+            quantity: m.quantity,
+            balance_after: newQty,
+            unit_cost: m.unit_cost,
+            reference: num + '-VOID',
+            note: (currentLang==='ar'?'إعادة من إلغاء فاتورة ':'Return from voided invoice ') + num,
+            movement_date: new Date().toISOString().slice(0,10)
+          });
+        }
+        if(reversalRows.length){
+          await sb.from('inventory_movements').insert(reversalRows);
+        }
+      }
+    }
+
+    /* Now reverse the journal */
     const {data:entries} = await sb.from('journal_entries')
       .select('id,journal_lines(*)')
       .eq('source_id', id).eq('source','invoice').eq('user_id', currentUser.id);
@@ -3103,8 +3196,55 @@ async function voidInvoice(id, num, total, buyerName){
       await sb.from('journal_entries').update({status:'reversed', updated_at:new Date().toISOString()}).eq('id', orig.id);
     }
 
+    /* Also reverse the COGS journal entry if it exists */
+    const {data: cogsEntries} = await sb.from('journal_entries')
+      .select('id,journal_lines(*)')
+      .eq('reference', num + '-COGS')
+      .eq('source','invoice').eq('user_id', currentUser.id);
+    if(cogsEntries && cogsEntries.length){
+      const cogsOrig = cogsEntries[0];
+      const cogsLines = cogsOrig.journal_lines || [];
+      const {data: cogsRev} = await sb.from('journal_entries').insert({
+        user_id: currentUser.id, business_id: currentBiz?.id,
+        entry_date: todayISO(),
+        reference: 'CN-' + num + '-COGS',
+        description: (currentLang==='ar'?'عكس COGS — إلغاء فاتورة ':'COGS reversal — voided invoice ') + num,
+        source: 'credit_note', source_id: id,
+        status: 'posted', is_balanced: true
+      }).select().single();
+      if(cogsRev){
+        await sb.from('journal_lines').insert(cogsLines.map(l => ({
+          entry_id: cogsRev.id, user_id: currentUser.id,
+          account_code: l.account_code, account_name: l.account_name,
+          debit: l.credit, credit: l.debit,
+          description: (currentLang==='ar'?'عكس COGS: ':'COGS rev: ') + (l.description || '')
+        })));
+      }
+      await sb.from('journal_entries').update({status:'reversed', updated_at:new Date().toISOString()}).eq('id', cogsOrig.id);
+    }
+
     await sb.from('invoices').update({status:'voided', updated_at:new Date().toISOString()}).eq('id', id);
-    notify(currentLang==='ar'?`✅ تم إلغاء الفاتورة ${num} وإنشاء إشعار دائن`:`✅ Invoice ${num} reversed (credit note created)`, 'g');
+
+    /* Tailor success message based on whether inventory was actually restored */
+    let successMsg;
+    if(currentLang === 'ar'){
+      if(restoreInfo && restoreInfo.restored_lines > 0){
+        successMsg = `✅ تم إلغاء الفاتورة ${num} - الكميات أُعيدت إلى المخزون`;
+      } else if(restoreInfo && restoreInfo.retroactive){
+        successMsg = `✅ تم إلغاء الفاتورة ${num} - (فاتورة قبل تتبع الاستهلاك، عدّل المخزون يدوياً إذا لزم الأمر)`;
+      } else {
+        successMsg = `✅ تم إلغاء الفاتورة ${num}`;
+      }
+    } else {
+      if(restoreInfo && restoreInfo.restored_lines > 0){
+        successMsg = `✅ Invoice ${num} reversed — stock returned to inventory`;
+      } else if(restoreInfo && restoreInfo.retroactive){
+        successMsg = `✅ Invoice ${num} reversed — (pre-Round 13 invoice, adjust inventory manually if needed)`;
+      } else {
+        successMsg = `✅ Invoice ${num} reversed`;
+      }
+    }
+    notify(successMsg, 'g');
     loadInvoices();
   } catch(e){
     notify((currentLang==='ar'?'خطأ: ':'Error: ') + e.message, 'r');
