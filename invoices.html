@@ -1399,6 +1399,33 @@ function notify(msg, type){
   setTimeout(() => d.remove(), 3500);
 }
 
+/* Round 14: Translate known DB-trigger errors into actionable user messages.
+   Matches patterns from period-close and balance triggers. Falls through to
+   the original message for anything else. */
+function friendlyDbError(err){
+  const msg = (err && (err.message || err.details)) || '';
+  const ar = currentLang === 'ar';
+  if(/period_closed/i.test(msg)){
+    return ar
+      ? 'تعذّر الحفظ: التاريخ المحدد ضمن فترة محاسبية مغلقة. غيّر التاريخ أو أعد فتح الفترة من تبويب التقارير.'
+      : 'Cannot save: the selected date falls in a closed accounting period. Change the date or reopen the period from Reports.';
+  }
+  if(/journal_entry_unbalanced/i.test(msg)){
+    return ar
+      ? 'تعذّر حفظ القيد: المدين لا يساوي الدائن. راجع البنود.'
+      : 'Cannot save journal entry: debits don\'t equal credits. Review the lines.';
+  }
+  if(/insufficient_stock/i.test(msg)){
+    return ar
+      ? 'المخزون غير كافٍ لإحدى السلع — راجع الكميات.'
+      : 'Insufficient stock for one of the items — review the quantities.';
+  }
+  if(/business_not_owned|not_authenticated/i.test(msg)){
+    return ar ? 'غير مصرّح بهذه العملية.' : 'Not authorized for this operation.';
+  }
+  return msg || (ar ? 'حدث خطأ غير متوقع' : 'An unexpected error occurred');
+}
+
 /* ── Helpers ── */
 function v(id){const el=document.getElementById(id);return el?el.value.trim():'';}
 function setVal(id,val){const el=document.getElementById(id);if(el)el.value=val||'';}
@@ -2446,10 +2473,10 @@ async function saveDraft(){
   let invoiceId = currentInvoiceId;
   if(invoiceId){
     const {error} = await sb.from('invoices').update(payload).eq('id', invoiceId);
-    if(error){notify(error.message,'r');throw error;}
+    if(error){notify(friendlyDbError(error),'r');throw error;}
   } else {
     const {data, error} = await sb.from('invoices').insert(payload).select().single();
-    if(error){notify(error.message,'r');throw error;}
+    if(error){notify(friendlyDbError(error),'r');throw error;}
     invoiceId = data.id;
   }
 
@@ -2534,10 +2561,10 @@ async function previewInvoice(){
   let invoiceId = currentInvoiceId;
   if(invoiceId){
     const {error} = await sb.from('invoices').update(payload).eq('id', invoiceId);
-    if(error){notify(error.message,'r');throw error;}
+    if(error){notify(friendlyDbError(error),'r');throw error;}
   } else {
     const {data, error} = await sb.from('invoices').insert(payload).select().single();
-    if(error){notify(error.message,'r');throw error;}
+    if(error){notify(friendlyDbError(error),'r');throw error;}
     invoiceId = data.id;
   }
 
@@ -2665,7 +2692,7 @@ async function generateInvoice(){
   let invoiceId = currentInvoiceId;
   if(invoiceId){
     const {error} = await sb.from('invoices').update(payload).eq('id', invoiceId);
-    if(error){notify(error.message,'r');throw error;}
+    if(error){notify(friendlyDbError(error),'r');throw error;}
   } else {
     let {data, error} = await sb.from('invoices').insert(payload).select().single();
     /* On unique-constraint violation (Round 12: invoices_business_invnum_unique),
@@ -2684,7 +2711,7 @@ async function generateInvoice(){
         console.warn('[GL] Retry failed:', retryErr.message);
       }
     }
-    if(error){notify(error.message,'r');throw error;}
+    if(error){notify(friendlyDbError(error),'r');throw error;}
     invoiceId = data.id;
     currentInvoiceId = invoiceId;
   }
@@ -3314,7 +3341,7 @@ async function confirmPayment(){
     updated_at: new Date().toISOString()
   }).eq('id', _paymentInvoiceId).eq('user_id', currentUser.id);
 
-  if(error){notify(error.message,'r');throw error;}
+  if(error){notify(friendlyDbError(error),'r');throw error;}
 
   /* Post journal entry */
   try {
@@ -3769,7 +3796,7 @@ async function saveCustomer(){
   let savedCustomer;
   if(editingCustomerId){
     const {data, error} = await sb.from('customers').update(payload).eq('id', editingCustomerId).select().single();
-    if(error){notify(error.message,'r');throw error;}
+    if(error){notify(friendlyDbError(error),'r');throw error;}
     savedCustomer = data;
   } else {
     /* Generate customer code */
@@ -3783,7 +3810,7 @@ async function saveCustomer(){
           ?'⚠ الجداول لم يتم تحديثها — راجع الميغريشن في أعلى الملف':'⚠ Schema missing — see migration at top of file','r');
         throw error;
       }
-      notify(error.message,'r');
+      notify(friendlyDbError(error),'r');
       throw error;
     }
     savedCustomer = data;
