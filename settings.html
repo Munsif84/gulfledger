@@ -533,8 +533,23 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           </div>
         </div>
 
+        <!-- VAT filing frequency -->
+        <div class="field-row" style="margin-top:14px;" id="field-vat-frequency">
+          <div class="field">
+            <div class="field-label">
+              <span data-ar="دورة تقديم إقرار VAT" data-en="VAT Filing Frequency">دورة تقديم إقرار VAT</span>
+              <span class="req">*</span>
+            </div>
+            <select id="vat-filing-frequency">
+              <option value="quarterly" data-ar="ربع سنوي (الأكثر شيوعاً)" data-en="Quarterly (most common)">ربع سنوي (الأكثر شيوعاً)</option>
+              <option value="monthly" data-ar="شهري (للإيرادات > 40 مليون ريال)" data-en="Monthly (for revenue > SAR 40M)">شهري (للإيرادات > 40 مليون ريال)</option>
+            </select>
+            <div class="field-hint" data-ar="الإيرادات السنوية أقل من 40 مليون = ربع سنوي. أكثر من ذلك = شهري." data-en="Annual revenue under SAR 40M = quarterly. Above that = monthly.">الإيرادات السنوية أقل من 40 مليون = ربع سنوي. أكثر من ذلك = شهري.</div>
+          </div>
+        </div>
+
         <!-- Partners — individual ownership entry -->
-        <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--tint);">
+        <div id="partners-anchor" style="margin-top:18px;padding-top:14px;border-top:1px solid var(--tint);">
           <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;flex-wrap:wrap;gap:10px;">
             <div style="font-size:13px;font-weight:700;color:var(--ink);">
               <span data-ar="الشركاء (هيكل الملكية)" data-en="Partners (Ownership Structure)">الشركاء (هيكل الملكية)</span>
@@ -1096,34 +1111,62 @@ async function init(){
     document.getElementById('loading-state').style.display = 'none';
     document.getElementById('settings-shell').style.display = 'grid';
 
-    /* If URL has #section, switch to it */
-    if(window.location.hash){
+    /* URL params: ?section=X&focus=Y for direct deep links */
+    const sectionParam = (window.location.search.match(/section=([a-z-]+)/)?.[1]) || '';
+    const focusParam = (window.location.search.match(/focus=([a-z_-]+)/)?.[1]) || '';
+
+    /* Map focus → {section, elementId, label} so links land on the exact field */
+    const focusTargets = {
+      'trn':                 { section: 'business',     id: 'biz-trn' },
+      'cr':                  { section: 'business',     id: 'biz-cr' },
+      'name':                { section: 'business',     id: 'biz-name-ar' },
+      'address':             { section: 'business',     id: 'biz-street' },
+      'partners':            { section: 'tax-profile',  id: 'partners-anchor' },
+      'filing-frequency':    { section: 'tax-profile',  id: 'field-vat-frequency' },
+      'vat-filing-frequency':{ section: 'tax-profile',  id: 'field-vat-frequency' },
+      'entity-type':         { section: 'tax-profile',  id: 'legal-entity-type' },
+      'industry':            { section: 'tax-profile',  id: 'industry' },
+      'fiscal-year':         { section: 'localization', id: 'loc-fiscal-year' }
+    };
+
+    /* Decide which section to show */
+    let targetSection = sectionParam;
+    if(focusParam && focusTargets[focusParam]){
+      targetSection = focusTargets[focusParam].section;
+    }
+    if(targetSection){
+      const sectionBtn = document.querySelector(`.sidebar-link[onclick*="'${targetSection}'"]`);
+      if(sectionBtn) showSection(targetSection, sectionBtn);
+    } else if(window.location.hash){
       const sec = window.location.hash.slice(1);
       const btn = document.querySelector(`.sidebar-link[onclick*="'${sec}'"]`);
       if(btn) showSection(sec, btn);
     }
 
-    /* If URL has ?focus=trn, scroll-to and focus the TRN input */
-    const focusParam = (window.location.search.match(/focus=([a-z_]+)/)?.[1]) || '';
-    if(focusParam === 'trn'){
-      /* Make sure we're on the business section first */
-      const bizBtn = document.querySelector(`.sidebar-link[onclick*="'business'"]`);
-      if(bizBtn) showSection('business', bizBtn);
+    /* Scroll to and highlight the focused element */
+    if(focusParam && focusTargets[focusParam]){
+      const targetId = focusTargets[focusParam].id;
       setTimeout(() => {
-        const trnInput = document.getElementById('biz-trn');
-        if(trnInput){
-          trnInput.scrollIntoView({behavior: 'smooth', block: 'center'});
-          trnInput.focus();
-          /* Briefly highlight the field so it's visually obvious */
-          trnInput.style.outline = '3px solid #3b82f6';
-          trnInput.style.outlineOffset = '2px';
-          trnInput.style.transition = 'outline 0.3s';
+        const el = document.getElementById(targetId);
+        if(el){
+          el.scrollIntoView({behavior: 'smooth', block: 'center'});
+          /* Focus if it's an input */
+          if(el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA'){
+            el.focus();
+          }
+          /* Visual highlight regardless of element type */
+          const orig_outline = el.style.outline;
+          const orig_offset = el.style.outlineOffset;
+          el.style.outline = '3px solid #3b82f6';
+          el.style.outlineOffset = '4px';
+          el.style.borderRadius = '8px';
+          el.style.transition = 'outline 0.3s';
           setTimeout(() => {
-            trnInput.style.outline = '';
-            trnInput.style.outlineOffset = '';
-          }, 2500);
+            el.style.outline = orig_outline;
+            el.style.outlineOffset = orig_offset;
+          }, 3000);
         }
-      }, 300);
+      }, 350);
     }
   } catch(e){
     console.error('[GL settings] Init error:', e);
@@ -1164,6 +1207,7 @@ function populateAllForms(){
   /* Tax Profile */
   setVal('legal-entity-type', b.legal_entity_type || '');
   setVal('industry', b.industry || 'general');
+  setVal('vat-filing-frequency', b.vat_filing_frequency || 'quarterly');
   onTaxProfileChange();
   /* Partners are loaded asynchronously */
   loadPartners();
@@ -1688,6 +1732,7 @@ async function saveTaxProfile(){
   const bizPayload = {
     legal_entity_type: entityType,
     industry: v('industry') || 'general',
+    vat_filing_frequency: v('vat-filing-frequency') || 'quarterly',
     ownership_type: ownershipType,
     saudi_ownership_pct: Math.round(saudiPct * 100) / 100,
     foreign_ownership_pct: Math.round(foreignPct * 100) / 100,
