@@ -1,0 +1,407 @@
+<!DOCTYPE html>
+<!--
+═══════════════════════════════════════════════════════════════════════════════
+  GulfLedger — accounting.html
+  The accounting hub. One nav link, four sub-sections:
+    📊 Health         — non-accountant home: "am I OK?" in 5 seconds
+    📒 Ledger         — accountant home: real general ledger with drill-down
+    📈 Reports        — P&L, Balance Sheet, Trial Balance
+    🇸🇦 ZATCA Returns — guided VAT return wizard
+
+  Round 1 (this file): shell + sub-tab structure + data preload
+  Rounds 2-5: fill in each sub-tab
+
+  Guided mode (default ON) shows extra plain-language explanations.
+  Power users can toggle it OFF in the footer.
+
+  REQUIRED: Run chart-of-accounts-migration.sql in Supabase first.
+═══════════════════════════════════════════════════════════════════════════════
+-->
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1.0, user-scalable=no">
+<title>المحاسبة · GulfLedger</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&family=Cairo:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script>
+const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+</script>
+<style>
+:root{
+  --navy:#1A3C2A;--blue:#006C35;--sky:#3DAA65;--light:#A8D9BC;--tint:#E6F4EC;
+  --green:#1D9E75;--red:#C62828;--amber:#C9920A;--ink:#0D2618;--muted:#4A7A5E;
+  --border:#C3DECE;--bg:#F4F9F6;--white:#ffffff;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;}
+
+/* ─── TOP NAV ─── */
+.topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:300;box-shadow:0 2px 8px rgba(0,0,0,0.15);}
+.nav-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
+.nav-bars{display:flex;gap:3px;height:22px;}
+.nav-bar{width:3px;border-radius:2px;}
+.nav-name{font-family:'Playfair Display',serif;font-size:16px;color:#fff;}
+.nav-right{display:flex;align-items:center;gap:8px;}
+.nav-divider{width:1px;height:20px;background:rgba(255,255,255,0.2);}
+.nav-biz{font-size:14px;color:var(--light);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 10px;background:rgba(255,255,255,0.08);border-radius:6px;border:1px solid rgba(255,255,255,0.15);}
+.btn-logout{padding:5px 14px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:6px;font-family:inherit;font-size:14px;cursor:pointer;transition:background .15s;}
+.btn-logout:hover{background:rgba(255,255,255,0.2);}
+.nav-settings-btn{display:flex;align-items:center;justify-content:center;width:32px;height:32px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:#fff;text-decoration:none;font-size:15px;flex-shrink:0;transition:background .15s;}
+.nav-settings-btn:hover{background:rgba(255,255,255,0.2);}
+.lang-switch{display:flex;border:1px solid rgba(255,255,255,0.2);border-radius:6px;overflow:hidden;}
+.lang-btn{padding:4px 10px;font-size:13px;cursor:pointer;border:none;background:transparent;color:rgba(255,255,255,0.6);font-family:inherit;font-weight:500;transition:all .15s;}
+.lang-btn.on{background:var(--sky);color:#fff;}
+
+/* ─── APP NAV ─── */
+.app-nav{background:var(--blue);padding:8px 20px;display:flex;gap:4px;align-items:center;overflow-x:auto;position:sticky;top:44px;z-index:299;box-shadow:0 2px 6px rgba(0,0,0,0.1);-webkit-overflow-scrolling:touch;}
+.app-nav::-webkit-scrollbar{height:0;}
+.app-nav-link{padding:5px 14px;font-size:14px;font-weight:500;color:rgba(255,255,255,0.7);text-decoration:none;border-radius:6px;white-space:nowrap;transition:all .15s;}
+.app-nav-link:hover{background:rgba(255,255,255,0.12);color:#fff;}
+.app-nav-link.active{background:rgba(255,255,255,0.18);color:#fff;}
+
+/* ─── PAGE LAYOUT ─── */
+.page{max-width:1280px;margin:0 auto;padding:18px;}
+
+/* Sub-tabs (pill style, like Expenses tab toggle) */
+.subtab-bar{display:flex;background:#fff;border:1.5px solid var(--border);border-radius:14px;padding:4px;margin-bottom:18px;gap:4px;flex-wrap:wrap;}
+.subtab-btn{flex:1;padding:10px 16px;font-family:inherit;font-size:14px;font-weight:600;border:none;background:transparent;color:var(--muted);border-radius:10px;cursor:pointer;display:inline-flex;align-items:center;justify-content:center;gap:8px;transition:all .15s;white-space:nowrap;min-width:140px;}
+.subtab-btn:hover{background:var(--tint);color:var(--blue);}
+.subtab-btn.active{background:var(--blue);color:#fff;box-shadow:0 1px 4px rgba(0,108,53,0.2);}
+.subtab-btn .badge{background:rgba(255,255,255,0.25);padding:1px 7px;border-radius:8px;font-size:10px;font-weight:700;font-family:'DM Mono',monospace;}
+.subtab-btn:not(.active) .badge{background:var(--tint);color:var(--muted);}
+
+/* Empty state */
+.coming-soon{background:#fff;border:1px solid var(--border);border-radius:12px;padding:60px 30px;text-align:center;}
+.coming-soon .icon{font-size:50px;opacity:0.4;margin-bottom:16px;}
+.coming-soon h3{font-size:20px;font-weight:800;color:var(--ink);margin-bottom:8px;}
+.coming-soon p{font-size:14px;color:var(--muted);max-width:480px;margin:0 auto 16px;line-height:1.6;}
+.coming-soon .features{text-align:start;display:inline-block;margin:14px auto;}
+.coming-soon .features div{padding:5px 0;font-size:13px;color:var(--ink);}
+.coming-soon .features div::before{content:'•';color:var(--blue);margin-inline-end:8px;font-weight:700;}
+
+/* Notification */
+.notify{position:fixed;top:80px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:9999;display:none;}
+.notify.show{display:block;animation:notifyIn .2s ease;}
+.notify.success{background:var(--green);}
+.notify.error{background:var(--red);}
+@keyframes notifyIn{from{transform:translate(-50%,-10px);opacity:0;}to{transform:translate(-50%,0);opacity:1;}}
+
+/* Loading */
+.loading-state{text-align:center;padding:50px 20px;color:var(--muted);}
+.loading-spinner{font-size:36px;margin-bottom:12px;animation:pulse 1.5s ease-in-out infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
+
+/* Footer with guided-mode toggle */
+.acc-footer{margin-top:30px;padding:14px 18px;background:#fff;border:1px solid var(--border);border-radius:10px;display:flex;justify-content:space-between;align-items:center;font-size:12px;color:var(--muted);flex-wrap:wrap;gap:10px;}
+.acc-footer .footer-left{display:flex;align-items:center;gap:10px;flex:1;min-width:200px;}
+.guided-toggle{display:flex;align-items:center;gap:8px;cursor:pointer;user-select:none;}
+.guided-toggle input{width:34px;height:18px;appearance:none;-webkit-appearance:none;background:var(--border);border-radius:10px;position:relative;cursor:pointer;outline:none;transition:background .2s;}
+.guided-toggle input::before{content:'';position:absolute;top:2px;width:14px;height:14px;background:#fff;border-radius:50%;transition:transform .2s;box-shadow:0 1px 2px rgba(0,0,0,0.2);}
+[dir="ltr"] .guided-toggle input::before{left:2px;}
+[dir="rtl"] .guided-toggle input::before{right:2px;}
+.guided-toggle input:checked{background:var(--blue);}
+[dir="ltr"] .guided-toggle input:checked::before{transform:translateX(16px);}
+[dir="rtl"] .guided-toggle input:checked::before{transform:translateX(-16px);}
+.guided-toggle .label{font-size:13px;font-weight:600;color:var(--ink);}
+
+/* Mobile */
+@media (max-width:768px){
+  .topnav{padding:8px 12px;}
+  .nav-biz{max-width:90px;font-size:12px;}
+  .lang-switch .lang-btn{padding:3px 8px;font-size:11px;}
+  .btn-logout{padding:4px 10px;font-size:12px;}
+  .app-nav-link{padding:5px 9px;font-size:12px;}
+  .nav-name span{display:none;}
+  .subtab-btn{font-size:12px;padding:8px 10px;min-width:auto;flex:1 1 45%;}
+  .subtab-btn .badge{display:none;}
+}
+</style>
+</head>
+<body>
+
+<!-- Notification -->
+<div class="notify" id="notify"></div>
+
+<!-- ═══ TOP NAV ═══ -->
+<div class="topnav">
+  <a href="dashboard.html" class="nav-logo">
+    <div class="nav-bars">
+      <div class="nav-bar" style="background:#fff;"></div>
+      <div class="nav-bar" style="background:rgba(255,255,255,0.45);"></div>
+      <div class="nav-bar" style="background:rgba(255,255,255,0.25);"></div>
+    </div>
+    <span class="nav-name">Gulf<span style="color:var(--light);">Ledger</span></span>
+  </a>
+  <div class="nav-right">
+    <a href="settings.html" class="nav-settings-btn" title="الإعدادات" aria-label="Settings">⚙️</a>
+    <div class="lang-switch">
+      <button class="lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button>
+      <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
+    </div>
+    <div class="nav-divider"></div>
+    <span class="nav-biz" id="biz-name" title="">...</span>
+    <button class="btn-logout" onclick="logout()" data-ar="خروج" data-en="Sign Out">خروج</button>
+  </div>
+</div>
+
+<!-- ═══ APP NAVIGATION ═══ -->
+<div class="app-nav">
+  <a href="dashboard.html" class="app-nav-link" data-ar="الرئيسية" data-en="Dashboard">الرئيسية</a>
+  <a href="inventory.html" class="app-nav-link" data-ar="المنتجات والمخزون" data-en="Products & Stock">المنتجات والمخزون</a>
+  <a href="invoices.html" class="app-nav-link" data-ar="المبيعات والفواتير" data-en="Sales & Invoices">المبيعات والفواتير</a>
+  <a href="expenses.html" class="app-nav-link" data-ar="المصاريف" data-en="Expenses">المصاريف</a>
+  <a href="accounting.html" class="app-nav-link active" data-ar="المحاسبة" data-en="Accounting">المحاسبة</a>
+</div>
+
+<div class="page" id="page" style="display:none;">
+
+  <!-- ─── SUB-TAB BAR ─── -->
+  <div class="subtab-bar">
+    <button class="subtab-btn active" id="subtab-health" onclick="switchSubtab('health')">
+      📊 <span data-ar="الحالة" data-en="Health">الحالة</span>
+    </button>
+    <button class="subtab-btn" id="subtab-ledger" onclick="switchSubtab('ledger')">
+      📒 <span data-ar="دفتر الأستاذ" data-en="Ledger">دفتر الأستاذ</span>
+      <span class="badge" id="badge-ledger">0</span>
+    </button>
+    <button class="subtab-btn" id="subtab-reports" onclick="switchSubtab('reports')">
+      📈 <span data-ar="القوائم المالية" data-en="Reports">القوائم المالية</span>
+    </button>
+    <button class="subtab-btn" id="subtab-vat" onclick="switchSubtab('vat')">
+      🇸🇦 <span data-ar="إقرارات الضريبة" data-en="ZATCA Returns">إقرارات الضريبة</span>
+    </button>
+  </div>
+
+  <!-- ════ PANE: HEALTH ════ -->
+  <div id="pane-health">
+    <div class="coming-soon">
+      <div class="icon">📊</div>
+      <h3 data-ar="نظرة عامة على دفاترك" data-en="Your Books at a Glance">نظرة عامة على دفاترك</h3>
+      <p data-ar="هذه الصفحة قيد البناء وستُتاح في التحديث القادم. ستجد هنا ملخصاً مبسّطاً لأموالك: ربح/خسارة الفترة، تنبيهات ZATCA، وإجراءات إصلاح سريعة." data-en="This view is under construction and will be ready in the next update. You'll find here a plain-language overview: period profit/loss, ZATCA alerts, and quick-fix actions.">هذه الصفحة قيد البناء وستُتاح في التحديث القادم. ستجد هنا ملخصاً مبسّطاً لأموالك: ربح/خسارة الفترة، تنبيهات ZATCA، وإجراءات إصلاح سريعة.</p>
+      <div class="features">
+        <div data-ar="نظرة سريعة: هل دفاترك متوازنة؟" data-en="At a glance: are your books balanced?">نظرة سريعة: هل دفاترك متوازنة؟</div>
+        <div data-ar="الإيرادات والمصروفات والربح هذا الربع" data-en="Income, expenses, profit this quarter">الإيرادات والمصروفات والربح هذا الربع</div>
+        <div data-ar="ضريبة القيمة المضافة المتوقعة" data-en="Estimated VAT to pay">ضريبة القيمة المضافة المتوقعة</div>
+        <div data-ar="تنبيهات تحتاج اهتمامك (إيصالات ناقصة، فواتير متأخرة)" data-en="Issues needing attention (missing receipts, overdue bills)">تنبيهات تحتاج اهتمامك (إيصالات ناقصة، فواتير متأخرة)</div>
+        <div data-ar="إجراءات موجّهة: إقرار VAT، التقارير، حزمة المراجعة" data-en="Guided actions: file VAT, generate reports, audit package">إجراءات موجّهة: إقرار VAT، التقارير، حزمة المراجعة</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════ PANE: LEDGER ════ -->
+  <div id="pane-ledger" style="display:none;">
+    <div class="coming-soon">
+      <div class="icon">📒</div>
+      <h3 data-ar="دفتر الأستاذ العام" data-en="General Ledger">دفتر الأستاذ العام</h3>
+      <p data-ar="عرض كامل لقيود اليومية مع إمكانية التصفية والبحث والتفاصيل لكل عملية. سيتم بناء هذه الصفحة في الجزء التالي." data-en="Full journal-entry view with filters, search, and drill-down to source documents. Will be built in the next round.">عرض كامل لقيود اليومية مع إمكانية التصفية والبحث والتفاصيل لكل عملية. سيتم بناء هذه الصفحة في الجزء التالي.</p>
+      <div class="features">
+        <div data-ar="جميع القيود مرتبة زمنياً مع تفاصيل المدين والدائن" data-en="All journal entries chronologically with debit/credit detail">جميع القيود مرتبة زمنياً مع تفاصيل المدين والدائن</div>
+        <div data-ar="فلاتر: الفترة، الحساب، المصدر (فاتورة/مصروف/استلام)" data-en="Filters: period, account, source type">فلاتر: الفترة، الحساب، المصدر</div>
+        <div data-ar="انقر على أي قيد لرؤية المستند الأصلي والسجل التدقيقي" data-en="Click any entry to see source document + audit log">انقر على أي قيد لرؤية المستند الأصلي والسجل التدقيقي</div>
+        <div data-ar="دليل الحسابات الكامل (Chart of Accounts)" data-en="Full Chart of Accounts">دليل الحسابات الكامل</div>
+        <div data-ar="تصدير CSV للمحاسبين والمراجعين" data-en="Export to CSV for accountants & auditors">تصدير CSV للمحاسبين والمراجعين</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════ PANE: REPORTS ════ -->
+  <div id="pane-reports" style="display:none;">
+    <div class="coming-soon">
+      <div class="icon">📈</div>
+      <h3 data-ar="القوائم المالية" data-en="Financial Reports">القوائم المالية</h3>
+      <p data-ar="ثلاث قوائم رئيسية بلغة بسيطة: قائمة الدخل، الميزانية العمومية، وميزان المراجعة. مع إمكانية التصدير PDF و CSV." data-en="Three core statements in plain language: Profit & Loss, Balance Sheet, and Trial Balance — with PDF and CSV export.">ثلاث قوائم رئيسية بلغة بسيطة: قائمة الدخل، الميزانية العمومية، وميزان المراجعة. مع إمكانية التصدير PDF و CSV.</p>
+      <div class="features">
+        <div data-ar="📊 قائمة الدخل: هل ربحت أم خسرت؟" data-en="📊 Profit & Loss: did I make money?">📊 قائمة الدخل: هل ربحت أم خسرت؟</div>
+        <div data-ar="⚖️ الميزانية العمومية: ماذا أملك وماذا أدين؟" data-en="⚖️ Balance Sheet: what do I own & owe?">⚖️ الميزانية العمومية: ماذا أملك وماذا أدين؟</div>
+        <div data-ar="✅ ميزان المراجعة: هل دفاتري متوازنة؟ (المحاسبون يحبون هذه)" data-en="✅ Trial Balance: are my books balanced? (accountants love this)">✅ ميزان المراجعة: هل دفاتري متوازنة؟</div>
+        <div data-ar="مقارنة بالفترة السابقة" data-en="Compare to previous period">مقارنة بالفترة السابقة</div>
+        <div data-ar="تصدير PDF و CSV" data-en="Export to PDF and CSV">تصدير PDF و CSV</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════ PANE: ZATCA RETURNS ════ -->
+  <div id="pane-vat" style="display:none;">
+    <div class="coming-soon">
+      <div class="icon">🇸🇦</div>
+      <h3 data-ar="إقرارات ضريبة القيمة المضافة" data-en="VAT Return Wizard">إقرارات ضريبة القيمة المضافة</h3>
+      <p data-ar="معالج موجّه لإعداد إقرار ربعي/شهري متوافق مع ZATCA Phase 2. يقوم تلقائياً بحساب VAT المخرجات والمدخلات والصافي المستحق." data-en="Step-by-step wizard for ZATCA Phase 2 quarterly/monthly returns. Auto-calculates output VAT, input VAT, and net VAT due.">معالج موجّه لإعداد إقرار ربعي/شهري متوافق مع ZATCA Phase 2. يقوم تلقائياً بحساب VAT المخرجات والمدخلات والصافي المستحق.</p>
+      <div class="features">
+        <div data-ar="١. مراجعة المبيعات (المخرجات)" data-en="1. Review sales (output VAT)">١. مراجعة المبيعات (المخرجات)</div>
+        <div data-ar="٢. مراجعة المشتريات (المدخلات القابلة للاسترداد فقط)" data-en="2. Review purchases (recoverable input VAT only)">٢. مراجعة المشتريات (المدخلات القابلة للاسترداد فقط)</div>
+        <div data-ar="٣. التسويات والتعديلات" data-en="3. Adjustments">٣. التسويات والتعديلات</div>
+        <div data-ar="٤. توليد ملف ZATCA جاهز للرفع" data-en="4. Generate ZATCA-ready file">٤. توليد ملف ZATCA جاهز للرفع</div>
+        <div data-ar="تنبيهات قبل الإرسال (TRN ناقص، فواتير ملغية، إلخ)" data-en="Pre-submission warnings (missing TRN, voided invoices, etc.)">تنبيهات قبل الإرسال</div>
+        <div data-ar="جاهز للتكامل المباشر مع ZATCA Fatoora API لاحقاً" data-en="Ready for direct ZATCA Fatoora API integration later">جاهز للتكامل المباشر مع ZATCA Fatoora API لاحقاً</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ─── FOOTER: Guided mode toggle ─── -->
+  <div class="acc-footer">
+    <div class="footer-left">
+      <span data-ar="الوضع الموجَّه" data-en="Guided Mode">الوضع الموجَّه</span>
+      <label class="guided-toggle" title="Toggle guided mode">
+        <input type="checkbox" id="guided-toggle" onchange="toggleGuidedMode()" checked>
+        <span class="label" id="guided-label" data-ar="مفعَّل" data-en="ON">مفعَّل</span>
+      </label>
+    </div>
+    <div style="font-size:11px;color:var(--muted);" data-ar="الوضع الموجَّه يعرض شروحات ميسّرة. ألغ التفعيل للعرض المختصر." data-en="Guided mode shows plain-language explanations. Turn off for compact view.">الوضع الموجَّه يعرض شروحات ميسّرة. ألغ التفعيل للعرض المختصر.</div>
+  </div>
+
+</div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════════════
+   GULFLEDGER · ACCOUNTING
+   ─────────────────────────────────────────────────────────────────── */
+let currentLang = localStorage.getItem('gl_lang') || 'ar';
+let currentUser = null;
+let currentBiz = null;
+let currentSubtab = 'health';
+let guidedMode = (localStorage.getItem('gl_guided_mode') !== 'off');
+
+/* Preloaded data — sub-tabs fill from these */
+let chartOfAccounts = [];
+let journalCount = 0;
+
+/* ─── helpers ─── */
+function notify(msg, type='info'){
+  const el = document.getElementById('notify');
+  el.textContent = msg;
+  el.className = 'notify show ' + type;
+  setTimeout(() => el.classList.remove('show'), 3000);
+}
+function setText(id, v){ const el = document.getElementById(id); if(el) el.textContent = v; }
+function getNameAr(o){ return o?.name_ar || o?.name || ''; }
+function getNameEn(o){ return o?.name_en || ''; }
+function displayName(o){
+  if(!o) return '';
+  return currentLang === 'ar' ? (getNameAr(o) || getNameEn(o)) : (getNameEn(o) || getNameAr(o));
+}
+
+/* ─── init ─── */
+async function init(){
+  const {data:{session}} = await sb.auth.getSession();
+  if(!session){ window.location.href = 'login.html'; return; }
+  currentUser = session.user;
+
+  const {data:bizes, error: bizErr} = await sb.from('businesses').select('*').eq('user_id', currentUser.id).limit(1);
+  if(bizErr || !bizes || bizes.length === 0){
+    notify(currentLang==='ar'?'لم يتم العثور على شركة':'No business found','error');
+    return;
+  }
+  currentBiz = bizes[0];
+  setText('biz-name', displayName(currentBiz) || currentBiz.name || '—');
+
+  setLang(currentLang);
+  applyGuidedMode();
+  await loadCoreData();
+
+  /* Sub-tab from URL */
+  const sub = (window.location.search.match(/sub=([a-z]+)/)?.[1]) || 'health';
+  if(['health','ledger','reports','vat'].includes(sub)) switchSubtab(sub);
+
+  document.getElementById('page').style.display = '';
+}
+
+async function loadCoreData(){
+  /* Chart of accounts — needed by Ledger and Reports */
+  const {data:coa, error: coaErr} = await sb.from('chart_of_accounts')
+    .select('*')
+    .eq('user_id', currentUser.id)
+    .eq('is_active', true)
+    .order('display_order', {ascending: true});
+
+  if(coaErr){
+    console.warn('[GL accounting] Chart of accounts not found:', coaErr.message);
+    notify(currentLang==='ar'
+      ? 'لم يتم العثور على دليل الحسابات. يرجى تشغيل migration الخاص بـ chart_of_accounts.'
+      : 'Chart of accounts not found. Please run the chart_of_accounts migration.',
+      'error');
+    chartOfAccounts = [];
+  } else {
+    chartOfAccounts = coa || [];
+    /* If empty, attempt to seed via the function */
+    if(chartOfAccounts.length === 0){
+      const {error: seedErr} = await sb.rpc('seed_default_chart_of_accounts', {
+        p_user_id: currentUser.id,
+        p_business_id: currentBiz.id
+      });
+      if(!seedErr){
+        const {data:coa2} = await sb.from('chart_of_accounts')
+          .select('*').eq('user_id', currentUser.id).eq('is_active', true)
+          .order('display_order', {ascending:true});
+        chartOfAccounts = coa2 || [];
+      }
+    }
+  }
+
+  /* Journal entries count for badge */
+  const {count} = await sb.from('journal_entries')
+    .select('*', {count: 'exact', head: true})
+    .eq('user_id', currentUser.id);
+  journalCount = count || 0;
+  setText('badge-ledger', String(journalCount));
+}
+
+/* ─── sub-tab switching ─── */
+function switchSubtab(name){
+  currentSubtab = name;
+  ['health','ledger','reports','vat'].forEach(t => {
+    document.getElementById('subtab-'+t)?.classList.toggle('active', t === name);
+    const pane = document.getElementById('pane-'+t);
+    if(pane) pane.style.display = (t === name) ? '' : 'none';
+  });
+  history.replaceState(null, '', '?sub='+name);
+}
+
+/* ─── guided mode ─── */
+function toggleGuidedMode(){
+  guidedMode = document.getElementById('guided-toggle').checked;
+  localStorage.setItem('gl_guided_mode', guidedMode ? 'on' : 'off');
+  applyGuidedMode();
+}
+
+function applyGuidedMode(){
+  const cb = document.getElementById('guided-toggle');
+  if(cb) cb.checked = guidedMode;
+  const lbl = document.getElementById('guided-label');
+  if(lbl) lbl.textContent = currentLang==='ar'
+    ? (guidedMode ? 'مفعَّل' : 'متوقف')
+    : (guidedMode ? 'ON' : 'OFF');
+  document.body.classList.toggle('guided-off', !guidedMode);
+}
+
+/* ─── language ─── */
+function setLang(lang){
+  currentLang = lang;
+  localStorage.setItem('gl_lang', lang);
+  document.documentElement.setAttribute('lang', lang);
+  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+  document.getElementById('btn-ar').classList.toggle('on', lang === 'ar');
+  document.getElementById('btn-en').classList.toggle('on', lang === 'en');
+  document.querySelectorAll('[data-ar]').forEach(el => {
+    if(el.id === 'guided-label') return; /* handled by applyGuidedMode */
+    el.textContent = lang === 'ar' ? el.dataset.ar : el.dataset.en;
+  });
+  document.querySelectorAll('[data-ph-ar]').forEach(el => {
+    el.placeholder = lang === 'ar' ? el.dataset.phAr : el.dataset.phEn;
+  });
+  applyGuidedMode();
+}
+
+async function logout(){
+  await sb.auth.signOut();
+  window.location.href = 'login.html';
+}
+
+init();
+</script>
+</body>
+</html>

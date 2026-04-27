@@ -347,9 +347,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   <a href="inventory.html" class="app-nav-link" data-ar="المنتجات والمخزون" data-en="Products & Stock">المنتجات والمخزون</a>
   <a href="invoices.html" class="app-nav-link" data-ar="المبيعات والفواتير" data-en="Sales & Invoices">المبيعات والفواتير</a>
   <a href="expenses.html" class="app-nav-link active" data-ar="المصاريف" data-en="Expenses">المصاريف</a>
-  <a href="ledger.html" class="app-nav-link" data-ar="المحاسبة" data-en="Accounting">المحاسبة</a>
-  <a href="vat.html" class="app-nav-link" data-ar="ضريبة القيمة المضافة" data-en="VAT">ضريبة القيمة المضافة</a>
-  <a href="reports.html" class="app-nav-link" data-ar="التقارير" data-en="Reports">التقارير</a>
+  <a href="accounting.html" class="app-nav-link" data-ar="المحاسبة" data-en="Accounting">المحاسبة</a>
 </div>
 
 <div class="page" id="page" style="display:none;">
@@ -2306,10 +2304,10 @@ async function postExpenseJournal(expense, cat){
       entry_date: expense.expense_date,
       reference: expense.expense_number,
       description: ar ? `مصروف — ${expense.description}` : `Expense — ${expense.description}`,
-      source_type: 'expense',
+      source: 'expense',
       source_id: expense.id,
-      total_debit: expense.total,
-      total_credit: expense.total
+      is_balanced: true,
+      status: 'posted'
     }).select().single();
     if(jeErr){ console.warn('[GL] Journal entry not posted:', jeErr.message); return; }
 
@@ -2321,25 +2319,28 @@ async function postExpenseJournal(expense, cat){
     /* Expense account: subtotal (or full amount if VAT non-recoverable) */
     const expenseDebit = recoverable ? subtotal : (subtotal + vatAmount);
     lines.push({
-      journal_entry_id: entry.id,
+      entry_id: entry.id,
+      user_id: currentUser.id,
       account_code: expenseAcct,
       account_name: expenseAcctName,
       debit: expenseDebit, credit: 0,
       description: expense.description
     });
-    /* Input VAT only if recoverable */
+    /* Input VAT only if recoverable — account 2210 (VAT receivable from gov) */
     if(recoverable && vatAmount > 0){
       lines.push({
-        journal_entry_id: entry.id,
-        account_code: '2200',
-        account_name: ar ? 'ضريبة المدخلات' : 'Input VAT',
+        entry_id: entry.id,
+        user_id: currentUser.id,
+        account_code: '2210',
+        account_name: ar ? 'ضريبة القيمة المضافة - مدخلات' : 'VAT Receivable (Input)',
         debit: vatAmount, credit: 0,
         description: expense.description
       });
     }
     /* Credit side */
     lines.push({
-      journal_entry_id: entry.id,
+      entry_id: entry.id,
+      user_id: currentUser.id,
       account_code: creditAcct,
       account_name: creditName,
       debit: 0, credit: parseFloat(expense.total) || 0,
@@ -2827,17 +2828,17 @@ async function postPaymentJournal(exp, payAmount, payMethod, payDate, note){
       entry_date: payDate,
       reference: exp.expense_number + ' (PAY)',
       description: desc,
-      source_type: 'expense_payment',
+      source: 'expense_payment',
       source_id: exp.id,
-      total_debit: payAmount,
-      total_credit: payAmount
+      is_balanced: true,
+      status: 'posted'
     }).select().single();
     if(error){ console.warn('[GL] Payment journal not posted:', error.message); return; }
 
     await sb.from('journal_lines').insert([
-      { journal_entry_id: entry.id, account_code: debitAcct,  account_name: debitName,
+      { entry_id: entry.id, user_id: currentUser.id, account_code: debitAcct,  account_name: debitName,
         debit: payAmount, credit: 0, description: desc },
-      { journal_entry_id: entry.id, account_code: creditAcct, account_name: creditName,
+      { entry_id: entry.id, user_id: currentUser.id, account_code: creditAcct, account_name: creditName,
         debit: 0, credit: payAmount, description: desc }
     ]);
   } catch(e){
@@ -2865,10 +2866,10 @@ async function postExpenseVoidJournal(exp){
       entry_date: todayISO(),
       reference: exp.expense_number + ' (VOID)',
       description: ar ? `إلغاء مصروف — ${exp.description}` : `Void expense — ${exp.description}`,
-      source_type: 'expense_void',
+      source: 'expense_void',
       source_id: exp.id,
-      total_debit: exp.total,
-      total_credit: exp.total
+      is_balanced: true,
+      status: 'posted'
     }).select().single();
     if(error){ console.warn('[GL] Void journal not posted:', error.message); return; }
 
@@ -2881,14 +2882,16 @@ async function postExpenseVoidJournal(exp){
                 void:     DR cash/AP + CR exp + CR VAT */
     const lines = [];
     lines.push({
-      journal_entry_id: entry.id,
+      entry_id: entry.id,
+      user_id: currentUser.id,
       account_code: creditAcct,
       account_name: creditName,
       debit: parseFloat(exp.total) || 0, credit: 0,
       description: 'Void: ' + exp.description
     });
     lines.push({
-      journal_entry_id: entry.id,
+      entry_id: entry.id,
+      user_id: currentUser.id,
       account_code: expenseAcct,
       account_name: expenseAcctName,
       debit: 0, credit: expenseAmount,
@@ -2896,9 +2899,10 @@ async function postExpenseVoidJournal(exp){
     });
     if(recoverable && vatAmount > 0){
       lines.push({
-        journal_entry_id: entry.id,
-        account_code: '2200',
-        account_name: ar ? 'ضريبة المدخلات' : 'Input VAT',
+        entry_id: entry.id,
+        user_id: currentUser.id,
+        account_code: '2210',
+        account_name: ar ? 'ضريبة القيمة المضافة - مدخلات' : 'VAT Receivable (Input)',
         debit: 0, credit: vatAmount,
         description: 'Void: ' + exp.description
       });
