@@ -1036,6 +1036,64 @@ function notify(msg, type='info'){
   el.className = 'notify show ' + type;
   setTimeout(() => el.classList.remove('show'), 3000);
 }
+
+/* Round 14: friendly DB-trigger error messages */
+function friendlyDbError(err){
+  const msg = (err && (err.message || err.details)) || '';
+  const ar = currentLang === 'ar';
+  if(/period_closed/i.test(msg)){
+    return ar
+      ? 'تعذّر الحفظ: التاريخ المحدد ضمن فترة محاسبية مغلقة. غيّر التاريخ أو أعد فتح الفترة من تبويب التقارير.'
+      : 'Cannot save: the selected date falls in a closed accounting period. Change the date or reopen the period from Reports.';
+  }
+  if(/journal_entry_unbalanced/i.test(msg)){
+    return ar
+      ? 'تعذّر حفظ القيد: المدين لا يساوي الدائن. راجع البنود.'
+      : 'Cannot save journal entry: debits don\'t equal credits. Review the lines.';
+  }
+  if(/business_not_owned|not_authenticated/i.test(msg)){
+    return ar ? 'غير مصرّح بهذه العملية.' : 'Not authorized for this operation.';
+  }
+  return msg || (ar ? 'حدث خطأ غير متوقع' : 'An unexpected error occurred');
+}
+
+/* Round 16 (M-1): Saudi TRN structural validation */
+function validateSaudiTRN(trn){
+  const ar = currentLang === 'ar';
+  const cleaned = String(trn || '').replace(/\D/g, '');
+  if(cleaned.length === 0){
+    return {valid: false, reason: ar ? 'الرقم الضريبي مطلوب' : 'TRN is required'};
+  }
+  if(cleaned.length !== 15){
+    return {valid: false, reason: ar ? 'الرقم الضريبي يجب أن يكون 15 رقماً' : 'TRN must be 15 digits'};
+  }
+  if(!/^3\d{12}03$/.test(cleaned)){
+    return {valid: false, reason: ar
+      ? 'تنسيق الرقم الضريبي غير صحيح — يجب أن يبدأ بـ 3 وينتهي بـ 03'
+      : 'Invalid TRN format — must start with 3 and end with 03'};
+  }
+  return {valid: true, reason: null};
+}
+
+/* Round 16 (M-7): Commercial rounding */
+function roundCurrency(n){
+  const v = parseFloat(n);
+  if(!Number.isFinite(v)) return 0;
+  return Math.sign(v) * Math.round(Math.abs(v) * 100) / 100;
+}
+
+/* Round 16 (M-5): HTML-attribute-safe escaping for inline onclick=, etc. */
+function safeAttr(s){
+  if(s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\r/g, '')
+    .replace(/\n/g, ' ');
+}
 function fmt(n){ return (parseFloat(n) || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}); }
 function todayISO(){ return new Date().toISOString().slice(0,10); }
 function escHTML(s){ if(s == null) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
@@ -1142,6 +1200,7 @@ async function loadExpenses(){
   const {data, error} = await sb.from('expenses')
     .select('*')
     .eq('user_id', currentUser.id)
+    .eq('business_id', currentBiz?.id || '')
     .order('expense_date', {ascending:false})
     .order('created_at', {ascending:false})
     .limit(500);
@@ -1154,6 +1213,7 @@ async function loadVendors(){
   const {data, error} = await sb.from('suppliers')
     .select('*')
     .eq('user_id', currentUser.id)
+    .eq('business_id', currentBiz?.id || '')
     .in('usage_type', ['expense','both'])
     .order('name_ar', {ascending:true});
   if(error){ console.error('[GL] loadVendors', error); allVendors = []; return; }
@@ -1695,7 +1755,8 @@ async function fetchAllSuppliersForCode(){
   /* For accurate next-code generation, look across all suppliers (not just expense ones) */
   const {data} = await sb.from('suppliers')
     .select('supplier_code')
-    .eq('user_id', currentUser.id);
+    .eq('user_id', currentUser.id)
+    .eq('business_id', currentBiz?.id || '');
   window._allSuppliersForCode = data || [];
 }
 
@@ -1705,6 +1766,7 @@ async function fetchNextExpenseNumber(){
   const {data, error} = await sb.from('expenses')
     .select('expense_number')
     .eq('user_id', currentUser.id)
+    .eq('business_id', currentBiz?.id || '')
     .ilike('expense_number', `${prefix}-${yr}-%`);
   if(error){
     console.warn('[GL] fetchNextExpenseNumber failed:', error.message);
@@ -1781,9 +1843,13 @@ async function saveVendor(){
     return;
   }
   const trn = v('vnd-trn');
-  if(trn && !/^\d{15}$/.test(trn)){
-    notify(currentLang==='ar'?'الرقم الضريبي يجب أن يكون 15 رقم':'TRN must be 15 digits','error');
-    return;
+  if(trn){
+    /* Round 16 (M-1): Saudi TRN structural validation */
+    const trnCheck = validateSaudiTRN(trn);
+    if(!trnCheck.valid){
+      notify(trnCheck.reason, 'error');
+      return;
+    }
   }
 
   const payload = {
@@ -1820,7 +1886,7 @@ async function saveVendor(){
     if(error.code === '23505'){
       notify(currentLang==='ar'?'رمز المورد مكرر':'Supplier code already exists','error');
     } else {
-      notify(error.message, 'error');
+      notify(friendlyDbError(error), 'error');
     }
     return;
   }
@@ -1858,6 +1924,7 @@ async function deleteVendor(){
   const {count} = await sb.from('expenses')
     .select('*', {count: 'exact', head: true})
     .eq('user_id', currentUser.id)
+    .eq('business_id', currentBiz?.id || '')
     .eq('supplier_id', currentVendorId);
 
   const hasUsage = (count || 0) > 0;
@@ -1878,7 +1945,7 @@ async function deleteVendor(){
   } else {
     ({error} = await sb.from('suppliers').delete().eq('id', currentVendorId));
   }
-  if(error){ notify(error.message, 'error'); return; }
+  if(error){ notify(friendlyDbError(error), 'error'); return; }
 
   await writeAuditLog({
     entity_type: 'supplier',
@@ -2001,7 +2068,7 @@ async function mountVendorCombo(){
         updated_at: new Date().toISOString()
       };
       const {data, error} = await sb.from('suppliers').insert(payload).select().single();
-      if(error){ notify(error.message, 'error'); return; }
+      if(error){ notify(friendlyDbError(error), 'error'); return; }
       notify(currentLang==='ar'?`✅ تم إنشاء المورد "${name}"`:`✅ Created "${name}"`, 'success');
       await loadVendors();
       await fetchAllSuppliersForCode();
@@ -2351,7 +2418,7 @@ async function saveExpense(){
     if(receiptPath){
       sb.storage.from('expense-receipts').remove([receiptPath]).catch(() => {});
     }
-    notify(error.message, 'error');
+    notify(friendlyDbError(error), 'error');
     return;
   }
 
@@ -2590,6 +2657,7 @@ async function openExpenseDrawer(id){
       .eq('entity_type', 'expense')
       .eq('entity_id', id)
       .eq('user_id', currentUser.id)
+      .eq('business_id', currentBiz?.id || '')
       .order('created_at', {ascending: true}),
     exp.receipt_path ? generateReceiptSignedUrl(exp.receipt_path) : Promise.resolve(null)
   ]);
@@ -2819,7 +2887,7 @@ async function confirmVoidExpense(){
     void_reason: reason,
     updated_at: new Date().toISOString()
   }).eq('id', currentVoidExpenseId);
-  if(error){ btn.disabled = false; notify(error.message,'error'); return; }
+  if(error){ btn.disabled = false; notify(friendlyDbError(error),'error'); return; }
 
   /* 3. Post reversing journal entry */
   await postExpenseVoidJournal(exp);
@@ -2949,7 +3017,7 @@ async function confirmPayment(){
 
   if(error){
     btn.disabled = false;
-    notify(error.message, 'error');
+    notify(friendlyDbError(error), 'error');
     return;
   }
 

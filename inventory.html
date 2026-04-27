@@ -1037,6 +1037,65 @@ function notify(msg, type='info'){
   setTimeout(() => n.classList.remove('show'), 3000);
 }
 
+/* Round 14: friendly DB-trigger error messages */
+function friendlyDbError(err){
+  const msg = (err && (err.message || err.details)) || '';
+  const ar = currentLang === 'ar';
+  if(/period_closed/i.test(msg)){
+    return ar
+      ? 'تعذّر الحفظ: التاريخ المحدد ضمن فترة محاسبية مغلقة.'
+      : 'Cannot save: the selected date falls in a closed accounting period.';
+  }
+  if(/journal_entry_unbalanced/i.test(msg)){
+    return ar ? 'القيد غير متوازن.' : 'Journal entry is unbalanced.';
+  }
+  if(/business_not_owned|not_authenticated/i.test(msg)){
+    return ar ? 'غير مصرّح بهذه العملية.' : 'Not authorized for this operation.';
+  }
+  return msg || (ar ? 'حدث خطأ غير متوقع' : 'An unexpected error occurred');
+}
+
+/* Round 16 (M-7): Commercial rounding for monetary amounts */
+function roundCurrency(n){
+  const v = parseFloat(n);
+  if(!Number.isFinite(v)) return 0;
+  return Math.sign(v) * Math.round(Math.abs(v) * 100) / 100;
+}
+
+/* Round 16 (M-5): HTML-attribute-safe escaping for inline onclick=, etc. */
+function safeAttr(s){
+  if(s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\r/g, '')
+    .replace(/\n/g, ' ');
+}
+
+/* Round 16 (M-6): Audit log writer */
+async function writeAuditLog({entity_type, entity_id, entity_reference, action, before_data, after_data, reason}){
+  try {
+    await sb.from('audit_log').insert({
+      user_id: currentUser.id,
+      business_id: currentBiz?.id,
+      user_email: currentUser.email || null,
+      entity_type,
+      entity_id,
+      entity_reference: entity_reference || null,
+      action,
+      before_data: before_data || null,
+      after_data: after_data || null,
+      reason: reason || null,
+      user_agent: navigator.userAgent.slice(0, 200)
+    });
+  } catch (e) {
+    console.warn('[GL] audit_log insert failed:', e);
+  }
+}
+
 function getNameAr(obj){ return obj?.name_ar || obj?.name || ''; }
 function getNameEn(obj){ return obj?.name_en || ''; }
 function displayName(obj){
@@ -1092,7 +1151,7 @@ async function loadAll(){
 
 async function loadItems(){
   const {data, error} = await sb.from('inventory_items')
-    .select('*').eq('user_id', currentUser.id)
+    .select('*').eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
     .order('name_ar', {ascending: true});
   if(error){ console.error('Items load:', error); allItems = []; return; }
   allItems = data || [];
@@ -1100,7 +1159,7 @@ async function loadItems(){
 
 async function loadSuppliers(){
   const {data, error} = await sb.from('suppliers')
-    .select('*').eq('user_id', currentUser.id)
+    .select('*').eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
     .order('name_ar', {ascending: true});
   if(error){ console.error('Suppliers load:', error); allSuppliers = []; return; }
   allSuppliers = data || [];
@@ -1108,7 +1167,7 @@ async function loadSuppliers(){
 
 async function loadReceipts(){
   const {data, error} = await sb.from('stock_receipts')
-    .select('*').eq('user_id', currentUser.id)
+    .select('*').eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
     .order('receipt_date', {ascending: false}).limit(200);
   if(error){ console.error('Receipts load:', error); allReceipts = []; return; }
   allReceipts = data || [];
@@ -1549,7 +1608,7 @@ async function saveItem(){
     if(error.code === '23505'){
       notify(currentLang==='ar'?'رمز المنتج مكرر':'SKU already exists','error');
     } else {
-      notify(error.message,'error');
+      notify(friendlyDbError(error),'error');
     }
     return;
   }
@@ -1588,11 +1647,29 @@ async function deleteItem(){
   if(moves && moves.length > 0){
     /* Soft delete */
     const {error} = await sb.from('inventory_items').update({is_active:false}).eq('id', currentItemId);
-    if(error){ notify(error.message,'error'); return; }
+    if(error){ notify(friendlyDbError(error),'error'); return; }
+    /* Round 16 (M-6): audit log */
+    await writeAuditLog({
+      entity_type: 'inventory_item',
+      entity_id: currentItemId,
+      entity_reference: it?.item_code || getNameAr(it) || getNameEn(it),
+      action: 'deactivated',
+      before_data: it,
+      reason: 'has inventory_movements history — preserved'
+    });
     notify(currentLang==='ar'?'تم تعطيل المنتج (يحتفظ بالسجل)':'Item deactivated (history preserved)','success');
   } else {
     const {error} = await sb.from('inventory_items').delete().eq('id', currentItemId);
-    if(error){ notify(error.message,'error'); return; }
+    if(error){ notify(friendlyDbError(error),'error'); return; }
+    /* Round 16 (M-6): audit log */
+    await writeAuditLog({
+      entity_type: 'inventory_item',
+      entity_id: currentItemId,
+      entity_reference: it?.item_code || getNameAr(it) || getNameEn(it),
+      action: 'deleted',
+      before_data: it,
+      reason: 'no usage history — hard delete'
+    });
     notify(currentLang==='ar'?'تم الحذف':'Deleted','success');
   }
   closeItemModal();
@@ -1696,7 +1773,7 @@ async function saveSupplier(){
     if(error.code === '23505'){
       notify(currentLang==='ar'?'رمز المورد مكرر':'Supplier code already exists','error');
     } else {
-      notify(error.message,'error');
+      notify(friendlyDbError(error),'error');
     }
     return;
   }
@@ -1730,11 +1807,11 @@ async function deleteSupplier(){
   if(rcps && rcps.length > 0){
     /* Soft delete */
     const {error} = await sb.from('suppliers').update({is_active:false}).eq('id', currentSupplierId);
-    if(error){ notify(error.message,'error'); return; }
+    if(error){ notify(friendlyDbError(error),'error'); return; }
     notify(currentLang==='ar'?'تم تعطيل المورد (يحتفظ بالسجل)':'Supplier deactivated (history preserved)','success');
   } else {
     const {error} = await sb.from('suppliers').delete().eq('id', currentSupplierId);
-    if(error){ notify(error.message,'error'); return; }
+    if(error){ notify(friendlyDbError(error),'error'); return; }
     notify(currentLang==='ar'?'تم الحذف':'Deleted','success');
   }
   closeSupplierModal();
@@ -2052,7 +2129,7 @@ function populateSupplierDropdown(){
         updated_at: new Date().toISOString()
       };
       const {data, error} = await sb.from('suppliers').insert(payload).select().single();
-      if(error){ notify(error.message, 'error'); return; }
+      if(error){ notify(friendlyDbError(error), 'error'); return; }
       notify(ar?`✅ تم إنشاء المورد "${name}" (${code})`:`✅ Created "${name}" (${code})`, 'success');
       /* Reload suppliers and re-mount combo with new selection */
       await loadSuppliers();
@@ -2200,7 +2277,7 @@ function renderReceiptItems(){
           updated_at: new Date().toISOString()
         };
         const {data, error} = await sb.from('inventory_items').insert(payload).select().single();
-        if(error){ notify(error.message, 'error'); return; }
+        if(error){ notify(friendlyDbError(error), 'error'); return; }
         notify(ar?`✅ تم إنشاء المنتج "${name}" (${sku})`:`✅ Created "${name}" (${sku})`, 'success');
         await loadItems();
         computeStats();
@@ -2298,9 +2375,9 @@ async function saveReceipt(){
     subtotal += lineSub;
     vatAmount += lineVat;
   }
-  subtotal = Math.round(subtotal*100)/100;
-  vatAmount = Math.round(vatAmount*100)/100;
-  const total = Math.round((subtotal + vatAmount)*100)/100;
+  subtotal = roundCurrency(subtotal);
+  vatAmount = roundCurrency(vatAmount);
+  const total = roundCurrency((subtotal + vatAmount));
 
   const paymentMethod = v('rcp-payment-method');
   const amountPaid = parseFloat(v('rcp-amount-paid')) || 0;
@@ -2358,9 +2435,9 @@ async function saveReceipt(){
         - insert inventory_movements row */
   for(let idx = 0; idx < validItems.length; idx++){
     const r = validItems[idx];
-    const lineSub = Math.round(r.quantity * r.unit_cost * 100) / 100;
-    const lineVat = Math.round(lineSub * r.vat_pct/100 * 100) / 100;
-    const lineTotal = Math.round((lineSub + lineVat) * 100) / 100;
+    const lineSub = roundCurrency(r.quantity * r.unit_cost);
+    const lineVat = roundCurrency(lineSub * r.vat_pct/100);
+    const lineTotal = roundCurrency((lineSub + lineVat));
 
     /* Create batch first to get its ID.
        Note: some installs have a qty_received NOT NULL column (legacy schema).
@@ -2581,7 +2658,7 @@ async function saveAdjustment(){
     /* Use current item cost as default */
     unitCost = parseFloat(currentAdjItem.cost_price) || 0;
   }
-  const totalCost = Math.round(qty * unitCost * 100) / 100;
+  const totalCost = roundCurrency(qty * unitCost);
   const adjDate = v('adj-date') || todayISO();
 
   /* Determine direction */

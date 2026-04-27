@@ -1426,6 +1426,74 @@ function friendlyDbError(err){
   return msg || (ar ? 'حدث خطأ غير متوقع' : 'An unexpected error occurred');
 }
 
+/* Round 16 (M-1): Saudi TRN structural validation.
+   Must be: starts with '3', 15 digits total, ends with '03'.
+   Returns: {valid: bool, reason: string|null} where reason is bilingual. */
+function validateSaudiTRN(trn){
+  const ar = currentLang === 'ar';
+  const cleaned = String(trn || '').replace(/\D/g, '');
+  if(cleaned.length === 0){
+    return {valid: false, reason: ar ? 'الرقم الضريبي مطلوب' : 'TRN is required'};
+  }
+  if(cleaned.length !== 15){
+    return {valid: false, reason: ar ? 'الرقم الضريبي يجب أن يكون 15 رقماً' : 'TRN must be 15 digits'};
+  }
+  if(!/^3\d{12}03$/.test(cleaned)){
+    return {valid: false, reason: ar
+      ? 'تنسيق الرقم الضريبي غير صحيح — يجب أن يبدأ بـ 3 وينتهي بـ 03'
+      : 'Invalid TRN format — must start with 3 and end with 03'};
+  }
+  return {valid: true, reason: null};
+}
+
+/* Round 16 (M-7): Commercial rounding for monetary amounts.
+   Uses half-away-from-zero rule (ZATCA-preferred for invoices).
+   Math.round() rounds 0.5 toward +∞ so behaves correctly for positives;
+   we explicitly handle negatives via Math.sign for symmetry. */
+function roundCurrency(n){
+  const v = parseFloat(n);
+  if(!Number.isFinite(v)) return 0;
+  return Math.sign(v) * Math.round(Math.abs(v) * 100) / 100;
+}
+
+/* Round 16 (M-5): HTML-attribute-safe escaping.
+   For values that flow into HTML attributes (especially inline onclick=),
+   escape every dangerous character. Use INSTEAD OF ad-hoc .replace(/'/g, "\\\\'").
+   For text content (between tags), use escHTML() instead. */
+function safeAttr(s){
+  if(s == null) return '';
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/\r/g, '')
+    .replace(/\n/g, ' ');
+}
+
+/* Round 16 (M-6): Audit log writer — duplicated from expenses.html.
+   No shared utility file in this project, so each module includes its own. */
+async function writeAuditLog({entity_type, entity_id, entity_reference, action, before_data, after_data, reason}){
+  try {
+    await sb.from('audit_log').insert({
+      user_id: currentUser.id,
+      business_id: currentBiz?.id,
+      user_email: currentUser.email || null,
+      entity_type,
+      entity_id,
+      entity_reference: entity_reference || null,
+      action,
+      before_data: before_data || null,
+      after_data: after_data || null,
+      reason: reason || null,
+      user_agent: navigator.userAgent.slice(0, 200)
+    });
+  } catch (e) {
+    console.warn('[GL] audit_log insert failed:', e);
+  }
+}
+
 /* ── Helpers ── */
 function v(id){const el=document.getElementById(id);return el?el.value.trim():'';}
 function setVal(id,val){const el=document.getElementById(id);if(el)el.value=val||'';}
@@ -1661,6 +1729,7 @@ async function loadInvoices(){
   const {data, error} = await sb.from('invoices')
     .select('*')
     .eq('user_id', currentUser.id)
+    .eq('business_id', currentBiz?.id || '')
     .order('created_at', {ascending: false})
     .limit(200);
 
@@ -1743,14 +1812,14 @@ function renderInvList(){
 
     if(!isVoided){
       if(!paid){
-        primaryBtn = `<button class="row-action-btn primary" onclick="event.stopPropagation();openPaymentModal('${inv.id}','${(inv.invoice_number||'').replace(/'/g,"\\'")}',${inv.total||0},'${(inv.buyer_name||'').replace(/'/g,"\\'")}',${amtPaid})">💰 ${currentLang==='ar'?'دفعة':'Pay'}</button>`;
+        primaryBtn = `<button class="row-action-btn primary" onclick="event.stopPropagation();openPaymentModal('${inv.id}','${safeAttr(inv.invoice_number||'')}',${inv.total||0},'${safeAttr(inv.buyer_name||'')}',${amtPaid})">💰 ${currentLang==='ar'?'دفعة':'Pay'}</button>`;
         if(inv.buyer_mobile){
-          menuItems.push({label: '📩 ' + (currentLang==='ar'?'تذكير العميل (واتساب)':'Send WhatsApp reminder'), fn: `sendReminder('${inv.buyer_mobile}','${(inv.invoice_number||'').replace(/'/g,"\\'")}',${remaining},'${(inv.buyer_name||'').replace(/'/g,"\\'")}','${inv.id}')`});
+          menuItems.push({label: '📩 ' + (currentLang==='ar'?'تذكير العميل (واتساب)':'Send WhatsApp reminder'), fn: `sendReminder('${inv.buyer_mobile}','${safeAttr(inv.invoice_number||'')}',${remaining},'${safeAttr(inv.buyer_name||'')}','${inv.id}')`});
         }
       }
       menuItems.push({label: '🖨 ' + (currentLang==='ar'?'عرض / طباعة':'View / Print'), fn: `viewInvoice('${inv.id}')`});
       menuItems.push({divider: true});
-      menuItems.push({label: '↩ ' + (currentLang==='ar'?'إلغاء (إشعار دائن)':'Reverse (Credit Note)'), fn: `voidInvoice('${inv.id}','${(inv.invoice_number||'').replace(/'/g,"\\'")}',${inv.total||0},'${(inv.buyer_name||'').replace(/'/g,"\\'")}')`, danger: true});
+      menuItems.push({label: '↩ ' + (currentLang==='ar'?'إلغاء (إشعار دائن)':'Reverse (Credit Note)'), fn: `voidInvoice('${inv.id}','${safeAttr(inv.invoice_number||'')}',${inv.total||0},'${safeAttr(inv.buyer_name||'')}')`, danger: true});
     } else {
       menuItems.push({label: '🖨 ' + (currentLang==='ar'?'عرض / طباعة':'View / Print'), fn: `viewInvoice('${inv.id}')`});
     }
@@ -1822,7 +1891,7 @@ function renderDraftsBanner(){
       <div class="draft-amount">SAR ${fmt(inv.total)}</div>
       <div class="draft-actions">
         <button class="draft-btn" onclick="event.stopPropagation();editDraft('${inv.id}')">${currentLang==='ar'?'متابعة':'Continue'}</button>
-        <button class="draft-btn danger" onclick="event.stopPropagation();deleteDraft('${inv.id}','${(inv.invoice_number||'').replace(/'/g,"\\'")}')">🗑</button>
+        <button class="draft-btn danger" onclick="event.stopPropagation();deleteDraft('${inv.id}','${safeAttr(inv.invoice_number||'')}')">🗑</button>
       </div>
     </div>
   `).join('');
@@ -1897,6 +1966,7 @@ async function loadCustomers(){
   const {data, error} = await sb.from('customers')
     .select('*')
     .eq('user_id', currentUser.id)
+    .eq('business_id', currentBiz?.id || '')
     .eq('is_active', true)
     .order('name');
 
@@ -2054,6 +2124,7 @@ async function fetchNextInvoiceNumber(){
   const {data} = await sb.from('invoices')
     .select('invoice_number')
     .eq('user_id', currentUser.id)
+    .eq('business_id', currentBiz?.id || '')
     .neq('status','draft')
     .order('created_at',{ascending:false})
     .limit(1);
@@ -2165,7 +2236,7 @@ function doCustomerSearch(query){
 
   /* Always show "+ Add new customer" option */
   const newName = query || '';
-  html += `<div class="cust-new-row" onclick="openAddCustomerFromSearch('${newName.replace(/'/g,"\\'")}')">
+  html += `<div class="cust-new-row" onclick="openAddCustomerFromSearch('${safeAttr(newName)}')">
     ➕ ${currentLang==='ar' ? (newName ? 'إضافة "'+newName+'" كعميل جديد' : 'إضافة عميل جديد') : (newName ? 'Add "'+newName+'" as new customer' : 'Add new customer')}
   </div>`;
 
@@ -2364,6 +2435,7 @@ async function openInventoryPicker(itemIdx){
   const {data} = await sb.from('inventory_items')
     .select('id,name,name_ar,sku,sale_price,current_qty,unit')
     .eq('user_id', currentUser.id)
+    .eq('business_id', currentBiz?.id || '')
     .order('name');
 
   if(!data || !data.length){
@@ -2400,7 +2472,7 @@ async function openInventoryPicker(itemIdx){
 function renderPickerItems(items, itemIdx){
   return items.map(it => {
     const stockClass = (it.current_qty||0) <= 0 ? 'low' : 'ok';
-    return `<div class="picker-item" onclick="pickInventoryItem('${it.id}','${(it.name||'').replace(/'/g,"\\'")}','${(it.name_ar||'').replace(/'/g,"\\'")}',${it.sale_price||0},${itemIdx})">
+    return `<div class="picker-item" onclick="pickInventoryItem('${it.id}','${safeAttr(it.name||'')}','${safeAttr(it.name_ar||'')}',${it.sale_price||0},${itemIdx})">
       <div>
         <div class="picker-item-name">${it.name||'—'}</div>
         ${it.name_ar && it.name_ar !== it.name ? '<div style="font-size:11px;color:var(--muted);">'+it.name_ar+'</div>' : ''}
@@ -2495,10 +2567,10 @@ async function saveDraft(){
         quantity: it.qty,
         unit_price: it.price,
         discount_pct: it.disc || 0,
-        discount_amt: Math.round(discAmt*100)/100,
-        subtotal: Math.round(net*100)/100,
-        vat_amount: Math.round(net*0.15*100)/100,
-        total: Math.round(net*1.15*100)/100,
+        discount_amt: roundCurrency(discAmt),
+        subtotal: roundCurrency(net),
+        vat_amount: roundCurrency(net*0.15),
+        total: roundCurrency(net*1.15),
         sort_order: idx
       };
     });
@@ -2581,10 +2653,10 @@ async function previewInvoice(){
       quantity: it.qty,
       unit_price: it.price,
       discount_pct: it.disc || 0,
-      discount_amt: Math.round(discAmt*100)/100,
-      subtotal: Math.round(net*100)/100,
-      vat_amount: Math.round(net*0.15*100)/100,
-      total: Math.round(net*1.15*100)/100,
+      discount_amt: roundCurrency(discAmt),
+      subtotal: roundCurrency(net),
+      vat_amount: roundCurrency(net*0.15),
+      total: roundCurrency(net*1.15),
       sort_order: idx
     };
   });
@@ -2761,10 +2833,10 @@ async function generateInvoice(){
       quantity: it.qty,
       unit_price: it.price,
       discount_pct: it.disc || 0,
-      discount_amt: Math.round(discAmt*100)/100,
-      subtotal: Math.round(net*100)/100,
-      vat_amount: Math.round(net*0.15*100)/100,
-      total: Math.round(net*1.15*100)/100,
+      discount_amt: roundCurrency(discAmt),
+      subtotal: roundCurrency(net),
+      vat_amount: roundCurrency(net*0.15),
+      total: roundCurrency(net*1.15),
       sort_order: idx
     };
   });
@@ -2803,7 +2875,7 @@ async function generateInvoice(){
           updated_at: new Date().toISOString()
         }).eq('id', it.itemId);
 
-        const unitCost = it.qty > 0 ? Math.round(itemCOGS/it.qty*100)/100 : (invItem.cost_price||0);
+        const unitCost = it.qty > 0 ? roundCurrency(itemCOGS/it.qty) : (invItem.cost_price||0);
         await sb.from('inventory_movements').insert({
           business_id: currentBiz.id,
           item_id: it.itemId,
@@ -2821,7 +2893,7 @@ async function generateInvoice(){
       if(totalCOGS > 0){
         const cogsRef = payload.invoice_number + '-COGS';
         const {data:existing} = await sb.from('journal_entries')
-          .select('id').eq('reference', cogsRef).eq('user_id', currentUser.id).limit(1);
+          .select('id').eq('reference', cogsRef).eq('user_id', currentUser.id).eq('business_id', currentBiz.id).limit(1);
         let cogsEntryId;
         if(existing && existing.length){
           cogsEntryId = existing[0].id;
@@ -2874,8 +2946,8 @@ async function generateInvoice(){
     const newOutstanding = (selectedCustomer.total_outstanding||0) + totals.total;
     const updates = {
       invoice_count: newCount,
-      total_invoiced: Math.round(newTotal*100)/100,
-      total_outstanding: Math.round(newOutstanding*100)/100,
+      total_invoiced: roundCurrency(newTotal),
+      total_outstanding: roundCurrency(newOutstanding),
       last_invoice_date: payload.issue_date,
       updated_at: new Date().toISOString()
     };
@@ -2922,11 +2994,11 @@ function computeInvoiceTotals(){
   const vat = net * 0.15;
   const total = net + vat;
   return {
-    sub: Math.round(sub*100)/100,
+    sub: roundCurrency(sub),
     discPct: discPct,
-    discAmt: Math.round(discAmt*100)/100,
-    vat: Math.round(vat*100)/100,
-    total: Math.round(total*100)/100
+    discAmt: roundCurrency(discAmt),
+    vat: roundCurrency(vat),
+    total: roundCurrency(total)
   };
 }
 
@@ -2945,7 +3017,7 @@ async function autoPostInvoice(invoice){
   try {
     const {data:existing} = await sb.from('journal_entries')
       .select('id,journal_lines(*)').eq('reference', ref).eq('user_id', currentUser.id)
-      .eq('source','invoice').limit(1);
+      .eq('business_id', currentBiz?.id || '').eq('source','invoice').limit(1);
 
     if(existing && existing.length){
       /* Reverse old, post new (handles edits) */
@@ -3112,6 +3184,14 @@ async function deleteDraft(id, num){
     notify(delErr.message, 'r');
     return;
   }
+  /* Round 16 (M-6): audit log */
+  await writeAuditLog({
+    entity_type: 'invoice',
+    entity_id: id,
+    entity_reference: num,
+    action: 'deleted',
+    reason: 'draft hard-deleted by user'
+  });
   notify(ar?'تم الحذف':'Deleted', 'g');
   loadInvoices();
 }
@@ -3196,7 +3276,7 @@ async function voidInvoice(id, num, total, buyerName){
     /* Now reverse the journal */
     const {data:entries} = await sb.from('journal_entries')
       .select('id,journal_lines(*)')
-      .eq('source_id', id).eq('source','invoice').eq('user_id', currentUser.id);
+      .eq('source_id', id).eq('source','invoice').eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '');
 
     if(entries && entries.length){
       const orig = entries[0];
@@ -3227,7 +3307,7 @@ async function voidInvoice(id, num, total, buyerName){
     const {data: cogsEntries} = await sb.from('journal_entries')
       .select('id,journal_lines(*)')
       .eq('reference', num + '-COGS')
-      .eq('source','invoice').eq('user_id', currentUser.id);
+      .eq('source','invoice').eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '');
     if(cogsEntries && cogsEntries.length){
       const cogsOrig = cogsEntries[0];
       const cogsLines = cogsOrig.journal_lines || [];
@@ -3271,6 +3351,15 @@ async function voidInvoice(id, num, total, buyerName){
         successMsg = `✅ Invoice ${num} reversed`;
       }
     }
+    /* Round 16 (M-6): audit log */
+    await writeAuditLog({
+      entity_type: 'invoice',
+      entity_id: id,
+      entity_reference: num,
+      action: 'voided',
+      after_data: {total: total, retroactive: !!(restoreInfo && restoreInfo.retroactive), restored_lines: restoreInfo?.restored_lines || 0},
+      reason: 'invoice voided + credit note created'
+    });
     notify(successMsg, 'g');
     loadInvoices();
   } catch(e){
@@ -3339,7 +3428,7 @@ async function confirmPayment(){
     payment_ref: ref || null,
     amount_paid: cumulative,
     updated_at: new Date().toISOString()
-  }).eq('id', _paymentInvoiceId).eq('user_id', currentUser.id);
+  }).eq('id', _paymentInvoiceId).eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '');
 
   if(error){notify(friendlyDbError(error),'r');throw error;}
 
@@ -3372,8 +3461,8 @@ async function confirmPayment(){
     const {data:cust} = await sb.from('customers').select('total_paid,total_outstanding').eq('id',invData.customer_id).single();
     if(cust){
       await sb.from('customers').update({
-        total_paid: Math.round(((cust.total_paid||0) + amount)*100)/100,
-        total_outstanding: Math.max(0, Math.round(((cust.total_outstanding||0) - amount)*100)/100),
+        total_paid: roundCurrency(((cust.total_paid||0) + amount)),
+        total_outstanding: Math.max(0, roundCurrency(((cust.total_outstanding||0) - amount))),
         updated_at: new Date().toISOString()
       }).eq('id', invData.customer_id);
     }
@@ -3725,10 +3814,10 @@ async function saveCustomer(){
       notify(currentLang==='ar'?'الرقم الضريبي مطلوب لـ B2B':'TRN required for B2B','r');
       throw new Error('validation');
     }
-    /* Validate TRN: 15 digits */
-    const trn = v('cm-trn').replace(/\D/g,'');
-    if(trn.length !== 15){
-      notify(currentLang==='ar'?'الرقم الضريبي يجب أن يكون 15 رقماً':'TRN must be 15 digits','r');
+    /* Round 16 (M-1): Saudi TRN structural validation */
+    const trnCheck = validateSaudiTRN(v('cm-trn'));
+    if(!trnCheck.valid){
+      notify(trnCheck.reason, 'r');
       throw new Error('validation');
     }
     /* Validate national address */

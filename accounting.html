@@ -1347,6 +1347,7 @@ async function loadCoreData(){
   const {data:coa, error: coaErr} = await sb.from('chart_of_accounts')
     .select('*')
     .eq('user_id', currentUser.id)
+    .eq('business_id', currentBiz?.id || '')
     .eq('is_active', true)
     .order('display_order', {ascending: true});
 
@@ -1367,7 +1368,7 @@ async function loadCoreData(){
       });
       if(!seedErr){
         const {data:coa2} = await sb.from('chart_of_accounts')
-          .select('*').eq('user_id', currentUser.id).eq('is_active', true)
+          .select('*').eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '').eq('is_active', true)
           .order('display_order', {ascending:true});
         chartOfAccounts = coa2 || [];
       }
@@ -1377,7 +1378,8 @@ async function loadCoreData(){
   /* Journal entries count for badge */
   const {count} = await sb.from('journal_entries')
     .select('*', {count: 'exact', head: true})
-    .eq('user_id', currentUser.id);
+    .eq('user_id', currentUser.id)
+    .eq('business_id', currentBiz?.id || '');
   journalCount = count || 0;
   setText('badge-ledger', String(journalCount));
 
@@ -1511,6 +1513,7 @@ async function entryIdsInRange(fromISO, toISO){
   const {data, error} = await sb.from('journal_entries')
     .select('id')
     .eq('user_id', currentUser.id)
+    .eq('business_id', currentBiz?.id || '')
     .neq('status', 'voided')
     .gte('entry_date', fromISO)
     .lte('entry_date', toISO);
@@ -1574,7 +1577,7 @@ async function fetchCashPosition(toISO){
   /* Get all non-voided posted entries up to and including toISO */
   const {data: entries, error: e1} = await sb.from('journal_entries')
     .select('id')
-    .eq('user_id', currentUser.id)
+    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
     .neq('status', 'voided')
     .lte('entry_date', toISO);
   if(e1){ console.warn('[GL] fetchCashPosition entries', e1.message); return 0; }
@@ -1601,7 +1604,7 @@ async function checkBooksBalance(){
   /* First, get all non-voided entry IDs */
   const {data: entries, error: e1} = await sb.from('journal_entries')
     .select('id')
-    .eq('user_id', currentUser.id)
+    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
     .neq('status', 'voided');
   if(e1){ console.warn('[GL] checkBooksBalance entries', e1.message); return { balanced: true, totalDR: 0, totalCR: 0 }; }
   const ids = (entries || []).map(e => e.id);
@@ -1631,7 +1634,7 @@ async function loadAttentionItems(){
   /* 1. Expenses missing receipts (also pull first row's id for single-item auto-open) */
   const {data: noReceiptRows, count: noReceiptCount} = await sb.from('expenses')
     .select('id, expense_number, expense_date, vendor_name_snapshot, total', {count: 'exact'})
-    .eq('user_id', currentUser.id)
+    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
     .eq('status', 'posted')
     .is('receipt_path', null)
     .order('expense_date', {ascending: false})
@@ -1640,7 +1643,7 @@ async function loadAttentionItems(){
   /* 2. Vendors without TRN */
   const {data: noTrnRows, count: noTrnCount} = await sb.from('suppliers')
     .select('id, name_ar, name_en, supplier_code', {count: 'exact'})
-    .eq('user_id', currentUser.id)
+    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
     .eq('is_active', true)
     .in('usage_type', ['expense', 'both'])
     .or('trn.is.null,trn.eq.')
@@ -1650,7 +1653,7 @@ async function loadAttentionItems(){
   const today = new Date().toISOString().slice(0,10);
   const {data: overdueRows, count: overdueCount} = await sb.from('expenses')
     .select('id, expense_number, due_date, vendor_name_snapshot, total', {count: 'exact'})
-    .eq('user_id', currentUser.id)
+    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
     .eq('status', 'posted')
     .neq('payment_status', 'paid')
     .not('due_date', 'is', null)
@@ -2213,7 +2216,7 @@ async function loadAndRenderLedger(){
   /* Load entries in range */
   let query = sb.from('journal_entries')
     .select('*')
-    .eq('user_id', currentUser.id);
+    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '');
   if(period !== 'all'){
     query = query.gte('entry_date', fromISO).lte('entry_date', toISO);
   }
@@ -2511,7 +2514,7 @@ async function renderChartOfAccounts(){
   /* Get non-voided entry ids */
   const {data: nonVoidedEntries} = await sb.from('journal_entries')
     .select('id')
-    .eq('user_id', currentUser.id)
+    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
     .neq('status', 'voided');
   const validIds = (nonVoidedEntries || []).map(e => e.id);
 
@@ -3166,7 +3169,7 @@ async function computeAccountBalances(fromISO, toISO){
   /* Get non-voided entry IDs in range */
   let q = sb.from('journal_entries')
     .select('id')
-    .eq('user_id', currentUser.id)
+    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
     .neq('status', 'voided');
   if(fromISO) q = q.gte('entry_date', fromISO);
   if(toISO) q = q.lte('entry_date', toISO);
@@ -4218,7 +4221,7 @@ async function renderVatStep2(){
   /* Pull invoices in period — exclude draft and voided */
   const {data: invoices, error} = await sb.from('invoices')
     .select('*')
-    .eq('user_id', currentUser.id)
+    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
     .gte('issue_date', p.fromISO)
     .lte('issue_date', p.toISO)
     .neq('status', 'draft')
@@ -4338,7 +4341,7 @@ async function renderVatStep3(){
 
   const {data: expenses, error} = await sb.from('expenses')
     .select('*')
-    .eq('user_id', currentUser.id)
+    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
     .gte('expense_date', p.fromISO)
     .lte('expense_date', p.toISO)
     .neq('status', 'voided')
@@ -4641,7 +4644,7 @@ async function renderVatStep2Fetch(){
   /* Run the fetch by calling it temporarily */
   const p = vatWizardState.period;
   const {data: invoices} = await sb.from('invoices')
-    .select('*').eq('user_id', currentUser.id)
+    .select('*').eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
     .gte('issue_date', p.fromISO).lte('issue_date', p.toISO)
     .neq('status', 'draft').neq('status', 'voided');
   let sN=0, sV=0, zR=0, ex=0;
@@ -4659,7 +4662,7 @@ async function renderVatStep2Fetch(){
 async function renderVatStep3Fetch(){
   const p = vatWizardState.period;
   const {data: expenses} = await sb.from('expenses')
-    .select('*').eq('user_id', currentUser.id)
+    .select('*').eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
     .gte('expense_date', p.fromISO).lte('expense_date', p.toISO)
     .neq('status','voided').neq('status','draft');
   let rN=0, rV=0, bN=0, bV=0;
