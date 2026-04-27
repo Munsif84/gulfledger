@@ -2474,20 +2474,20 @@ async function postReceiptJournal(receipt, items, subtotal, vatAmount, total, pa
     entry_date: receipt.receipt_date,
     reference: receipt.receipt_number,
     description: (currentLang==='ar'?'استلام بضاعة — ':'Stock receipt — ') + receipt.receipt_number,
-    source_type: 'stock_receipt',
+    source: 'stock_receipt',
     source_id: receipt.id,
-    total_debit: total,
-    total_credit: total
+    is_balanced: true,
+    status: 'posted'
   }).select().single();
   if(entryError){
-    console.warn('[GL] Could not post journal entry (table may not exist yet):', entryError.message);
-    /* Don't fail the receipt — journal is best-effort for now until ledger module is built */
+    console.warn('[GL] Could not post journal entry:', entryError.message);
     return;
   }
 
   /* DR Inventory for subtotal */
   const lines = [{
-    journal_entry_id: entry.id,
+    entry_id: entry.id,
+    user_id: currentUser.id,
     account_code: '1300',
     account_name: currentLang==='ar' ? 'المخزون' : 'Inventory',
     debit: subtotal,
@@ -2498,8 +2498,9 @@ async function postReceiptJournal(receipt, items, subtotal, vatAmount, total, pa
   /* DR Input VAT (if any) */
   if(vatAmount > 0){
     lines.push({
-      journal_entry_id: entry.id,
-      account_code: '2200',
+      entry_id: entry.id,
+      user_id: currentUser.id,
+      account_code: '2210',
       account_name: currentLang==='ar' ? 'ضريبة المدخلات' : 'Input VAT',
       debit: vatAmount,
       credit: 0,
@@ -2509,7 +2510,8 @@ async function postReceiptJournal(receipt, items, subtotal, vatAmount, total, pa
 
   /* CR Cash/Bank/AP for total */
   lines.push({
-    journal_entry_id: entry.id,
+    entry_id: entry.id,
+    user_id: currentUser.id,
     account_code: creditAccount,
     account_name: creditAccountName,
     debit: 0,
@@ -2727,19 +2729,19 @@ async function postAdjustmentJournal(adj, item, type, qty, totalCost){
     entry_date: adj.adjustment_date,
     reference: ref,
     description: desc,
-    source_type: 'stock_adjustment',
+    source: 'stock_adjustment',
     source_id: adj.id,
-    total_debit: totalCost,
-    total_credit: totalCost
+    is_balanced: true,
+    status: 'posted'
   }).select().single();
   if(error){
-    console.warn('[GL] Adjustment journal not posted (table may not exist yet):', error.message);
+    console.warn('[GL] Adjustment journal not posted:', error.message);
     return;
   }
 
   await sb.from('journal_lines').insert([
-    { journal_entry_id: entry.id, account_code: debitAccount, account_name: debitName, debit: totalCost, credit: 0, description: desc },
-    { journal_entry_id: entry.id, account_code: creditAccount, account_name: creditName, debit: 0, credit: totalCost, description: desc }
+    { entry_id: entry.id, user_id: currentUser.id, account_code: debitAccount, account_name: debitName, debit: totalCost, credit: 0, description: desc },
+    { entry_id: entry.id, user_id: currentUser.id, account_code: creditAccount, account_name: creditName, debit: 0, credit: totalCost, description: desc }
   ]);
 }
 
@@ -3294,27 +3296,27 @@ async function postReceiptVoidJournal(receipt){
     entry_date: todayISO(),
     reference: ref,
     description: desc,
-    source_type: 'stock_receipt_void',
+    source: 'stock_receipt_void',
     source_id: receipt.id,
-    total_debit: total,
-    total_credit: total
+    is_balanced: true,
+    status: 'posted'
   }).select().single();
   if(error){
-    console.warn('[GL] Void journal not posted (table may not exist):', error.message);
+    console.warn('[GL] Void journal not posted:', error.message);
     return;
   }
 
   /* Reverse the original entry: was DR Inv + DR VAT + CR AP/Cash, now DR AP/Cash + CR VAT + CR Inv */
   const lines = [
-    { journal_entry_id: entry.id, account_code: debitAccount, account_name: debitName,
+    { entry_id: entry.id, user_id: currentUser.id, account_code: debitAccount, account_name: debitName,
       debit: total, credit: 0, description: desc }
   ];
   if(vatAmount > 0){
-    lines.push({ journal_entry_id: entry.id, account_code: '2200',
+    lines.push({ entry_id: entry.id, user_id: currentUser.id, account_code: '2210',
       account_name: currentLang==='ar' ? 'ضريبة المدخلات' : 'Input VAT',
       debit: 0, credit: vatAmount, description: desc });
   }
-  lines.push({ journal_entry_id: entry.id, account_code: '1300',
+  lines.push({ entry_id: entry.id, user_id: currentUser.id, account_code: '1300',
     account_name: currentLang==='ar' ? 'المخزون' : 'Inventory',
     debit: 0, credit: subtotal, description: desc });
 
