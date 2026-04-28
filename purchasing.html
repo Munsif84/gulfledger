@@ -159,6 +159,34 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .tbl .num,.tbl th.num{text-align:end;font-family:'DM Mono',monospace;}
 .tbl .center,.tbl th.center{text-align:center;}
 
+/* Sortable column headers (Round 3b — new pattern, will propagate) */
+.tbl th.sortable{cursor:pointer;user-select:none;position:relative;padding-inline-end:22px;}
+.tbl th.sortable:hover{background:var(--light);}
+.tbl th.sortable .sort-arrow{position:absolute;font-size:9px;opacity:0.35;font-family:'DM Mono',monospace;line-height:1;}
+[dir="ltr"] .tbl th.sortable .sort-arrow{right:8px;top:50%;transform:translateY(-50%);}
+[dir="rtl"] .tbl th.sortable .sort-arrow{left:8px;top:50%;transform:translateY(-50%);}
+.tbl th.sortable.sorted{background:var(--light);color:var(--ink);}
+.tbl th.sortable.sorted .sort-arrow{opacity:1;color:var(--blue);font-weight:700;font-size:11px;}
+
+/* Stock badge (Round 3b) */
+.stock-badge{display:inline-block;padding:2px 8px;border-radius:5px;font-size:11px;font-weight:700;font-family:'DM Mono',monospace;}
+.stock-badge.ok{background:#dcfce7;color:#166534;}
+.stock-badge.low{background:#fef3c7;color:#92400e;}
+.stock-badge.out{background:#fef2f2;color:var(--red);}
+.stock-badge.neutral{background:var(--tint);color:var(--muted);}
+
+/* Margin/markup color tiers (Round 3b) */
+.tier-good{color:var(--green);font-weight:700;}
+.tier-warn{color:var(--amber);font-weight:700;}
+.tier-bad{color:var(--red);font-weight:700;}
+.tier-none{color:var(--muted);}
+
+/* Cost mismatch warning glyph (Round 3b) */
+.cost-warn{display:inline-block;margin-inline-start:4px;font-size:13px;cursor:help;color:var(--amber);}
+
+/* SKU subtitle under product name */
+.cell-subtitle{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:2px;}
+
 /* Empty state */
 .empty-state{text-align:center;padding:60px 20px;color:var(--muted);}
 .empty-state .icon{font-size:44px;opacity:0.3;margin-bottom:12px;}
@@ -402,17 +430,47 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   </div>
 
   <!-- ════════════════════════════════════════════════
-       PANE: PRODUCTS (PROCUREMENT) — placeholder, Round 3b
+       PANE: PRODUCTS (PROCUREMENT VIEW) — Round 3b
   ════════════════════════════════════════════════ -->
   <div id="pane-products" style="display:none;">
-    <div class="placeholder-pane">
-      <div class="placeholder-icon">📦</div>
-      <h2 data-ar="المنتجات (عرض المشتريات)" data-en="Products (Procurement View)">المنتجات (عرض المشتريات)</h2>
-      <p data-ar="عرض شامل لجميع منتجاتك من منظور المشتريات: التكلفة الأخيرة، هامش الربح، نسبة الترميز، عائد الاستثمار في المخزون (GMROI)، معدل دوران المخزون، وعدد أيام تغطية المخزون."
-         data-en="A purchasing-focused view of every product: last cost, profit margin, markup %, GMROI, inventory turnover, and days of stock cover.">
-        عرض شامل لجميع منتجاتك من منظور المشتريات: التكلفة الأخيرة، هامش الربح، نسبة الترميز، عائد الاستثمار في المخزون (GMROI)، معدل دوران المخزون، وعدد أيام تغطية المخزون.
-      </p>
-      <span class="placeholder-coming" data-ar="🚧 قريباً" data-en="🚧 Coming soon">🚧 قريباً</span>
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="label" data-ar="إجمالي المنتجات" data-en="Total Products">إجمالي المنتجات</div>
+        <div class="value" id="stat-prod-total">0</div>
+      </div>
+      <div class="stat-card green">
+        <div class="label" data-ar="قيمة المخزون" data-en="Stock Value">قيمة المخزون</div>
+        <div class="value" id="stat-prod-stock-value">SAR 0</div>
+        <div class="sub" data-ar="بسعر التكلفة" data-en="at cost">بسعر التكلفة</div>
+      </div>
+      <div class="stat-card amber">
+        <div class="label" data-ar="تحت حد إعادة الطلب" data-en="Below Reorder">تحت حد إعادة الطلب</div>
+        <div class="value" id="stat-prod-low">0</div>
+      </div>
+      <div class="stat-card amber">
+        <div class="label" data-ar="فارق تكلفة ≥ 5%" data-en="Cost Mismatch ≥5%">فارق تكلفة ≥ 5%</div>
+        <div class="value" id="stat-prod-mismatch">0</div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" class="search-input" id="search-products" placeholder="البحث بالاسم، SKU، أو الباركود..." oninput="renderProducts()">
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" onclick="loadAll()" data-ar="↻ تحديث" data-en="↻ Refresh">↻ تحديث</button>
+        <button class="btn btn-primary" onclick="openItemModal()">
+          + <span data-ar="منتج جديد" data-en="New Product">منتج جديد</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="table-wrap" id="products-table-wrap">
+      <div class="loading-state">
+        <div class="loading-spinner">📦</div>
+        <div data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
+      </div>
     </div>
   </div>
 
@@ -569,6 +627,145 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   </div>
 </div>
 
+<!-- ════════════════════════════════════════════════
+     ITEM MODAL (create/edit) — moved from inventory.html in Round 3b
+════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="item-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" id="item-modal-title" data-ar="منتج جديد" data-en="New Item">منتج جديد</div>
+      <button class="modal-close" onclick="closeItemModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-row double">
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="الاسم بالعربي" data-en="Name (Arabic)">الاسم بالعربي</span>
+            <span class="req">*</span>
+          </div>
+          <input type="text" id="item-name-ar" placeholder="مثل: قميص قطن" dir="rtl">
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="الاسم بالإنجليزي" data-en="Name (English)">الاسم بالإنجليزي</span>
+            <span class="opt">(optional)</span>
+          </div>
+          <input type="text" id="item-name-en" placeholder="e.g. Cotton T-shirt" dir="ltr">
+        </div>
+      </div>
+
+      <div class="field-row triple">
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="رمز المنتج · SKU" data-en="SKU">رمز المنتج · SKU</span>
+            <span class="opt" data-ar="(تلقائي)" data-en="(auto)">(تلقائي)</span>
+          </div>
+          <input type="text" id="item-sku" class="mono" placeholder="ITM-001" dir="ltr">
+          <div class="field-hint" data-ar="يتم توليده تلقائياً — يمكن تعديله" data-en="Auto-generated — editable">يتم توليده تلقائياً — يمكن تعديله</div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="الباركود" data-en="Barcode">الباركود</span>
+            <span class="opt">(optional)</span>
+          </div>
+          <input type="text" id="item-barcode" class="mono" placeholder="6281234567890" dir="ltr">
+          <div class="field-hint" data-ar="UPC/EAN على المنتج" data-en="UPC/EAN on package">UPC/EAN على المنتج</div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="وحدة القياس" data-en="Unit">وحدة القياس</span>
+          </div>
+          <select id="item-unit">
+            <option value="pcs">قطعة · piece</option>
+            <option value="kg">كيلو · kg</option>
+            <option value="g">جرام · g</option>
+            <option value="l">لتر · liter</option>
+            <option value="ml">ملي · ml</option>
+            <option value="box">صندوق · box</option>
+            <option value="pack">عبوة · pack</option>
+            <option value="m">متر · m</option>
+            <option value="other">أخرى · other</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field-row triple">
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="سعر التكلفة" data-en="Cost Price">سعر التكلفة</span>
+          </div>
+          <input type="number" id="item-cost-price" class="mono" placeholder="0.00" step="0.01" min="0" dir="ltr">
+          <div class="field-hint" data-ar="آخر تكلفة معروفة" data-en="Last known cost">آخر تكلفة معروفة</div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="سعر البيع" data-en="Sale Price">سعر البيع</span>
+            <span class="req">*</span>
+          </div>
+          <input type="number" id="item-sale-price" class="mono" placeholder="0.00" step="0.01" min="0" dir="ltr">
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="المخزون الحالي" data-en="Current Stock">المخزون الحالي</span>
+          </div>
+          <input type="number" id="item-current-qty" class="mono" placeholder="0" step="0.001" min="0" dir="ltr" readonly style="background:var(--tint);cursor:not-allowed;">
+          <div class="field-hint" data-ar="يُحدّث تلقائياً" data-en="Auto-updated">يُحدّث تلقائياً</div>
+        </div>
+      </div>
+
+      <div class="field-row double">
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="الفئة" data-en="Category">الفئة</span>
+          </div>
+          <select id="item-category">
+            <option value="">— <span data-ar="اختر فئة" data-en="Select category">اختر فئة</span> —</option>
+            <option value="food_beverage">🍽 طعام ومشروبات · Food &amp; Beverage</option>
+            <option value="grocery">🛒 بقالة · Grocery</option>
+            <option value="clothing">👕 ملابس · Clothing</option>
+            <option value="electronics">📱 إلكترونيات · Electronics</option>
+            <option value="home_appliance">🏠 أجهزة منزلية · Home Appliances</option>
+            <option value="furniture">🪑 أثاث · Furniture</option>
+            <option value="cosmetics">💄 تجميل وعطور · Cosmetics &amp; Perfume</option>
+            <option value="pharmacy">💊 صيدلية · Pharmacy</option>
+            <option value="stationery">✏️ قرطاسية · Stationery</option>
+            <option value="hardware">🔧 عدد ومواد بناء · Hardware &amp; Building</option>
+            <option value="auto_parts">🚗 قطع غيار · Auto Parts</option>
+            <option value="services">🛠 خدمات · Services</option>
+            <option value="raw_materials">📦 مواد خام · Raw Materials</option>
+            <option value="other">📋 أخرى · Other</option>
+          </select>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="حد إعادة الطلب" data-en="Reorder Point">حد إعادة الطلب</span>
+            <span class="opt">(optional)</span>
+          </div>
+          <input type="number" id="item-reorder-point" class="mono" placeholder="0" step="0.001" min="0" dir="ltr">
+          <div class="field-hint" data-ar="تنبيه عند الانخفاض" data-en="Alert when stock falls below">تنبيه عند الانخفاض</div>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">
+          <span data-ar="ملاحظات" data-en="Notes">ملاحظات</span>
+          <span class="opt">(optional)</span>
+        </div>
+        <textarea id="item-notes" rows="2" placeholder=""></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-danger" id="btn-item-delete" onclick="deleteItem()" style="display:none;margin-inline-end:auto;">
+        🗑 <span data-ar="حذف" data-en="Delete">حذف</span>
+      </button>
+      <button class="btn btn-ghost" onclick="closeItemModal()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+      <button class="btn btn-primary" onclick="saveItem()">
+        💾 <span data-ar="حفظ" data-en="Save">حفظ</span>
+      </button>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ═══════════════════════════════════════════════════════
    SUPABASE
@@ -582,6 +779,12 @@ let currentUser = null;
 let currentBiz = null;
 let allSuppliers = [];
 let currentSupplierId = null;
+
+/* Round 3b: Products procurement view state */
+let allItems = [];
+let lastReceiptCostByItem = new Map(); /* item_id -> {unit_cost, receipt_date} */
+let currentItemId = null;
+let productSort = { col: 'stock_value', dir: 'desc' }; /* default sort */
 
 /* ─── Helpers ─── */
 const v = id => (document.getElementById(id)?.value || '').trim();
@@ -684,12 +887,25 @@ async function init(){
     const tab = (window.location.search.match(/tab=([a-z]+)/)?.[1]) || 'suppliers';
     if(['suppliers','products','orders','imports'].includes(tab)) switchTab(tab);
 
+    /* Round 3b: honor ?sort=&dir= URL params for the products view */
+    const sortParam = window.location.search.match(/sort=([a-z_]+)/)?.[1];
+    const dirParam = window.location.search.match(/dir=(asc|desc)/)?.[1];
+    if(sortParam){
+      productSort.col = sortParam;
+      productSort.dir = (dirParam === 'asc') ? 'asc' : 'desc';
+      renderProducts();
+    }
+
     /* Quick Action handler — auto-open the right modal based on ?action= */
     const action = (window.location.search.match(/action=([a-z_]+)/)?.[1]) || '';
     if(action){
       setTimeout(() => {
-        if(action === 'new_supplier') openSupplierModal();
-        /* new_product is reserved for Round 3b; ignore for now. */
+        if(action === 'new_supplier'){
+          openSupplierModal();
+        } else if(action === 'new_product' || action === 'new_item'){
+          /* Round 3b: 'new_item' is the legacy alias from inventory.html bookmarks */
+          openItemModal();
+        }
         const cleanUrl = window.location.pathname + (tab !== 'suppliers' ? '?tab=' + tab : '');
         history.replaceState(null, '', cleanUrl);
       }, 250);
@@ -704,9 +920,11 @@ async function init(){
 }
 
 async function loadAll(){
-  await loadSuppliers();
+  await Promise.all([loadSuppliers(), loadItems(), loadLastReceiptCosts()]);
   renderSuppliers();
+  renderProducts();
   computeStats();
+  computeProductStats();
 }
 
 async function loadSuppliers(){
@@ -715,6 +933,45 @@ async function loadSuppliers(){
     .order('name_ar', {ascending: true});
   if(error){ console.error('Suppliers load:', error); allSuppliers = []; return; }
   allSuppliers = data || [];
+}
+
+/* Round 3b: load items for procurement view */
+async function loadItems(){
+  const {data, error} = await sb.from('inventory_items')
+    .select('*').eq('business_id', currentBiz?.id || '').eq('is_active', true)
+    .order('name_ar', {ascending: true});
+  if(error){ console.error('Items load:', error); allItems = []; return; }
+  allItems = data || [];
+}
+
+/* Round 3b: For each item, find the most recent stock_receipt_items.unit_cost.
+   Approach B (fetch + JS reduce) — fine for pilot scale. Migrate to a Postgres
+   RPC with ROW_NUMBER() if any business crosses ~500 products or ~5k receipts.
+   Voided receipts (status='voided') are excluded. */
+async function loadLastReceiptCosts(){
+  lastReceiptCostByItem = new Map();
+  /* Fetch receipt_id, item_id, unit_cost via foreign-table relation.
+     PostgREST supports nested select on the FK relationship. */
+  const {data, error} = await sb.from('stock_receipt_items')
+    .select('item_id, unit_cost, stock_receipts!inner(receipt_date, status, business_id)')
+    .eq('stock_receipts.business_id', currentBiz?.id || '');
+  if(error){
+    console.error('Last receipt costs load:', error);
+    return;
+  }
+  /* Reduce to most-recent per item, skipping voided receipts */
+  for(const row of (data || [])){
+    const sr = row.stock_receipts;
+    if(!sr) continue;
+    if(sr.status === 'voided') continue;
+    const existing = lastReceiptCostByItem.get(row.item_id);
+    if(!existing || sr.receipt_date > existing.receipt_date){
+      lastReceiptCostByItem.set(row.item_id, {
+        unit_cost: parseFloat(row.unit_cost) || 0,
+        receipt_date: sr.receipt_date
+      });
+    }
+  }
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -971,6 +1228,463 @@ async function deleteSupplier(){
 }
 
 /* ═══════════════════════════════════════════════════════
+   ROUND 3b: CATEGORY HELPER (mirrors inventory.html)
+═══════════════════════════════════════════════════════ */
+const CATEGORY_LABELS = {
+  food_beverage:  { ar: '🍽 طعام ومشروبات',  en: '🍽 Food & Beverage' },
+  grocery:        { ar: '🛒 بقالة',           en: '🛒 Grocery' },
+  clothing:       { ar: '👕 ملابس',           en: '👕 Clothing' },
+  electronics:    { ar: '📱 إلكترونيات',     en: '📱 Electronics' },
+  home_appliance: { ar: '🏠 أجهزة منزلية',   en: '🏠 Home Appliances' },
+  furniture:      { ar: '🪑 أثاث',            en: '🪑 Furniture' },
+  cosmetics:      { ar: '💄 تجميل وعطور',     en: '💄 Cosmetics' },
+  pharmacy:       { ar: '💊 صيدلية',          en: '💊 Pharmacy' },
+  stationery:     { ar: '✏️ قرطاسية',         en: '✏️ Stationery' },
+  hardware:       { ar: '🔧 عدد ومواد بناء',  en: '🔧 Hardware' },
+  auto_parts:     { ar: '🚗 قطع غيار',        en: '🚗 Auto Parts' },
+  services:       { ar: '🛠 خدمات',           en: '🛠 Services' },
+  raw_materials:  { ar: '📦 مواد خام',        en: '📦 Raw Materials' },
+  other:          { ar: '📋 أخرى',            en: '📋 Other' }
+};
+function categoryLabel(code){
+  const c = CATEGORY_LABELS[code];
+  if(!c) return code || '—';
+  return currentLang === 'ar' ? c.ar : c.en;
+}
+
+/* ═══════════════════════════════════════════════════════
+   ROUND 3b: AUDIT LOG (mirrors inventory.html — used by deleteItem)
+═══════════════════════════════════════════════════════ */
+async function writeAuditLog({entity_type, entity_id, entity_reference, action, before_data, after_data, reason}){
+  try {
+    await sb.from('audit_log').insert({
+      user_id: currentUser.id,
+      business_id: currentBiz?.id,
+      user_email: currentUser.email || null,
+      entity_type,
+      entity_id,
+      entity_reference: entity_reference || null,
+      action,
+      before_data: before_data || null,
+      after_data: after_data || null,
+      reason: reason || null,
+      user_agent: navigator.userAgent.slice(0, 200)
+    });
+  } catch (e) {
+    console.warn('[GL purchasing] audit_log insert failed:', e);
+  }
+}
+
+/* ═══════════════════════════════════════════════════════
+   ROUND 3b: PROCUREMENT METRICS (per item)
+   - margin_pct  = (sale - cost) / sale × 100   (gross margin on sale price)
+   - markup_pct  = (sale - cost) / cost × 100   (markup over cost)
+   - mismatch_pct = |last_receipt - stored| / stored
+   Cost basis for margin/markup = inventory_items.cost_price (stored).
+   Last-receipt comparison uses lastReceiptCostByItem map.
+═══════════════════════════════════════════════════════ */
+const COST_MISMATCH_THRESHOLD = 0.05; /* 5% — spec'd by user */
+
+function computeItemMetrics(item){
+  const cost = parseFloat(item.cost_price) || 0;
+  const sale = parseFloat(item.sale_price) || 0;
+  const qty = parseFloat(item.current_qty) || 0;
+  const reorder = parseFloat(item.reorder_point) || 0;
+  const lastReceipt = lastReceiptCostByItem.get(item.id);
+  const lastCost = lastReceipt ? lastReceipt.unit_cost : null;
+
+  const margin_pct = (sale > 0 && cost >= 0) ? ((sale - cost) / sale) * 100 : null;
+  const markup_pct = (cost > 0) ? ((sale - cost) / cost) * 100 : null;
+  const stock_value = qty * cost;
+
+  let mismatch_pct = null;
+  let mismatch_flag = false;
+  if(lastCost != null && cost > 0){
+    mismatch_pct = (lastCost - cost) / cost; /* signed: + means receipts cost more than stored */
+    mismatch_flag = Math.abs(mismatch_pct) >= COST_MISMATCH_THRESHOLD;
+  }
+
+  /* Stock status: out / low (below reorder) / ok */
+  let stock_status = 'ok';
+  if(qty <= 0) stock_status = 'out';
+  else if(reorder > 0 && qty <= reorder) stock_status = 'low';
+
+  return {
+    cost, sale, qty, reorder,
+    last_cost: lastCost,
+    last_date: lastReceipt ? lastReceipt.receipt_date : null,
+    margin_pct, markup_pct,
+    stock_value, stock_status,
+    mismatch_pct, mismatch_flag
+  };
+}
+
+function marginTier(pct){
+  if(pct == null) return 'tier-none';
+  if(pct < 5) return 'tier-bad';
+  if(pct < 20) return 'tier-warn';
+  return 'tier-good';
+}
+
+/* ═══════════════════════════════════════════════════════
+   ROUND 3b: PRODUCT STATS (4 cards)
+═══════════════════════════════════════════════════════ */
+function computeProductStats(){
+  let totalStockValue = 0, lowCount = 0, mismatchCount = 0;
+  for(const it of allItems){
+    const m = computeItemMetrics(it);
+    totalStockValue += m.stock_value;
+    if(m.stock_status === 'low' || m.stock_status === 'out') lowCount++;
+    if(m.mismatch_flag) mismatchCount++;
+  }
+  setText('stat-prod-total', allItems.length);
+  setText('stat-prod-stock-value', 'SAR ' + fmt(totalStockValue));
+  setText('stat-prod-low', lowCount);
+  setText('stat-prod-mismatch', mismatchCount);
+}
+
+/* ═══════════════════════════════════════════════════════
+   ROUND 3b: PRODUCTS TABLE — render with sortable headers
+═══════════════════════════════════════════════════════ */
+
+/* Column definitions: key matches productSort.col, label is bilingual. */
+const PRODUCT_COLS = [
+  { key: 'name',         ar: 'المنتج',           en: 'Product',           cls: '',    sortable: true },
+  { key: 'category',     ar: 'الفئة',            en: 'Category',          cls: '',    sortable: true },
+  { key: 'qty',          ar: 'المخزون',          en: 'Stock',             cls: 'num', sortable: true },
+  { key: 'cost',         ar: 'تكلفة مخزّنة',     en: 'Stored Cost',       cls: 'num', sortable: true },
+  { key: 'last_cost',    ar: 'آخر تكلفة استلام', en: 'Last Receipt Cost', cls: 'num', sortable: true },
+  { key: 'sale',         ar: 'سعر البيع',        en: 'Sale Price',        cls: 'num', sortable: true },
+  { key: 'margin_pct',   ar: 'هامش %',           en: 'Margin %',          cls: 'num', sortable: true },
+  { key: 'markup_pct',   ar: 'ترميز %',          en: 'Markup %',          cls: 'num', sortable: true },
+  { key: 'stock_value',  ar: 'قيمة المخزون',     en: 'Stock Value',       cls: 'num', sortable: true },
+  { key: '_actions',     ar: '',                 en: '',                  cls: 'center', sortable: false }
+];
+
+function renderProducts(){
+  const wrap = document.getElementById('products-table-wrap');
+  if(!wrap) return;
+  const search = v('search-products').toLowerCase();
+  const ar = currentLang === 'ar';
+
+  /* Build enriched rows with computed metrics, then filter + sort */
+  let rows = allItems.map(it => ({ item: it, m: computeItemMetrics(it) }));
+
+  if(search){
+    rows = rows.filter(r => {
+      const it = r.item;
+      return (it.name_ar||'').toLowerCase().includes(search) ||
+             (it.name_en||'').toLowerCase().includes(search) ||
+             (it.name||'').toLowerCase().includes(search) ||
+             (it.sku||'').toLowerCase().includes(search) ||
+             (it.barcode||'').toLowerCase().includes(search);
+    });
+  }
+
+  /* Sort */
+  rows.sort((a, b) => sortCompare(a, b, productSort.col, productSort.dir));
+
+  if(rows.length === 0){
+    wrap.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">📦</div>
+        <div class="title">${ar ? 'لا توجد منتجات' : 'No products yet'}</div>
+        <div class="text">${ar
+          ? 'أضف منتجاتك لتراها هنا مع هوامش الربح والتكاليف.'
+          : 'Add products to see them here with margins and costs.'}</div>
+        <button class="btn btn-primary" onclick="openItemModal()">+ ${ar?'منتج جديد':'New Product'}</button>
+      </div>`;
+    return;
+  }
+
+  const headerHtml = PRODUCT_COLS.map(c => {
+    if(!c.sortable){
+      return `<th class="${c.cls}">${ar ? c.ar : c.en}</th>`;
+    }
+    const sorted = productSort.col === c.key;
+    const arrow = sorted ? (productSort.dir === 'asc' ? '▲' : '▼') : '↕';
+    const cls = `sortable ${c.cls} ${sorted ? 'sorted' : ''}`.trim();
+    return `<th class="${cls}" onclick="onProductSort('${c.key}')">${ar ? c.ar : c.en}<span class="sort-arrow">${arrow}</span></th>`;
+  }).join('');
+
+  const bodyHtml = rows.map(r => {
+    const it = r.item;
+    const m = r.m;
+    const name = displayName(it);
+    const stockBadge = m.stock_status === 'out'
+      ? `<span class="stock-badge out">${fmt(m.qty)}</span>`
+      : m.stock_status === 'low'
+        ? `<span class="stock-badge low">${fmt(m.qty)}</span>`
+        : `<span class="stock-badge ok">${fmt(m.qty)}</span>`;
+    const unit = it.unit || 'pcs';
+    const stockCell = `${stockBadge} <span style="font-size:11px;color:var(--muted);">${escHTML(unit)}</span>${
+      m.reorder > 0 ? `<div class="cell-subtitle">${ar?'حد':'min'} ${fmt(m.reorder)}</div>` : ''
+    }`;
+
+    const mismatchIcon = m.mismatch_flag
+      ? `<span class="cost-warn" title="${ar
+          ? `فارق عن آخر استلام: ${(m.mismatch_pct * 100).toFixed(1)}%`
+          : `Differs from last receipt by ${(m.mismatch_pct * 100).toFixed(1)}%`}">⚠</span>`
+      : '';
+
+    const lastCostCell = m.last_cost != null
+      ? `SAR ${fmt(m.last_cost)}<div class="cell-subtitle">${m.last_date}</div>`
+      : '<span class="tier-none">—</span>';
+
+    const marginCell = m.margin_pct != null
+      ? `<span class="${marginTier(m.margin_pct)}">${m.margin_pct.toFixed(1)}%</span>`
+      : '<span class="tier-none">—</span>';
+
+    const markupCell = m.markup_pct != null
+      ? `<span class="${marginTier(m.markup_pct)}">${m.markup_pct.toFixed(1)}%</span>`
+      : '<span class="tier-none">—</span>';
+
+    return `
+      <tr class="clickable" onclick="openItemModal('${it.id}')">
+        <td>
+          <strong>${escHTML(name)}</strong>
+          ${it.sku ? `<div class="cell-subtitle">${escHTML(it.sku)}</div>` : ''}
+        </td>
+        <td>${escHTML(it.category ? categoryLabel(it.category) : '—')}</td>
+        <td class="num">${stockCell}</td>
+        <td class="num">SAR ${fmt(m.cost)}${mismatchIcon}</td>
+        <td class="num">${lastCostCell}</td>
+        <td class="num">SAR ${fmt(m.sale)}</td>
+        <td class="num">${marginCell}</td>
+        <td class="num">${markupCell}</td>
+        <td class="num">SAR ${fmt(m.stock_value)}</td>
+        <td class="center">
+          <div class="row-actions">
+            <button class="row-actions-btn" onclick="event.stopPropagation();toggleRowMenu(this)" title="${ar?'إجراءات':'Actions'}">⋮</button>
+            <div class="row-actions-menu" onclick="event.stopPropagation()">
+              <button class="row-action-item" onclick="closeAllMenus();openItemModal('${it.id}')">✏️ ${ar?'تعديل':'Edit'}</button>
+              <a class="row-action-item" href="inventory.html?tab=items&item=${it.id}" style="text-decoration:none;">📊 ${ar?'سجل المخزون':'Stock history'}</a>
+            </div>
+          </div>
+        </td>
+      </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `
+    <div class="table-scroll">
+      <table class="tbl">
+        <thead><tr>${headerHtml}</tr></thead>
+        <tbody>${bodyHtml}</tbody>
+      </table>
+    </div>`;
+}
+
+/* Sort comparator. Returns negative if a should come before b. */
+function sortCompare(a, b, col, dir){
+  const sign = dir === 'asc' ? 1 : -1;
+  let av, bv;
+  switch(col){
+    case 'name':
+      av = (displayName(a.item) || '').toLowerCase();
+      bv = (displayName(b.item) || '').toLowerCase();
+      return sign * av.localeCompare(bv);
+    case 'category':
+      av = (a.item.category || '').toLowerCase();
+      bv = (b.item.category || '').toLowerCase();
+      return sign * av.localeCompare(bv);
+    case 'qty':       av = a.m.qty;          bv = b.m.qty;          break;
+    case 'cost':      av = a.m.cost;         bv = b.m.cost;         break;
+    case 'last_cost': av = a.m.last_cost ?? -Infinity; bv = b.m.last_cost ?? -Infinity; break;
+    case 'sale':      av = a.m.sale;         bv = b.m.sale;         break;
+    case 'margin_pct':av = a.m.margin_pct ?? -Infinity; bv = b.m.margin_pct ?? -Infinity; break;
+    case 'markup_pct':av = a.m.markup_pct ?? -Infinity; bv = b.m.markup_pct ?? -Infinity; break;
+    case 'stock_value':av = a.m.stock_value; bv = b.m.stock_value;  break;
+    default: return 0;
+  }
+  if(av < bv) return -1 * sign;
+  if(av > bv) return  1 * sign;
+  return 0;
+}
+
+/* Click handler: cycle asc → desc → default */
+function onProductSort(col){
+  if(productSort.col === col){
+    if(productSort.dir === 'asc'){ productSort.dir = 'desc'; }
+    else if(productSort.dir === 'desc'){
+      /* third click → return to default */
+      productSort = { col: 'stock_value', dir: 'desc' };
+    } else {
+      productSort.dir = 'asc';
+    }
+  } else {
+    productSort = { col, dir: 'asc' };
+  }
+  /* Persist in URL */
+  const params = new URLSearchParams(window.location.search);
+  params.set('tab', 'products');
+  params.set('sort', productSort.col);
+  params.set('dir', productSort.dir);
+  history.replaceState(null, '', '?' + params.toString());
+  renderProducts();
+}
+
+/* ═══════════════════════════════════════════════════════
+   ROUND 3b: ITEM MODAL — moved from inventory.html
+═══════════════════════════════════════════════════════ */
+function openItemModal(id){
+  currentItemId = id || null;
+  document.getElementById('item-modal').classList.add('open');
+  const isEdit = !!id;
+  setText('item-modal-title', isEdit
+    ? (currentLang==='ar'?'تعديل المنتج':'Edit Item')
+    : (currentLang==='ar'?'منتج جديد':'New Item'));
+  document.getElementById('btn-item-delete').style.display = isEdit ? '' : 'none';
+
+  if(isEdit){
+    const it = allItems.find(x => x.id === id);
+    if(!it){ closeItemModal(); return; }
+    setVal('item-name-ar', getNameAr(it));
+    setVal('item-name-en', getNameEn(it));
+    setVal('item-sku', it.sku || '');
+    setVal('item-barcode', it.barcode || '');
+    setVal('item-unit', it.unit || 'pcs');
+    setVal('item-cost-price', it.cost_price || '');
+    setVal('item-sale-price', it.sale_price || '');
+    setVal('item-current-qty', it.current_qty || 0);
+    setVal('item-category', it.category || '');
+    setVal('item-reorder-point', it.reorder_point || '');
+    setVal('item-notes', it.notes || '');
+  } else {
+    ['item-name-ar','item-name-en','item-barcode','item-cost-price',
+     'item-sale-price','item-reorder-point','item-notes'].forEach(f => setVal(f,''));
+    setVal('item-unit', 'pcs');
+    setVal('item-current-qty', '0');
+    setVal('item-category', '');
+    setVal('item-sku', nextItemSKU());
+  }
+}
+
+function nextItemSKU(){
+  const codes = allItems
+    .map(it => (it.sku || '').match(/^ITM-(\d+)$/)?.[1])
+    .filter(Boolean)
+    .map(n => parseInt(n, 10));
+  const next = codes.length ? Math.max(...codes) + 1 : 1;
+  return 'ITM-' + String(next).padStart(3, '0');
+}
+
+function closeItemModal(){
+  document.getElementById('item-modal').classList.remove('open');
+  currentItemId = null;
+}
+
+async function saveItem(){
+  const nameAr = v('item-name-ar');
+  if(!nameAr){
+    notify(currentLang==='ar'?'الاسم بالعربي مطلوب':'Arabic name is required','error');
+    return;
+  }
+  const sku = v('item-sku');
+  if(!sku){
+    notify(currentLang==='ar'?'رمز المنتج (SKU) مطلوب':'SKU is required','error');
+    return;
+  }
+  const salePrice = parseFloat(v('item-sale-price'));
+  if(!(salePrice >= 0)){
+    notify(currentLang==='ar'?'سعر البيع غير صحيح':'Invalid sale price','error');
+    return;
+  }
+
+  const payload = {
+    user_id: currentUser.id,
+    business_id: currentBiz.id,
+    name: nameAr, /* legacy */
+    name_ar: nameAr,
+    name_en: v('item-name-en') || null,
+    sku: sku,
+    barcode: v('item-barcode') || null,
+    unit: v('item-unit') || 'pcs',
+    cost_price: parseFloat(v('item-cost-price')) || 0,
+    sale_price: salePrice,
+    category: v('item-category') || null,
+    reorder_point: parseFloat(v('item-reorder-point')) || 0,
+    notes: v('item-notes') || null,
+    is_active: true,
+    updated_at: new Date().toISOString()
+  };
+
+  let error;
+  if(currentItemId){
+    delete payload.current_qty;
+    ({error} = await sb.from('inventory_items').update(payload).eq('id', currentItemId));
+  } else {
+    payload.current_qty = 0;
+    const result = await sb.from('inventory_items').insert(payload).select().single();
+    error = result.error;
+  }
+
+  if(error){
+    if(error.code === '23505'){
+      notify(currentLang==='ar'?'رمز المنتج مكرر':'SKU already exists','error');
+    } else {
+      notify(friendlyDbError(error),'error');
+    }
+    return;
+  }
+
+  notify(currentLang==='ar'?'✅ تم الحفظ':'✅ Saved','success');
+  closeItemModal();
+  await loadItems();
+  await loadLastReceiptCosts(); /* refresh in case cost basis ought to be re-flagged */
+  renderProducts();
+  computeProductStats();
+}
+
+async function deleteItem(){
+  if(!currentItemId) return;
+  const it = allItems.find(x => x.id === currentItemId);
+  if(!it) return;
+
+  if(parseFloat(it.current_qty) > 0){
+    notify(currentLang==='ar'?'لا يمكن حذف منتج به مخزون. اشطبه أولاً.':'Cannot delete item with stock. Write it off first.','error');
+    return;
+  }
+
+  if(!confirm(currentLang==='ar'
+    ? `حذف المنتج "${getNameAr(it)}"؟ لا يمكن التراجع.`
+    : `Delete item "${getNameEn(it) || getNameAr(it)}"? This cannot be undone.`)) return;
+
+  const {data:moves} = await sb.from('inventory_movements')
+    .select('id').eq('item_id', currentItemId).limit(1);
+  if(moves && moves.length > 0){
+    /* Soft delete */
+    const {error} = await sb.from('inventory_items').update({is_active:false}).eq('id', currentItemId);
+    if(error){ notify(friendlyDbError(error),'error'); return; }
+    await writeAuditLog({
+      entity_type: 'inventory_item',
+      entity_id: currentItemId,
+      entity_reference: it?.sku || getNameAr(it) || getNameEn(it),
+      action: 'deactivated',
+      before_data: it,
+      reason: 'has inventory_movements history — preserved'
+    });
+    notify(currentLang==='ar'?'تم تعطيل المنتج (يحتفظ بالسجل)':'Item deactivated (history preserved)','success');
+  } else {
+    const {error} = await sb.from('inventory_items').delete().eq('id', currentItemId);
+    if(error){ notify(friendlyDbError(error),'error'); return; }
+    await writeAuditLog({
+      entity_type: 'inventory_item',
+      entity_id: currentItemId,
+      entity_reference: it?.sku || getNameAr(it) || getNameEn(it),
+      action: 'deleted',
+      before_data: it,
+      reason: 'no usage history — hard delete'
+    });
+    notify(currentLang==='ar'?'تم الحذف':'Deleted','success');
+  }
+  closeItemModal();
+  await loadItems();
+  await loadLastReceiptCosts();
+  renderProducts();
+  computeProductStats();
+}
+
+/* ═══════════════════════════════════════════════════════
    ROW ACTION MENU (⋮)
 ═══════════════════════════════════════════════════════ */
 function toggleRowMenu(btn){
@@ -1022,6 +1736,7 @@ function setLang(lang){
   document.documentElement.setAttribute('dir', lang==='ar' ? 'rtl' : 'ltr');
   applyLang();
   renderSuppliers();
+  renderProducts();
 }
 
 function applyLang(){
