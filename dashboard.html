@@ -7,12 +7,10 @@
   KNOWN ISSUES (deferred — do NOT remove without addressing the underlying cause):
   1. AI Insights API call disabled — needs Supabase Edge Function (for API key security + CORS).
      When ready, re-enable by setting AI_INSIGHTS_ENABLED = true and pointing to the Edge Function URL.
-  2. checkRoleAccess() is dead code — currentUser variable is undefined.
-     Wire this up when multi-user testing begins. Today, only owners are using the system.
-  3. accounting.html link in nav exists but file may not be in repo. Verify before launch.
-  4. gl_accountant_mode localStorage flag controls "Advanced Accounting" link visibility — no UI toggle exists.
-  5. Hardcoded Supabase anon key — depends on RLS policies being correct on every table. Verify in schema.sql phase.
-  6. Replace 966500000000 with real WhatsApp number (1 occurrence in this file).
+  2. accounting.html link in nav exists but file may not be in repo. Verify before launch.
+  3. gl_accountant_mode localStorage flag controls "Advanced Accounting" link visibility — no UI toggle exists.
+  4. Hardcoded Supabase anon key — depends on RLS policies being correct on every table. Verify in schema.sql phase.
+  5. Replace 966500000000 with real WhatsApp number (1 occurrence in this file).
 -->
 <html lang="ar" dir="rtl">
 <head>
@@ -1178,10 +1176,6 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
 
     // Load AI insights after data is available (will show fallback only — see AI_INSIGHTS_ENABLED flag)
     loadInsights();
-
-    /* TODO: enable role-based access when multi-user testing begins.
-       Requires: defining `currentUser` (=user from session above) and calling checkRoleAccess() here. */
-    // checkRoleAccess();
   }
 
   /* HTML escape helper — defensive against any malicious data in the DB */
@@ -1335,55 +1329,8 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
     new MutationObserver(fixDates).observe(document.body,{childList:true,subtree:true});
   })();
 
-  /* ── ROLE-BASED ACCESS (DEAD CODE — currentUser is undefined; wire up when multi-user testing begins) ── */
-  async function checkRoleAccess(){
-    if(typeof currentUser === 'undefined' || !currentUser) return;
-    // Check if user is a team member (not owner)
-    const {data:membership}=await sb.from('business_users')
-      .select('role,business_id,status')
-      .eq('user_id',currentUser.id)
-      .eq('status','active')
-      .single();
-    if(!membership)return; // owner — no restriction
-    const role=membership.role;
-    const ROLE_NAV={
-      owner: ['dashboard','invoices','inventory','ledger','purchasing','vat','statements','settings'],
-      accountant: ['dashboard','ledger','vat','statements'],
-      sales: ['dashboard','invoices'],
-      warehouse: ['dashboard','inventory'],
-    };
-    const allowed=ROLE_NAV[role]||ROLE_NAV.owner;
-    const currentPage=window.location.pathname.split('/').pop().replace('.html','');
-    // Redirect if page not allowed
-    if(currentPage&&currentPage!=='dashboard'&&!allowed.includes(currentPage)){
-      window.location.href='dashboard.html';
-      return;
-    }
-    // Hide nav links not allowed
-    document.querySelectorAll('.app-nav-link').forEach(link=>{
-      const href=(link.getAttribute('href')||'').replace('.html','');
-      if(href&&!allowed.includes(href)){
-        link.style.display='none';
-      }
-    });
-    // Show role badge in nav
-    const ROLE_LABELS={owner:'مالك',accountant:'محاسب',sales:'مبيعات',warehouse:'مستودع'};
-    const bizNameEl=document.getElementById('biz-name');
-    if(bizNameEl&&role!=='owner'){
-      const badge=document.createElement('span');
-      badge.style.cssText='font-size:9px;font-weight:700;padding:2px 6px;border-radius:5px;margin-right:6px;background:rgba(255,255,255,0.15);color:rgba(255,255,255,0.9);';
-      badge.textContent=ROLE_LABELS[role]||role;
-      bizNameEl.after(badge);
-    }
-    // Load the correct business for team members
-    if(membership.business_id&&(!currentBiz||currentBiz.id!==membership.business_id)){
-      const {data:biz}=await sb.from('businesses').select('*').eq('id',membership.business_id).single();
-      if(biz){
-        currentBiz=biz;
-        if(bizNameEl)bizNameEl.textContent=biz.name_ar||biz.name||'';
-      }
-    }
-  }
+  /* checkRoleAccess() removed in Round 2a. Role-based access enforcement
+     will be implemented in Round 2b with up-to-date page names. */
 
   /* ═══ FIRST-TIME SETUP MODAL (Round D2) ═══════════════════════
      Triggered from init() when currentBiz.setup_complete === false.
