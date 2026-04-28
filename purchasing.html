@@ -1,23 +1,48 @@
 <!DOCTYPE html>
+<!--
+═══════════════════════════════════════════════════════════════════════════════
+  GulfLedger — purchasing.html
+  Round 3a: Suppliers tab (moved from inventory.html) + 3 placeholders.
+
+  Tabs:
+    🏭 Suppliers              — vendors you buy from (CRUD) — REAL
+    📦 Products (Procurement) — margin/markup/GMROI view  — placeholder, Round 3b
+    📋 Purchase Orders        —                            — placeholder
+    🌍 Imports & Exports      —                            — placeholder
+
+  The Suppliers tab is a verbatim copy of inventory.html's previous suppliers
+  tab. Stats, columns, and the modal are pixel-identical.
+
+  Receive Stock (in inventory.html) still reads from the suppliers table.
+  Mid-receipt supplier creation uses the combobox quick-add path; the
+  "open full form" path is gone — users with TRN/CR/etc. fill them in
+  later from this page.
+═══════════════════════════════════════════════════════════════════════════════
+-->
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<title>المشتريات — GulfLedger</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&family=Cairo:wght@400;600;700&family=Playfair+Display:wght@700&display=swap" rel="stylesheet">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>المشتريات · GulfLedger</title>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;600;700;800&family=Playfair+Display:wght@600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
-  (function(){
-    var lang = localStorage.getItem('gl_lang') || 'ar';
-    document.documentElement.setAttribute('lang', lang);
-    document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
-  })();
+(function(){
+  var lang = localStorage.getItem('gl_lang') || 'ar';
+  document.documentElement.setAttribute('lang', lang);
+  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+})();
 </script>
 <style>
-:root{--navy:#003323;--green:#006C35;--blue:#0a5a3a;--sky:#3DAA65;--light:#9BD4A7;--ink:#1a1a1a;--muted:#6b7280;--border:#e5e7eb;--bg:#f7faf8;}
-*{margin:0;padding:0;box-sizing:border-box;}
+:root{
+  --navy:#1A3C2A;--blue:#006C35;--sky:#3DAA65;--light:#A8D9BC;--tint:#E6F4EC;
+  --green:#1D9E75;--red:#C62828;--amber:#C9920A;--ink:#0D2618;--muted:#4A7A5E;
+  --border:#C3DECE;--bg:#F4F9F6;--white:#ffffff;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
 html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;}
+
+/* ─── TOP NAV ─── */
 .topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:300;box-shadow:0 2px 8px rgba(0,0,0,0.15);}
 .nav-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
 .nav-bars{display:flex;gap:5px;height:36px;}
@@ -26,45 +51,42 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .nav-right{display:flex;align-items:center;gap:8px;}
 .nav-divider{width:1px;height:20px;background:rgba(255,255,255,0.2);}
 .nav-biz{font-size:14px;color:var(--light);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 10px;background:rgba(255,255,255,0.08);border-radius:6px;border:1px solid rgba(255,255,255,0.15);}
-.lang-switch{display:inline-flex;gap:2px;background:rgba(255,255,255,0.08);border-radius:6px;padding:2px;}
-.lang-btn{background:none;border:none;color:rgba(255,255,255,0.7);padding:4px 10px;cursor:pointer;font-size:12px;font-weight:600;border-radius:4px;transition:all .15s;font-family:inherit;}
-.lang-btn.on{background:rgba(255,255,255,0.2);color:#fff;}
+.lang-switch{display:flex;border:1px solid rgba(255,255,255,0.2);border-radius:6px;overflow:hidden;}
+.lang-btn{padding:4px 10px;font-size:13px;cursor:pointer;border:none;background:transparent;color:rgba(255,255,255,0.6);font-family:inherit;font-weight:500;transition:all .15s;}
+.lang-btn.on{background:var(--sky);color:#fff;}
+
+/* ─── APP NAV ─── */
 .app-nav{background:var(--blue);padding:8px 20px;display:flex;gap:4px;align-items:center;overflow-x:auto;position:sticky;top:44px;z-index:299;box-shadow:0 2px 6px rgba(0,0,0,0.1);-webkit-overflow-scrolling:touch;}
 .app-nav::-webkit-scrollbar{height:0;}
 .app-nav-link{padding:5px 14px;font-size:14px;font-weight:500;color:rgba(255,255,255,0.7);text-decoration:none;border-radius:6px;white-space:nowrap;transition:all .15s;}
 .app-nav-link:hover{background:rgba(255,255,255,0.12);color:#fff;}
 .app-nav-link.active{background:rgba(255,255,255,0.18);color:#fff;}
-.nav-settings-btn,.btn-logout{display:none!important;}
-.profile-menu{position:relative;}
-.profile-trigger{display:inline-flex;align-items:center;gap:6px;padding:4px 10px 4px 6px;background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:6px;cursor:pointer;color:#fff;transition:all .15s;font-family:inherit;}
-.profile-trigger:hover{background:rgba(255,255,255,0.15);}
-.profile-avatar{width:24px;height:24px;border-radius:50%;background:var(--light);color:var(--navy);font-size:12px;font-weight:700;display:inline-flex;align-items:center;justify-content:center;}
-.profile-caret{font-size:10px;opacity:0.7;}
-.profile-dropdown{display:none;position:absolute;top:calc(100% + 6px);min-width:180px;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,0.18);padding:6px;z-index:401;inset-inline-end:0;}
-.profile-dropdown.open{display:block;}
-.profile-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:6px;font-size:13px;font-weight:500;color:var(--ink);text-decoration:none;background:none;border:none;width:100%;cursor:pointer;font-family:inherit;text-align:start;transition:background .12s;}
-.profile-item:hover{background:rgba(0,108,53,0.06);}
-.profile-icon{font-size:14px;flex-shrink:0;}
-.profile-divider{height:1px;background:var(--border);margin:4px 0;}
-.app-nav-icon{padding:5px 8px;display:inline-flex;align-items:center;justify-content:center;color:rgba(255,255,255,0.7);}
-.app-nav-icon:hover{background:rgba(255,255,255,0.12);color:#fff;}
-.app-nav-icon.active{background:rgba(255,255,255,0.18);color:#fff;}
 
-/* Page */
-.page{max-width:880px;margin:0 auto;padding:40px 20px;}
-.placeholder{background:#fff;border:1px solid var(--border);border-radius:14px;padding:50px 30px;text-align:center;box-shadow:0 1px 4px rgba(0,0,0,0.04);}
-.placeholder-icon{font-size:64px;margin-bottom:16px;opacity:0.6;}
-.placeholder h1{font-size:24px;font-weight:800;color:var(--navy);margin-bottom:14px;}
-.placeholder p{color:var(--muted);font-size:15px;line-height:1.7;max-width:560px;margin:0 auto 20px;}
-.placeholder .coming{display:inline-block;margin-top:16px;padding:8px 16px;background:rgba(0,108,53,0.08);color:var(--green);border-radius:20px;font-size:13px;font-weight:600;}
-.feature-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px;margin:30px 0 10px;text-align:start;}
-.feature-card{background:rgba(0,108,53,0.04);border:1px solid rgba(0,108,53,0.12);border-radius:10px;padding:16px;}
-.feature-card-icon{font-size:24px;margin-bottom:8px;}
-.feature-card-title{font-weight:700;font-size:14px;color:var(--navy);margin-bottom:4px;}
-.feature-card-desc{font-size:12px;color:var(--muted);line-height:1.5;}
-.feature-card-status{display:inline-block;margin-top:8px;padding:3px 8px;background:#fff;color:var(--green);border-radius:10px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;border:1px solid rgba(0,108,53,0.2);}
+/* ═══ Canonical D1 nav additions ═══ */
+.profile-menu { position: relative; }
+.profile-trigger { display: inline-flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 13px; transition: background .15s; font-family: inherit; }
+.profile-trigger:hover { background: rgba(255,255,255,0.15); }
+.profile-avatar { font-size: 16px; }
+.profile-caret { font-size: 10px; opacity: 0.7; }
+.profile-dropdown { position: absolute; top: calc(100% + 6px); inset-inline-end: 0; min-width: 180px; background: #fff; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); padding: 4px; z-index: 400; display: none; }
+.profile-dropdown.open { display: block; }
+.profile-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 6px; color: var(--ink); text-decoration: none; font-size: 13px; cursor: pointer; transition: background .12s; width: 100%; text-align: inherit; background: none; border: none; font-family: inherit; }
+.profile-item:hover { background: rgba(0,108,53,0.06); }
+.profile-icon { font-size: 16px; flex-shrink: 0; }
+.profile-divider { height: 1px; background: var(--border); margin: 4px 0; }
+.app-nav-link.app-nav-icon { padding: 6px 12px; line-height: 1; display: inline-flex; align-items: center; }
+.app-nav-link.app-nav-icon svg { color: rgba(255,255,255,0.7); transition: color .15s; }
+.app-nav-link.app-nav-icon:hover svg { color: #fff; }
+.app-nav-link.app-nav-icon.active { background: rgba(255,255,255,0.18); }
+.app-nav-link.app-nav-icon.active svg { color: #fff; }
+@media (max-width: 560px) {
+  .profile-trigger { padding: 4px 8px; }
+  .nav-biz { max-width: 100px; font-size: 12px; }
+  .nav-divider { display: none; }
+  .profile-caret { display: none; }
+}
 
-/* Quick Action Menu */
+/* ═══ Quick Action Menu (canonical D1+) ═══ */
 .gl-qa-wrap{position:relative;}
 .gl-qa-btn{display:inline-flex;align-items:center;gap:6px;padding:5px 13px;background:var(--sky);color:#fff;border:none;border-radius:6px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;transition:background .15s;}
 .gl-qa-btn:hover{background:var(--light);color:var(--navy);}
@@ -77,11 +99,149 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .gl-qa-icon{font-size:16px;flex-shrink:0;}
 .gl-qa-div{height:1px;background:var(--border);margin:4px 0;}
 @media (max-width:560px){.gl-qa-btn{padding:5px 10px;font-size:12px;}.gl-qa-btn span:not(.qa-plus){display:none;}.gl-qa-menu{min-width:220px;}}
+
+/* ─── PAGE LAYOUT ─── */
+.page{max-width:1280px;margin:0 auto;padding:18px;}
+
+/* Pill tab toggle */
+.tab-toggle{display:inline-flex;background:#fff;border:1.5px solid var(--border);border-radius:14px;padding:4px;margin-bottom:16px;gap:4px;flex-wrap:wrap;}
+.tab-btn{padding:8px 18px;font-family:inherit;font-size:14px;font-weight:600;border:none;background:transparent;color:var(--muted);border-radius:10px;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s;white-space:nowrap;}
+.tab-btn:hover{background:var(--tint);color:var(--blue);}
+.tab-btn.active{background:var(--blue);color:#fff;}
+.tab-btn .count-badge{background:rgba(255,255,255,0.25);padding:1px 7px;border-radius:8px;font-size:11px;font-weight:700;font-family:'DM Mono',monospace;}
+.tab-btn:not(.active) .count-badge{background:var(--tint);color:var(--muted);}
+
+/* Stats row */
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
+.stat-card{background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px;}
+.stat-card .label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px;}
+.stat-card .value{font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:var(--ink);line-height:1.1;}
+.stat-card .sub{font-size:11px;color:var(--muted);margin-top:2px;}
+.stat-card.amber{border-color:#fde68a;background:#fffbeb;}
+.stat-card.amber .value{color:var(--amber);}
+.stat-card.red{border-color:#fca5a5;background:#fef2f2;}
+.stat-card.red .value{color:var(--red);}
+.stat-card.green{border-color:#86efac;background:#f0fdf4;}
+.stat-card.green .value{color:var(--green);}
+
+/* Toolbar */
+.toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap;}
+.search-wrap{position:relative;flex:1;max-width:340px;min-width:200px;}
+.search-input{width:100%;padding:9px 12px 9px 36px;border:1.5px solid var(--border);border-radius:10px;font-family:inherit;font-size:14px;background:#fff;}
+.search-input:focus{outline:none;border-color:var(--blue);}
+[dir="rtl"] .search-input{padding:9px 36px 9px 12px;}
+.search-icon{position:absolute;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px;pointer-events:none;}
+[dir="ltr"] .search-icon{left:12px;}
+[dir="rtl"] .search-icon{right:12px;}
+
+.btn{padding:9px 16px;border-radius:9px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;border:none;white-space:nowrap;transition:all .15s;}
+.btn-primary{background:var(--blue);color:#fff;}
+.btn-primary:hover{background:var(--navy);}
+.btn-primary:disabled{opacity:0.5;cursor:not-allowed;}
+.btn-secondary{background:#fff;color:var(--blue);border:1.5px solid var(--light);}
+.btn-secondary:hover{background:var(--tint);}
+.btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border);}
+.btn-ghost:hover{background:var(--bg);color:var(--ink);}
+.btn-danger{background:#fff;color:var(--red);border:1.5px solid #fca5a5;}
+.btn-danger:hover{background:#fef2f2;}
+.btn-sm{padding:5px 10px;font-size:12px;}
+
+/* Tables */
+.table-wrap{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:visible;}
+.table-scroll{overflow-x:auto;border-radius:12px;}
+.tbl{width:100%;border-collapse:collapse;font-size:14px;}
+.tbl th,.tbl td{text-align:start;}
+.tbl th{padding:10px 14px;background:var(--tint);color:var(--ink);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-bottom:1px solid var(--border);white-space:nowrap;}
+.tbl td{padding:11px 14px;border-bottom:1px solid var(--tint);vertical-align:middle;}
+.tbl tr:last-child td{border-bottom:none;}
+.tbl tr.clickable{cursor:pointer;}
+.tbl tr.clickable:hover td{background:#fafbfa;}
+.tbl .num,.tbl th.num{text-align:end;font-family:'DM Mono',monospace;}
+.tbl .center,.tbl th.center{text-align:center;}
+
+/* Empty state */
+.empty-state{text-align:center;padding:60px 20px;color:var(--muted);}
+.empty-state .icon{font-size:44px;opacity:0.3;margin-bottom:12px;}
+.empty-state .title{font-size:16px;font-weight:700;color:var(--ink);margin-bottom:6px;}
+.empty-state .text{font-size:13px;line-height:1.5;max-width:380px;margin:0 auto 16px;}
+
+/* Placeholder (coming soon) panes */
+.placeholder-pane{background:#fff;border:1px solid var(--border);border-radius:14px;padding:50px 30px;text-align:center;}
+.placeholder-icon{font-size:64px;margin-bottom:16px;opacity:0.6;}
+.placeholder-pane h2{font-size:22px;font-weight:800;color:var(--navy);margin-bottom:12px;}
+.placeholder-pane p{color:var(--muted);font-size:14px;line-height:1.7;max-width:560px;margin:0 auto 14px;}
+.placeholder-coming{display:inline-block;padding:6px 14px;background:rgba(0,108,53,0.08);color:var(--blue);border-radius:18px;font-size:12px;font-weight:600;}
+
+/* Modal */
+.modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:600;align-items:center;justify-content:center;padding:20px;}
+.modal-overlay.open{display:flex;}
+.modal{background:#fff;border-radius:14px;width:100%;max-width:680px;max-height:90vh;overflow:hidden;display:flex;flex-direction:column;box-shadow:0 20px 60px rgba(0,0,0,0.2);}
+.modal.wide{max-width:980px;}
+.modal-head{padding:16px 20px;border-bottom:1px solid var(--tint);display:flex;align-items:center;justify-content:space-between;}
+.modal-title{font-size:16px;font-weight:800;color:var(--ink);}
+.modal-close{background:transparent;border:none;color:var(--muted);font-size:22px;cursor:pointer;line-height:1;padding:4px;border-radius:6px;}
+.modal-close:hover{background:var(--tint);}
+.modal-body{padding:18px 20px;overflow-y:auto;flex:1;}
+.modal-foot{padding:14px 20px;border-top:1px solid var(--tint);display:flex;justify-content:flex-end;gap:8px;background:#fafbfa;flex-wrap:wrap;}
+
+/* Form fields */
+.field-row{display:grid;gap:12px;margin-bottom:12px;}
+.field-row.double{grid-template-columns:1fr 1fr;}
+.field-row.triple{grid-template-columns:1fr 1fr 1fr;}
+.field{min-width:0;}
+.field-label{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--ink);margin-bottom:4px;text-transform:uppercase;letter-spacing:.04em;}
+.field-label .req{color:var(--red);}
+.field-label .opt{color:var(--muted);font-weight:500;text-transform:none;letter-spacing:0;font-size:10px;}
+.field input,.field select,.field textarea{width:100%;padding:8px 11px;border:1px solid var(--border);border-radius:7px;background:#fff;font-family:inherit;font-size:14px;color:var(--ink);transition:border .15s, box-shadow .15s;}
+.field input.mono{font-family:'DM Mono',monospace;}
+.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,108,53,0.12);}
+.field textarea{resize:vertical;min-height:60px;}
+.field-hint{font-size:11px;color:var(--muted);margin-top:3px;}
+.section-title-sm{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:14px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--tint);}
+
+/* Notification */
+.notify{position:fixed;top:96px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:9999;display:none;max-width:calc(100vw - 40px);text-align:center;}
+.notify.show{display:block;animation:notifyIn .2s ease;}
+.notify.success{background:var(--green);}
+.notify.error{background:var(--red);}
+@keyframes notifyIn{from{transform:translate(-50%,-10px);opacity:0;}to{transform:translate(-50%,0);opacity:1;}}
+
+/* Loading */
+.loading-state{text-align:center;padding:40px 20px;color:var(--muted);}
+.loading-spinner{font-size:32px;margin-bottom:10px;animation:pulse 1.5s ease-in-out infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
+
+/* ─── ROW ACTION MENU (⋮) ─── */
+.row-actions{position:relative;display:inline-block;}
+.row-actions-btn{background:transparent;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;color:var(--muted);font-size:16px;line-height:1;}
+.row-actions-btn:hover{background:var(--tint);color:var(--ink);}
+.row-actions-menu{display:none;position:fixed;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.18);min-width:200px;z-index:9000;padding:4px;}
+.row-actions-menu.open{display:block;}
+.row-action-item{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:13px;color:var(--ink);cursor:pointer;border-radius:6px;background:transparent;border:none;width:100%;text-align:start;font-family:inherit;}
+.row-action-item:hover{background:var(--tint);}
+.row-action-item.danger{color:var(--red);}
+.row-action-item.danger:hover{background:#fef2f2;}
+
+/* Mobile */
+@media (max-width:850px){
+  .stats-row{grid-template-columns:1fr 1fr;}
+  .field-row.double,.field-row.triple{grid-template-columns:1fr;}
+  .topnav{padding:8px 12px;}
+  .nav-biz{max-width:90px;font-size:12px;}
+  .lang-switch .lang-btn{padding:3px 8px;font-size:11px;}
+  .app-nav-link{padding:5px 9px;font-size:12px;}
+  .nav-name span{display:none;}
+  .tbl{font-size:13px;}
+  .tbl th,.tbl td{padding:8px 10px;}
+}
 </style>
 </head>
 <body>
 
-<!-- Top nav -->
+<!-- Notification -->
+<div class="notify" id="notify"></div>
+
+<!-- ═══ CANONICAL TOP NAV (Round D1) ═══ -->
 <div class="topnav">
   <a href="dashboard.html" class="nav-logo" aria-label="GulfLedger home">
     <div class="nav-bars">
@@ -106,7 +266,6 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           <span class="gl-qa-icon">👤</span>
           <span data-ar="عميل جديد" data-en="New Customer">عميل جديد</span>
         </a>
-
         <div class="gl-qa-div"></div>
         <div class="gl-qa-cat" data-ar="المشتريات" data-en="Purchasing">المشتريات</div>
         <a href="purchasing.html?tab=suppliers&action=new_supplier" class="gl-qa-item" role="menuitem">
@@ -117,14 +276,12 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           <span class="gl-qa-icon">📦</span>
           <span data-ar="منتج جديد" data-en="New Product">منتج جديد</span>
         </a>
-
         <div class="gl-qa-div"></div>
         <div class="gl-qa-cat" data-ar="المخزون" data-en="Inventory">المخزون</div>
-        <a href="inventory.html?tab=receive&action=new_receipt" class="gl-qa-item" role="menuitem">
+        <a href="inventory.html?tab=receiving&action=new_receipt" class="gl-qa-item" role="menuitem">
           <span class="gl-qa-icon">📥</span>
           <span data-ar="استلام بضاعة" data-en="Receive Stock">استلام بضاعة</span>
         </a>
-
         <div class="gl-qa-div"></div>
         <div class="gl-qa-cat" data-ar="المالية" data-en="Finance">المالية</div>
         <a href="finance.html?tab=expenses&action=new_expense" class="gl-qa-item" role="menuitem">
@@ -135,7 +292,6 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           <span class="gl-qa-icon">🏢</span>
           <span data-ar="مورد مصروفات" data-en="New Expense Vendor">مورد مصروفات</span>
         </a>
-
         <div class="gl-qa-div"></div>
         <div class="gl-qa-cat" data-ar="محاسبة" data-en="Accounting">محاسبة</div>
         <a href="accounting.html?sub=ledger&action=new_journal" class="gl-qa-item" role="menuitem">
@@ -170,6 +326,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   </div>
 </div>
 
+<!-- ═══ MAIN APP NAVIGATION ═══ -->
 <div class="app-nav" id="app-nav">
   <a href="dashboard.html" class="app-nav-link app-nav-icon" title="Dashboard" aria-label="Dashboard"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></a>
   <a href="purchasing.html" class="app-nav-link" data-ar="المشتريات" data-en="Purchasing">المشتريات</a>
@@ -180,81 +337,297 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   <a href="reports.html" class="app-nav-link" data-ar="التقارير" data-en="Reports">التقارير</a>
 </div>
 
-<div class="page">
-  <div class="placeholder">
-    <div class="placeholder-icon">🛒</div>
-    <h1 data-ar="المشتريات" data-en="Purchasing">المشتريات</h1>
-    <p data-ar="تبويب جديد لإدارة المشتريات بشكل احترافي. سيتم نقل الموردين والمنتجات (من تبويب المخزون) إلى هنا، مع إضافة طلبات الشراء وقرارات التسعير." data-en="A new tab dedicated to procurement. Suppliers and products will move here from the Inventory tab, plus we'll add purchase orders and pricing decision tools.">
-      تبويب جديد لإدارة المشتريات بشكل احترافي. سيتم نقل الموردين والمنتجات (من تبويب المخزون) إلى هنا، مع إضافة طلبات الشراء وقرارات التسعير.
-    </p>
+<div class="page" id="page" style="display:none;">
 
-    <div class="feature-grid">
-      <div class="feature-card">
-        <div class="feature-card-icon">🏭</div>
-        <div class="feature-card-title" data-ar="قائمة الموردين" data-en="Suppliers List">قائمة الموردين</div>
-        <div class="feature-card-desc" data-ar="ستنتقل من المخزون" data-en="Will move from Inventory">ستنتقل من المخزون</div>
-        <span class="feature-card-status" data-ar="قيد التطوير" data-en="In Progress">قيد التطوير</span>
+  <!-- ─── TAB TOGGLE ─── -->
+  <div class="tab-toggle">
+    <button class="tab-btn active" id="tab-suppliers" onclick="switchTab('suppliers')">
+      🏭 <span data-ar="الموردون" data-en="Suppliers">الموردون</span>
+      <span class="count-badge" id="count-suppliers">0</span>
+    </button>
+    <button class="tab-btn" id="tab-products" onclick="switchTab('products')">
+      📦 <span data-ar="المنتجات (المشتريات)" data-en="Products (Procurement)">المنتجات (المشتريات)</span>
+    </button>
+    <button class="tab-btn" id="tab-orders" onclick="switchTab('orders')">
+      📋 <span data-ar="طلبات الشراء" data-en="Purchase Orders">طلبات الشراء</span>
+    </button>
+    <button class="tab-btn" id="tab-imports" onclick="switchTab('imports')">
+      🌍 <span data-ar="الاستيراد والتصدير" data-en="Imports & Exports">الاستيراد والتصدير</span>
+    </button>
+  </div>
+
+  <!-- ════════════════════════════════════════════════
+       PANE: SUPPLIERS (REAL — moved from inventory.html)
+  ════════════════════════════════════════════════ -->
+  <div id="pane-suppliers">
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="label" data-ar="إجمالي الموردين" data-en="Total Suppliers">إجمالي الموردين</div>
+        <div class="value" id="stat-total-suppliers">0</div>
       </div>
-      <div class="feature-card">
-        <div class="feature-card-icon">📦</div>
-        <div class="feature-card-title" data-ar="عرض المنتجات للمشتريات" data-en="Products (Procurement View)">عرض المنتجات للمشتريات</div>
-        <div class="feature-card-desc" data-ar="مع هامش الربح والترميز التلقائي لاتخاذ قرارات الشراء والبيع" data-en="With auto-calculated margin & markup for buy/sell decisions">مع هامش الربح والترميز التلقائي لاتخاذ قرارات الشراء والبيع</div>
-        <span class="feature-card-status" data-ar="قيد التطوير" data-en="In Progress">قيد التطوير</span>
+      <div class="stat-card amber">
+        <div class="label" data-ar="مستحقات الموردين" data-en="Outstanding to Suppliers">مستحقات الموردين</div>
+        <div class="value" id="stat-supplier-outstanding">SAR 0</div>
       </div>
-      <div class="feature-card">
-        <div class="feature-card-icon">📋</div>
-        <div class="feature-card-title" data-ar="طلبات الشراء" data-en="Purchase Orders">طلبات الشراء</div>
-        <div class="feature-card-desc" data-ar="إنشاء وتتبع طلبات الشراء" data-en="Create and track purchase orders">إنشاء وتتبع طلبات الشراء</div>
-        <span class="feature-card-status" data-ar="قريباً" data-en="Coming Soon">قريباً</span>
+      <div class="stat-card">
+        <div class="label" data-ar="إجمالي المشتريات" data-en="Total Purchases">إجمالي المشتريات</div>
+        <div class="value" id="stat-total-purchases">SAR 0</div>
+        <div class="sub" data-ar="عمر النشاط" data-en="lifetime">عمر النشاط</div>
       </div>
-      <div class="feature-card">
-        <div class="feature-card-icon">🌍</div>
-        <div class="feature-card-title" data-ar="الاستيراد والتصدير" data-en="Imports & Exports">الاستيراد والتصدير</div>
-        <div class="feature-card-desc" data-ar="إدارة العمليات الجمركية والشحن الدولي" data-en="Customs and international shipping management">إدارة العمليات الجمركية والشحن الدولي</div>
-        <span class="feature-card-status" data-ar="ميزة متقدمة" data-en="Advanced Feature">ميزة متقدمة</span>
+      <div class="stat-card green">
+        <div class="label" data-ar="موردون نشطون" data-en="Active Suppliers">موردون نشطون</div>
+        <div class="value" id="stat-active-suppliers">0</div>
       </div>
     </div>
 
-    <span class="coming" data-ar="🚧 قريباً جداً" data-en="🚧 Coming very soon">🚧 قريباً جداً</span>
+    <div class="toolbar">
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" class="search-input" id="search-suppliers" placeholder="البحث باسم المورد..." oninput="renderSuppliers()">
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" onclick="loadAll()" data-ar="↻ تحديث" data-en="↻ Refresh">↻ تحديث</button>
+        <button class="btn btn-primary" onclick="openSupplierModal()">
+          + <span data-ar="مورد جديد" data-en="New Supplier">مورد جديد</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="table-wrap" id="suppliers-table-wrap">
+      <div class="loading-state">
+        <div class="loading-spinner">🏭</div>
+        <div data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════
+       PANE: PRODUCTS (PROCUREMENT) — placeholder, Round 3b
+  ════════════════════════════════════════════════ -->
+  <div id="pane-products" style="display:none;">
+    <div class="placeholder-pane">
+      <div class="placeholder-icon">📦</div>
+      <h2 data-ar="المنتجات (عرض المشتريات)" data-en="Products (Procurement View)">المنتجات (عرض المشتريات)</h2>
+      <p data-ar="عرض شامل لجميع منتجاتك من منظور المشتريات: التكلفة الأخيرة، هامش الربح، نسبة الترميز، عائد الاستثمار في المخزون (GMROI)، معدل دوران المخزون، وعدد أيام تغطية المخزون."
+         data-en="A purchasing-focused view of every product: last cost, profit margin, markup %, GMROI, inventory turnover, and days of stock cover.">
+        عرض شامل لجميع منتجاتك من منظور المشتريات: التكلفة الأخيرة، هامش الربح، نسبة الترميز، عائد الاستثمار في المخزون (GMROI)، معدل دوران المخزون، وعدد أيام تغطية المخزون.
+      </p>
+      <span class="placeholder-coming" data-ar="🚧 قريباً" data-en="🚧 Coming soon">🚧 قريباً</span>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════
+       PANE: PURCHASE ORDERS — placeholder
+  ════════════════════════════════════════════════ -->
+  <div id="pane-orders" style="display:none;">
+    <div class="placeholder-pane">
+      <div class="placeholder-icon">📋</div>
+      <h2 data-ar="طلبات الشراء" data-en="Purchase Orders">طلبات الشراء</h2>
+      <p data-ar="إنشاء وتتبع طلبات الشراء، تحويلها إلى استلامات بضاعة، ومطابقة الفواتير مع الطلبات."
+         data-en="Create and track purchase orders, convert them into goods receipts, and match supplier invoices against orders.">
+        إنشاء وتتبع طلبات الشراء، تحويلها إلى استلامات بضاعة، ومطابقة الفواتير مع الطلبات.
+      </p>
+      <span class="placeholder-coming" data-ar="🚧 قريباً" data-en="🚧 Coming soon">🚧 قريباً</span>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════
+       PANE: IMPORTS & EXPORTS — placeholder
+  ════════════════════════════════════════════════ -->
+  <div id="pane-imports" style="display:none;">
+    <div class="placeholder-pane">
+      <div class="placeholder-icon">🌍</div>
+      <h2 data-ar="الاستيراد والتصدير" data-en="Imports & Exports">الاستيراد والتصدير</h2>
+      <p data-ar="إدارة عمليات الاستيراد، الرسوم الجمركية، الشحن الدولي، والمستندات."
+         data-en="Manage imports, customs duties, international shipping, and trade documents.">
+        إدارة عمليات الاستيراد، الرسوم الجمركية، الشحن الدولي، والمستندات.
+      </p>
+      <span class="placeholder-coming" data-ar="ميزة متقدمة" data-en="Advanced feature">ميزة متقدمة</span>
+    </div>
+  </div>
+
+</div>
+
+<!-- Loading state -->
+<div class="loading-state" id="loading-state">
+  <div class="loading-spinner">🏭</div>
+  <div data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
+</div>
+
+<!-- ════════════════════════════════════════════════
+     SUPPLIER MODAL (create/edit) — moved from inventory.html
+════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="supplier-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" id="supplier-modal-title" data-ar="مورد جديد" data-en="New Supplier">مورد جديد</div>
+      <button class="modal-close" onclick="closeSupplierModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-row double">
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="الاسم بالعربي" data-en="Name (Arabic)">الاسم بالعربي</span>
+            <span class="req">*</span>
+          </div>
+          <input type="text" id="sup-name-ar" placeholder="مثل: شركة الإمداد للتجارة" dir="rtl">
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="الاسم بالإنجليزي" data-en="Name (English)">الاسم بالإنجليزي</span>
+            <span class="opt">(optional)</span>
+          </div>
+          <input type="text" id="sup-name-en" placeholder="Supply Trading Co." dir="ltr">
+        </div>
+      </div>
+      <div class="field-row triple">
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="رمز المورد" data-en="Supplier Code">رمز المورد</span>
+            <span class="opt" data-ar="(تلقائي)" data-en="(auto)">(تلقائي)</span>
+          </div>
+          <input type="text" id="sup-code" class="mono" placeholder="SUP-001" dir="ltr">
+          <div class="field-hint" data-ar="يتم توليده تلقائياً — يمكن تعديله" data-en="Auto-generated — editable">يتم توليده تلقائياً — يمكن تعديله</div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="الجوال" data-en="Mobile">الجوال</span>
+          </div>
+          <input type="tel" id="sup-mobile" class="mono" placeholder="0501234567" dir="ltr">
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="البريد الإلكتروني" data-en="Email">البريد الإلكتروني</span>
+          </div>
+          <input type="email" id="sup-email" placeholder="info@supplier.com" dir="ltr">
+        </div>
+      </div>
+      <div class="field-row double">
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="الرقم الضريبي · TRN" data-en="VAT Number">الرقم الضريبي · TRN</span>
+            <span class="opt">(optional)</span>
+          </div>
+          <input type="text" id="sup-trn" class="mono" placeholder="300000000000003" maxlength="15" dir="ltr">
+          <div class="field-hint" data-ar="مطلوب لاسترداد ضريبة المدخلات" data-en="Required for input VAT recovery">مطلوب لاسترداد ضريبة المدخلات</div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="السجل التجاري" data-en="Commercial Reg.">السجل التجاري</span>
+            <span class="opt">(optional)</span>
+          </div>
+          <input type="text" id="sup-cr" class="mono" placeholder="1010234567" dir="ltr">
+        </div>
+      </div>
+      <div class="field-row double">
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="مدة السداد (أيام)" data-en="Payment Terms (days)">مدة السداد (أيام)</span>
+          </div>
+          <select id="sup-payment-terms">
+            <option value="0">فوري · Immediate</option>
+            <option value="7">7 أيام · Net 7</option>
+            <option value="15">15 يوم · Net 15</option>
+            <option value="30" selected>30 يوم · Net 30</option>
+            <option value="45">45 يوم · Net 45</option>
+            <option value="60">60 يوم · Net 60</option>
+            <option value="90">90 يوم · Net 90</option>
+          </select>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="جهة الاتصال" data-en="Contact Person">جهة الاتصال</span>
+            <span class="opt">(optional)</span>
+          </div>
+          <input type="text" id="sup-contact-person" placeholder="مثل: أبو خالد">
+        </div>
+      </div>
+      <div class="field">
+        <div class="field-label">
+          <span data-ar="العنوان" data-en="Address">العنوان</span>
+          <span class="opt">(optional)</span>
+        </div>
+        <input type="text" id="sup-address" placeholder="المدينة، الحي، الشارع">
+      </div>
+      <div class="field">
+        <div class="field-label">
+          <span data-ar="ملاحظات" data-en="Notes">ملاحظات</span>
+          <span class="opt">(optional)</span>
+        </div>
+        <textarea id="sup-notes" rows="2"></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-danger" id="btn-sup-delete" onclick="deleteSupplier()" style="display:none;margin-inline-end:auto;">
+        🗑 <span data-ar="حذف" data-en="Delete">حذف</span>
+      </button>
+      <button class="btn btn-ghost" onclick="closeSupplierModal()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+      <button class="btn btn-primary" onclick="saveSupplier()">
+        💾 <span data-ar="حفظ" data-en="Save">حفظ</span>
+      </button>
+    </div>
   </div>
 </div>
 
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
+/* ═══════════════════════════════════════════════════════
+   SUPABASE
+═══════════════════════════════════════════════════════ */
 const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let currentLang = localStorage.getItem('gl_lang') || 'ar';
+let currentUser = null;
 let currentBiz = null;
+let allSuppliers = [];
+let currentSupplierId = null;
 
-function setLang(lang){
-  currentLang = lang;
-  localStorage.setItem('gl_lang', lang);
-  document.documentElement.setAttribute('lang', lang);
-  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
-  document.getElementById('btn-ar').classList.toggle('on', lang === 'ar');
-  document.getElementById('btn-en').classList.toggle('on', lang === 'en');
-  document.querySelectorAll('[data-ar]').forEach(el => {
-    el.textContent = lang === 'ar' ? el.dataset.ar : el.dataset.en;
-  });
+/* ─── Helpers ─── */
+const v = id => (document.getElementById(id)?.value || '').trim();
+const setVal = (id, val) => { const e = document.getElementById(id); if(e) e.value = val ?? ''; };
+const setText = (id, val) => { const e = document.getElementById(id); if(e) e.textContent = val ?? ''; };
+const fmt = n => Number(n||0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+const escHTML = s => String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+
+function notify(msg, type='info'){
+  const n = document.getElementById('notify');
+  n.textContent = msg;
+  n.className = 'notify show ' + (type === 'error' ? 'error' : type === 'success' ? 'success' : '');
+  setTimeout(() => n.classList.remove('show'), 3000);
 }
 
-async function logout(){
-  await sb.auth.signOut();
-  window.location.href = 'login.html';
-}
-
-function pickLang(obj, baseField){
-  if(!obj) return '—';
+function pickLang(obj, baseField) {
+  if (!obj) return '—';
   const ar = obj[baseField + '_ar'];
   const en = obj[baseField + '_en'];
-  const fb = obj[baseField] || null;
-  if(currentLang === 'en') return en || ar || fb || '—';
-  return ar || en || fb || '—';
+  const fallback = obj[baseField] || null;
+  if (currentLang === 'en') return en || ar || fallback || '—';
+  return ar || en || fallback || '—';
 }
 
-/* Round 2-MultiTenant-C: membership-based biz lookup */
+function friendlyDbError(err){
+  const msg = (err && (err.message || err.details)) || '';
+  const ar = currentLang === 'ar';
+  if(/period_closed/i.test(msg)){
+    return ar ? 'تعذّر الحفظ: التاريخ المحدد ضمن فترة محاسبية مغلقة.' : 'Cannot save: the selected date falls in a closed accounting period.';
+  }
+  if(/business_not_owned|not_authenticated/i.test(msg)){
+    return ar ? 'غير مصرّح بهذه العملية.' : 'Not authorized for this operation.';
+  }
+  return msg || (ar ? 'حدث خطأ غير متوقع' : 'An unexpected error occurred');
+}
+
+function getNameAr(obj){ return obj?.name_ar || obj?.name || ''; }
+function getNameEn(obj){ return obj?.name_en || ''; }
+function displayName(obj){
+  if(currentLang === 'ar') return getNameAr(obj) || getNameEn(obj) || '—';
+  return getNameEn(obj) || getNameAr(obj) || '—';
+}
+
+/* ═══════════════════════════════════════════════════════
+   Round 2-MultiTenant-C: membership-based biz lookup
+═══════════════════════════════════════════════════════ */
 async function loadCurrentBusiness(sb, user){
   const {data: activeMembership} = await sb.from('business_users')
     .select('business_id, role').eq('user_id', user.id).eq('status', 'active').limit(5);
@@ -280,72 +653,466 @@ async function loadCurrentBusiness(sb, user){
   return {biz: newBiz, role: 'owner', reason: null};
 }
 
+/* ═══════════════════════════════════════════════════════
+   INIT
+═══════════════════════════════════════════════════════ */
 async function init(){
-  const {data:{session}} = await sb.auth.getSession();
-  if(!session){ window.location.href = 'login.html'; return; }
-  const {biz, role, reason} = await loadCurrentBusiness(sb, session.user);
-  if(!biz){
-    if(reason === 'revoked'){
-      document.body.innerHTML = '<div style="max-width:480px;margin:80px auto;padding:32px;background:#fff;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.1);text-align:center;font-family:Tajawal,Cairo,sans-serif;"><h1 style="color:#c43e3e;font-size:22px;margin-bottom:12px;">' + (currentLang==='ar'?'تم إلغاء الوصول':'Access revoked') + '</h1><p style="color:#666;margin-bottom:20px;">' + (currentLang==='ar'?'تم إزالة وصولك إلى هذه المنشأة. تواصل مع مالك المنشأة.':'Your access to this business has been removed. Contact the business owner.') + '</p><button onclick="logout()" style="padding:10px 22px;background:#006C35;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">' + (currentLang==='ar'?'تسجيل الخروج':'Sign out') + '</button></div>';
+  try {
+    const {data:{session}} = await sb.auth.getSession();
+    if(!session){ window.location.href = 'login.html'; return; }
+    currentUser = session.user;
+
+    const {biz, role, reason} = await loadCurrentBusiness(sb, currentUser);
+    if(!biz){
+      if(reason === 'revoked'){
+        document.body.innerHTML = '<div style="max-width:480px;margin:80px auto;padding:32px;background:#fff;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.1);text-align:center;font-family:Tajawal,Cairo,sans-serif;"><h1 style="color:#c43e3e;font-size:22px;margin-bottom:12px;">' + (currentLang==='ar'?'تم إلغاء الوصول':'Access revoked') + '</h1><p style="color:#666;margin-bottom:20px;">' + (currentLang==='ar'?'تم إزالة وصولك إلى هذه المنشأة. تواصل مع مالك المنشأة.':'Your access to this business has been removed. Contact the business owner.') + '</p><button onclick="logout()" style="padding:10px 22px;background:#006C35;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">' + (currentLang==='ar'?'تسجيل الخروج':'Sign out') + '</button></div>';
+        return;
+      }
+      console.error('[GL purchasing] Could not load business, reason:', reason);
+      notify(currentLang==='ar'?'تعذر تحميل بيانات المنشأة':'Could not load business','error');
       return;
     }
-    alert((currentLang==='ar'?'فشل تحميل المنشأة':'Failed to load business') + ' (' + (reason||'unknown') + ')');
+    currentBiz = biz;
+    currentBiz._myRole = role;
+    setText('biz-name', getNameAr(biz) || getNameEn(biz) || '...');
+
+    applyLang();
+
+    await loadAll();
+
+    /* URL → which tab. Default to 'suppliers'. */
+    const tab = (window.location.search.match(/tab=([a-z]+)/)?.[1]) || 'suppliers';
+    if(['suppliers','products','orders','imports'].includes(tab)) switchTab(tab);
+
+    /* Quick Action handler — auto-open the right modal based on ?action= */
+    const action = (window.location.search.match(/action=([a-z_]+)/)?.[1]) || '';
+    if(action){
+      setTimeout(() => {
+        if(action === 'new_supplier') openSupplierModal();
+        /* new_product is reserved for Round 3b; ignore for now. */
+        const cleanUrl = window.location.pathname + (tab !== 'suppliers' ? '?tab=' + tab : '');
+        history.replaceState(null, '', cleanUrl);
+      }, 250);
+    }
+
+    document.getElementById('loading-state').style.display = 'none';
+    document.getElementById('page').style.display = '';
+  } catch(e){
+    console.error('[GL purchasing] Init error:', e);
+    notify((currentLang==='ar'?'خطأ: ':'Error: ') + e.message, 'error');
+  }
+}
+
+async function loadAll(){
+  await loadSuppliers();
+  renderSuppliers();
+  computeStats();
+}
+
+async function loadSuppliers(){
+  const {data, error} = await sb.from('suppliers')
+    .select('*').eq('business_id', currentBiz?.id || '')
+    .order('name_ar', {ascending: true});
+  if(error){ console.error('Suppliers load:', error); allSuppliers = []; return; }
+  allSuppliers = data || [];
+}
+
+/* ═══════════════════════════════════════════════════════
+   TAB SWITCHING
+═══════════════════════════════════════════════════════ */
+function switchTab(name){
+  ['suppliers','products','orders','imports'].forEach(t => {
+    document.getElementById('tab-' + t)?.classList.toggle('active', t === name);
+    const pane = document.getElementById('pane-' + t);
+    if(pane) pane.style.display = t === name ? '' : 'none';
+  });
+  history.replaceState(null, '', '?tab=' + name);
+}
+
+/* ═══════════════════════════════════════════════════════
+   STATS
+═══════════════════════════════════════════════════════ */
+function computeStats(){
+  let totalPurchases = 0, totalOutstanding = 0, activeSuppliers = 0;
+  for(const s of allSuppliers){
+    totalPurchases += parseFloat(s.total_purchases) || 0;
+    totalOutstanding += parseFloat(s.total_outstanding) || 0;
+    if(s.is_active !== false) activeSuppliers++;
+  }
+  setText('stat-total-suppliers', allSuppliers.length);
+  setText('stat-supplier-outstanding', 'SAR ' + fmt(totalOutstanding));
+  setText('stat-total-purchases', 'SAR ' + fmt(totalPurchases));
+  setText('stat-active-suppliers', activeSuppliers);
+  setText('count-suppliers', allSuppliers.length);
+}
+
+/* ═══════════════════════════════════════════════════════
+   RENDER: SUPPLIERS TABLE
+═══════════════════════════════════════════════════════ */
+function renderSuppliers(){
+  const wrap = document.getElementById('suppliers-table-wrap');
+  const search = v('search-suppliers').toLowerCase();
+
+  let suppliers = allSuppliers;
+  if(search){
+    suppliers = suppliers.filter(s =>
+      (s.name_ar||'').toLowerCase().includes(search) ||
+      (s.name_en||'').toLowerCase().includes(search) ||
+      (s.name||'').toLowerCase().includes(search) ||
+      (s.mobile||'').toLowerCase().includes(search) ||
+      (s.supplier_code||'').toLowerCase().includes(search)
+    );
+  }
+
+  if(suppliers.length === 0){
+    wrap.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">🏭</div>
+        <div class="title">${currentLang==='ar'?'لا يوجد موردون':'No suppliers yet'}</div>
+        <div class="text">${currentLang==='ar'
+          ? 'أضف الموردين الذين تشتري منهم البضائع أو الخدمات.'
+          : 'Add the vendors you buy goods or services from.'}</div>
+        <button class="btn btn-primary" onclick="openSupplierModal()">+ ${currentLang==='ar'?'مورد جديد':'New Supplier'}</button>
+      </div>`;
     return;
   }
-  currentBiz = biz;
-  currentBiz._myRole = role;
-  document.getElementById('biz-name').textContent = pickLang(biz, 'name');
-  setLang(currentLang);
+
+  const arHeaders = currentLang === 'ar';
+  const cols = [
+    { label: arHeaders ? 'الاسم' : 'Name', cls: '' },
+    { label: arHeaders ? 'الرمز' : 'Code', cls: 'num' },
+    { label: arHeaders ? 'الجوال' : 'Mobile', cls: 'num' },
+    { label: arHeaders ? 'الرقم الضريبي' : 'TRN', cls: 'num' },
+    { label: arHeaders ? 'مدة السداد' : 'Terms', cls: 'num' },
+    { label: arHeaders ? 'إجمالي المشتريات' : 'Total Purchases', cls: 'num' },
+    { label: arHeaders ? 'مستحق' : 'Outstanding', cls: 'num' },
+    { label: '', cls: 'center' }
+  ];
+
+  wrap.innerHTML = `
+    <table class="tbl">
+      <thead>
+        <tr>${cols.map(c => `<th class="${c.cls}">${c.label}</th>`).join('')}</tr>
+      </thead>
+      <tbody>
+        ${suppliers.map(s => {
+          const name = displayName(s);
+          const outstanding = parseFloat(s.total_outstanding) || 0;
+          return `
+            <tr class="clickable" onclick="openSupplierModal('${s.id}')">
+              <td><strong>${escHTML(name)}</strong></td>
+              <td class="num">${escHTML(s.supplier_code || '—')}</td>
+              <td class="num">${escHTML(s.mobile || '—')}</td>
+              <td class="num">${escHTML(s.trn || '—')}</td>
+              <td class="num">${s.payment_terms_days || 0}d</td>
+              <td class="num">SAR ${fmt(s.total_purchases)}</td>
+              <td class="num" style="color:${outstanding > 0 ? 'var(--amber)' : 'var(--muted)'};font-weight:${outstanding > 0 ? '700' : '500'};">
+                SAR ${fmt(outstanding)}
+              </td>
+              <td class="center">
+                <div class="row-actions">
+                  <button class="row-actions-btn" onclick="event.stopPropagation();toggleRowMenu(this)" title="${arHeaders?'إجراءات':'Actions'}">⋮</button>
+                  <div class="row-actions-menu" onclick="event.stopPropagation()">
+                    <button class="row-action-item" onclick="closeAllMenus();openSupplierModal('${s.id}')">✏️ ${arHeaders?'تعديل المورد':'Edit supplier'}</button>
+                    <button class="row-action-item" onclick="closeAllMenus();viewPurchasesForSupplier('${s.id}')">📥 ${arHeaders?'عرض المشتريات':'View purchases'}</button>
+                    <button class="row-action-item danger" onclick="closeAllMenus();deleteSupplierFromMenu('${s.id}')">🗑️ ${arHeaders?'حذف':'Delete'}</button>
+                  </div>
+                </div>
+              </td>
+            </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
 }
+
+/* Helper triggered from supplier row menu */
+async function deleteSupplierFromMenu(id){
+  currentSupplierId = id;
+  const s = allSuppliers.find(x => x.id === id);
+  if(!s) return;
+  await deleteSupplier();
+}
+
+/* Round 3a: Placeholder for the future Purchasing receipts/POs view.
+   The cross-page "switch to Receive tab" link is gone now that suppliers
+   live here while receipts live in inventory.html. Will be replaced by a
+   real "View purchases" detail view when Purchasing has its own receipts/POs
+   listing in a later round. */
+function viewPurchasesForSupplier(supplierId){
+  notify(currentLang==='ar'
+    ? 'عرض المشتريات لكل مورد قادم في تحديث قريب'
+    : 'View purchases per supplier coming in a later round','info');
+}
+
+/* ═══════════════════════════════════════════════════════
+   SUPPLIER MODAL — create/edit
+═══════════════════════════════════════════════════════ */
+function openSupplierModal(id){
+  currentSupplierId = id || null;
+  document.getElementById('supplier-modal').classList.add('open');
+  const isEdit = !!id;
+  setText('supplier-modal-title', isEdit
+    ? (currentLang==='ar'?'تعديل المورد':'Edit Supplier')
+    : (currentLang==='ar'?'مورد جديد':'New Supplier'));
+  document.getElementById('btn-sup-delete').style.display = isEdit ? '' : 'none';
+
+  if(isEdit){
+    const s = allSuppliers.find(x => x.id === id);
+    if(!s){ closeSupplierModal(); return; }
+    setVal('sup-name-ar', getNameAr(s));
+    setVal('sup-name-en', getNameEn(s));
+    setVal('sup-code', s.supplier_code || '');
+    setVal('sup-mobile', s.mobile || '');
+    setVal('sup-email', s.email || '');
+    setVal('sup-trn', s.trn || '');
+    setVal('sup-cr', s.cr_number || '');
+    setVal('sup-payment-terms', String(s.payment_terms_days != null ? s.payment_terms_days : 30));
+    setVal('sup-contact-person', s.contact_person || '');
+    const addrParts = [s.street_name, s.district, s.city].filter(Boolean);
+    setVal('sup-address', addrParts.join('، ') || '');
+    setVal('sup-notes', s.notes || '');
+  } else {
+    ['sup-name-ar','sup-name-en','sup-mobile','sup-email','sup-trn','sup-cr',
+     'sup-contact-person','sup-address','sup-notes'].forEach(f => setVal(f,''));
+    setVal('sup-payment-terms','30');
+    setVal('sup-code', nextSupplierCode());
+  }
+}
+
+function nextSupplierCode(){
+  const codes = allSuppliers
+    .map(s => (s.supplier_code || '').match(/^SUP-(\d+)$/)?.[1])
+    .filter(Boolean)
+    .map(n => parseInt(n, 10));
+  const next = codes.length ? Math.max(...codes) + 1 : 1;
+  return 'SUP-' + String(next).padStart(3, '0');
+}
+
+function closeSupplierModal(){
+  document.getElementById('supplier-modal').classList.remove('open');
+  currentSupplierId = null;
+}
+
+async function saveSupplier(){
+  const nameAr = v('sup-name-ar');
+  if(!nameAr){
+    notify(currentLang==='ar'?'الاسم بالعربي مطلوب':'Arabic name is required','error');
+    return;
+  }
+
+  const payload = {
+    user_id: currentUser.id,
+    business_id: currentBiz.id,
+    name: nameAr,
+    name_ar: nameAr,
+    name_en: v('sup-name-en') || null,
+    supplier_code: v('sup-code') || null,
+    mobile: v('sup-mobile') || null,
+    email: v('sup-email') || null,
+    trn: v('sup-trn') || null,
+    cr_number: v('sup-cr') || null,
+    payment_terms_days: parseInt(v('sup-payment-terms')) || 30,
+    contact_person: v('sup-contact-person') || null,
+    street_name: v('sup-address') || null,
+    notes: v('sup-notes') || null,
+    is_active: true,
+    updated_at: new Date().toISOString()
+  };
+
+  let error;
+  if(currentSupplierId){
+    ({error} = await sb.from('suppliers').update(payload).eq('id', currentSupplierId));
+  } else {
+    const result = await sb.from('suppliers').insert(payload).select().single();
+    error = result.error;
+  }
+
+  if(error){
+    if(error.code === '23505'){
+      notify(currentLang==='ar'?'رمز المورد مكرر':'Supplier code already exists','error');
+    } else {
+      notify(friendlyDbError(error),'error');
+    }
+    return;
+  }
+
+  notify(currentLang==='ar'?'✅ تم الحفظ':'✅ Saved','success');
+  closeSupplierModal();
+  await loadSuppliers();
+  renderSuppliers();
+  computeStats();
+}
+
+async function deleteSupplier(){
+  if(!currentSupplierId) return;
+  const s = allSuppliers.find(x => x.id === currentSupplierId);
+  if(!s) return;
+  if(!confirm(currentLang==='ar'
+    ? `حذف المورد "${getNameAr(s)}"؟`
+    : `Delete supplier "${getNameEn(s) || getNameAr(s)}"?`)) return;
+
+  /* Check if any receipts reference this supplier */
+  const {data:rcps} = await sb.from('stock_receipts')
+    .select('id').eq('supplier_id', currentSupplierId).limit(1);
+  if(rcps && rcps.length > 0){
+    /* Soft delete */
+    const {error} = await sb.from('suppliers').update({is_active:false}).eq('id', currentSupplierId);
+    if(error){ notify(friendlyDbError(error),'error'); return; }
+    notify(currentLang==='ar'?'تم تعطيل المورد (يحتفظ بالسجل)':'Supplier deactivated (history preserved)','success');
+  } else {
+    const {error} = await sb.from('suppliers').delete().eq('id', currentSupplierId);
+    if(error){ notify(friendlyDbError(error),'error'); return; }
+    notify(currentLang==='ar'?'تم الحذف':'Deleted','success');
+  }
+  closeSupplierModal();
+  await loadSuppliers();
+  renderSuppliers();
+  computeStats();
+}
+
+/* ═══════════════════════════════════════════════════════
+   ROW ACTION MENU (⋮)
+═══════════════════════════════════════════════════════ */
+function toggleRowMenu(btn){
+  const menu = btn.nextElementSibling;
+  const isOpen = menu.classList.contains('open');
+  closeAllMenus();
+  if(isOpen) return;
+
+  menu.classList.add('open');
+  const btnRect = btn.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  const viewportH = window.innerHeight;
+  const viewportW = window.innerWidth;
+
+  let top = btnRect.bottom + 4;
+  if(top + menuRect.height > viewportH - 8){
+    top = btnRect.top - menuRect.height - 4;
+  }
+
+  let left = btnRect.right - menuRect.width;
+  if(left < 8) left = 8;
+  if(left + menuRect.width > viewportW - 8) left = viewportW - menuRect.width - 8;
+
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
+}
+
+function closeAllMenus(){
+  document.querySelectorAll('.row-actions-menu.open').forEach(m => {
+    m.classList.remove('open');
+    m.style.top = '';
+    m.style.left = '';
+  });
+}
+
+document.addEventListener('click', e => {
+  if(!e.target.closest('.row-actions') && !e.target.closest('.row-actions-menu')) closeAllMenus();
+});
+window.addEventListener('scroll', closeAllMenus, true);
+window.addEventListener('resize', closeAllMenus);
+
+/* ═══════════════════════════════════════════════════════
+   LANGUAGE
+═══════════════════════════════════════════════════════ */
+function setLang(lang){
+  currentLang = lang;
+  localStorage.setItem('gl_lang', lang);
+  document.documentElement.setAttribute('lang', lang);
+  document.documentElement.setAttribute('dir', lang==='ar' ? 'rtl' : 'ltr');
+  applyLang();
+  renderSuppliers();
+}
+
+function applyLang(){
+  document.getElementById('btn-ar')?.classList.toggle('on', currentLang==='ar');
+  document.getElementById('btn-en')?.classList.toggle('on', currentLang==='en');
+  document.querySelectorAll('[data-ar][data-en]').forEach(el => {
+    if(el.children.length > 0) return;
+    const txt = el.getAttribute('data-' + currentLang);
+    if(txt != null) el.textContent = txt;
+  });
+}
+
+async function logout(){
+  await sb.auth.signOut();
+  window.location.href = 'login.html';
+}
+
+/* Close modals on overlay click */
+document.querySelectorAll('.modal-overlay').forEach(el => {
+  el.addEventListener('click', e => { if(e.target === el) el.classList.remove('open'); });
+});
+
+/* ESC closes any open modal */
+document.addEventListener('keydown', e => {
+  if(e.key === 'Escape'){
+    document.querySelectorAll('.modal-overlay.open').forEach(m => m.classList.remove('open'));
+    closeAllMenus();
+  }
+});
+
 init();
 </script>
 
 <script>
-/* ═══ Canonical D1 nav JS ═══ */
+/* ═══ Canonical D1 nav JS (active link, profile dropdown) ═══ */
 (function() {
   const currentPath = window.location.pathname.split('/').pop() || 'dashboard.html';
   document.querySelectorAll('.app-nav-link').forEach(link => {
     const href = link.getAttribute('href');
     if (href === currentPath) link.classList.add('active');
   });
+  window.toggleProfileMenu = function(e) {
+    if (e) e.stopPropagation();
+    const dd = document.getElementById('profile-dropdown');
+    const trigger = document.querySelector('.profile-trigger');
+    if (!dd) return;
+    const isOpen = dd.classList.contains('open');
+    dd.classList.toggle('open');
+    if (trigger) trigger.setAttribute('aria-expanded', String(!isOpen));
+  };
+  document.addEventListener('click', function(e) {
+    const menu = document.getElementById('profile-menu');
+    const dd = document.getElementById('profile-dropdown');
+    if (menu && dd && !menu.contains(e.target)) {
+      dd.classList.remove('open');
+      const t = document.querySelector('.profile-trigger');
+      if (t) t.setAttribute('aria-expanded', 'false');
+    }
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      const dd = document.getElementById('profile-dropdown');
+      if (dd) dd.classList.remove('open');
+    }
+  });
 })();
 
-function toggleProfileMenu(e) {
-  e.stopPropagation();
-  const dd = document.getElementById('profile-dropdown');
-  if(!dd) return;
-  const wasOpen = dd.classList.contains('open');
-  document.querySelectorAll('.profile-dropdown.open, .gl-qa-menu.open').forEach(el => el.classList.remove('open'));
-  if(!wasOpen) dd.classList.add('open');
-}
-
-function glQAToggle(e) {
-  e.stopPropagation();
+/* ═══ Quick Action menu (canonical) ═══ */
+window.glQAToggle = function(e){
+  if(e) e.stopPropagation();
   const m = document.getElementById('gl-qa-menu');
+  const b = document.querySelector('.gl-qa-btn');
   if(!m) return;
-  const wasOpen = m.classList.contains('open');
-  document.querySelectorAll('.profile-dropdown.open, .gl-qa-menu.open').forEach(el => el.classList.remove('open'));
-  if(!wasOpen) m.classList.add('open');
-}
-
-document.addEventListener('click', () => {
+  const isOpen = m.classList.contains('open');
+  m.classList.toggle('open');
+  if(b) b.setAttribute('aria-expanded', String(!isOpen));
   document.getElementById('profile-dropdown')?.classList.remove('open');
+};
+window.glQAClose = function(){
   document.getElementById('gl-qa-menu')?.classList.remove('open');
+  const b = document.querySelector('.gl-qa-btn');
+  if(b) b.setAttribute('aria-expanded', 'false');
+};
+document.addEventListener('click', function(e){
+  const w = document.getElementById('gl-qa-wrap');
+  if(w && !w.contains(e.target)) glQAClose();
 });
-
-document.addEventListener('keydown', (e) => {
-  if(e.key === 'Escape'){
-    document.getElementById('profile-dropdown')?.classList.remove('open');
-    document.getElementById('gl-qa-menu')?.classList.remove('open');
-  }
-  if((e.key === 'q' || e.key === 'Q') && !e.target.matches('input, textarea, select')){
-    const m = document.getElementById('gl-qa-menu');
-    if(m){
-      e.preventDefault();
-      glQAToggle(e);
-    }
-  }
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape') glQAClose();
 });
 </script>
+
 </body>
 </html>

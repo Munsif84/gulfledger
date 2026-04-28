@@ -195,6 +195,13 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .empty-state .title{font-size:16px;font-weight:700;color:var(--ink);margin-bottom:6px;}
 .empty-state .text{font-size:13px;line-height:1.5;max-width:380px;margin:0 auto 16px;}
 
+/* Placeholder pane (coming-soon tabs) */
+.placeholder-pane{background:#fff;border:1px solid var(--border);border-radius:14px;padding:50px 30px;text-align:center;}
+.placeholder-icon{font-size:64px;margin-bottom:16px;opacity:0.6;}
+.placeholder-pane h2{font-size:22px;font-weight:800;color:var(--navy);margin-bottom:12px;}
+.placeholder-pane p{color:var(--muted);font-size:14px;line-height:1.7;max-width:560px;margin:0 auto 14px;}
+.placeholder-coming{display:inline-block;padding:6px 14px;background:rgba(0,108,53,0.08);color:var(--blue);border-radius:18px;font-size:12px;font-weight:600;}
+
 /* Modal */
 .modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.4);z-index:600;align-items:center;justify-content:center;padding:20px;}
 .modal-overlay.open{display:flex;}
@@ -402,7 +409,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 
         <div class="gl-qa-div"></div>
         <div class="gl-qa-cat" data-ar="المخزون" data-en="Inventory">المخزون</div>
-        <a href="inventory.html?tab=receive&action=new_receipt" class="gl-qa-item" role="menuitem">
+        <a href="inventory.html?tab=receiving&action=new_receipt" class="gl-qa-item" role="menuitem">
           <span class="gl-qa-icon">📥</span>
           <span data-ar="استلام بضاعة" data-en="Receive Stock">استلام بضاعة</span>
         </a>
@@ -465,26 +472,31 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 
 <div class="page" id="page" style="display:none;">
 
-  <!-- ─── TAB TOGGLE ─── -->
+  <!-- ─── TAB TOGGLE (Round 3a: suppliers moved to purchasing.html) ─── -->
   <div class="tab-toggle">
-    <button class="tab-btn active" id="tab-suppliers" onclick="switchTab('suppliers')">
-      🏭 <span data-ar="الموردون" data-en="Suppliers">الموردون</span>
-      <span class="count-badge" id="count-suppliers">0</span>
-    </button>
-    <button class="tab-btn" id="tab-items" onclick="switchTab('items')">
+    <button class="tab-btn active" id="tab-items" onclick="switchTab('items')">
       📦 <span data-ar="المنتجات" data-en="Items">المنتجات</span>
       <span class="count-badge" id="count-items">0</span>
     </button>
-    <button class="tab-btn" id="tab-receive" onclick="switchTab('receive')">
-      📥 <span data-ar="استلام بضاعة" data-en="Receive Stock">استلام بضاعة</span>
-      <span class="count-badge" id="count-receive">0</span>
+    <button class="tab-btn" id="tab-receiving" onclick="switchTab('receiving')">
+      📥 <span data-ar="الاستلام" data-en="Receiving">الاستلام</span>
+      <span class="count-badge" id="count-receiving">0</span>
+    </button>
+    <button class="tab-btn" id="tab-movements" onclick="switchTab('movements')">
+      🔄 <span data-ar="حركات المخزون" data-en="Movements">حركات المخزون</span>
+    </button>
+    <button class="tab-btn" id="tab-stocktake" onclick="switchTab('stocktake')">
+      📋 <span data-ar="جرد المخزون" data-en="Stock Take">جرد المخزون</span>
+    </button>
+    <button class="tab-btn" id="tab-valuation" onclick="switchTab('valuation')">
+      💰 <span data-ar="تقييم المخزون" data-en="Valuation">تقييم المخزون</span>
     </button>
   </div>
 
   <!-- ════════════════════════════════════════════════
        PANE: ITEMS
   ════════════════════════════════════════════════ -->
-  <div id="pane-items" style="display:none;">
+  <div id="pane-items">
     <!-- Stats -->
     <div class="stats-row">
       <div class="stat-card">
@@ -532,54 +544,9 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   </div>
 
   <!-- ════════════════════════════════════════════════
-       PANE: SUPPLIERS
+       PANE: RECEIVING (renamed from "receive" in Round 3a)
   ════════════════════════════════════════════════ -->
-  <div id="pane-suppliers">
-    <div class="stats-row">
-      <div class="stat-card">
-        <div class="label" data-ar="إجمالي الموردين" data-en="Total Suppliers">إجمالي الموردين</div>
-        <div class="value" id="stat-total-suppliers">0</div>
-      </div>
-      <div class="stat-card amber">
-        <div class="label" data-ar="مستحقات الموردين" data-en="Outstanding to Suppliers">مستحقات الموردين</div>
-        <div class="value" id="stat-supplier-outstanding">SAR 0</div>
-      </div>
-      <div class="stat-card">
-        <div class="label" data-ar="إجمالي المشتريات" data-en="Total Purchases">إجمالي المشتريات</div>
-        <div class="value" id="stat-total-purchases">SAR 0</div>
-        <div class="sub" data-ar="عمر النشاط" data-en="lifetime">عمر النشاط</div>
-      </div>
-      <div class="stat-card green">
-        <div class="label" data-ar="موردون نشطون" data-en="Active Suppliers">موردون نشطون</div>
-        <div class="value" id="stat-active-suppliers">0</div>
-      </div>
-    </div>
-
-    <div class="toolbar">
-      <div class="search-wrap">
-        <span class="search-icon">🔍</span>
-        <input type="text" class="search-input" id="search-suppliers" placeholder="البحث باسم المورد..." oninput="renderSuppliers()">
-      </div>
-      <div style="display:flex;gap:8px;">
-        <button class="btn btn-secondary" onclick="loadAll()" data-ar="↻ تحديث" data-en="↻ Refresh">↻ تحديث</button>
-        <button class="btn btn-primary" onclick="openSupplierModal()">
-          + <span data-ar="مورد جديد" data-en="New Supplier">مورد جديد</span>
-        </button>
-      </div>
-    </div>
-
-    <div class="table-wrap" id="suppliers-table-wrap">
-      <div class="loading-state">
-        <div class="loading-spinner">🏭</div>
-        <div data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- ════════════════════════════════════════════════
-       PANE: RECEIVE STOCK
-  ════════════════════════════════════════════════ -->
-  <div id="pane-receive" style="display:none;">
+  <div id="pane-receiving" style="display:none;">
     <div class="stats-row">
       <div class="stat-card">
         <div class="label" data-ar="إجمالي الاستلامات" data-en="Total Receipts">إجمالي الاستلامات</div>
@@ -617,6 +584,54 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         <div class="loading-spinner">📥</div>
         <div data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
       </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════
+       PANE: MOVEMENTS — placeholder, Round 3c
+  ════════════════════════════════════════════════ -->
+  <div id="pane-movements" style="display:none;">
+    <div class="placeholder-pane">
+      <div class="placeholder-icon">🔄</div>
+      <h2 data-ar="حركات المخزون" data-en="Stock Movements">حركات المخزون</h2>
+      <p data-ar="سجل شامل لكل حركة مخزون: الاستلامات، البيع، التسويات، الكتابة. مع فلترة حسب المنتج، النوع، والتاريخ."
+         data-en="A full ledger of every stock movement: receipts, sales, adjustments, write-offs. Filter by item, type, and date.">
+        سجل شامل لكل حركة مخزون: الاستلامات، البيع، التسويات، الكتابة. مع فلترة حسب المنتج، النوع، والتاريخ.
+      </p>
+      <p style="font-size:12px;color:var(--muted);margin-top:8px;" data-ar="حالياً: تظهر الحركات في تفاصيل كل منتج (انقر على منتج)" data-en="For now: movements show in each item's detail drawer (click an item)">
+        حالياً: تظهر الحركات في تفاصيل كل منتج (انقر على منتج)
+      </p>
+      <span class="placeholder-coming" data-ar="🚧 قريباً" data-en="🚧 Coming soon">🚧 قريباً</span>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════
+       PANE: STOCK TAKE — placeholder
+  ════════════════════════════════════════════════ -->
+  <div id="pane-stocktake" style="display:none;">
+    <div class="placeholder-pane">
+      <div class="placeholder-icon">📋</div>
+      <h2 data-ar="جرد المخزون" data-en="Stock Take">جرد المخزون</h2>
+      <p data-ar="جرد دوري للمخزون: مقارنة الكمية الفعلية بالمسجلة، وتسوية الفوارق تلقائياً مع قيود محاسبية."
+         data-en="Periodic physical count: compare actual vs system quantities, auto-post variance adjustments with journal entries.">
+        جرد دوري للمخزون: مقارنة الكمية الفعلية بالمسجلة، وتسوية الفوارق تلقائياً مع قيود محاسبية.
+      </p>
+      <span class="placeholder-coming" data-ar="🚧 قريباً" data-en="🚧 Coming soon">🚧 قريباً</span>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════
+       PANE: VALUATION — placeholder
+  ════════════════════════════════════════════════ -->
+  <div id="pane-valuation" style="display:none;">
+    <div class="placeholder-pane">
+      <div class="placeholder-icon">💰</div>
+      <h2 data-ar="تقييم المخزون" data-en="Inventory Valuation">تقييم المخزون</h2>
+      <p data-ar="تقييم المخزون بطرق محاسبية مختلفة (FIFO، المتوسط المرجح، آخر تكلفة)، وتقرير قيمة المخزون لإغلاق الفترة."
+         data-en="Value inventory using different accounting methods (FIFO, weighted average, latest cost) and produce period-end stock valuation reports.">
+        تقييم المخزون بطرق محاسبية مختلفة (FIFO، المتوسط المرجح، آخر تكلفة)، وتقرير قيمة المخزون لإغلاق الفترة.
+      </p>
+      <span class="placeholder-coming" data-ar="🚧 قريباً" data-en="🚧 Coming soon">🚧 قريباً</span>
     </div>
   </div>
 
@@ -767,125 +782,6 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   </div>
 </div>
 
-<!-- ════════════════════════════════════════════════
-     SUPPLIER MODAL (create/edit)
-════════════════════════════════════════════════ -->
-<div class="modal-overlay" id="supplier-modal">
-  <div class="modal">
-    <div class="modal-head">
-      <div class="modal-title" id="supplier-modal-title" data-ar="مورد جديد" data-en="New Supplier">مورد جديد</div>
-      <button class="modal-close" onclick="closeSupplierModal()">×</button>
-    </div>
-    <div class="modal-body">
-      <div class="field-row double">
-        <div class="field">
-          <div class="field-label">
-            <span data-ar="الاسم بالعربي" data-en="Name (Arabic)">الاسم بالعربي</span>
-            <span class="req">*</span>
-          </div>
-          <input type="text" id="sup-name-ar" placeholder="مثل: شركة الإمداد للتجارة" dir="rtl">
-        </div>
-        <div class="field">
-          <div class="field-label">
-            <span data-ar="الاسم بالإنجليزي" data-en="Name (English)">الاسم بالإنجليزي</span>
-            <span class="opt">(optional)</span>
-          </div>
-          <input type="text" id="sup-name-en" placeholder="Supply Trading Co." dir="ltr">
-        </div>
-      </div>
-
-      <div class="field-row triple">
-        <div class="field">
-          <div class="field-label">
-            <span data-ar="رمز المورد" data-en="Supplier Code">رمز المورد</span>
-            <span class="opt" data-ar="(تلقائي)" data-en="(auto)">(تلقائي)</span>
-          </div>
-          <input type="text" id="sup-code" class="mono" placeholder="SUP-001" dir="ltr">
-          <div class="field-hint" data-ar="يتم توليده تلقائياً — يمكن تعديله" data-en="Auto-generated — editable">يتم توليده تلقائياً — يمكن تعديله</div>
-        </div>
-        <div class="field">
-          <div class="field-label">
-            <span data-ar="الجوال" data-en="Mobile">الجوال</span>
-          </div>
-          <input type="tel" id="sup-mobile" class="mono" placeholder="0501234567" dir="ltr">
-        </div>
-        <div class="field">
-          <div class="field-label">
-            <span data-ar="البريد الإلكتروني" data-en="Email">البريد الإلكتروني</span>
-          </div>
-          <input type="email" id="sup-email" placeholder="info@supplier.com" dir="ltr">
-        </div>
-      </div>
-
-      <div class="field-row double">
-        <div class="field">
-          <div class="field-label">
-            <span data-ar="الرقم الضريبي · TRN" data-en="VAT Number">الرقم الضريبي · TRN</span>
-            <span class="opt">(optional)</span>
-          </div>
-          <input type="text" id="sup-trn" class="mono" placeholder="300000000000003" maxlength="15" dir="ltr">
-          <div class="field-hint" data-ar="مطلوب لاسترداد ضريبة المدخلات" data-en="Required for input VAT recovery">مطلوب لاسترداد ضريبة المدخلات</div>
-        </div>
-        <div class="field">
-          <div class="field-label">
-            <span data-ar="السجل التجاري" data-en="Commercial Reg.">السجل التجاري</span>
-            <span class="opt">(optional)</span>
-          </div>
-          <input type="text" id="sup-cr" class="mono" placeholder="1010234567" dir="ltr">
-        </div>
-      </div>
-
-      <div class="field-row double">
-        <div class="field">
-          <div class="field-label">
-            <span data-ar="مدة السداد (أيام)" data-en="Payment Terms (days)">مدة السداد (أيام)</span>
-          </div>
-          <select id="sup-payment-terms">
-            <option value="0">فوري · Immediate</option>
-            <option value="7">7 أيام · Net 7</option>
-            <option value="15">15 يوم · Net 15</option>
-            <option value="30" selected>30 يوم · Net 30</option>
-            <option value="45">45 يوم · Net 45</option>
-            <option value="60">60 يوم · Net 60</option>
-            <option value="90">90 يوم · Net 90</option>
-          </select>
-        </div>
-        <div class="field">
-          <div class="field-label">
-            <span data-ar="جهة الاتصال" data-en="Contact Person">جهة الاتصال</span>
-            <span class="opt">(optional)</span>
-          </div>
-          <input type="text" id="sup-contact-person" placeholder="مثل: أبو خالد">
-        </div>
-      </div>
-
-      <div class="field">
-        <div class="field-label">
-          <span data-ar="العنوان" data-en="Address">العنوان</span>
-          <span class="opt">(optional)</span>
-        </div>
-        <input type="text" id="sup-address" placeholder="المدينة، الحي، الشارع">
-      </div>
-
-      <div class="field">
-        <div class="field-label">
-          <span data-ar="ملاحظات" data-en="Notes">ملاحظات</span>
-          <span class="opt">(optional)</span>
-        </div>
-        <textarea id="sup-notes" rows="2"></textarea>
-      </div>
-    </div>
-    <div class="modal-foot">
-      <button class="btn btn-danger" id="btn-sup-delete" onclick="deleteSupplier()" style="display:none;margin-inline-end:auto;">
-        🗑 <span data-ar="حذف" data-en="Delete">حذف</span>
-      </button>
-      <button class="btn btn-ghost" onclick="closeSupplierModal()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
-      <button class="btn btn-primary" onclick="saveSupplier()">
-        💾 <span data-ar="حفظ" data-en="Save">حفظ</span>
-      </button>
-    </div>
-  </div>
-</div>
 
 <!-- ════════════════════════════════════════════════
      RECEIVE STOCK MODAL
@@ -1298,19 +1194,26 @@ async function init(){
     /* Load all data in parallel */
     await loadAll();
 
-    /* URL hash → which tab. Default to 'suppliers' (matches setup flow: add suppliers → items → receive) */
-    const tab = (window.location.search.match(/tab=([a-z]+)/)?.[1]) || 'suppliers';
-    if(['items','suppliers','receive'].includes(tab)) switchTab(tab);
+    /* URL → which tab. Default to 'items' (Round 3a: suppliers moved to purchasing.html) */
+    let tab = (window.location.search.match(/tab=([a-z]+)/)?.[1]) || 'items';
+    /* Legacy aliases: old links pointed to ?tab=suppliers or ?tab=receive */
+    if(tab === 'suppliers'){
+      /* Old bookmark: suppliers moved to purchasing.html in Round 3a */
+      window.location.replace('purchasing.html?tab=suppliers');
+      return;
+    }
+    if(tab === 'receive') tab = 'receiving';
+    if(['items','receiving','movements','stocktake','valuation'].includes(tab)) switchTab(tab);
 
     /* Quick Action handler — auto-open the right modal based on ?action= */
     const action = (window.location.search.match(/action=([a-z_]+)/)?.[1]) || '';
     if(action){
       setTimeout(() => {
         if(action === 'new_item') openItemModal();
-        else if(action === 'new_supplier') openSupplierModal();
-        /* new_receipt: the ?tab=receive switching above is enough to land on the receive form */
+        /* new_receipt: switching to ?tab=receiving above is enough to land on the receive form;
+           old action=new_supplier is no longer handled here — that flow now lives in purchasing.html */
         /* Clean URL so reload doesn't reopen */
-        const cleanUrl = window.location.pathname + (tab !== 'suppliers' ? '?tab=' + tab : '');
+        const cleanUrl = window.location.pathname + (tab !== 'items' ? '?tab=' + tab : '');
         history.replaceState(null, '', cleanUrl);
       }, 250);
     }
@@ -1326,7 +1229,6 @@ async function init(){
 async function loadAll(){
   await Promise.all([loadItems(), loadSuppliers(), loadReceipts()]);
   renderItems();
-  renderSuppliers();
   renderReceipts();
   computeStats();
 }
@@ -1359,9 +1261,10 @@ async function loadReceipts(){
    TAB SWITCHING
 ═══════════════════════════════════════════════════════ */
 function switchTab(name){
-  ['items','suppliers','receive'].forEach(t => {
+  ['items','receiving','movements','stocktake','valuation'].forEach(t => {
     document.getElementById('tab-' + t)?.classList.toggle('active', t === name);
-    document.getElementById('pane-' + t).style.display = t === name ? '' : 'none';
+    const pane = document.getElementById('pane-' + t);
+    if(pane) pane.style.display = t === name ? '' : 'none';
   });
   /* Update URL without navigation */
   history.replaceState(null, '', '?tab=' + name);
@@ -1386,19 +1289,6 @@ function computeStats(){
   setText('stat-out-of-stock', outOfStock);
   setText('count-items', allItems.length);
 
-  /* Suppliers */
-  let totalPurchases = 0, totalOutstanding = 0, activeSuppliers = 0;
-  for(const s of allSuppliers){
-    totalPurchases += parseFloat(s.total_purchases) || 0;
-    totalOutstanding += parseFloat(s.total_outstanding) || 0;
-    if(s.is_active !== false) activeSuppliers++;
-  }
-  setText('stat-total-suppliers', allSuppliers.length);
-  setText('stat-supplier-outstanding', 'SAR ' + fmt(totalOutstanding));
-  setText('stat-total-purchases', 'SAR ' + fmt(totalPurchases));
-  setText('stat-active-suppliers', activeSuppliers);
-  setText('count-suppliers', allSuppliers.length);
-
   /* Receipts */
   const now = new Date();
   const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
@@ -1414,7 +1304,7 @@ function computeStats(){
   setText('stat-receipts-month', 'SAR ' + fmt(monthTotal));
   setText('stat-receipts-unpaid', 'SAR ' + fmt(unpaidTotal));
   setText('stat-last-receipt', allReceipts.length > 0 ? allReceipts[0].receipt_date : '—');
-  setText('count-receive', allReceipts.length);
+  setText('count-receiving', allReceipts.length);
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -1502,107 +1392,6 @@ function renderItems(){
     </table>`;
 }
 
-/* ═══════════════════════════════════════════════════════
-   RENDER: SUPPLIERS TABLE
-═══════════════════════════════════════════════════════ */
-function renderSuppliers(){
-  const wrap = document.getElementById('suppliers-table-wrap');
-  const search = v('search-suppliers').toLowerCase();
-
-  let suppliers = allSuppliers;
-  if(search){
-    suppliers = suppliers.filter(s =>
-      (s.name_ar||'').toLowerCase().includes(search) ||
-      (s.name_en||'').toLowerCase().includes(search) ||
-      (s.name||'').toLowerCase().includes(search) ||
-      (s.mobile||'').toLowerCase().includes(search) ||
-      (s.supplier_code||'').toLowerCase().includes(search)
-    );
-  }
-
-  if(suppliers.length === 0){
-    wrap.innerHTML = `
-      <div class="empty-state">
-        <div class="icon">🏭</div>
-        <div class="title">${currentLang==='ar'?'لا يوجد موردون':'No suppliers yet'}</div>
-        <div class="text">${currentLang==='ar'
-          ? 'أضف الموردين الذين تشتري منهم البضائع أو الخدمات.'
-          : 'Add the vendors you buy goods or services from.'}</div>
-        <button class="btn btn-primary" onclick="openSupplierModal()">+ ${currentLang==='ar'?'مورد جديد':'New Supplier'}</button>
-      </div>`;
-    return;
-  }
-
-  const arHeaders = currentLang === 'ar';
-  const cols = [
-    { label: arHeaders ? 'الاسم' : 'Name', cls: '' },
-    { label: arHeaders ? 'الرمز' : 'Code', cls: 'num' },
-    { label: arHeaders ? 'الجوال' : 'Mobile', cls: 'num' },
-    { label: arHeaders ? 'الرقم الضريبي' : 'TRN', cls: 'num' },
-    { label: arHeaders ? 'مدة السداد' : 'Terms', cls: 'num' },
-    { label: arHeaders ? 'إجمالي المشتريات' : 'Total Purchases', cls: 'num' },
-    { label: arHeaders ? 'مستحق' : 'Outstanding', cls: 'num' },
-    { label: '', cls: 'center' }  /* Actions */
-  ];
-
-  wrap.innerHTML = `
-    <table class="tbl">
-      <thead>
-        <tr>${cols.map(c => `<th class="${c.cls}">${c.label}</th>`).join('')}</tr>
-      </thead>
-      <tbody>
-        ${suppliers.map(s => {
-          const name = displayName(s);
-          const outstanding = parseFloat(s.total_outstanding) || 0;
-          return `
-            <tr class="clickable" onclick="openSupplierModal('${s.id}')">
-              <td><strong>${escHTML(name)}</strong></td>
-              <td class="num">${escHTML(s.supplier_code || '—')}</td>
-              <td class="num">${escHTML(s.mobile || '—')}</td>
-              <td class="num">${escHTML(s.trn || '—')}</td>
-              <td class="num">${s.payment_terms_days || 0}d</td>
-              <td class="num">SAR ${fmt(s.total_purchases)}</td>
-              <td class="num" style="color:${outstanding > 0 ? 'var(--amber)' : 'var(--muted)'};font-weight:${outstanding > 0 ? '700' : '500'};">
-                SAR ${fmt(outstanding)}
-              </td>
-              <td class="center">
-                <div class="row-actions">
-                  <button class="row-actions-btn" onclick="event.stopPropagation();toggleRowMenu(this)" title="${arHeaders?'إجراءات':'Actions'}">⋮</button>
-                  <div class="row-actions-menu" onclick="event.stopPropagation()">
-                    <button class="row-action-item" onclick="closeAllMenus();openSupplierModal('${s.id}')">✏️ ${arHeaders?'تعديل المورد':'Edit supplier'}</button>
-                    <button class="row-action-item" onclick="closeAllMenus();filterReceiptsBySupplier('${s.id}')">📥 ${arHeaders?'عرض الاستلامات':'View receipts'}</button>
-                    <button class="row-action-item danger" onclick="closeAllMenus();deleteSupplierFromMenu('${s.id}')">🗑️ ${arHeaders?'حذف':'Delete'}</button>
-                  </div>
-                </div>
-              </td>
-            </tr>`;
-        }).join('')}
-      </tbody>
-    </table>`;
-}
-
-/* Helpers triggered from supplier row menu */
-async function deleteSupplierFromMenu(id){
-  /* Open modal so the existing delete flow can prompt for confirmation, then auto-trigger delete */
-  currentSupplierId = id;
-  const s = allSuppliers.find(x => x.id === id);
-  if(!s) return;
-  /* Skip the modal — directly call the existing delete logic */
-  await deleteSupplier();
-}
-
-function filterReceiptsBySupplier(supplierId){
-  /* Switch to Receive tab and filter by this supplier name */
-  switchTab('receive');
-  const sup = allSuppliers.find(s => s.id === supplierId);
-  if(sup){
-    const searchEl = document.getElementById('search-receipts');
-    if(searchEl){
-      searchEl.value = displayName(sup);
-      renderReceipts();
-    }
-  }
-}
 
 /* ═══════════════════════════════════════════════════════
    RENDER: RECEIPTS TABLE
@@ -1860,147 +1649,6 @@ async function deleteItem(){
   computeStats();
 }
 
-/* ═══════════════════════════════════════════════════════
-   SUPPLIER MODAL — create/edit
-═══════════════════════════════════════════════════════ */
-function openSupplierModal(id){
-  currentSupplierId = id || null;
-  document.getElementById('supplier-modal').classList.add('open');
-  const isEdit = !!id;
-  setText('supplier-modal-title', isEdit
-    ? (currentLang==='ar'?'تعديل المورد':'Edit Supplier')
-    : (currentLang==='ar'?'مورد جديد':'New Supplier'));
-  document.getElementById('btn-sup-delete').style.display = isEdit ? '' : 'none';
-
-  if(isEdit){
-    const s = allSuppliers.find(x => x.id === id);
-    if(!s){ closeSupplierModal(); return; }
-    setVal('sup-name-ar', getNameAr(s));
-    setVal('sup-name-en', getNameEn(s));
-    setVal('sup-code', s.supplier_code || '');
-    setVal('sup-mobile', s.mobile || '');
-    setVal('sup-email', s.email || '');
-    setVal('sup-trn', s.trn || '');
-    setVal('sup-cr', s.cr_number || '');
-    setVal('sup-payment-terms', String(s.payment_terms_days != null ? s.payment_terms_days : 30));
-    setVal('sup-contact-person', s.contact_person || '');
-    /* Build full address from national-address fields */
-    const addrParts = [s.street_name, s.district, s.city].filter(Boolean);
-    setVal('sup-address', addrParts.join('، ') || '');
-    setVal('sup-notes', s.notes || '');
-  } else {
-    ['sup-name-ar','sup-name-en','sup-mobile','sup-email','sup-trn','sup-cr',
-     'sup-contact-person','sup-address','sup-notes'].forEach(f => setVal(f,''));
-    setVal('sup-payment-terms','30');
-    /* Auto-generate next supplier code */
-    setVal('sup-code', nextSupplierCode());
-  }
-}
-
-/* Generate next supplier code: SUP-001, SUP-002, ... */
-function nextSupplierCode(){
-  const codes = allSuppliers
-    .map(s => (s.supplier_code || '').match(/^SUP-(\d+)$/)?.[1])
-    .filter(Boolean)
-    .map(n => parseInt(n, 10));
-  const next = codes.length ? Math.max(...codes) + 1 : 1;
-  return 'SUP-' + String(next).padStart(3, '0');
-}
-
-function closeSupplierModal(){
-  document.getElementById('supplier-modal').classList.remove('open');
-  currentSupplierId = null;
-  /* Discard any pending combobox callback if user dismissed without saving */
-  pendingComboboxCallback = null;
-}
-
-async function saveSupplier(){
-  const nameAr = v('sup-name-ar');
-  if(!nameAr){
-    notify(currentLang==='ar'?'الاسم بالعربي مطلوب':'Arabic name is required','error');
-    return;
-  }
-
-  const payload = {
-    user_id: currentUser.id,
-    business_id: currentBiz.id,
-    name: nameAr,
-    name_ar: nameAr,
-    name_en: v('sup-name-en') || null,
-    supplier_code: v('sup-code') || null,
-    mobile: v('sup-mobile') || null,
-    email: v('sup-email') || null,
-    trn: v('sup-trn') || null,
-    cr_number: v('sup-cr') || null,
-    payment_terms_days: parseInt(v('sup-payment-terms')) || 30,
-    contact_person: v('sup-contact-person') || null,
-    /* For now, store full address in street_name. Can be split into parts in v2. */
-    street_name: v('sup-address') || null,
-    notes: v('sup-notes') || null,
-    is_active: true,
-    updated_at: new Date().toISOString()
-  };
-
-  let error, savedSupplier;
-  if(currentSupplierId){
-    ({error} = await sb.from('suppliers').update(payload).eq('id', currentSupplierId));
-    savedSupplier = { id: currentSupplierId };
-  } else {
-    const result = await sb.from('suppliers').insert(payload).select().single();
-    error = result.error;
-    savedSupplier = result.data;
-  }
-
-  if(error){
-    if(error.code === '23505'){
-      notify(currentLang==='ar'?'رمز المورد مكرر':'Supplier code already exists','error');
-    } else {
-      notify(friendlyDbError(error),'error');
-    }
-    return;
-  }
-
-  notify(currentLang==='ar'?'✅ تم الحفظ':'✅ Saved','success');
-  closeSupplierModal();
-  await loadSuppliers();
-  renderSuppliers();
-  computeStats();
-  populateSupplierDropdown();
-
-  /* If a combobox triggered this save, fire its callback with the new id */
-  if(pendingComboboxCallback && savedSupplier?.id){
-    const cb = pendingComboboxCallback;
-    pendingComboboxCallback = null;
-    await cb(savedSupplier.id);
-  }
-}
-
-async function deleteSupplier(){
-  if(!currentSupplierId) return;
-  const s = allSuppliers.find(x => x.id === currentSupplierId);
-  if(!s) return;
-  if(!confirm(currentLang==='ar'
-    ? `حذف المورد "${getNameAr(s)}"؟`
-    : `Delete supplier "${getNameEn(s) || getNameAr(s)}"?`)) return;
-
-  /* Check if any receipts reference this supplier */
-  const {data:rcps} = await sb.from('stock_receipts')
-    .select('id').eq('supplier_id', currentSupplierId).limit(1);
-  if(rcps && rcps.length > 0){
-    /* Soft delete */
-    const {error} = await sb.from('suppliers').update({is_active:false}).eq('id', currentSupplierId);
-    if(error){ notify(friendlyDbError(error),'error'); return; }
-    notify(currentLang==='ar'?'تم تعطيل المورد (يحتفظ بالسجل)':'Supplier deactivated (history preserved)','success');
-  } else {
-    const {error} = await sb.from('suppliers').delete().eq('id', currentSupplierId);
-    if(error){ notify(friendlyDbError(error),'error'); return; }
-    notify(currentLang==='ar'?'تم الحذف':'Deleted','success');
-  }
-  closeSupplierModal();
-  await loadSuppliers();
-  renderSuppliers();
-  computeStats();
-}
 
 /* ═══════════════════════════════════════════════════════
    COMBOBOX — searchable picker with optional quick-add + full-add
@@ -2261,7 +1909,8 @@ function loadFromPO(){
 
 /* Module-level combobox handle for the supplier picker (so we can refresh after add-new) */
 let supplierCombo = null;
-/* Callback invoked by saveSupplier/saveItem after a successful create from a combobox flow.
+/* Callback invoked by saveItem after a successful create from a combobox flow.
+   (saveSupplier no longer uses this — supplier management moved to purchasing.html in Round 3a.)
    The callback receives the new entity id so the combo can auto-select it. */
 let pendingComboboxCallback = null;
 
@@ -2296,9 +1945,11 @@ function populateSupplierDropdown(){
       }
     },
     onQuickAdd: async (name) => {
-      /* Quick-create supplier with name + auto-code, payment_terms=30 */
+      /* Quick-create supplier with name + auto-code, payment_terms=30.
+         Round 3a: this is the ONLY mid-receipt path to create a new supplier.
+         Full TRN/CR/etc. fields are filled in later from purchasing.html. */
       const ar = currentLang === 'ar';
-      const code = nextSupplierCode();
+      const code = nextSupplierCodeFromReceive();
       const payload = {
         user_id: currentUser.id,
         business_id: currentBiz.id,
@@ -2327,31 +1978,19 @@ function populateSupplierDropdown(){
           setVal('rcp-due-date', due.toISOString().slice(0,10));
         }
       }
-    },
-    onAddNew: (queryName) => {
-      /* Open the full supplier modal, pre-fill the typed name, set callback to auto-select on save */
-      openSupplierModal();
-      if(queryName){
-        setVal('sup-name-ar', queryName);
-      }
-      pendingComboboxCallback = async (newSupplierId) => {
-        await loadSuppliers();
-        computeStats();
-        populateSupplierDropdown();
-        if(supplierCombo){
-          supplierCombo.setValue(newSupplierId);
-          document.getElementById('rcp-supplier').value = newSupplierId;
-          if(v('rcp-payment-method') === 'credit'){
-            const sup = allSuppliers.find(s => s.id === newSupplierId);
-            const days = sup?.payment_terms_days || 30;
-            const due = new Date();
-            due.setDate(due.getDate() + days);
-            setVal('rcp-due-date', due.toISOString().slice(0,10));
-          }
-        }
-      };
     }
   });
+}
+
+/* Local supplier-code generator for the mid-receipt quick-add path.
+   (The full management UI lives in purchasing.html and has its own copy.) */
+function nextSupplierCodeFromReceive(){
+  const codes = allSuppliers
+    .map(s => (s.supplier_code || '').match(/^SUP-(\d+)$/)?.[1])
+    .filter(Boolean)
+    .map(n => parseInt(n, 10));
+  const next = codes.length ? Math.max(...codes) + 1 : 1;
+  return 'SUP-' + String(next).padStart(3, '0');
 }
 
 function closeReceiveModal(){
@@ -3595,7 +3234,6 @@ function setLang(lang){
   document.documentElement.setAttribute('dir', lang==='ar' ? 'rtl' : 'ltr');
   applyLang();
   renderItems();
-  renderSuppliers();
   renderReceipts();
 }
 
