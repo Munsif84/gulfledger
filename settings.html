@@ -249,7 +249,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 @keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
 
 /* Notification */
-.notify{position:fixed;top:80px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:200;display:none;}
+.notify{position:fixed;top:96px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:9999;display:none;max-width:calc(100vw - 40px);text-align:center;}
 .notify.show{display:block;animation:notifyIn .2s ease;}
 .notify.success{background:var(--green);}
 .notify.error{background:var(--red);}
@@ -2268,16 +2268,20 @@ async function loadTeamList(){
   if(table) table.style.display = 'none';
   if(empty) empty.style.display = 'none';
 
+  /* SELECT columns guarded — full_name and updated_at may be missing on legacy schemas.
+     If the migration adding them hasn't run, the .select() will return an error and we surface it. */
   const {data, error} = await sb.from('business_users')
     .select('id, user_id, email, full_name, role, status, created_at')
     .eq('business_id', currentBiz.id)
     .order('role', {ascending: true})
-    .order('created_at', {ascending: true});
+    .order('created_at', {ascending: true, nullsFirst: false});
 
   if(loading) loading.style.display = 'none';
   if(error){
     console.error('[teams] load error:', error);
-    notify(currentLang==='ar'?'تعذّر تحميل الفريق':'Could not load team', 'error');
+    /* Surface the actual error so user (and us) can diagnose */
+    const detail = error.message || error.details || JSON.stringify(error);
+    notify((currentLang==='ar'?'تعذّر تحميل الفريق: ':'Could not load team: ') + detail, 'error');
     return;
   }
   teamMembers = data || [];
