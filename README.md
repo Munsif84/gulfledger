@@ -1,25 +1,53 @@
 # GulfLedger
 
-Saudi accounting & compliance platform — ZATCA-compliant invoicing, inventory, VAT returns, and Qawaem-ready financial statements.
+Saudi-market accounting & invoicing SaaS for non-accountant SMEs. ZATCA Phase 2 + Fatoora + VAT compliant. Arabic-first.
 
-## Built with
-- HTML / CSS / JavaScript (frontend)
-- Supabase (database + authentication)
-- Vercel (hosting)
+**Live**: https://gulfledger.vercel.app
 
-## Features
-- ZATCA Phase 2 compliant invoices with QR code
-- AI Smart Invoice (Arabic natural language)
-- Inventory management with supplier registry
-- General ledger with double-entry bookkeeping
-- VAT Return Form 201 — auto-generated
-- Financial statements — Qawaem ready
-- Zakat auto-calculation (2.5% working capital method)
+---
 
-## Setup
-1. Create a Supabase project
-2. Run `schema.sql` in the Supabase SQL editor
-3. Deploy to Vercel
+## For developers / contributors
+
+**Start here**: [HANDOVER.md](./HANDOVER.md)
+
+That document is the single source of truth for the project's current state, architecture, database schema, and what needs to be done next. Read it first before touching any code or SQL.
+
+For chronological history of past work, see [PROGRESS.md](./PROGRESS.md).
+
+---
+
+## Quick stack reference
+
+- **Frontend**: vanilla HTML/CSS/JS (no build step)
+- **Backend**: Supabase (Postgres + auth + RLS)
+- **Hosting**: Vercel (auto-deploys on commit to `main`)
+- **Source**: this repo
+
+---
+
+## Repository structure
+
+```
+.
+├── HANDOVER.md           ← READ THIS FIRST
+├── PROGRESS.md           ← Project history
+├── README.md             ← You are here
+├── index.html            ← Landing page
+├── login.html            ← Sign-in
+├── join.html             ← Invite-only signup (pilot)
+├── dashboard.html        ← Main app
+├── invoices.html         ← Sales / invoices
+├── inventory.html        ← Suppliers / items / receiving
+├── expenses.html         ← Expenses / vendors
+├── accounting.html       ← Chart of accounts, ledger, journal
+├── settings.html         ← Business profile, team management
+├── reports.html          ← P&L, VAT, statements, balance sheet
+├── invoice-view.html     ← Invoice preview / print
+└── migrations/           ← SQL migrations (run in order)
+```
+
+---
 
 ## License
-Private — All rights reserved © 2026 GulfLedger
+
+Proprietary. © Munsif Alsaadeh.
