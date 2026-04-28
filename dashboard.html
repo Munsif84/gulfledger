@@ -974,11 +974,17 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
       const chosen = ownerRow || adminRow || activeMembership[0];
       const {data: biz} = await sb.from('businesses').select('*').eq('id', chosen.business_id).maybeSingle();
       if(biz) return {biz, role: chosen.role, reason: null};
+      /* Active membership exists but business lookup failed.
+         Do NOT fall through to "revoked" — this is an RLS or data error. */
+      console.error('[GL] Active membership found but businesses lookup returned null for business_id:', chosen.business_id);
+      return {biz: null, role: chosen.role, reason: 'biz_lookup_failed'};
     }
-    /* 2. Inactive-only membership: access revoked */
+    /* 2. Inactive-only membership: access revoked.
+       Only reached if there's NO active membership at all. */
     const {data: anyMembership} = await sb.from('business_users')
-      .select('id').eq('user_id', user.id).limit(1);
+      .select('id, status').eq('user_id', user.id).limit(5);
     if(anyMembership && anyMembership.length > 0){
+      /* All memberships are inactive — truly revoked */
       return {biz: null, role: null, reason: 'revoked'};
     }
     /* 3. Brand new user — auto-create business (trigger will add owner membership) */

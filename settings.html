@@ -1389,10 +1389,14 @@ async function loadCurrentBusiness(sb, user){
     const chosen = ownerRow || adminRow || activeMembership[0];
     const {data: biz} = await sb.from('businesses').select('*').eq('id', chosen.business_id).maybeSingle();
     if(biz) return {biz, role: chosen.role, reason: null};
+    /* Active membership exists but business lookup failed — RLS or data error.
+       Don't fall through to "revoked". */
+    console.error('[GL] Active membership found but businesses lookup returned null for business_id:', chosen.business_id);
+    return {biz: null, role: chosen.role, reason: 'biz_lookup_failed'};
   }
   /* 2. Inactive-only membership: revoked */
   const {data: anyMembership} = await sb.from('business_users')
-    .select('id').eq('user_id', user.id).limit(1);
+    .select('id, status').eq('user_id', user.id).limit(5);
   if(anyMembership && anyMembership.length > 0){
     return {biz: null, role: null, reason: 'revoked'};
   }
@@ -2450,12 +2454,15 @@ async function saveNewMember(){
     auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
   });
 
-  /* signUp the new user */
+  /* signUp the new user.
+     emailRedirectTo: when email confirmation is on, the magic link redirects
+     to login.html instead of the index page. */
   const {data: signupData, error: signupError} = await sbAux.auth.signUp({
     email,
     password,
     options: {
-      data: { full_name: fullName }
+      data: { full_name: fullName },
+      emailRedirectTo: window.location.origin + '/login.html'
     }
   });
 
