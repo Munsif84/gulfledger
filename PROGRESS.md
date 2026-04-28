@@ -313,6 +313,52 @@ After completing multi-tenancy, the user proposed a major architectural restruct
 
 ---
 
+## Round Phase-2 — Reports refocus (2026-04-28)
+
+After Phase 1 nav restructure, planned to migrate P&L + Balance Sheet from reports.html to accounting.html. Diagnostic survey discovered accounting.html ALREADY has P&L, Balance Sheet, AND Trial Balance built (with rich features: period comparison, period close/reopen, snapshots, CSV export, print). VAT also already exists in accounting.html as full ZATCA filing wizard (VAT/Zakat/Qawaem).
+
+**Pivot**: Don't migrate anything. Strip duplicates from reports.html. Add operational reports.
+
+**What was built**
+
+- Stripped from reports.html: P&L, VAT Summary, Balance Sheet (3 sidebar links + 3 sections + 3 JS functions, ~270 lines deleted)
+- Added 4 new operational reports:
+  - **Sales by Customer** — period filter, ranked by total revenue, shows count + subtotal + VAT + total per customer
+  - **Sales by Product** — period filter, groups by lowercase-trimmed description (handles "Sugar 1kg" vs "sugar 1kg"), avg price + qty + revenue
+  - **Stock Valuation** — as-of date, qty × cost (prefer unit_cost, fallback cost_price), warns about items without cost set, notes historical-replay limitation
+  - **Low Stock** — as-of date, qty ≤ reorder_point (or alert_level fallback), shows shortage + out-of-stock badge
+- Reorganized sidebar into 3 groups: Customer Reports / Sales Reports / Stock Reports
+- Added cross-link block to accounting.html for financial statements
+
+**Schema diagnostics ran**
+
+User ran 3 information_schema queries before code:
+- `invoice_items`: has `description, description_ar, quantity, unit_price, subtotal, vat_amount, total` (no item_id FK to inventory_items)
+- `inventory_items`: has `current_qty, unit_cost, cost_price, reorder_point, alert_level, supplier_id, preferred_supplier_id, is_active, sku, name, name_ar`
+- `invoices`: confirmed `customer_id` (no `buyer_id`), `status`, `payment_status`, `subtotal, vat_amount, total`
+
+**Bugs found and fixed**
+
+1. **Orphan code block** — sub-step A's previous edit had lost the `runCurrentReport` function header, leaving a return statement outside any function. JS validation initially missed it. Fixed by reconstructing the function header.
+2. **Non-existent buyer_id** — Aged Receivables query selected `buyer_id` which doesn't exist in `invoices` schema. Removed.
+
+**Decisions**
+
+- Don't duplicate financial reports in two places (reports.html + accounting.html) — strip duplicates
+- Sales by Product groups by lowercase-trimmed description (best-effort fuzzy matching)
+- Stock Valuation uses CURRENT qty (not historical replay at as-of date) — documented limitation
+- Cost preference: `unit_cost` (set on stock receipts) over `cost_price` (default/standard cost)
+- Low Stock threshold: prefer `reorder_point`, fall back to `alert_level`
+
+**Files touched**
+
+- reports.html (1308 → 1476 lines after strip + add)
+- HANDOVER.md (Phase 2 marked complete, next-up list shifted)
+
+**Outcome**: ✅ Ready to deploy. JS clean (3/3 blocks valid). 28/28 acceptance checks. No held files anymore.
+
+---
+
 ## Lessons learned
 
 1. **Schema migrations**: Ask user to run `information_schema` queries first, write SQL based on actual reality. Stop guessing. Diagnostic-first approach should be default.
@@ -334,6 +380,10 @@ After completing multi-tenancy, the user proposed a major architectural restruct
 8. **Long chats erode quality**: After ~6 substantial rounds in one chat, context bloat starts affecting later edits. Preventive measure: when a chat has done substantial work AND a major new direction is being introduced, ship clean foundation + handover, then start fresh chat for execution. HANDOVER.md was specifically designed to make this handoff seamless.
 
 9. **Don't ship navigation that points to nonexistent files**: When introducing new tabs in the nav, the corresponding HTML files must exist (even as stubs) BEFORE deploy. Otherwise pilot users hit 404s.
+
+10. **Always survey existing code before "migrating"**: Phase 2 was originally planned as "migrate P&L + Balance Sheet to accounting.html." A diagnostic showed accounting.html already had richer implementations of everything we'd planned to migrate. Saved hours of duplicate work. Survey first, plan second.
+
+11. **Acorn JS validation can miss top-level orphan code with `return outside function`**: When a function's opening `async function name(){` line gets accidentally deleted, the body becomes orphan code. The validator may mark blocks as valid because each `<script>` block is parsed independently and certain orphan structures parse as valid expressions. After major edits, also do a sanity check: `grep -c "^async function"` and `grep -c "^function"` to confirm function counts match expectations.
 
 ---
 

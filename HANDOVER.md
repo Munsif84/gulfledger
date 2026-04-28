@@ -2,7 +2,7 @@
 
 **Purpose**: This document is the single source of truth for picking up GulfLedger work in a new chat session, after a break, or when handing off to another contributor. Reading this should give you everything needed to continue without losing context.
 
-**Last updated**: 2026-04-28 (after nav restructure + Purchasing/Finance placeholder rounds)
+**Last updated**: 2026-04-28 (after Phase 2 — reports.html refocused to operational reports)
 
 ---
 
@@ -339,11 +339,14 @@ Settings
 - Quick Action menu refactored to match new structure (Sales/Purchasing/Inventory/Finance/Accounting categories)
 - All 9 pages have consistent nav (dashboard, purchasing, invoices, inventory, finance, expenses, accounting, settings, reports)
 
-**Phase 2 — Migrate financial statements to Accounting** ⏳ PENDING
-- Move P&L + Balance Sheet from `reports.html` into `accounting.html` as new sub-tabs
-- `reports.html` keeps Customer Statement + Aged Receivables only
-- Add Cash Flow + Trial Balance to `accounting.html`
-- Note: reports.html (1308 lines, with all 5 reports built) is held in `/mnt/user-data/outputs/` — do NOT upload to GitHub. Migration to accounting.html will reuse this code.
+**Phase 2 — Refocus reports.html to operational reports** ✅ SHIPPED
+- Stripped P&L, VAT Summary, Balance Sheet from reports.html (already exist in accounting.html — `pane-reports` and `pane-vat`)
+- Added 4 new operational reports: Sales by Customer, Sales by Product, Stock Valuation, Low Stock
+- reports.html sidebar now organized into 3 groups: Customer Reports, Sales Reports, Stock Reports
+- Cross-link to accounting.html for financial statements
+- Operational reports total 6: Customer Statement, Aged Receivables, Sales by Customer, Sales by Product, Stock Valuation, Low Stock
+- Bug fix: removed non-existent `buyer_id` reference from aged receivables query
+- Bug fix: orphan `runCurrentReport` body restored after a previous edit had lost the function header
 
 **Phase 3 — Build Purchasing tab** ⏳ PENDING
 - Move suppliers from inventory.html → purchasing.html
@@ -379,7 +382,7 @@ Settings
 
 ### Files held back from deployment
 
-- `reports.html` (1308 lines, 5 reports built) — held until Phase 2 decides where each report lives. Current state in `/mnt/user-data/outputs/`. The P&L + Balance Sheet logic will lift into `accounting.html`.
+- (None as of end of Phase 2 — reports.html is now ready for deployment with operational reports only)
 
 ---
 
@@ -493,10 +496,10 @@ Today I want to work on: [DESCRIBE NEXT TASK — likely Phase 2, 3, 4, or 5 from
 Then upload `HANDOVER.md` (and optionally `PROGRESS.md`) to the new chat.
 
 **Suggested next sessions** (in order):
-1. **Phase 2** — Migrate financial statements to Accounting. Lift P&L + Balance Sheet from reports.html (held in outputs/) into accounting.html. Refocus reports.html.
+1. ~~Phase 2 — Migrate financial statements to Accounting~~ ✅ done
 2. **Phase 3** — Build Purchasing tab (suppliers move + products procurement view with margin/markup/GMROI). Refactor inventory.html.
 3. **Phase 4** — Build Finance tab (expenses move + bank accounts + reconciliation). expenses.html becomes redirect.
-4. **Phase 5** — Operational reports (aged payables, sales reports, inventory valuation, purchase reports).
+4. **Phase 5** — More operational reports (aged payables, supplier statement, purchase reports).
 
 ---
 
