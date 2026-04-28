@@ -262,6 +262,57 @@ async function loadCurrentBusiness(sb, user){
 
 ---
 
+## Round Phase-1 — Nav restructure + placeholders (2026-04-28)
+
+After completing multi-tenancy, the user proposed a major architectural restructure to better match how SMEs actually think about business operations. The decision: split current functionality into clearer top-level concepts.
+
+**What was built**
+
+- New navigation order across all 9 pages:
+  - Old: Dashboard → Inventory → Sales → Expenses → Accounting → Reports
+  - New: Dashboard → Purchasing → Sales → Inventory → Finance → Accounting → Reports
+
+- Two new HTML stub files:
+  - `purchasing.html` — placeholder for suppliers + products procurement view + PO + imports/exports
+  - `finance.html` — placeholder for expenses + bank accounts + reconciliation + cash flow
+
+- Quick Action menu refactored across all 8 nav-having pages (dashboard, invoices, inventory, expenses, accounting, settings, reports + new files):
+  - Old categories: Sales, Inventory, Expenses, Accounting
+  - New categories: Sales, Purchasing, Inventory, Finance, Accounting
+
+**Decisions**
+
+- **All phases this round** (originally) → after pushback, scope reduced to Phase 1 only (placeholders) to avoid context window bloat in single chat
+- **Products in two views**: stock-focused under Inventory, decision-focused under Purchasing (margin/markup/GMROI)
+- **Cost basis**: last purchase cost (from `stock_receipt_items.unit_cost`)
+- **Margin AND markup together** (best practice — different audiences)
+- **Move expenses to Finance tab**: yes, but keep `expenses.html` URL as redirect
+- **No pilot user communication**: deploy and let users notice
+- **`reports.html` held back** — 1308-line build with 5 reports won't deploy until Phase 2 decides what stays in Reports vs moves to Accounting
+
+**Files touched (8 nav updates + 2 new files)**
+
+- dashboard.html — nav + QA menu updated
+- invoices.html — nav + QA menu updated
+- inventory.html — nav + QA menu updated
+- expenses.html — nav + QA menu updated
+- accounting.html — nav + QA menu updated
+- settings.html — nav + QA menu updated
+- reports.html — nav + QA menu updated (but file held from deploy)
+- purchasing.html — NEW (22KB stub)
+- finance.html — NEW (22KB stub)
+
+**Lessons applied from prior rounds**
+
+- Used Python regex to apply identical QA menu HTML to 7 files at once → consistent, mechanical, fewer typos than 7 manual edits
+- Surveyed actual nav state before changing → discovered nav was already partially updated speculatively (saved a step)
+- Validated JS in all 9 files after changes (acorn parse) → all clean ✓
+- Pushed back hard on user's "all phases this round" choice → user accepted Phase 1 only after pushback
+
+**Outcome**: ✅ Deployed. New nav structure visible to all pilot users. Both stubs render cleanly. No 404s. Phases 2-5 deferred to future sessions.
+
+---
+
 ## Lessons learned
 
 1. **Schema migrations**: Ask user to run `information_schema` queries first, write SQL based on actual reality. Stop guessing. Diagnostic-first approach should be default.
@@ -279,6 +330,10 @@ async function loadCurrentBusiness(sb, user){
 6. **Auth changes are silent failures**: A user seeing wrong/no business is the worst outcome. Test thoroughly with multiple roles.
 
 7. **Backfill verification**: After running data migrations, explicitly verify with a count query. Don't trust "Success" — check the actual rows.
+
+8. **Long chats erode quality**: After ~6 substantial rounds in one chat, context bloat starts affecting later edits. Preventive measure: when a chat has done substantial work AND a major new direction is being introduced, ship clean foundation + handover, then start fresh chat for execution. HANDOVER.md was specifically designed to make this handoff seamless.
+
+9. **Don't ship navigation that points to nonexistent files**: When introducing new tabs in the nav, the corresponding HTML files must exist (even as stubs) BEFORE deploy. Otherwise pilot users hit 404s.
 
 ---
 

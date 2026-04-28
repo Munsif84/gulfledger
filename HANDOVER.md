@@ -2,7 +2,7 @@
 
 **Purpose**: This document is the single source of truth for picking up GulfLedger work in a new chat session, after a break, or when handing off to another contributor. Reading this should give you everything needed to continue without losing context.
 
-**Last updated**: 2026-04-28 (end of session that completed multi-tenancy)
+**Last updated**: 2026-04-28 (after nav restructure + Purchasing/Finance placeholder rounds)
 
 ---
 
@@ -57,17 +57,19 @@ When in doubt: **clarify before coding**. Ship less, ship more carefully.
 
 ### Files in repo (as of last session)
 
-**Production HTML files** (8 files, all deployed):
+**Production HTML files** (10 files, all deployed or about to deploy):
 - `index.html` — landing page
 - `login.html` — sign-in (token-based for pilot, no public signup yet)
 - `join.html` — invitation-only signup with token (pilot users)
 - `dashboard.html` — main app dashboard
-- `invoices.html` — invoices list + create + edit + journal posting
-- `inventory.html` — suppliers + items + receiving
-- `expenses.html` — expenses list + create + vendors
-- `accounting.html` — chart of accounts + ledger + journal entries + VAT reports
+- `purchasing.html` — **NEW (placeholder)**: suppliers + products procurement view + PO + imports/exports — currently a "coming soon" stub
+- `invoices.html` — invoices list + create + edit + journal posting (Sales tab)
+- `inventory.html` — suppliers + items + receiving (suppliers will move to Purchasing in next round)
+- `finance.html` — **NEW (placeholder)**: expenses + bank accounts + reconciliation + cash flow — currently a "coming soon" stub
+- `expenses.html` — expenses list + create + vendors (will become a redirect to finance.html in next round)
+- `accounting.html` — chart of accounts + ledger + journal entries + VAT reports (will gain P&L + Balance Sheet in next round)
 - `settings.html` — business profile, branding, layout, ZATCA, team management
-- `reports.html` — reports (early skeleton, not fully built out)
+- `reports.html` — reports (currently has 5 reports built but NOT YET DEPLOYED — will refocus to operational reports only)
 - `invoice-view.html` — invoice preview / print
 - (legacy: `invoices-original.html`, `invoice-view-original.html` — keep for reference, do not edit)
 
@@ -312,6 +314,75 @@ This pattern is in dashboard.html (setup popup) AND settings.html (Add Member mo
 
 ---
 
+## Architecture roadmap (decided 2026-04-28)
+
+This is the planned new architecture. Some has shipped (nav + placeholders), most has not.
+
+### New navigation structure
+
+```
+Dashboard
+Purchasing      ← NEW (suppliers, products procurement view, PO, imports/exports)
+Sales           ← invoices.html (renamed in nav from "Invoices" to "Sales")
+Inventory       ← refocused: stock list, movements, receiving, valuation, stock take
+Finance         ← NEW (expenses, banking, reconciliation, cash flow)
+Accounting      ← expanded: CoA, ledger, journal, VAT, + P&L, + Balance Sheet, + Cash Flow, + Trial Balance, + Bank Rec
+Reports         ← refocused: operational reports only (customer statement, aged receivables/payables, sales/inventory/purchase reports)
+Settings
+```
+
+### Build phases — what's shipped vs pending
+
+**Phase 1 — Nav restructure + placeholders** ✅ SHIPPED
+- New nav order across all pages: Dashboard → Purchasing → Sales → Inventory → Finance → Accounting → Reports
+- `purchasing.html` and `finance.html` created as "coming soon" placeholders
+- Quick Action menu refactored to match new structure (Sales/Purchasing/Inventory/Finance/Accounting categories)
+- All 9 pages have consistent nav (dashboard, purchasing, invoices, inventory, finance, expenses, accounting, settings, reports)
+
+**Phase 2 — Migrate financial statements to Accounting** ⏳ PENDING
+- Move P&L + Balance Sheet from `reports.html` into `accounting.html` as new sub-tabs
+- `reports.html` keeps Customer Statement + Aged Receivables only
+- Add Cash Flow + Trial Balance to `accounting.html`
+- Note: reports.html (1308 lines, with all 5 reports built) is held in `/mnt/user-data/outputs/` — do NOT upload to GitHub. Migration to accounting.html will reuse this code.
+
+**Phase 3 — Build Purchasing tab** ⏳ PENDING
+- Move suppliers from inventory.html → purchasing.html
+- Build products-procurement view with margin% + markup% + GMROI + inventory turnover
+- Cost basis = last purchase cost from `stock_receipt_items.unit_cost`
+- PO module placeholder (deferred)
+- Imports/exports placeholder (deferred)
+- Refactor inventory.html to remove suppliers tab
+
+**Phase 4 — Build Finance tab** ⏳ PENDING
+- Move expenses content from expenses.html → finance.html
+- Make expenses.html a redirect to finance.html
+- Add bank accounts (table + UI)
+- Add bank reconciliation (matching workflow)
+- Add cash flow report (direct method)
+- Add cash flow forecast (advanced, deferred)
+
+**Phase 5 — Operational reports build-out** ⏳ PENDING
+- Aged Payables (mirror of receivables)
+- Sales reports (by customer, product, period)
+- Inventory valuation report
+- Purchase reports (by supplier, product)
+
+### Decisions locked
+
+- **Products in two views**: stock-focused under Inventory, decision-focused under Purchasing (with margin/markup auto-calculated)
+- **Cost basis**: last purchase cost (from stock_receipt_items.unit_cost). Future enhancement: weighted-average via inventory_batches.
+- **Margin AND markup shown together** (best practice — different audiences want different ones)
+- **Other ratios for procurement view**: GMROI (gross margin return on investment), inventory turnover, days of stock — all computable from existing data
+- **Move expenses to Finance tab**: yes, but keep `expenses.html` URL working as a redirect (no broken bookmarks)
+- **No pilot user communication this round**: deploy and let users notice
+- **Phase 1 only ships now**: placeholders + nav. Phases 2-5 to be built in future sessions using this HANDOVER.md as context.
+
+### Files held back from deployment
+
+- `reports.html` (1308 lines, 5 reports built) — held until Phase 2 decides where each report lives. Current state in `/mnt/user-data/outputs/`. The P&L + Balance Sheet logic will lift into `accounting.html`.
+
+---
+
 ## What's NOT done — TODO list
 
 ### High priority (next-up candidates)
@@ -413,13 +484,19 @@ When starting a new chat session, copy-paste this into the first message to give
 
 ```
 I'm continuing work on GulfLedger. Please read these files first before doing anything:
-1. HANDOVER.md — current state, communication preferences, DB schema
+1. HANDOVER.md — current state, communication preferences, DB schema, architecture roadmap
 2. PROGRESS.md — chronological log of past rounds (only if you need historical context)
 
-Today I want to work on: [DESCRIBE NEXT TASK]
+Today I want to work on: [DESCRIBE NEXT TASK — likely Phase 2, 3, 4, or 5 from the architecture roadmap]
 ```
 
 Then upload `HANDOVER.md` (and optionally `PROGRESS.md`) to the new chat.
+
+**Suggested next sessions** (in order):
+1. **Phase 2** — Migrate financial statements to Accounting. Lift P&L + Balance Sheet from reports.html (held in outputs/) into accounting.html. Refocus reports.html.
+2. **Phase 3** — Build Purchasing tab (suppliers move + products procurement view with margin/markup/GMROI). Refactor inventory.html.
+3. **Phase 4** — Build Finance tab (expenses move + bank accounts + reconciliation). expenses.html becomes redirect.
+4. **Phase 5** — Operational reports (aged payables, sales reports, inventory valuation, purchase reports).
 
 ---
 
@@ -432,4 +509,4 @@ Then upload `HANDOVER.md` (and optionally `PROGRESS.md`) to the new chat.
 
 ---
 
-*Last full update: 2026-04-28, end of session that completed multi-tenancy.*
+*Last full update: 2026-04-28, end of session that completed Phase 1 nav restructure.*
