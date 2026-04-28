@@ -295,6 +295,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .team-email-cell{color:var(--muted);font-size:12px;}
 .team-role-pill{display:inline-block;padding:3px 9px;border-radius:5px;font-size:11px;font-weight:700;letter-spacing:.03em;}
 .role-owner{background:rgba(0,108,53,0.1);color:var(--green);}
+.role-admin{background:#fee2e2;color:#991b1b;}
 .role-accountant{background:#e0f2fe;color:#075985;}
 .role-sales{background:#fef3c7;color:#92400e;}
 .role-warehouse{background:#f3e8ff;color:#6b21a8;}
@@ -1305,6 +1306,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           <span class="req">*</span>
         </label>
         <select id="mm-role" class="setup-input">
+          <option value="admin" data-ar="مسؤول (وصول كامل)" data-en="Admin (full access)">مسؤول (وصول كامل)</option>
           <option value="accountant" data-ar="محاسب" data-en="Accountant">محاسب</option>
           <option value="sales" data-ar="مبيعات" data-en="Sales">مبيعات</option>
           <option value="warehouse" data-ar="مخزون" data-en="Warehouse">مخزون</option>
@@ -2241,6 +2243,7 @@ function applyTeamGate(){
 
 const ROLE_LABELS_AR = {
   owner: 'المالك',
+  admin: 'مسؤول',
   accountant: 'محاسب',
   sales: 'مبيعات',
   warehouse: 'مخزون',
@@ -2248,6 +2251,7 @@ const ROLE_LABELS_AR = {
 };
 const ROLE_LABELS_EN = {
   owner: 'Owner',
+  admin: 'Admin',
   accountant: 'Accountant',
   sales: 'Sales',
   warehouse: 'Warehouse',
@@ -2433,20 +2437,35 @@ async function saveNewMember(){
     return;
   }
 
-  /* Insert business_users row using owner's main session */
-  const {error: insertError} = await sb.from('business_users').insert({
+  /* Insert business_users row using owner's main session.
+     The new auth.users row may take a moment to be visible across connections,
+     causing FK violations on the first attempt. Retry with delays before giving up. */
+  const insertPayload = {
     business_id: currentBiz.id,
     user_id: signupData.user.id,
     email,
     full_name: fullName,
     role,
     status: 'active'
-  });
+  };
+
+  let insertError = null;
+  const delays = [0, 400, 1000, 2000]; /* immediate try, then 400ms, 1s, 2s */
+  for(let i = 0; i < delays.length; i++){
+    if(delays[i] > 0) await new Promise(r => setTimeout(r, delays[i]));
+    const result = await sb.from('business_users').insert(insertPayload);
+    insertError = result.error;
+    if(!insertError) break;
+    /* Only retry on FK violations; surface other errors immediately */
+    const msg = (insertError.message || '').toLowerCase();
+    const isFkRace = msg.includes('foreign key') || insertError.code === '23503';
+    if(!isFkRace) break;
+    console.warn(`[teams] FK race on attempt ${i+1}, retrying...`, insertError);
+  }
 
   if(insertError){
     saveBtn.disabled = false;
     saveBtn.textContent = origText;
-    /* Auth user was created but membership failed — surface clearly */
     notify((ar?'تم إنشاء الحساب لكن إضافته للفريق فشلت: ':'Account created but team add failed: ') + insertError.message, 'error');
     return;
   }
@@ -2486,9 +2505,9 @@ async function editMemberRole(memberId){
   const member = teamMembers.find(m => m.id === memberId);
   if(!member || member.role === 'owner') return;
   const ar = currentLang === 'ar';
-  const roleOptions = ['accountant','sales','warehouse','viewer'];
+  const roleOptions = ['admin','accountant','sales','warehouse','viewer'];
   const promptMsg = ar
-    ? `الدور الحالي: ${roleLabel(member.role)}\nالأدوار المتاحة: ${roleOptions.map(r => roleLabel(r)).join(', ')}\nأدخل الدور الجديد (accountant / sales / warehouse / viewer):`
+    ? `الدور الحالي: ${roleLabel(member.role)}\nالأدوار المتاحة: ${roleOptions.map(r => roleLabel(r)).join(', ')}\nأدخل الدور الجديد (admin / accountant / sales / warehouse / viewer):`
     : `Current role: ${roleLabel(member.role)}\nAvailable: ${roleOptions.join(', ')}\nEnter new role:`;
   const newRole = (prompt(promptMsg, member.role) || '').trim().toLowerCase();
   if(!newRole || newRole === member.role) return;
