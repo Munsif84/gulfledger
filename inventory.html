@@ -295,6 +295,25 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .movement-pill.out{background:#fef2f2;color:var(--red);}
 .movement-pill.adj{background:#fef3c7;color:#92400e;}
 
+/* Round B (3c): sortable column headers (matches purchasing.html pattern) */
+.tbl th.sortable{cursor:pointer;user-select:none;position:relative;padding-inline-end:22px;}
+.tbl th.sortable:hover{background:var(--light);}
+.tbl th.sortable .sort-arrow{position:absolute;font-size:9px;opacity:0.35;font-family:'DM Mono',monospace;line-height:1;}
+[dir="ltr"] .tbl th.sortable .sort-arrow{right:8px;top:50%;transform:translateY(-50%);}
+[dir="rtl"] .tbl th.sortable .sort-arrow{left:8px;top:50%;transform:translateY(-50%);}
+.tbl th.sortable.sorted{background:var(--light);color:var(--ink);}
+.tbl th.sortable.sorted .sort-arrow{opacity:1;color:var(--blue);font-weight:700;font-size:11px;}
+
+/* Round B (3c): cell subtitle (used in movements + items tables for sku/note) */
+.cell-subtitle{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:2px;}
+
+/* Round B: movement filter chrome */
+.mov-filter{display:flex;flex-direction:column;gap:3px;min-width:0;}
+.mov-filter label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.04em;color:var(--muted);}
+.mov-filter select,.mov-filter .mov-date{padding:7px 10px;border:1.5px solid var(--border);border-radius:9px;font-family:inherit;font-size:13px;background:#fff;color:var(--ink);}
+.mov-filter select:focus,.mov-filter .mov-date:focus{outline:none;border-color:var(--blue);}
+.mov-filter .mov-date{font-family:'DM Mono',monospace;}
+
 /* ─── ROW ACTION MENU (⋮) ─── */
 .row-actions{position:relative;display:inline-block;}
 .row-actions-btn{background:transparent;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;color:var(--muted);font-size:16px;line-height:1;}
@@ -588,20 +607,71 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   </div>
 
   <!-- ════════════════════════════════════════════════
-       PANE: MOVEMENTS — placeholder, Round 3c
+       PANE: MOVEMENTS — Round B (3c): full filterable ledger
+       Loads last 500 movements; client-side filter+sort.
   ════════════════════════════════════════════════ -->
   <div id="pane-movements" style="display:none;">
-    <div class="placeholder-pane">
-      <div class="placeholder-icon">🔄</div>
-      <h2 data-ar="حركات المخزون" data-en="Stock Movements">حركات المخزون</h2>
-      <p data-ar="سجل شامل لكل حركة مخزون: الاستلامات، البيع، التسويات، الكتابة. مع فلترة حسب المنتج، النوع، والتاريخ."
-         data-en="A full ledger of every stock movement: receipts, sales, adjustments, write-offs. Filter by item, type, and date.">
-        سجل شامل لكل حركة مخزون: الاستلامات، البيع، التسويات، الكتابة. مع فلترة حسب المنتج، النوع، والتاريخ.
-      </p>
-      <p style="font-size:12px;color:var(--muted);margin-top:8px;" data-ar="حالياً: تظهر الحركات في تفاصيل كل منتج (انقر على منتج)" data-en="For now: movements show in each item's detail drawer (click an item)">
-        حالياً: تظهر الحركات في تفاصيل كل منتج (انقر على منتج)
-      </p>
-      <span class="placeholder-coming" data-ar="🚧 قريباً" data-en="🚧 Coming soon">🚧 قريباً</span>
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="label" data-ar="عدد الحركات" data-en="Movements Loaded">عدد الحركات</div>
+        <div class="value" id="stat-mov-total">0</div>
+        <div class="sub" data-ar="آخر 500" data-en="last 500">آخر 500</div>
+      </div>
+      <div class="stat-card green">
+        <div class="label" data-ar="استلامات" data-en="Receipts (IN)">استلامات</div>
+        <div class="value" id="stat-mov-in">0</div>
+      </div>
+      <div class="stat-card red">
+        <div class="label" data-ar="مبيعات/خروج" data-en="Sales/OUT">مبيعات/خروج</div>
+        <div class="value" id="stat-mov-out">0</div>
+      </div>
+      <div class="stat-card amber">
+        <div class="label" data-ar="تسويات" data-en="Adjustments">تسويات</div>
+        <div class="value" id="stat-mov-adj">0</div>
+      </div>
+    </div>
+
+    <!-- Filter chrome: search + 3 dropdowns -->
+    <div class="toolbar" style="flex-wrap:wrap;gap:8px;align-items:end;">
+      <div class="search-wrap" style="flex:1 1 240px;max-width:none;min-width:200px;">
+        <span class="search-icon">🔍</span>
+        <input type="text" class="search-input" id="search-movements" placeholder="البحث في المرجع أو الملاحظة..." oninput="renderMovements()">
+      </div>
+      <div class="mov-filter">
+        <label data-ar="المنتج" data-en="Item">المنتج</label>
+        <select id="mov-filter-item" onchange="renderMovements()">
+          <option value="">— <span data-ar="الكل" data-en="All">الكل</span> —</option>
+        </select>
+      </div>
+      <div class="mov-filter">
+        <label data-ar="النوع" data-en="Type">النوع</label>
+        <select id="mov-filter-type" onchange="renderMovements()">
+          <option value="" data-ar="الكل" data-en="All">الكل</option>
+          <option value="in" data-ar="استلام" data-en="Receipt (IN)">استلام</option>
+          <option value="out" data-ar="بيع/خروج" data-en="Sale/OUT">بيع/خروج</option>
+          <option value="adjust_in" data-ar="تعديل ↑" data-en="Adjustment ↑">تعديل ↑</option>
+          <option value="adjust_out" data-ar="تعديل ↓" data-en="Adjustment ↓">تعديل ↓</option>
+        </select>
+      </div>
+      <div class="mov-filter">
+        <label data-ar="من تاريخ" data-en="From">من تاريخ</label>
+        <input type="date" class="mov-date" id="mov-filter-from" onchange="renderMovements()">
+      </div>
+      <div class="mov-filter">
+        <label data-ar="إلى تاريخ" data-en="To">إلى تاريخ</label>
+        <input type="date" class="mov-date" id="mov-filter-to" onchange="renderMovements()">
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost btn-sm" onclick="clearMovementFilters()" data-ar="مسح" data-en="Clear">مسح</button>
+        <button class="btn btn-secondary" onclick="loadAll()" data-ar="↻ تحديث" data-en="↻ Refresh">↻ تحديث</button>
+      </div>
+    </div>
+
+    <div class="table-wrap" id="movements-table-wrap">
+      <div class="loading-state">
+        <div class="loading-spinner">🔄</div>
+        <div data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
+      </div>
     </div>
   </div>
 
@@ -898,6 +968,8 @@ let currentBiz = null;
 let allItems = [];
 let allSuppliers = [];
 let allReceipts = [];
+/* Round B (3c): last 500 movements for the Movements tab */
+let allMovements = [];
 
 let currentItemId = null;     /* item being edited or shown in detail */
 let currentSupplierId = null;
@@ -1092,10 +1164,13 @@ async function init(){
 }
 
 async function loadAll(){
-  await Promise.all([loadItems(), loadSuppliers(), loadReceipts()]);
+  await Promise.all([loadItems(), loadSuppliers(), loadReceipts(), loadMovements()]);
   renderItems();
   renderReceipts();
   computeStats();
+  /* Round B: populate item filter dropdown then render movements */
+  populateMovementItemFilter();
+  renderMovements();
 }
 
 async function loadItems(){
@@ -1120,6 +1195,19 @@ async function loadReceipts(){
     .order('receipt_date', {ascending: false}).limit(200);
   if(error){ console.error('Receipts load:', error); allReceipts = []; return; }
   allReceipts = data || [];
+}
+
+/* Round B (3c): fetch the most recent 500 movements for the Movements tab.
+   Hard cap chosen for predictable performance at pilot scale. When any pilot
+   crosses 500 movements, swap to date-range or paginated fetch. */
+async function loadMovements(){
+  const {data, error} = await sb.from('inventory_movements')
+    .select('*').eq('business_id', currentBiz?.id || '')
+    .order('movement_date', {ascending: false})
+    .order('created_at', {ascending: false})
+    .limit(500);
+  if(error){ console.error('Movements load:', error); allMovements = []; return; }
+  allMovements = data || [];
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -1337,6 +1425,229 @@ function renderReceipts(){
     </table>`;
 }
 
+/* ═══════════════════════════════════════════════════════
+   ROUND B (3c): MOVEMENTS — render + filter + sort
+   ─────────────────────────────────────────────────────
+   Data source:    allMovements (last 500 rows)
+   Filters (AND):  search (reference/note), item dropdown,
+                   movement_type dropdown, date range
+   Default sort:   movement_date desc, then created_at desc
+   Sortable cols:  date, item (by name), type, qty, balance
+   The detail-drawer (opened from Items tab) still shows per-item
+   movements — this view is the cross-item ledger.
+═══════════════════════════════════════════════════════ */
+
+let movementsSort = { col: 'movement_date', dir: 'desc' };
+
+function populateMovementItemFilter(){
+  const sel = document.getElementById('mov-filter-item');
+  if(!sel) return;
+  /* Preserve current selection if possible */
+  const current = sel.value;
+  const ar = currentLang === 'ar';
+  /* Sort items alphabetically for the dropdown */
+  const sortedItems = allItems.slice().sort((a,b) =>
+    (displayName(a) || '').localeCompare(displayName(b) || ''));
+  const opts = [`<option value="">— ${ar?'الكل':'All'} —</option>`]
+    .concat(sortedItems.map(it =>
+      `<option value="${escHTML(it.id)}">${escHTML(displayName(it))}${it.sku ? ' · ' + escHTML(it.sku) : ''}</option>`
+    ));
+  sel.innerHTML = opts.join('');
+  if(current && sortedItems.some(it => it.id === current)) sel.value = current;
+}
+
+function clearMovementFilters(){
+  setVal('search-movements', '');
+  setVal('mov-filter-item', '');
+  setVal('mov-filter-type', '');
+  setVal('mov-filter-from', '');
+  setVal('mov-filter-to', '');
+  movementsSort = { col: 'movement_date', dir: 'desc' };
+  renderMovements();
+}
+
+/* Helpers for the movement_type pill / label / sign */
+function movementTypeMeta(type){
+  const ar = currentLang === 'ar';
+  switch(type){
+    case 'in':         return { pill: 'in',  label: ar?'استلام':'IN',     sign: '+', color: '#166534' };
+    case 'out':        return { pill: 'out', label: ar?'بيع/خروج':'OUT',  sign: '−', color: 'var(--red)' };
+    case 'adjust_in':  return { pill: 'adj', label: ar?'تعديل ↑':'ADJ ↑', sign: '+', color: '#92400e' };
+    case 'adjust_out': return { pill: 'adj', label: ar?'تعديل ↓':'ADJ ↓', sign: '−', color: '#92400e' };
+    default:           return { pill: 'adj', label: type || '?',         sign: '',  color: 'var(--muted)' };
+  }
+}
+
+function renderMovements(){
+  const wrap = document.getElementById('movements-table-wrap');
+  if(!wrap) return;
+  const ar = currentLang === 'ar';
+
+  /* Read filter inputs */
+  const search = v('search-movements').toLowerCase();
+  const itemId = v('mov-filter-item');
+  const typeFilter = v('mov-filter-type');
+  const fromDate = v('mov-filter-from');
+  const toDate = v('mov-filter-to');
+
+  /* Pre-build item lookup */
+  const itemById = new Map(allItems.map(it => [it.id, it]));
+
+  /* Apply filters */
+  let rows = allMovements.filter(m => {
+    if(itemId && m.item_id !== itemId) return false;
+    if(typeFilter && m.movement_type !== typeFilter) return false;
+    if(fromDate && m.movement_date < fromDate) return false;
+    if(toDate && m.movement_date > toDate) return false;
+    if(search){
+      const ref = (m.reference || '').toLowerCase();
+      const note = (m.note || '').toLowerCase();
+      const it = itemById.get(m.item_id);
+      const itemName = it ? (displayName(it) || '').toLowerCase() : '';
+      const sku = it ? (it.sku || '').toLowerCase() : '';
+      if(!(ref.includes(search) || note.includes(search) || itemName.includes(search) || sku.includes(search))) return false;
+    }
+    return true;
+  });
+
+  /* Stat cards reflect the FILTERED set so users see what their filters return */
+  let inCount = 0, outCount = 0, adjCount = 0;
+  for(const m of rows){
+    if(m.movement_type === 'in') inCount++;
+    else if(m.movement_type === 'out') outCount++;
+    else if(m.movement_type === 'adjust_in' || m.movement_type === 'adjust_out') adjCount++;
+  }
+  setText('stat-mov-total', rows.length);
+  setText('stat-mov-in', inCount);
+  setText('stat-mov-out', outCount);
+  setText('stat-mov-adj', adjCount);
+
+  /* Sort */
+  rows.sort((a, b) => sortCompareMovement(a, b, movementsSort.col, movementsSort.dir, itemById));
+
+  if(rows.length === 0){
+    const noMovementsAtAll = allMovements.length === 0;
+    wrap.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">🔄</div>
+        <div class="title">${noMovementsAtAll
+          ? (ar?'لا توجد حركات بعد':'No movements yet')
+          : (ar?'لا توجد نتائج مطابقة':'No matching results')}</div>
+        <div class="text">${noMovementsAtAll
+          ? (ar?'تظهر هنا كل حركة استلام، بيع، أو تعديل مخزون.':'Every receipt, sale, or stock adjustment shows up here.')
+          : (ar?'جرّب تغيير عوامل التصفية.':'Try changing the filters.')}</div>
+        ${!noMovementsAtAll ? `<button class="btn btn-secondary" onclick="clearMovementFilters()">${ar?'مسح المرشحات':'Clear filters'}</button>` : ''}
+      </div>`;
+    return;
+  }
+
+  /* Sortable column definitions */
+  const cols = [
+    { key: 'movement_date', ar: 'التاريخ',    en: 'Date',      cls: '',    sortable: true  },
+    { key: 'item',          ar: 'المنتج',     en: 'Item',      cls: '',    sortable: true  },
+    { key: 'movement_type', ar: 'النوع',      en: 'Type',      cls: 'center', sortable: true },
+    { key: 'quantity',      ar: 'الكمية',     en: 'Qty',       cls: 'num', sortable: true  },
+    { key: 'balance_after', ar: 'الرصيد بعد', en: 'Balance',   cls: 'num', sortable: true  },
+    { key: 'reference',     ar: 'المرجع',     en: 'Reference', cls: '',    sortable: false }
+  ];
+
+  const headerHtml = cols.map(c => {
+    if(!c.sortable){
+      return `<th class="${c.cls}">${ar ? c.ar : c.en}</th>`;
+    }
+    const sorted = movementsSort.col === c.key;
+    const arrow = sorted ? (movementsSort.dir === 'asc' ? '▲' : '▼') : '↕';
+    const cls = `sortable ${c.cls} ${sorted ? 'sorted' : ''}`.trim();
+    return `<th class="${cls}" onclick="onMovementSort('${c.key}')">${ar ? c.ar : c.en}<span class="sort-arrow">${arrow}</span></th>`;
+  }).join('');
+
+  const bodyHtml = rows.map(m => {
+    const meta = movementTypeMeta(m.movement_type);
+    const it = itemById.get(m.item_id);
+    const itemName = it ? displayName(it) : (ar?'منتج محذوف':'(deleted item)');
+    const sku = it ? it.sku : '';
+    const qty = parseFloat(m.quantity) || 0;
+    const balance = m.balance_after != null ? fmt(m.balance_after) : '—';
+    const refTxt = m.reference || '—';
+    const noteTxt = m.note ? ` <span class="cell-subtitle" style="display:inline;">· ${escHTML(m.note)}</span>` : '';
+    /* Click row → open the item drawer for that item (existing flow). */
+    const rowClick = it ? `onclick="openItemDrawer('${it.id}')"` : '';
+    return `
+      <tr class="${it ? 'clickable' : ''}" ${rowClick}>
+        <td><span class="mono">${escHTML(m.movement_date)}</span></td>
+        <td>
+          <strong>${escHTML(itemName)}</strong>
+          ${sku ? `<div class="cell-subtitle">${escHTML(sku)}</div>` : ''}
+        </td>
+        <td class="center"><span class="movement-pill ${meta.pill}">${escHTML(meta.label)}</span></td>
+        <td class="num" style="color:${meta.color};font-weight:700;">${meta.sign}${fmt(qty)}</td>
+        <td class="num">${balance}</td>
+        <td>${escHTML(refTxt)}${noteTxt}</td>
+      </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `
+    <div class="table-scroll">
+      <table class="tbl">
+        <thead><tr>${headerHtml}</tr></thead>
+        <tbody>${bodyHtml}</tbody>
+      </table>
+    </div>`;
+}
+
+/* Sort comparator — col: movement_date | item | movement_type | quantity | balance_after */
+function sortCompareMovement(a, b, col, dir, itemById){
+  const sign = dir === 'asc' ? 1 : -1;
+  let av, bv;
+  switch(col){
+    case 'movement_date':
+      /* Tie-break on created_at so same-day movements stay in insertion order */
+      av = (a.movement_date || '') + (a.created_at || '');
+      bv = (b.movement_date || '') + (b.created_at || '');
+      break;
+    case 'item': {
+      const ia = itemById.get(a.item_id);
+      const ib = itemById.get(b.item_id);
+      av = (ia ? displayName(ia) : '').toLowerCase();
+      bv = (ib ? displayName(ib) : '').toLowerCase();
+      return sign * av.localeCompare(bv);
+    }
+    case 'movement_type':
+      av = (a.movement_type || '').toLowerCase();
+      bv = (b.movement_type || '').toLowerCase();
+      return sign * av.localeCompare(bv);
+    case 'quantity':
+      av = parseFloat(a.quantity) || 0;
+      bv = parseFloat(b.quantity) || 0;
+      break;
+    case 'balance_after':
+      /* Null balance → sort last regardless of direction */
+      if(a.balance_after == null && b.balance_after != null) return 1;
+      if(b.balance_after == null && a.balance_after != null) return -1;
+      av = parseFloat(a.balance_after) || 0;
+      bv = parseFloat(b.balance_after) || 0;
+      break;
+    default: return 0;
+  }
+  if(av < bv) return -1 * sign;
+  if(av > bv) return  1 * sign;
+  return 0;
+}
+
+/* Click handler: cycle asc → desc → default */
+function onMovementSort(col){
+  if(movementsSort.col === col){
+    if(movementsSort.dir === 'asc'){ movementsSort.dir = 'desc'; }
+    else if(movementsSort.dir === 'desc'){
+      movementsSort = { col: 'movement_date', dir: 'desc' };
+    } else {
+      movementsSort.dir = 'asc';
+    }
+  } else {
+    movementsSort = { col, dir: 'asc' };
+  }
+  renderMovements();
+}
 
 
 /* ═══════════════════════════════════════════════════════
@@ -2910,6 +3221,9 @@ function setLang(lang){
   applyLang();
   renderItems();
   renderReceipts();
+  /* Round B (3c): refresh movements view + its item filter labels */
+  populateMovementItemFilter();
+  renderMovements();
 }
 
 function applyLang(){

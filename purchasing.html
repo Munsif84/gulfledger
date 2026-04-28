@@ -785,6 +785,9 @@ let allItems = [];
 let lastReceiptCostByItem = new Map(); /* item_id -> {unit_cost, receipt_date} */
 let currentItemId = null;
 let productSort = { col: 'stock_value', dir: 'desc' }; /* default sort */
+/* Round A (3b polish): suppliers table also gets clickable column sort.
+   Default = name asc (alphabetical), matches the existing default order. */
+let supplierSort = { col: 'name', dir: 'asc' };
 
 /* ─── Helpers ─── */
 const v = id => (document.getElementById(id)?.value || '').trim();
@@ -896,15 +899,37 @@ async function init(){
       renderProducts();
     }
 
+    /* Round A (3b polish): honor ?ssort=&sdir= for the suppliers view */
+    const ssortParam = window.location.search.match(/ssort=([a-z_]+)/)?.[1];
+    const sdirParam = window.location.search.match(/sdir=(asc|desc)/)?.[1];
+    if(ssortParam){
+      supplierSort.col = ssortParam;
+      supplierSort.dir = (sdirParam === 'desc') ? 'desc' : 'asc';
+      renderSuppliers();
+    }
+
     /* Quick Action handler — auto-open the right modal based on ?action= */
     const action = (window.location.search.match(/action=([a-z_]+)/)?.[1]) || '';
-    if(action){
+    /* Round A (3b polish): ?edit=<id> auto-opens the item modal for that id.
+       Sent by inventory.html row-menu and drawer "Edit in Purchasing" links. */
+    const editId = (window.location.search.match(/[?&]edit=([0-9a-f-]+)/)?.[1]) || '';
+
+    if(action || editId){
       setTimeout(() => {
         if(action === 'new_supplier'){
           openSupplierModal();
         } else if(action === 'new_product' || action === 'new_item'){
           /* Round 3b: 'new_item' is the legacy alias from inventory.html bookmarks */
           openItemModal();
+        } else if(editId){
+          /* Confirm the item exists in our loaded list before opening — avoids a flash of
+             empty modal if the id is bogus or belongs to another business. */
+          const found = allItems.find(x => x.id === editId);
+          if(found){
+            openItemModal(editId);
+          } else {
+            notify(currentLang==='ar'?'المنتج غير موجود':'Item not found','error');
+          }
         }
         const cleanUrl = window.location.pathname + (tab !== 'suppliers' ? '?tab=' + tab : '');
         history.replaceState(null, '', cleanUrl);
@@ -1009,8 +1034,9 @@ function computeStats(){
 function renderSuppliers(){
   const wrap = document.getElementById('suppliers-table-wrap');
   const search = v('search-suppliers').toLowerCase();
+  const ar = currentLang === 'ar';
 
-  let suppliers = allSuppliers;
+  let suppliers = allSuppliers.slice();
   if(search){
     suppliers = suppliers.filter(s =>
       (s.name_ar||'').toLowerCase().includes(search) ||
@@ -1021,36 +1047,47 @@ function renderSuppliers(){
     );
   }
 
+  /* Round A: apply sort */
+  suppliers.sort((a, b) => sortCompareSupplier(a, b, supplierSort.col, supplierSort.dir));
+
   if(suppliers.length === 0){
     wrap.innerHTML = `
       <div class="empty-state">
         <div class="icon">🏭</div>
-        <div class="title">${currentLang==='ar'?'لا يوجد موردون':'No suppliers yet'}</div>
-        <div class="text">${currentLang==='ar'
+        <div class="title">${ar?'لا يوجد موردون':'No suppliers yet'}</div>
+        <div class="text">${ar
           ? 'أضف الموردين الذين تشتري منهم البضائع أو الخدمات.'
           : 'Add the vendors you buy goods or services from.'}</div>
-        <button class="btn btn-primary" onclick="openSupplierModal()">+ ${currentLang==='ar'?'مورد جديد':'New Supplier'}</button>
+        <button class="btn btn-primary" onclick="openSupplierModal()">+ ${ar?'مورد جديد':'New Supplier'}</button>
       </div>`;
     return;
   }
 
-  const arHeaders = currentLang === 'ar';
+  /* Sortable column definitions — keys feed sortCompareSupplier(). */
   const cols = [
-    { label: arHeaders ? 'الاسم' : 'Name', cls: '' },
-    { label: arHeaders ? 'الرمز' : 'Code', cls: 'num' },
-    { label: arHeaders ? 'الجوال' : 'Mobile', cls: 'num' },
-    { label: arHeaders ? 'الرقم الضريبي' : 'TRN', cls: 'num' },
-    { label: arHeaders ? 'مدة السداد' : 'Terms', cls: 'num' },
-    { label: arHeaders ? 'إجمالي المشتريات' : 'Total Purchases', cls: 'num' },
-    { label: arHeaders ? 'مستحق' : 'Outstanding', cls: 'num' },
-    { label: '', cls: 'center' }
+    { key: 'name',         ar: 'الاسم',           en: 'Name',            cls: '',       sortable: true  },
+    { key: 'supplier_code',ar: 'الرمز',           en: 'Code',            cls: 'num',    sortable: true  },
+    { key: 'mobile',       ar: 'الجوال',          en: 'Mobile',          cls: 'num',    sortable: true  },
+    { key: 'trn',          ar: 'الرقم الضريبي',   en: 'TRN',             cls: 'num',    sortable: true  },
+    { key: 'payment_terms_days', ar: 'مدة السداد', en: 'Terms',          cls: 'num',    sortable: true  },
+    { key: 'total_purchases',    ar: 'إجمالي المشتريات', en: 'Total Purchases', cls: 'num', sortable: true },
+    { key: 'total_outstanding',  ar: 'مستحق',     en: 'Outstanding',     cls: 'num',    sortable: true  },
+    { key: '_actions',     ar: '',                en: '',                cls: 'center', sortable: false }
   ];
+
+  const headerHtml = cols.map(c => {
+    if(!c.sortable){
+      return `<th class="${c.cls}">${ar ? c.ar : c.en}</th>`;
+    }
+    const sorted = supplierSort.col === c.key;
+    const arrow = sorted ? (supplierSort.dir === 'asc' ? '▲' : '▼') : '↕';
+    const cls = `sortable ${c.cls} ${sorted ? 'sorted' : ''}`.trim();
+    return `<th class="${cls}" onclick="onSupplierSort('${c.key}')">${ar ? c.ar : c.en}<span class="sort-arrow">${arrow}</span></th>`;
+  }).join('');
 
   wrap.innerHTML = `
     <table class="tbl">
-      <thead>
-        <tr>${cols.map(c => `<th class="${c.cls}">${c.label}</th>`).join('')}</tr>
-      </thead>
+      <thead><tr>${headerHtml}</tr></thead>
       <tbody>
         ${suppliers.map(s => {
           const name = displayName(s);
@@ -1068,11 +1105,11 @@ function renderSuppliers(){
               </td>
               <td class="center">
                 <div class="row-actions">
-                  <button class="row-actions-btn" onclick="event.stopPropagation();toggleRowMenu(this)" title="${arHeaders?'إجراءات':'Actions'}">⋮</button>
+                  <button class="row-actions-btn" onclick="event.stopPropagation();toggleRowMenu(this)" title="${ar?'إجراءات':'Actions'}">⋮</button>
                   <div class="row-actions-menu" onclick="event.stopPropagation()">
-                    <button class="row-action-item" onclick="closeAllMenus();openSupplierModal('${s.id}')">✏️ ${arHeaders?'تعديل المورد':'Edit supplier'}</button>
-                    <button class="row-action-item" onclick="closeAllMenus();viewPurchasesForSupplier('${s.id}')">📥 ${arHeaders?'عرض المشتريات':'View purchases'}</button>
-                    <button class="row-action-item danger" onclick="closeAllMenus();deleteSupplierFromMenu('${s.id}')">🗑️ ${arHeaders?'حذف':'Delete'}</button>
+                    <button class="row-action-item" onclick="closeAllMenus();openSupplierModal('${s.id}')">✏️ ${ar?'تعديل المورد':'Edit supplier'}</button>
+                    <button class="row-action-item" onclick="closeAllMenus();viewPurchasesForSupplier('${s.id}')">📥 ${ar?'عرض المشتريات':'View purchases'}</button>
+                    <button class="row-action-item danger" onclick="closeAllMenus();deleteSupplierFromMenu('${s.id}')">🗑️ ${ar?'حذف':'Delete'}</button>
                   </div>
                 </div>
               </td>
@@ -1080,6 +1117,60 @@ function renderSuppliers(){
         }).join('')}
       </tbody>
     </table>`;
+}
+
+/* Round A: supplier table sort comparator. Mirrors sortCompare for products
+   but operates on raw supplier rows. Empty/missing values sort last. */
+function sortCompareSupplier(a, b, col, dir){
+  const sign = dir === 'asc' ? 1 : -1;
+  let av, bv;
+  switch(col){
+    case 'name':
+      av = (displayName(a) || '').toLowerCase();
+      bv = (displayName(b) || '').toLowerCase();
+      return sign * av.localeCompare(bv);
+    case 'supplier_code':
+    case 'mobile':
+    case 'trn':
+      av = (a[col] || '').toLowerCase();
+      bv = (b[col] || '').toLowerCase();
+      /* Empty strings always sort last regardless of direction */
+      if(av === '' && bv !== '') return 1;
+      if(bv === '' && av !== '') return -1;
+      return sign * av.localeCompare(bv);
+    case 'payment_terms_days':
+    case 'total_purchases':
+    case 'total_outstanding':
+      av = parseFloat(a[col]) || 0;
+      bv = parseFloat(b[col]) || 0;
+      break;
+    default:
+      return 0;
+  }
+  if(av < bv) return -1 * sign;
+  if(av > bv) return  1 * sign;
+  return 0;
+}
+
+/* Round A: click handler — cycle asc → desc → default (name asc) */
+function onSupplierSort(col){
+  if(supplierSort.col === col){
+    if(supplierSort.dir === 'asc'){ supplierSort.dir = 'desc'; }
+    else if(supplierSort.dir === 'desc'){
+      supplierSort = { col: 'name', dir: 'asc' };
+    } else {
+      supplierSort.dir = 'asc';
+    }
+  } else {
+    supplierSort = { col, dir: 'asc' };
+  }
+  /* Persist in URL using ssort/sdir to avoid collision with product sort */
+  const params = new URLSearchParams(window.location.search);
+  params.set('tab', 'suppliers');
+  params.set('ssort', supplierSort.col);
+  params.set('sdir', supplierSort.dir);
+  history.replaceState(null, '', '?' + params.toString());
+  renderSuppliers();
 }
 
 /* Helper triggered from supplier row menu */
