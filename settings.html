@@ -2318,10 +2318,12 @@ async function loadTeamList(){
   if(empty) empty.style.display = 'none';
 
   /* SELECT columns guarded — full_name and updated_at may be missing on legacy schemas.
-     If the migration adding them hasn't run, the .select() will return an error and we surface it. */
+     If the migration adding them hasn't run, the .select() will return an error and we surface it.
+     Filter to status='active' only — removed/inactive members are hidden from the team list. */
   const {data, error} = await sb.from('business_users')
     .select('id, user_id, email, full_name, role, status, created_at')
     .eq('business_id', currentBiz.id)
+    .eq('status', 'active')
     .order('role', {ascending: true})
     .order('created_at', {ascending: true, nullsFirst: false});
 
@@ -2486,14 +2488,53 @@ async function saveNewMember(){
   }
 
   /* Supabase anti-enumeration design: when the email already exists, signUp
-     returns "success" but with an empty identities array. Detect and surface
-     a clear error so the owner knows why creation didn't work. */
+     returns "success" but with an empty identities array.
+     
+     But we want to support the re-add case: if this email was previously a 
+     member of THIS business (status='removed' or 'inactive'), offer to 
+     restore them instead of erroring out. */
   if(Array.isArray(signupData.user.identities) && signupData.user.identities.length === 0){
+    /* Check if there's a removed/inactive membership for this business.
+       We look up by email rather than user_id because Supabase's anti-enum
+       behavior may return a fake user_id (we can't trust signupData.user.id here). */
+    const {data: existingRow} = await sb.from('business_users')
+      .select('id, status, role, user_id')
+      .eq('business_id', currentBiz.id)
+      .eq('email', email)
+      .in('status', ['removed', 'inactive'])
+      .maybeSingle();
+    
+    if(existingRow){
+      /* Member was previously removed from this business. Offer to restore. */
+      saveBtn.disabled = false;
+      saveBtn.textContent = origText;
+      const restoreConfirmed = confirm(ar
+        ? `هذا الشخص كان عضواً سابقاً في فريقك. هل تريد استعادة وصوله بدور ${roleLabel(role)}؟\n\nملاحظة: كلمة المرور الجديدة لن تُحدّث (يستخدم كلمة المرور السابقة).`
+        : `This person was previously a member of your team. Restore their access as ${roleLabel(role)}?\n\nNote: The password you entered won't update their account (they'll use their previous password).`);
+      if(!restoreConfirmed) return;
+      
+      const {error: updErr} = await sb.from('business_users').update({
+        status: 'active',
+        role: role,
+        full_name: fullName
+      }).eq('id', existingRow.id);
+      if(updErr){
+        notify((ar?'فشل الاستعادة: ':'Restore failed: ') + updErr.message, 'error');
+        return;
+      }
+      notify(ar?'تمت استعادة العضو':'Member restored', 'success');
+      closeAddMemberModal();
+      await loadTeamList();
+      return;
+    }
+    
+    /* Email exists in system but NOT a previous member of this business.
+       Could be a member of another business, or an unrelated user. */
     saveBtn.disabled = false;
     saveBtn.textContent = origText;
     setMmError('mm-field-email', ar
-      ? 'هذا البريد الإلكتروني مسجل بالفعل في النظام. استخدم بريداً مختلفاً أو اطلب من المستخدم تسجيل الدخول.'
-      : 'This email is already registered in the system. Use a different email, or have the user sign in.');
+      ? 'هذا البريد الإلكتروني مسجل بالفعل في النظام. استخدم بريداً مختلفاً.'
+      : 'This email is already registered in the system. Use a different email.');
     return;
   }
 
@@ -2592,22 +2633,25 @@ async function editMemberRole(memberId){
   await loadTeamList();
 }
 
-/* Remove member — soft-delete (status='inactive') */
+/* Remove member — sets status='removed'.
+   The row remains in DB (audit trail + access-revoke detection) but is
+   hidden from the team list. The same email can be re-added afterwards.
+   loadCurrentBusiness sees the non-active row and blocks login for that user. */
 async function removeMember(memberId){
   if(!isOwner()) return;
   const member = teamMembers.find(m => m.id === memberId);
   if(!member || member.role === 'owner') return;
   const ar = currentLang === 'ar';
   const confirmed = confirm(ar
-    ? `هل تريد إزالة ${member.full_name || member.email} من الفريق؟ لن يتمكن من الوصول للمنشأة.`
-    : `Remove ${member.full_name || member.email} from the team? They will lose access to this business.`);
+    ? `هل تريد إزالة ${member.full_name || member.email} نهائياً من الفريق؟\n\nسيفقد هذا العضو الوصول للمنشأة فوراً. يمكنك إضافته مرة أخرى لاحقاً بنفس البريد الإلكتروني.`
+    : `Permanently remove ${member.full_name || member.email} from the team?\n\nThis member will lose access to the business immediately. You can re-add the same email later.`);
   if(!confirmed) return;
-  const {error} = await sb.from('business_users').update({status: 'inactive'}).eq('id', memberId);
+  const {error} = await sb.from('business_users').update({status: 'removed'}).eq('id', memberId);
   if(error){
     notify((ar?'فشل الإزالة: ':'Remove failed: ') + error.message, 'error');
     return;
   }
-  notify(ar?'تم الإزالة':'Member removed', 'success');
+  notify(ar?'تمت الإزالة':'Member removed', 'success');
   await loadTeamList();
 }
 
