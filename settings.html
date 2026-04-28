@@ -2437,6 +2437,18 @@ async function saveNewMember(){
     return;
   }
 
+  /* Supabase anti-enumeration design: when the email already exists, signUp
+     returns "success" but with an empty identities array. Detect and surface
+     a clear error so the owner knows why creation didn't work. */
+  if(Array.isArray(signupData.user.identities) && signupData.user.identities.length === 0){
+    saveBtn.disabled = false;
+    saveBtn.textContent = origText;
+    setMmError('mm-field-email', ar
+      ? 'هذا البريد الإلكتروني مسجل بالفعل في النظام. استخدم بريداً مختلفاً أو اطلب من المستخدم تسجيل الدخول.'
+      : 'This email is already registered in the system. Use a different email, or have the user sign in.');
+    return;
+  }
+
   /* Insert business_users row using owner's main session.
      The new auth.users row may take a moment to be visible across connections,
      causing FK violations on the first attempt. Retry with delays before giving up. */
@@ -2466,7 +2478,15 @@ async function saveNewMember(){
   if(insertError){
     saveBtn.disabled = false;
     saveBtn.textContent = origText;
-    notify((ar?'تم إنشاء الحساب لكن إضافته للفريق فشلت: ':'Account created but team add failed: ') + insertError.message, 'error');
+    const code = insertError.code || '';
+    const isFk = code === '23503' || /foreign key/i.test(insertError.message || '');
+    if(isFk){
+      notify(ar
+        ? 'تم إنشاء حساب المصادقة، لكن فشل ربطه بالمنشأة. حاول مرة أخرى بعد دقيقة، أو تحقق من إعدادات Supabase.'
+        : 'Auth account created, but linking to business failed. Try again in a minute, or check Supabase settings.', 'error');
+    } else {
+      notify((ar?'فشل إنشاء العضو: ':'Failed to add member: ') + insertError.message, 'error');
+    }
     return;
   }
 
