@@ -1686,6 +1686,32 @@ async function btnAction(btn, asyncFn, successMsg){
 /* ═══════════════════════════════════════════════════════
    INIT
 ═══════════════════════════════════════════════════════ */
+/* Round 2-MultiTenant-C: membership-based biz lookup */
+async function loadCurrentBusiness(sb, user){
+  const {data: activeMembership} = await sb.from('business_users')
+    .select('business_id, role').eq('user_id', user.id).eq('status', 'active').limit(5);
+  if(activeMembership && activeMembership.length > 0){
+    const ownerRow = activeMembership.find(m => m.role === 'owner');
+    const adminRow = activeMembership.find(m => m.role === 'admin');
+    const chosen = ownerRow || adminRow || activeMembership[0];
+    const {data: biz} = await sb.from('businesses').select('*').eq('id', chosen.business_id).maybeSingle();
+    if(biz) return {biz, role: chosen.role, reason: null};
+    return {biz: null, role: chosen.role, reason: 'biz_lookup_failed'};
+  }
+  const {data: anyMembership} = await sb.from('business_users').select('id').eq('user_id', user.id).limit(5);
+  if(anyMembership && anyMembership.length > 0) return {biz: null, role: null, reason: 'revoked'};
+  const bizName = user.user_metadata?.business_name || 'My Business';
+  const {data: newBiz} = await sb.from('businesses').insert({
+    user_id: user.id, name: bizName, plan: 'starter', plan_status: 'active'
+  }).select().single();
+  if(!newBiz) return {biz: null, role: null, reason: 'create_failed'};
+  await sb.from('business_users').insert({
+    business_id: newBiz.id, user_id: user.id,
+    email: user.email || 'unknown@example.com', role: 'owner', status: 'active'
+  });
+  return {biz: newBiz, role: 'owner', reason: null};
+}
+
 async function init(){
   if(_initRan) return;
   _initRan = true;
@@ -1694,17 +1720,24 @@ async function init(){
   if(!session){window.location.href='login.html';return;}
   currentUser = session.user;
 
-  /* Load business */
-  const {data:biz} = await sb.from('businesses').select('*').eq('user_id', currentUser.id).single();
-  if(biz){
-    currentBiz = biz;
-    setText('biz-name', pickLang(biz, 'name'));
-    document.getElementById('biz-name').title = pickLang(biz, 'name');
-    if(biz.brand_color) localStorage.setItem('gl_brand_color', biz.brand_color);
-    if(biz.invoice_layout) localStorage.setItem('gl_invoice_layout', biz.invoice_layout);
-    if(biz.invoice_footer) localStorage.setItem('gl_invoice_footer', biz.invoice_footer);
-    if(biz.logo_base64) localStorage.setItem('gl_logo_base64', biz.logo_base64);
+  /* Load business via membership lookup */
+  const {biz, role, reason} = await loadCurrentBusiness(sb, currentUser);
+  if(!biz){
+    if(reason === 'revoked'){
+      document.body.innerHTML = '<div style="max-width:480px;margin:80px auto;padding:32px;background:#fff;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.1);text-align:center;font-family:Tajawal,Cairo,sans-serif;"><h1 style="color:#c43e3e;font-size:22px;margin-bottom:12px;">' + (currentLang==='ar'?'تم إلغاء الوصول':'Access revoked') + '</h1><p style="color:#666;margin-bottom:20px;">' + (currentLang==='ar'?'تم إزالة وصولك إلى هذه المنشأة. تواصل مع مالك المنشأة.':'Your access to this business has been removed. Contact the business owner.') + '</p><button onclick="logout()" style="padding:10px 22px;background:#006C35;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">' + (currentLang==='ar'?'تسجيل الخروج':'Sign out') + '</button></div>';
+      return;
+    }
+    alert((currentLang==='ar'?'فشل تحميل المنشأة':'Failed to load business') + ' (' + (reason||'unknown') + ')');
+    return;
   }
+  currentBiz = biz;
+  currentBiz._myRole = role;
+  setText('biz-name', pickLang(biz, 'name'));
+  document.getElementById('biz-name').title = pickLang(biz, 'name');
+  if(biz.brand_color) localStorage.setItem('gl_brand_color', biz.brand_color);
+  if(biz.invoice_layout) localStorage.setItem('gl_invoice_layout', biz.invoice_layout);
+  if(biz.invoice_footer) localStorage.setItem('gl_invoice_footer', biz.invoice_footer);
+  if(biz.logo_base64) localStorage.setItem('gl_logo_base64', biz.logo_base64);
 
   /* Apply language */
   setLang(currentLang);
@@ -1839,7 +1872,6 @@ async function loadInvoices(){
   if(!currentUser) return;
   const {data, error} = await sb.from('invoices')
     .select('*')
-    .eq('user_id', currentUser.id)
     .eq('business_id', currentBiz?.id || '')
     .order('created_at', {ascending: false})
     .limit(200);
@@ -2076,7 +2108,6 @@ async function loadCustomers(){
   if(!currentUser) return;
   const {data, error} = await sb.from('customers')
     .select('*')
-    .eq('user_id', currentUser.id)
     .eq('business_id', currentBiz?.id || '')
     .eq('is_active', true)
     .order('name');
@@ -2234,7 +2265,6 @@ async function fetchNextInvoiceNumber(){
   /* Fallback (legacy path, race-prone — only hit if RPC is unavailable) */
   const {data} = await sb.from('invoices')
     .select('invoice_number')
-    .eq('user_id', currentUser.id)
     .eq('business_id', currentBiz?.id || '')
     .neq('status','draft')
     .order('created_at',{ascending:false})
@@ -2545,7 +2575,6 @@ function toggleCustNotes(){
 async function openInventoryPicker(itemIdx){
   const {data} = await sb.from('inventory_items')
     .select('id,name,name_ar,sku,sale_price,current_qty,unit')
-    .eq('user_id', currentUser.id)
     .eq('business_id', currentBiz?.id || '')
     .order('name');
 
@@ -3004,7 +3033,7 @@ async function generateInvoice(){
       if(totalCOGS > 0){
         const cogsRef = payload.invoice_number + '-COGS';
         const {data:existing} = await sb.from('journal_entries')
-          .select('id').eq('reference', cogsRef).eq('user_id', currentUser.id).eq('business_id', currentBiz.id).limit(1);
+          .select('id').eq('reference', cogsRef).eq('business_id', currentBiz.id).limit(1);
         let cogsEntryId;
         if(existing && existing.length){
           cogsEntryId = existing[0].id;
@@ -3127,7 +3156,7 @@ async function autoPostInvoice(invoice){
 
   try {
     const {data:existing} = await sb.from('journal_entries')
-      .select('id,journal_lines(*)').eq('reference', ref).eq('user_id', currentUser.id)
+      .select('id,journal_lines(*)').eq('reference', ref)
       .eq('business_id', currentBiz?.id || '').eq('source','invoice').limit(1);
 
     if(existing && existing.length){
@@ -3387,7 +3416,7 @@ async function voidInvoice(id, num, total, buyerName){
     /* Now reverse the journal */
     const {data:entries} = await sb.from('journal_entries')
       .select('id,journal_lines(*)')
-      .eq('source_id', id).eq('source','invoice').eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '');
+      .eq('source_id', id).eq('source','invoice').eq('business_id', currentBiz?.id || '');
 
     if(entries && entries.length){
       const orig = entries[0];
@@ -3418,7 +3447,7 @@ async function voidInvoice(id, num, total, buyerName){
     const {data: cogsEntries} = await sb.from('journal_entries')
       .select('id,journal_lines(*)')
       .eq('reference', num + '-COGS')
-      .eq('source','invoice').eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '');
+      .eq('source','invoice').eq('business_id', currentBiz?.id || '');
     if(cogsEntries && cogsEntries.length){
       const cogsOrig = cogsEntries[0];
       const cogsLines = cogsOrig.journal_lines || [];
@@ -3539,7 +3568,7 @@ async function confirmPayment(){
     payment_ref: ref || null,
     amount_paid: cumulative,
     updated_at: new Date().toISOString()
-  }).eq('id', _paymentInvoiceId).eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '');
+  }).eq('id', _paymentInvoiceId).eq('business_id', currentBiz?.id || '');
 
   if(error){notify(friendlyDbError(error),'r');throw error;}
 

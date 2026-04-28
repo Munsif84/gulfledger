@@ -1438,18 +1438,49 @@ function displayName(o){
   return currentLang === 'ar' ? (getNameAr(o) || getNameEn(o)) : (getNameEn(o) || getNameAr(o));
 }
 
+/* Round 2-MultiTenant-C: membership-based biz lookup */
+async function loadCurrentBusiness(sb, user){
+  const {data: activeMembership} = await sb.from('business_users')
+    .select('business_id, role').eq('user_id', user.id).eq('status', 'active').limit(5);
+  if(activeMembership && activeMembership.length > 0){
+    const ownerRow = activeMembership.find(m => m.role === 'owner');
+    const adminRow = activeMembership.find(m => m.role === 'admin');
+    const chosen = ownerRow || adminRow || activeMembership[0];
+    const {data: biz} = await sb.from('businesses').select('*').eq('id', chosen.business_id).maybeSingle();
+    if(biz) return {biz, role: chosen.role, reason: null};
+    return {biz: null, role: chosen.role, reason: 'biz_lookup_failed'};
+  }
+  const {data: anyMembership} = await sb.from('business_users').select('id').eq('user_id', user.id).limit(5);
+  if(anyMembership && anyMembership.length > 0) return {biz: null, role: null, reason: 'revoked'};
+  const bizName = user.user_metadata?.business_name || 'My Business';
+  const {data: newBiz} = await sb.from('businesses').insert({
+    user_id: user.id, name: bizName, plan: 'starter', plan_status: 'active'
+  }).select().single();
+  if(!newBiz) return {biz: null, role: null, reason: 'create_failed'};
+  await sb.from('business_users').insert({
+    business_id: newBiz.id, user_id: user.id,
+    email: user.email || 'unknown@example.com', role: 'owner', status: 'active'
+  });
+  return {biz: newBiz, role: 'owner', reason: null};
+}
+
 /* ─── init ─── */
 async function init(){
   const {data:{session}} = await sb.auth.getSession();
   if(!session){ window.location.href = 'login.html'; return; }
   currentUser = session.user;
 
-  const {data:bizes, error: bizErr} = await sb.from('businesses').select('*').eq('user_id', currentUser.id).limit(1);
-  if(bizErr || !bizes || bizes.length === 0){
-    notify(currentLang==='ar'?'لم يتم العثور على شركة':'No business found','error');
+  const {biz, role, reason} = await loadCurrentBusiness(sb, currentUser);
+  if(!biz){
+    if(reason === 'revoked'){
+      document.body.innerHTML = '<div style="max-width:480px;margin:80px auto;padding:32px;background:#fff;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.1);text-align:center;font-family:Tajawal,Cairo,sans-serif;"><h1 style="color:#c43e3e;font-size:22px;margin-bottom:12px;">' + (currentLang==='ar'?'تم إلغاء الوصول':'Access revoked') + '</h1><p style="color:#666;margin-bottom:20px;">' + (currentLang==='ar'?'تم إزالة وصولك إلى هذه المنشأة. تواصل مع مالك المنشأة.':'Your access to this business has been removed. Contact the business owner.') + '</p><button onclick="logout()" style="padding:10px 22px;background:#006C35;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">' + (currentLang==='ar'?'تسجيل الخروج':'Sign out') + '</button></div>';
+      return;
+    }
+    notify((currentLang==='ar'?'لم يتم العثور على شركة':'No business found') + ' (' + (reason||'unknown') + ')','error');
     return;
   }
-  currentBiz = bizes[0];
+  currentBiz = biz;
+  currentBiz._myRole = role;
   setText('biz-name', displayName(currentBiz) || currentBiz.name || '—');
 
   setLang(currentLang);
@@ -1492,7 +1523,6 @@ async function loadCoreData(){
   /* Chart of accounts — needed by Ledger and Reports */
   const {data:coa, error: coaErr} = await sb.from('chart_of_accounts')
     .select('*')
-    .eq('user_id', currentUser.id)
     .eq('business_id', currentBiz?.id || '')
     .eq('is_active', true)
     .order('display_order', {ascending: true});
@@ -1514,7 +1544,7 @@ async function loadCoreData(){
       });
       if(!seedErr){
         const {data:coa2} = await sb.from('chart_of_accounts')
-          .select('*').eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '').eq('is_active', true)
+          .select('*').eq('business_id', currentBiz?.id || '').eq('is_active', true)
           .order('display_order', {ascending:true});
         chartOfAccounts = coa2 || [];
       }
@@ -1524,7 +1554,6 @@ async function loadCoreData(){
   /* Journal entries count for badge */
   const {count} = await sb.from('journal_entries')
     .select('*', {count: 'exact', head: true})
-    .eq('user_id', currentUser.id)
     .eq('business_id', currentBiz?.id || '');
   journalCount = count || 0;
   setText('badge-ledger', String(journalCount));
@@ -1658,7 +1687,6 @@ function nextVatDueDate(){
 async function entryIdsInRange(fromISO, toISO){
   const {data, error} = await sb.from('journal_entries')
     .select('id')
-    .eq('user_id', currentUser.id)
     .eq('business_id', currentBiz?.id || '')
     .neq('status', 'voided')
     .gte('entry_date', fromISO)
@@ -1677,7 +1705,6 @@ async function sumByAccountType(type, fromISO, toISO, side /* 'debit'|'credit' *
 
   const {data, error} = await sb.from('journal_lines')
     .select('debit, credit')
-    .eq('user_id', currentUser.id)
     .in('account_code', codes)
     .in('entry_id', entryIds);
   if(error){ console.warn('[GL] sumByAccountType', error.message); return 0; }
@@ -1696,7 +1723,6 @@ async function sumByAccountCode(code, fromISO, toISO, side){
 
   const {data, error} = await sb.from('journal_lines')
     .select('debit, credit')
-    .eq('user_id', currentUser.id)
     .eq('account_code', code)
     .in('entry_id', entryIds);
   if(error){ console.warn('[GL] sumByAccountCode', error.message); return 0; }
@@ -1723,7 +1749,7 @@ async function fetchCashPosition(toISO){
   /* Get all non-voided posted entries up to and including toISO */
   const {data: entries, error: e1} = await sb.from('journal_entries')
     .select('id')
-    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
+    .eq('business_id', currentBiz?.id || '')
     .neq('status', 'voided')
     .lte('entry_date', toISO);
   if(e1){ console.warn('[GL] fetchCashPosition entries', e1.message); return 0; }
@@ -1733,7 +1759,6 @@ async function fetchCashPosition(toISO){
   /* Sum DR - CR across all cash/bank account lines */
   const {data: lines, error: e2} = await sb.from('journal_lines')
     .select('debit, credit')
-    .eq('user_id', currentUser.id)
     .in('account_code', codes)
     .in('entry_id', entryIds);
   if(e2){ console.warn('[GL] fetchCashPosition lines', e2.message); return 0; }
@@ -1750,7 +1775,7 @@ async function checkBooksBalance(){
   /* First, get all non-voided entry IDs */
   const {data: entries, error: e1} = await sb.from('journal_entries')
     .select('id')
-    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
+    .eq('business_id', currentBiz?.id || '')
     .neq('status', 'voided');
   if(e1){ console.warn('[GL] checkBooksBalance entries', e1.message); return { balanced: true, totalDR: 0, totalCR: 0 }; }
   const ids = (entries || []).map(e => e.id);
@@ -1758,7 +1783,6 @@ async function checkBooksBalance(){
 
   const {data: lines, error: e2} = await sb.from('journal_lines')
     .select('debit, credit')
-    .eq('user_id', currentUser.id)
     .in('entry_id', ids);
   if(e2){ console.warn('[GL] checkBooksBalance lines', e2.message); return { balanced: true, totalDR: 0, totalCR: 0 }; }
 
@@ -1780,7 +1804,7 @@ async function loadAttentionItems(){
   /* 1. Expenses missing receipts (also pull first row's id for single-item auto-open) */
   const {data: noReceiptRows, count: noReceiptCount} = await sb.from('expenses')
     .select('id, expense_number, expense_date, vendor_name_snapshot, total', {count: 'exact'})
-    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
+    .eq('business_id', currentBiz?.id || '')
     .eq('status', 'posted')
     .is('receipt_path', null)
     .order('expense_date', {ascending: false})
@@ -1789,7 +1813,7 @@ async function loadAttentionItems(){
   /* 2. Vendors without TRN */
   const {data: noTrnRows, count: noTrnCount} = await sb.from('suppliers')
     .select('id, name_ar, name_en, supplier_code', {count: 'exact'})
-    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
+    .eq('business_id', currentBiz?.id || '')
     .eq('is_active', true)
     .in('usage_type', ['expense', 'both'])
     .or('trn.is.null,trn.eq.')
@@ -1799,7 +1823,7 @@ async function loadAttentionItems(){
   const today = new Date().toISOString().slice(0,10);
   const {data: overdueRows, count: overdueCount} = await sb.from('expenses')
     .select('id, expense_number, due_date, vendor_name_snapshot, total', {count: 'exact'})
-    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
+    .eq('business_id', currentBiz?.id || '')
     .eq('status', 'posted')
     .neq('payment_status', 'paid')
     .not('due_date', 'is', null)
@@ -2362,7 +2386,7 @@ async function loadAndRenderLedger(){
   /* Load entries in range */
   let query = sb.from('journal_entries')
     .select('*')
-    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '');
+    .eq('business_id', currentBiz?.id || '');
   if(period !== 'all'){
     query = query.gte('entry_date', fromISO).lte('entry_date', toISO);
   }
@@ -2382,7 +2406,6 @@ async function loadAndRenderLedger(){
     const ids = ledgerEntries.map(e => e.id);
     const {data: lines, error: lErr} = await sb.from('journal_lines')
       .select('*')
-      .eq('user_id', currentUser.id)
       .in('entry_id', ids);
     ledgerLines = lErr ? [] : (lines || []);
   } else {
@@ -2660,7 +2683,7 @@ async function renderChartOfAccounts(){
   /* Get non-voided entry ids */
   const {data: nonVoidedEntries} = await sb.from('journal_entries')
     .select('id')
-    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
+    .eq('business_id', currentBiz?.id || '')
     .neq('status', 'voided');
   const validIds = (nonVoidedEntries || []).map(e => e.id);
 
@@ -2672,7 +2695,6 @@ async function renderChartOfAccounts(){
       const chunk = validIds.slice(i, i + chunkSize);
       const {data: lines} = await sb.from('journal_lines')
         .select('account_code, debit, credit')
-        .eq('user_id', currentUser.id)
         .in('entry_id', chunk);
       if(lines) allLines = allLines.concat(lines);
     }
@@ -3315,7 +3337,7 @@ async function computeAccountBalances(fromISO, toISO){
   /* Get non-voided entry IDs in range */
   let q = sb.from('journal_entries')
     .select('id')
-    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
+    .eq('business_id', currentBiz?.id || '')
     .neq('status', 'voided');
   if(fromISO) q = q.gte('entry_date', fromISO);
   if(toISO) q = q.lte('entry_date', toISO);
@@ -3331,7 +3353,6 @@ async function computeAccountBalances(fromISO, toISO){
     const chunk = validIds.slice(i, i + chunkSize);
     const {data: lines} = await sb.from('journal_lines')
       .select('account_code, debit, credit')
-      .eq('user_id', currentUser.id)
       .in('entry_id', chunk);
     if(!lines) continue;
     for(const l of lines){
@@ -3801,7 +3822,6 @@ async function loadClosedPeriods(){
   if(!currentBiz) return;
   const {data, error} = await sb.from('accounting_periods')
     .select('*')
-    .eq('user_id', currentUser.id)
     .eq('business_id', currentBiz.id)
     .eq('status', 'closed')
     .order('period_end', {ascending: false});
@@ -4369,7 +4389,7 @@ async function renderVatStep2(){
   /* Pull invoices in period — exclude draft and voided */
   const {data: invoices, error} = await sb.from('invoices')
     .select('*')
-    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
+    .eq('business_id', currentBiz?.id || '')
     .gte('issue_date', p.fromISO)
     .lte('issue_date', p.toISO)
     .neq('status', 'draft')
@@ -4489,7 +4509,7 @@ async function renderVatStep3(){
 
   const {data: expenses, error} = await sb.from('expenses')
     .select('*')
-    .eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
+    .eq('business_id', currentBiz?.id || '')
     .gte('expense_date', p.fromISO)
     .lte('expense_date', p.toISO)
     .neq('status', 'voided')
@@ -4792,7 +4812,7 @@ async function renderVatStep2Fetch(){
   /* Run the fetch by calling it temporarily */
   const p = vatWizardState.period;
   const {data: invoices} = await sb.from('invoices')
-    .select('*').eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
+    .select('*').eq('business_id', currentBiz?.id || '')
     .gte('issue_date', p.fromISO).lte('issue_date', p.toISO)
     .neq('status', 'draft').neq('status', 'voided');
   let sN=0, sV=0, zR=0, ex=0;
@@ -4810,7 +4830,7 @@ async function renderVatStep2Fetch(){
 async function renderVatStep3Fetch(){
   const p = vatWizardState.period;
   const {data: expenses} = await sb.from('expenses')
-    .select('*').eq('user_id', currentUser.id).eq('business_id', currentBiz?.id || '')
+    .select('*').eq('business_id', currentBiz?.id || '')
     .gte('expense_date', p.fromISO).lte('expense_date', p.toISO)
     .neq('status','voided').neq('status','draft');
   let rN=0, rV=0, bN=0, bV=0;

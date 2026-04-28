@@ -1253,18 +1253,49 @@ function categoryLabel(code){
   return currentLang === 'ar' ? c.ar : c.en;
 }
 
+/* Round 2-MultiTenant-C: membership-based biz lookup */
+async function loadCurrentBusiness(sb, user){
+  const {data: activeMembership} = await sb.from('business_users')
+    .select('business_id, role').eq('user_id', user.id).eq('status', 'active').limit(5);
+  if(activeMembership && activeMembership.length > 0){
+    const ownerRow = activeMembership.find(m => m.role === 'owner');
+    const adminRow = activeMembership.find(m => m.role === 'admin');
+    const chosen = ownerRow || adminRow || activeMembership[0];
+    const {data: biz} = await sb.from('businesses').select('*').eq('id', chosen.business_id).maybeSingle();
+    if(biz) return {biz, role: chosen.role, reason: null};
+    return {biz: null, role: chosen.role, reason: 'biz_lookup_failed'};
+  }
+  const {data: anyMembership} = await sb.from('business_users').select('id').eq('user_id', user.id).limit(5);
+  if(anyMembership && anyMembership.length > 0) return {biz: null, role: null, reason: 'revoked'};
+  const bizName = user.user_metadata?.business_name || 'My Business';
+  const {data: newBiz} = await sb.from('businesses').insert({
+    user_id: user.id, name: bizName, plan: 'starter', plan_status: 'active'
+  }).select().single();
+  if(!newBiz) return {biz: null, role: null, reason: 'create_failed'};
+  await sb.from('business_users').insert({
+    business_id: newBiz.id, user_id: user.id,
+    email: user.email || 'unknown@example.com', role: 'owner', status: 'active'
+  });
+  return {biz: newBiz, role: 'owner', reason: null};
+}
+
 /* ─── init ─── */
 async function init(){
   const {data:{session}} = await sb.auth.getSession();
   if(!session){ window.location.href = 'login.html'; return; }
   currentUser = session.user;
 
-  const {data:bizes} = await sb.from('businesses').select('*').eq('user_id', currentUser.id).limit(1);
-  if(!bizes || bizes.length === 0){
-    notify(currentLang==='ar'?'لم يتم العثور على شركة':'No business found','error');
+  const {biz, role, reason} = await loadCurrentBusiness(sb, currentUser);
+  if(!biz){
+    if(reason === 'revoked'){
+      document.body.innerHTML = '<div style="max-width:480px;margin:80px auto;padding:32px;background:#fff;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.1);text-align:center;font-family:Tajawal,Cairo,sans-serif;"><h1 style="color:#c43e3e;font-size:22px;margin-bottom:12px;">' + (currentLang==='ar'?'تم إلغاء الوصول':'Access revoked') + '</h1><p style="color:#666;margin-bottom:20px;">' + (currentLang==='ar'?'تم إزالة وصولك إلى هذه المنشأة. تواصل مع مالك المنشأة.':'Your access to this business has been removed. Contact the business owner.') + '</p><button onclick="logout()" style="padding:10px 22px;background:#006C35;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">' + (currentLang==='ar'?'تسجيل الخروج':'Sign out') + '</button></div>';
+      return;
+    }
+    notify((currentLang==='ar'?'لم يتم العثور على شركة':'No business found') + ' (' + (reason||'unknown') + ')','error');
     return;
   }
-  currentBiz = bizes[0];
+  currentBiz = biz;
+  currentBiz._myRole = role;
   setText('biz-name', displayName(currentBiz) || currentBiz.name || '—');
 
   setLang(currentLang);
@@ -1350,7 +1381,6 @@ async function loadAll(){
 async function loadExpenses(){
   const {data, error} = await sb.from('expenses')
     .select('*')
-    .eq('user_id', currentUser.id)
     .eq('business_id', currentBiz?.id || '')
     .order('expense_date', {ascending:false})
     .order('created_at', {ascending:false})
@@ -1363,7 +1393,6 @@ async function loadVendors(){
   /* Vendors = suppliers with usage_type IN ('expense','both') */
   const {data, error} = await sb.from('suppliers')
     .select('*')
-    .eq('user_id', currentUser.id)
     .eq('business_id', currentBiz?.id || '')
     .in('usage_type', ['expense','both'])
     .order('name_ar', {ascending:true});
@@ -1906,7 +1935,6 @@ async function fetchAllSuppliersForCode(){
   /* For accurate next-code generation, look across all suppliers (not just expense ones) */
   const {data} = await sb.from('suppliers')
     .select('supplier_code')
-    .eq('user_id', currentUser.id)
     .eq('business_id', currentBiz?.id || '');
   window._allSuppliersForCode = data || [];
 }
@@ -1916,7 +1944,6 @@ async function fetchNextExpenseNumber(){
   const prefix = 'EXP';
   const {data, error} = await sb.from('expenses')
     .select('expense_number')
-    .eq('user_id', currentUser.id)
     .eq('business_id', currentBiz?.id || '')
     .ilike('expense_number', `${prefix}-${yr}-%`);
   if(error){
@@ -2074,7 +2101,6 @@ async function deleteVendor(){
   /* Check if any expenses reference this vendor */
   const {count} = await sb.from('expenses')
     .select('*', {count: 'exact', head: true})
-    .eq('user_id', currentUser.id)
     .eq('business_id', currentBiz?.id || '')
     .eq('supplier_id', currentVendorId);
 
@@ -2807,7 +2833,6 @@ async function openExpenseDrawer(id){
       .select('*')
       .eq('entity_type', 'expense')
       .eq('entity_id', id)
-      .eq('user_id', currentUser.id)
       .eq('business_id', currentBiz?.id || '')
       .order('created_at', {ascending: true}),
     exp.receipt_path ? generateReceiptSignedUrl(exp.receipt_path) : Promise.resolve(null)
