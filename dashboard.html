@@ -955,6 +955,47 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
     }
   }
 
+  /* ═══════════════════════════════════════════════════════════════
+     Round 2-MultiTenant-C: loadCurrentBusiness(sb, user)
+     Returns { biz, role, reason } — looks up business via business_users
+     membership (works for both owners and team members). Auto-creates a
+     business for brand-new users with no membership history. */
+  async function loadCurrentBusiness(sb, user){
+    /* 1. Active membership (owner or team member) */
+    const {data: activeMembership} = await sb.from('business_users')
+      .select('business_id, role')
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+      .limit(5);
+    if(activeMembership && activeMembership.length > 0){
+      /* Prefer owner > admin > others if user has multiple memberships */
+      const ownerRow = activeMembership.find(m => m.role === 'owner');
+      const adminRow = activeMembership.find(m => m.role === 'admin');
+      const chosen = ownerRow || adminRow || activeMembership[0];
+      const {data: biz} = await sb.from('businesses').select('*').eq('id', chosen.business_id).maybeSingle();
+      if(biz) return {biz, role: chosen.role, reason: null};
+    }
+    /* 2. Inactive-only membership: access revoked */
+    const {data: anyMembership} = await sb.from('business_users')
+      .select('id').eq('user_id', user.id).limit(1);
+    if(anyMembership && anyMembership.length > 0){
+      return {biz: null, role: null, reason: 'revoked'};
+    }
+    /* 3. Brand new user — auto-create business (trigger will add owner membership) */
+    const bizName = user.user_metadata?.business_name || 'My Business';
+    const {data: newBiz} = await sb.from('businesses').insert({
+      user_id: user.id, name: bizName, plan: 'starter', plan_status: 'active'
+    }).select().single();
+    if(!newBiz) return {biz: null, role: null, reason: 'create_failed'};
+    /* The trg_businesses_ensure_owner_membership trigger creates the owner row.
+       But also insert defensively in case the trigger isn't installed. */
+    await sb.from('business_users').insert({
+      business_id: newBiz.id, user_id: user.id,
+      email: user.email || 'unknown@example.com', role: 'owner', status: 'active'
+    });
+    return {biz: newBiz, role: 'owner', reason: null};
+  }
+
   /* ── INIT ── */
   let _initRan = false;
   async function init(){
@@ -973,31 +1014,26 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
     const {data:{session}}=await sb.auth.getSession();
     if(!session){window.location.href='login.html';return;}
     const user=session.user;
+    window.currentUser = user;  /* expose for setup modal & other helpers */
 
-    const {data:biz}=await sb.from('businesses').select('*').eq('user_id',user.id).single();
-    if(biz){
-      currentBiz=biz;
-      const name = pickLang(biz, 'name');
-      const bizEl = document.getElementById('biz-name');
-      bizEl.textContent=name;
-      bizEl.title=name; // full name on hover, useful when truncated
-      document.getElementById('dash-title').textContent=(L==='ar'?'مرحباً، ':'Welcome, ')+name;
-      if(!biz.trn)document.getElementById('setup-banner').style.display='flex';
-      // Language: localStorage is source of truth, don't override from DB
-      applyPlanGating(biz.plan||'starter');
-    } else {
-      const bizName=user.user_metadata?.business_name||'My Business';
-      const bizEl = document.getElementById('biz-name');
-      bizEl.textContent=bizName;
-      bizEl.title=bizName;
-      document.getElementById('dash-title').textContent=(L==='ar'?'مرحباً، ':'Welcome, ')+bizName;
-      document.getElementById('setup-banner').style.display='flex';
-      const {data:newBiz}=await sb.from('businesses').insert({
-        user_id:user.id,name:bizName,plan:'starter',plan_status:'active'
-      }).select().single();
-      currentBiz=newBiz;
-      applyPlanGating('starter');
+    const {biz, role, reason} = await loadCurrentBusiness(sb, user);
+    if(!biz){
+      if(reason === 'revoked'){
+        document.body.innerHTML = '<div style="max-width:480px;margin:80px auto;padding:32px;background:#fff;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.1);text-align:center;font-family:Tajawal,Cairo,sans-serif;"><h1 style="color:#c43e3e;font-size:22px;margin-bottom:12px;">' + (L==='ar'?'تم إلغاء الوصول':'Access revoked') + '</h1><p style="color:#666;margin-bottom:20px;">' + (L==='ar'?'تم إزالة وصولك إلى هذه المنشأة. تواصل مع مالك المنشأة.':'Your access to this business has been removed. Contact the business owner.') + '</p><button onclick="logout()" style="padding:10px 22px;background:#006C35;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">' + (L==='ar'?'تسجيل الخروج':'Sign out') + '</button></div>';
+        return;
+      }
+      alert((L==='ar'?'فشل تحميل المنشأة':'Failed to load business') + ' (' + (reason||'unknown') + ')');
+      return;
     }
+    currentBiz = biz;
+    currentBiz._myRole = role;
+    const name = pickLang(biz, 'name');
+    const bizEl = document.getElementById('biz-name');
+    bizEl.textContent = name;
+    bizEl.title = name;
+    document.getElementById('dash-title').textContent = (L==='ar'?'مرحباً، ':'Welcome, ') + name;
+    if(!biz.trn) document.getElementById('setup-banner').style.display = 'flex';
+    applyPlanGating(biz.plan || 'starter');
 
     /* Reveal page now that biz is loaded — stats & insights load progressively below */
     showPage();
@@ -1017,7 +1053,7 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
     const q = Math.floor(now.getMonth()/3);
     const qStart = now.getFullYear()+'-'+String(q*3+1).padStart(2,'0')+'-01';
 
-    const {data:allInv}=await sb.from('invoices').select('total,vat_amount,subtotal,issue_date,invoice_number,buyer_name,payment_status,due_date').eq('user_id',user.id).eq('business_id', biz.id).order('issue_date',{ascending:false});
+    const {data:allInv}=await sb.from('invoices').select('total,vat_amount,subtotal,issue_date,invoice_number,buyer_name,payment_status,due_date').eq('business_id', biz.id).order('issue_date',{ascending:false});
 
     if(allInv){
       const monthInv=allInv.filter(i=>i.issue_date>=monthStart&&i.issue_date<=monthEnd);
@@ -1087,7 +1123,7 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
     // Load expenses this month
     const {data:expEntries}=await sb.from('journal_entries')
       .select('*, journal_lines(*)')
-      .eq('user_id',user.id)
+      .eq('business_id', biz.id)
       .eq('source','expense')
       .gte('entry_date',monthStart)
       .order('entry_date',{ascending:false})
@@ -1137,7 +1173,7 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
     profEl.className='stat-val '+(profit>=0?'c-green':'c-red');
 
     // Stock alerts — clean act-item design with proper success state
-    const {data:items}=await sb.from('inventory_items').select('name,current_qty,alert_level,unit').eq('user_id',user.id).eq('business_id', biz.id);
+    const {data:items}=await sb.from('inventory_items').select('name,current_qty,alert_level,unit').eq('business_id', biz.id);
     const sal=document.getElementById('stock-alerts-list');
     if(items){
       const low=items.filter(i=>i.current_qty<=(i.alert_level||0));
