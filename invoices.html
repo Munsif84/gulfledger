@@ -2633,11 +2633,23 @@ function toggleCustNotes(){
    INVENTORY PICKER
 ═══════════════════════════════════════════════════════ */
 async function openInventoryPicker(itemIdx){
+  /* Defensive guard: refuse to query if currentBiz isn't loaded yet.
+     Without this, an unset currentBiz would query for business_id='' which
+     returns nothing — but only because RLS blocks it. The guard here makes
+     the failure mode visible to the user and prevents any future code path
+     from accidentally trusting a falsy business_id. */
+  if(!currentBiz?.id){
+    notify(currentLang==='ar'
+      ? 'لم يتم تحميل بيانات المنشأة. يرجى إعادة تحميل الصفحة.'
+      : 'Business data not loaded. Please reload the page.', 'r');
+    return;
+  }
+
   /* Round C bugfix: include name_en (was missing — caused inconsistent picker labels)
      and filter out soft-deleted items (is_active=false). */
   const {data} = await sb.from('inventory_items')
     .select('id,name,name_ar,name_en,sku,sale_price,current_qty,unit')
-    .eq('business_id', currentBiz?.id || '')
+    .eq('business_id', currentBiz.id)
     .eq('is_active', true)
     .order('name_ar', {ascending: true});
 
