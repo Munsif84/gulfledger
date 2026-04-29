@@ -1150,36 +1150,103 @@ function poStatusBadge(status){
   return `<span style="background:${m.bg};color:${m.fg};padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;display:inline-block;">${ar?m.ar:m.en}</span>`;
 }
 
-/* ───── PO CREATE MODAL ───── */
-async function openPOModal(){
+/* ───── PO CREATE / EDIT MODAL ─────
+   Modes:
+   - new (no id arg): blank form, draft+send buttons
+   - edit (id of draft): pre-filled form, save+send buttons, delete option
+   - view (id of non-draft): pre-filled READ-ONLY view, only close button
+   Posted/sent POs are intentionally read-only to protect audit trail (same
+   rule as invoices: void+recreate to fix, never silent-edit confirmed docs). */
+let poEditingId = null;
+let poEditingStatus = null;
+
+async function openPOModal(id){
   if(!currentBiz?.id){
     notify(currentLang==='ar'?'لم يتم تحميل بيانات المنشأة':'Business not loaded', 'error');
     return;
   }
-  poItems = [{description:'', item_id:null, quantity:1, unit_price:0, vat_rate:15}];
 
-  const today = new Date().toISOString().slice(0,10);
-  const nextNum = await fetchNextPONumber();
+  poEditingId = id || null;
+  poEditingStatus = null;
+
+  let header = null;
+  let lines = [];
+
+  if(poEditingId){
+    /* Load existing PO + lines */
+    const {data: poRow, error: poErr} = await sb.from('purchase_orders')
+      .select('*').eq('id', poEditingId).single();
+    if(poErr || !poRow){
+      notify(currentLang==='ar'?'تعذّر تحميل الطلب':'Could not load PO', 'error');
+      return;
+    }
+    const {data: lineRows, error: linesErr} = await sb.from('po_items')
+      .select('*').eq('po_id', poEditingId).order('sort_order', {ascending: true});
+    if(linesErr){
+      notify(currentLang==='ar'?'تعذّر تحميل البنود':'Could not load lines', 'error');
+      return;
+    }
+    header = poRow;
+    lines = lineRows || [];
+    poEditingStatus = poRow.status || 'draft';
+  }
+
+  /* Determine mode */
+  const isEdit = !!poEditingId;
+  const isReadOnly = isEdit && poEditingStatus !== 'draft';
   const ar = currentLang === 'ar';
 
+  /* Populate poItems from loaded lines (or default for new) */
+  if(isEdit && lines.length){
+    poItems = lines.map(l => ({
+      description: l.description || '',
+      item_id: l.item_id || null,
+      quantity: parseFloat(l.quantity) || 0,
+      unit_price: parseFloat(l.unit_price) || 0,
+      vat_rate: parseFloat(l.vat_rate) || 15,
+      qty_received: parseFloat(l.qty_received) || 0
+    }));
+  } else {
+    poItems = [{description:'', item_id:null, quantity:1, unit_price:0, vat_rate:15, qty_received:0}];
+  }
+
+  const today = new Date().toISOString().slice(0,10);
+  const num = isEdit ? (header.po_number || '') : await fetchNextPONumber();
+  const poDate = isEdit ? (header.po_date || today) : today;
+  const expectedDate = isEdit ? (header.expected_date || '') : '';
+  const supplierId = isEdit ? (header.supplier_id || '') : '';
+  const notes = isEdit ? (header.notes || '') : '';
+
+  /* Title varies by mode */
+  let title;
+  if(!isEdit) title = ar?'طلب شراء جديد':'New Purchase Order';
+  else if(isReadOnly) title = (ar?'طلب شراء':'Purchase Order') + ' · ' + escHTML(num);
+  else title = (ar?'تعديل طلب شراء':'Edit Purchase Order') + ' · ' + escHTML(num);
+
+  /* "ro" attribute on inputs when read-only */
+  const ro = isReadOnly ? 'readonly disabled' : '';
+
   const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay show';
+  overlay.className = 'modal-overlay open';
   overlay.id = 'po-modal';
   overlay.innerHTML = `
     <div class="modal" style="max-width:900px;">
       <div class="modal-head">
-        <div class="modal-title" data-ar="طلب شراء جديد" data-en="New Purchase Order">طلب شراء جديد</div>
+        <div class="modal-title">${title}${isReadOnly ? ' ' + poStatusBadge(poEditingStatus) : ''}</div>
         <button class="modal-close" onclick="closePOModal()">×</button>
       </div>
       <div class="modal-body">
+        ${isReadOnly ? `<div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:13px;color:#78350f;">
+          ${ar?'⚠️ هذا الطلب غير قابل للتعديل (تم إرساله/استلامه). لتغيير البيانات، أنشئ طلباً جديداً أو ألغِ هذا الطلب.':'⚠️ This PO is read-only (already sent/received). Create a new PO or cancel this one to make changes.'}
+        </div>` : ''}
         <div class="field-row double">
           <div class="field">
             <div class="field-label"><span data-ar="رقم الطلب" data-en="PO #">رقم الطلب</span></div>
-            <input type="text" id="po-f-num" class="mono" value="${escHTML(nextNum)}" readonly dir="ltr">
+            <input type="text" id="po-f-num" class="mono" value="${escHTML(num)}" readonly dir="ltr">
           </div>
           <div class="field">
             <div class="field-label"><span data-ar="التاريخ" data-en="Date">التاريخ</span><span class="req">*</span></div>
-            <input type="date" id="po-f-date" value="${today}">
+            <input type="date" id="po-f-date" value="${poDate}" ${ro}>
           </div>
         </div>
         <div class="field-row double">
@@ -1188,9 +1255,9 @@ async function openPOModal(){
               <span data-ar="المورد" data-en="Supplier">المورد</span>
               <span class="opt">(optional)</span>
             </div>
-            <select id="po-f-supplier">
+            <select id="po-f-supplier" ${ro}>
               <option value="">${ar?'-- اختر المورد --':'-- Select supplier --'}</option>
-              ${allSuppliers.map(s => `<option value="${s.id}">${escHTML(s.name_ar || s.name || '')}${s.name_en ? ' · ' + escHTML(s.name_en) : ''}</option>`).join('')}
+              ${allSuppliers.map(s => `<option value="${s.id}"${s.id===supplierId?' selected':''}>${escHTML(s.name_ar || s.name || '')}${s.name_en ? ' · ' + escHTML(s.name_en) : ''}</option>`).join('')}
             </select>
           </div>
           <div class="field">
@@ -1198,13 +1265,13 @@ async function openPOModal(){
               <span data-ar="تاريخ التسليم المتوقع" data-en="Expected Delivery">تاريخ التسليم المتوقع</span>
               <span class="opt">(optional)</span>
             </div>
-            <input type="date" id="po-f-expected">
+            <input type="date" id="po-f-expected" value="${expectedDate || ''}" ${ro}>
           </div>
         </div>
 
         <div class="field-label" style="margin-top:14px;margin-bottom:8px;">
           <span data-ar="بنود الطلب" data-en="Order Lines">بنود الطلب</span>
-          <span class="req">*</span>
+          ${isReadOnly ? '' : '<span class="req">*</span>'}
         </div>
         <div class="table-wrap" style="overflow-x:auto;">
           <table class="tbl" id="po-lines-tbl">
@@ -1215,15 +1282,15 @@ async function openPOModal(){
                 <th class="num" style="width:120px;">${ar?'السعر':'Unit Price'}</th>
                 <th class="num" style="width:80px;">${ar?'الضريبة%':'VAT%'}</th>
                 <th class="num" style="width:120px;">${ar?'الإجمالي':'Total'}</th>
-                <th class="center" style="width:40px;"></th>
+                ${isReadOnly ? '' : '<th class="center" style="width:40px;"></th>'}
               </tr>
             </thead>
             <tbody id="po-lines-body"></tbody>
           </table>
         </div>
-        <button class="btn btn-ghost btn-sm" onclick="addPOLine()" style="margin-top:8px;">
+        ${isReadOnly ? '' : `<button class="btn btn-ghost btn-sm" onclick="addPOLine()" style="margin-top:8px;">
           + <span data-ar="إضافة بند" data-en="Add Line">إضافة بند</span>
-        </button>
+        </button>`}
 
         <div style="margin-top:18px;display:flex;justify-content:flex-end;">
           <div style="width:300px;background:var(--tint);border-radius:8px;padding:12px 14px;">
@@ -1247,24 +1314,39 @@ async function openPOModal(){
             <span data-ar="ملاحظات" data-en="Notes">ملاحظات</span>
             <span class="opt">(optional)</span>
           </div>
-          <textarea id="po-f-notes" rows="2"></textarea>
+          <textarea id="po-f-notes" rows="2" ${ro}>${escHTML(notes)}</textarea>
         </div>
       </div>
       <div class="modal-foot">
-        <button class="btn btn-ghost" onclick="closePOModal()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
-        <button class="btn btn-secondary" onclick="savePO('draft')" data-ar="حفظ كمسودة" data-en="Save Draft">حفظ كمسودة</button>
-        <button class="btn btn-primary" onclick="savePO('sent')" data-ar="إرسال" data-en="Send">إرسال</button>
+        ${isEdit && !isReadOnly ? `<button class="btn btn-danger" onclick="deletePO(poEditingId)" style="margin-inline-end:auto;">
+          🗑 <span data-ar="حذف" data-en="Delete">حذف</span>
+        </button>` : ''}
+        ${isReadOnly && ['sent','partial'].includes(poEditingStatus) ? `
+          <button class="btn btn-danger" onclick="cancelPO(poEditingId)" style="margin-inline-end:auto;">
+            <span data-ar="إلغاء الطلب" data-en="Cancel PO">إلغاء الطلب</span>
+          </button>
+          <button class="btn btn-secondary" onclick="reopenPO(poEditingId)">
+            <span data-ar="إعادة إلى مسودة" data-en="Reopen to Draft">إعادة إلى مسودة</span>
+          </button>
+        ` : ''}
+        <button class="btn btn-ghost" onclick="closePOModal()">${isReadOnly?(ar?'إغلاق':'Close'):(ar?'إلغاء':'Cancel')}</button>
+        ${isReadOnly ? '' : `
+          <button class="btn btn-secondary" onclick="savePO('draft')">${ar?'حفظ كمسودة':'Save Draft'}</button>
+          <button class="btn btn-primary" onclick="savePO('sent')">${isEdit?(ar?'تحديث وإرسال':'Update & Send'):(ar?'إرسال':'Send')}</button>
+        `}
       </div>
     </div>
   `;
   document.body.appendChild(overlay);
   applyLang();
-  renderPOLines();
+  renderPOLines(isReadOnly);
 }
 
 function closePOModal(){
   document.getElementById('po-modal')?.remove();
   poItems = [];
+  poEditingId = null;
+  poEditingStatus = null;
 }
 
 function addPOLine(){
@@ -1301,7 +1383,7 @@ function updatePOLine(idx, field, value){
   renderPOLines();
 }
 
-function renderPOLines(){
+function renderPOLines(readOnly){
   const tbody = document.getElementById('po-lines-body');
   if(!tbody) return;
   const ar = currentLang === 'ar';
@@ -1313,6 +1395,23 @@ function renderPOLines(){
     const lineTotal = lineSub + lineVat;
     subtotal += lineSub;
     vatTotal += lineVat;
+
+    if(readOnly){
+      /* Read-only: just text, no inputs */
+      const desc = it.description || '—';
+      const itemLink = it.item_id ? (allItems.find(i => i.id === it.item_id)?.sku || '') : '';
+      return `<tr>
+        <td>
+          <div>${escHTML(desc)}</div>
+          ${itemLink ? `<div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:2px;">🔗 ${escHTML(itemLink)}</div>` : ''}
+        </td>
+        <td class="num">${fmt(it.quantity)}</td>
+        <td class="num">SAR ${fmt(it.unit_price)}</td>
+        <td class="num">${fmt(it.vat_rate)}%</td>
+        <td class="num">SAR ${fmt(lineTotal)}</td>
+      </tr>`;
+    }
+
     return `<tr>
       <td>
         <div class="field" style="margin:0;">
@@ -1390,8 +1489,6 @@ async function savePO(status){
   const total = subtotal + vatAmount;
 
   const poRow = {
-    business_id: currentBiz.id,
-    user_id: currentUser.id,
     po_number, po_date, expected_date,
     supplier_id, supplier_name,
     status,
@@ -1399,19 +1496,48 @@ async function savePO(status){
     notes
   };
 
-  const {data: poInserted, error: poErr} = await sb.from('purchase_orders').insert(poRow).select().single();
-  if(poErr){
-    console.error('PO insert:', poErr);
-    notify((currentLang==='ar'?'فشل الحفظ: ':'Save failed: ') + (poErr.message || ''), 'error');
-    return;
+  let savedPOId;
+
+  if(poEditingId){
+    /* UPDATE existing PO. Only drafts reach this code path
+       (non-draft PO modals don't show Save buttons). */
+    const {error: updErr} = await sb.from('purchase_orders')
+      .update(poRow).eq('id', poEditingId);
+    if(updErr){
+      console.error('PO update:', updErr);
+      notify((currentLang==='ar'?'فشل التحديث: ':'Update failed: ') + (updErr.message || ''), 'error');
+      return;
+    }
+    savedPOId = poEditingId;
+
+    /* Replace line items: delete all + re-insert. Simpler than diffing.
+       Only valid for draft POs — qty_received is reset, but drafts shouldn't
+       have any received qty anyway. */
+    const {error: delErr} = await sb.from('po_items').delete().eq('po_id', poEditingId);
+    if(delErr){
+      console.error('PO lines delete:', delErr);
+      notify((currentLang==='ar'?'فشل تحديث البنود':'Lines update failed'), 'error');
+      return;
+    }
+  } else {
+    /* INSERT new PO */
+    poRow.business_id = currentBiz.id;
+    poRow.user_id = currentUser.id;
+    const {data: poInserted, error: poErr} = await sb.from('purchase_orders').insert(poRow).select().single();
+    if(poErr){
+      console.error('PO insert:', poErr);
+      notify((currentLang==='ar'?'فشل الحفظ: ':'Save failed: ') + (poErr.message || ''), 'error');
+      return;
+    }
+    savedPOId = poInserted.id;
   }
 
-  /* Insert line items */
+  /* Insert line items (works for both new and update-replace flows) */
   const lineRows = validLines.map((it, idx) => {
     const lineSub = it.quantity * it.unit_price;
     const lineVat = lineSub * (it.vat_rate / 100);
     return {
-      po_id: poInserted.id,
+      po_id: savedPOId,
       item_id: it.item_id || null,
       description: it.description,
       quantity: it.quantity,
@@ -1436,9 +1562,74 @@ async function savePO(status){
   renderPOs();
 }
 
-/* Stub for future: view/edit existing PO. */
+/* Open existing PO in view/edit mode */
 function viewPO(id){
-  notify(currentLang==='ar'?'عرض/تعديل قريباً':'View/edit coming soon', 'info');
+  openPOModal(id);
+}
+
+/* Move sent/partial PO back to draft (allows editing) */
+async function reopenPO(id){
+  if(!confirm(currentLang==='ar'
+      ? 'هل تريد إعادة هذا الطلب إلى مسودة؟ سيمكن تعديله مرة أخرى.'
+      : 'Reopen this PO to draft? It will become editable again.')){
+    return;
+  }
+  const {error} = await sb.from('purchase_orders').update({status: 'draft'}).eq('id', id);
+  if(error){
+    console.error('PO reopen:', error);
+    notify((currentLang==='ar'?'فشل: ':'Failed: ') + (error.message || ''), 'error');
+    return;
+  }
+  notify(currentLang==='ar'?'✅ تم إعادة الطلب إلى مسودة':'✅ PO reopened to draft', 'success');
+  closePOModal();
+  await loadPOs();
+  renderPOs();
+}
+
+/* Cancel a sent/partial PO (does NOT delete — keeps history) */
+async function cancelPO(id){
+  if(!confirm(currentLang==='ar'
+      ? 'هل أنت متأكد من إلغاء هذا الطلب؟ لن يتم حذفه ولكن سيظهر كملغي.'
+      : 'Cancel this PO? It will not be deleted but marked as cancelled.')){
+    return;
+  }
+  const {error} = await sb.from('purchase_orders').update({status: 'cancelled'}).eq('id', id);
+  if(error){
+    console.error('PO cancel:', error);
+    notify((currentLang==='ar'?'فشل: ':'Failed: ') + (error.message || ''), 'error');
+    return;
+  }
+  notify(currentLang==='ar'?'تم إلغاء الطلب':'PO cancelled', 'success');
+  closePOModal();
+  await loadPOs();
+  renderPOs();
+}
+
+/* Permanently delete a draft PO + its line items.
+   Only allowed for drafts (non-draft uses cancelPO). */
+async function deletePO(id){
+  if(!confirm(currentLang==='ar'
+      ? '⚠️ حذف هذه المسودة نهائياً؟ لا يمكن التراجع.'
+      : '⚠️ Permanently delete this draft? This cannot be undone.')){
+    return;
+  }
+  /* Delete lines first (FK), then the PO itself */
+  const {error: lineErr} = await sb.from('po_items').delete().eq('po_id', id);
+  if(lineErr){
+    console.error('Lines delete:', lineErr);
+    notify((currentLang==='ar'?'فشل حذف البنود: ':'Lines delete failed: ') + (lineErr.message || ''), 'error');
+    return;
+  }
+  const {error: poErr} = await sb.from('purchase_orders').delete().eq('id', id);
+  if(poErr){
+    console.error('PO delete:', poErr);
+    notify((currentLang==='ar'?'فشل الحذف: ':'Delete failed: ') + (poErr.message || ''), 'error');
+    return;
+  }
+  notify(currentLang==='ar'?'تم الحذف':'Deleted', 'success');
+  closePOModal();
+  await loadPOs();
+  renderPOs();
 }
 
 
