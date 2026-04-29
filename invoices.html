@@ -2610,10 +2610,13 @@ function toggleCustNotes(){
    INVENTORY PICKER
 ═══════════════════════════════════════════════════════ */
 async function openInventoryPicker(itemIdx){
+  /* Round C bugfix: include name_en (was missing — caused inconsistent picker labels)
+     and filter out soft-deleted items (is_active=false). */
   const {data} = await sb.from('inventory_items')
-    .select('id,name,name_ar,sku,sale_price,current_qty,unit')
+    .select('id,name,name_ar,name_en,sku,sale_price,current_qty,unit')
     .eq('business_id', currentBiz?.id || '')
-    .order('name');
+    .eq('is_active', true)
+    .order('name_ar', {ascending: true});
 
   if(!data || !data.length){
     notify(currentLang==='ar'?'لا توجد أصناف في المخزون':'No inventory items', 'a');
@@ -2649,10 +2652,20 @@ async function openInventoryPicker(itemIdx){
 function renderPickerItems(items, itemIdx){
   return items.map(it => {
     const stockClass = (it.current_qty||0) <= 0 ? 'low' : 'ok';
-    return `<div class="picker-item" onclick="pickInventoryItem('${it.id}','${safeAttr(it.name||'')}','${safeAttr(it.name_ar||'')}',${it.sale_price||0},${itemIdx})">
+    /* Round C bugfix: deterministic bilingual display.
+       Top line = Arabic (primary, since app is Arabic-first / RTL).
+       Bottom line = English (subdued).
+       Falls back to legacy `name` field for older items missing name_ar/name_en. */
+    const ar = it.name_ar || it.name || '—';
+    const en = it.name_en || ((it.name && it.name !== it.name_ar) ? it.name : '');
+    /* Pick callback: pass English to .desc, Arabic to .desc_ar.
+       desc is what the print template renders as the primary description,
+       desc_ar is the Arabic line that appears with it (ZATCA bilingual). */
+    const pickName = en || ar; /* English preferred for desc; falls back to Arabic if no English */
+    return `<div class="picker-item" onclick="pickInventoryItem('${it.id}','${safeAttr(pickName)}','${safeAttr(ar)}',${it.sale_price||0},${itemIdx})">
       <div>
-        <div class="picker-item-name">${it.name||'—'}</div>
-        ${it.name_ar && it.name_ar !== it.name ? '<div style="font-size:11px;color:var(--muted);">'+it.name_ar+'</div>' : ''}
+        <div class="picker-item-name" dir="rtl">${ar}</div>
+        ${en ? '<div style="font-size:11px;color:var(--muted);" dir="ltr">'+en+'</div>' : ''}
       </div>
       <div class="picker-item-sku">${it.sku||'—'}</div>
       <div class="picker-item-price">${fmt(it.sale_price||0)}</div>
@@ -2665,9 +2678,11 @@ function filterPickerList(search){
   const modal = document.getElementById('inv-picker-modal');
   if(!modal || !modal._items) return;
   const q = (search||'').toLowerCase().trim();
+  /* Round C bugfix: also search name_en */
   const filtered = modal._items.filter(it =>
     (it.name||'').toLowerCase().includes(q) ||
     (it.name_ar||'').toLowerCase().includes(q) ||
+    (it.name_en||'').toLowerCase().includes(q) ||
     (it.sku||'').toLowerCase().includes(q)
   );
   document.getElementById('picker-list').innerHTML = renderPickerItems(filtered, modal._itemIdx);
@@ -2765,6 +2780,21 @@ async function saveDraft(){
    NO inventory consumed. User can review then click "Confirm & Generate"
    from the preview to commit. This avoids messy reversals from typos.
 ═══════════════════════════════════════════════════════ */
+/* Round C bugfix: helpers for the DRAFT-{shortid} placeholder pattern.
+   Drafts don't consume real invoice_numbers; the sequential number is assigned
+   only at confirm time in generateInvoice(). */
+function generateDraftNumber(){
+  /* 8 hex chars from random bytes — collision risk negligible at pilot scale.
+     Total uniqueness namespace per business: 16^8 = 4.3 billion. */
+  const bytes = new Uint8Array(4);
+  crypto.getRandomValues(bytes);
+  const hex = Array.from(bytes).map(b => b.toString(16).padStart(2, '0')).join('');
+  return 'DRAFT-' + hex;
+}
+function isDraftPlaceholder(num){
+  return typeof num === 'string' && num.startsWith('DRAFT-');
+}
+
 async function previewInvoice(){
   if(!currentUser) throw new Error('not authenticated');
 
@@ -2778,13 +2808,30 @@ async function previewInvoice(){
     throw new Error('no items');
   }
 
-  /* Build payload — save as draft, NO invoice_number (will be assigned on confirm) */
+  /* Round C bugfix: drafts use a DRAFT-{shortid} placeholder so they don't
+     consume real invoice numbers. The real sequential number is assigned at
+     confirm time in generateInvoice(). Without this, previewing twice (or
+     two concurrent users previewing) produced "duplicate key" violations on
+     invoices_business_invnum_unique because next_invoice_number ignores drafts.
+
+     Editing an existing draft keeps whatever number it had (could be DRAFT-x
+     from a previous preview, or a real number if this draft was somehow saved
+     with one earlier). */
+  let draftNumber;
+  if(currentInvoiceId){
+    /* Existing draft — keep its current number unchanged. */
+    draftNumber = v('f-invnum') || null;
+  } else {
+    /* Fresh preview — always use a unique placeholder. */
+    draftNumber = generateDraftNumber();
+    setVal('f-invnum', draftNumber);
+  }
+
+  /* Build payload — save as draft. */
   const payload = {
     user_id: currentUser.id,
     business_id: currentBiz?.id,
-    /* Keep invoice_number from form if present (for edit-existing-draft case),
-       else null (number assigned on confirm-and-generate) */
-    invoice_number: v('f-invnum') || null,
+    invoice_number: draftNumber,
     invoice_type: v('f-type'),
     issue_date: v('f-date') || todayISO(),
     due_date: v('f-duedate') || null,
@@ -2857,9 +2904,34 @@ async function generateInvoice(){
 
   const isTax = currentInvType === 'tax';
 
+  /* Round C bugfix: if the form holds a DRAFT-{shortid} placeholder (came from
+     previewInvoice) or no number at all, fetch the real sequential number now.
+     This is the moment where we commit to a real, monotonically-increasing
+     invoice number for ZATCA compliance. */
+  let formNum = v('f-invnum');
+  if(!formNum || isDraftPlaceholder(formNum)){
+    if(currentBiz?.id){
+      try {
+        const {data: nextNum, error: rpcErr} = await sb.rpc('next_invoice_number', {p_business_id: currentBiz.id});
+        if(!rpcErr && nextNum){
+          setVal('f-invnum', nextNum);
+          formNum = nextNum;
+        }
+      } catch(e){
+        console.warn('[GL] next_invoice_number RPC threw at generate:', e.message);
+      }
+    }
+    /* Last-resort fallback: client-side number computation. The 23505 retry
+       below catches collisions if this races. */
+    if(!formNum || isDraftPlaceholder(formNum)){
+      await fetchNextInvoiceNumber();
+      formNum = v('f-invnum');
+    }
+  }
+
   /* Validation */
-  if(!v('f-invnum')){
-    notify(currentLang==='ar'?'رقم الفاتورة مفقود':'Invoice number missing','r');
+  if(!formNum || isDraftPlaceholder(formNum)){
+    notify(currentLang==='ar'?'تعذّر إنشاء رقم الفاتورة':'Could not generate invoice number','r');
     throw new Error('validation');
   }
 
@@ -2942,7 +3014,23 @@ async function generateInvoice(){
 
   let invoiceId = currentInvoiceId;
   if(invoiceId){
-    const {error} = await sb.from('invoices').update(payload).eq('id', invoiceId);
+    let {error} = await sb.from('invoices').update(payload).eq('id', invoiceId);
+    /* Round C bugfix: an UPDATE can also hit invoices_business_invnum_unique
+       when transitioning a DRAFT-xxx draft to a real number that's already
+       taken (rare race). Same retry pattern as the INSERT path below. */
+    if(error && (error.code === '23505' || /unique/i.test(error.message || ''))){
+      console.warn('[GL] Invoice number collision on UPDATE, retrying with fresh number');
+      try {
+        const {data: nextNum} = await sb.rpc('next_invoice_number', {p_business_id: currentBiz.id});
+        if(nextNum){
+          payload.invoice_number = nextNum;
+          setVal('f-invnum', nextNum);
+          ({error} = await sb.from('invoices').update(payload).eq('id', invoiceId));
+        }
+      } catch(retryErr){
+        console.warn('[GL] UPDATE retry failed:', retryErr.message);
+      }
+    }
     if(error){notify(friendlyDbError(error),'r');throw error;}
   } else {
     let {data, error} = await sb.from('invoices').insert(payload).select().single();
