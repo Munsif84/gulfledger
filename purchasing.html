@@ -481,57 +481,43 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
        PANE: PURCHASE ORDERS — list + create
   ════════════════════════════════════════════════ -->
   <div id="pane-orders" style="display:none;">
-    <div class="page-toolbar">
-      <div class="toolbar-left">
-        <input type="search" class="search-input" id="po-search" placeholder="بحث برقم الطلب أو المورد · Search PO # or supplier" oninput="renderPOs()">
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="label" data-ar="إجمالي الطلبات" data-en="Total POs">إجمالي الطلبات</div>
+        <div class="value" id="stat-po-count">0</div>
       </div>
-      <div class="toolbar-right">
+      <div class="stat-card">
+        <div class="label" data-ar="مسودات" data-en="Drafts">مسودات</div>
+        <div class="value" id="stat-po-drafts">0</div>
+      </div>
+      <div class="stat-card amber">
+        <div class="label" data-ar="مفتوحة" data-en="Open">مفتوحة</div>
+        <div class="value" id="stat-po-open">0</div>
+        <div class="sub" data-ar="بانتظار الاستلام" data-en="awaiting receipt">بانتظار الاستلام</div>
+      </div>
+      <div class="stat-card green">
+        <div class="label" data-ar="إجمالي القيمة" data-en="Total Value">إجمالي القيمة</div>
+        <div class="value" id="stat-po-value">SAR 0</div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" class="search-input" id="search-pos" placeholder="البحث برقم الطلب أو المورد..." oninput="renderPOs()">
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-secondary" onclick="loadAll()" data-ar="↻ تحديث" data-en="↻ Refresh">↻ تحديث</button>
         <button class="btn btn-primary" onclick="openPOModal()">
-          <span data-ar="+ طلب شراء جديد" data-en="+ New PO">+ طلب شراء جديد</span>
+          + <span data-ar="طلب شراء جديد" data-en="New PO">طلب شراء جديد</span>
         </button>
       </div>
     </div>
 
-    <div class="stat-grid" style="margin-bottom:14px;">
-      <div class="stat-card">
-        <div class="stat-label" data-ar="إجمالي الطلبات" data-en="Total POs">إجمالي الطلبات</div>
-        <div class="stat-value" id="stat-po-count">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label" data-ar="مسودات" data-en="Drafts">مسودات</div>
-        <div class="stat-value" id="stat-po-drafts">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label" data-ar="مفتوحة" data-en="Open">مفتوحة</div>
-        <div class="stat-value" id="stat-po-open">0</div>
-      </div>
-      <div class="stat-card">
-        <div class="stat-label" data-ar="إجمالي القيمة" data-en="Total Value">إجمالي القيمة</div>
-        <div class="stat-value" id="stat-po-value">SAR 0</div>
-      </div>
-    </div>
-
-    <div class="data-table-wrap">
-      <table class="data-table">
-        <thead>
-          <tr>
-            <th data-ar="رقم الطلب" data-en="PO #">رقم الطلب</th>
-            <th data-ar="التاريخ" data-en="Date">التاريخ</th>
-            <th data-ar="المورد" data-en="Supplier">المورد</th>
-            <th data-ar="الحالة" data-en="Status">الحالة</th>
-            <th data-ar="الأصناف" data-en="Items">الأصناف</th>
-            <th data-ar="الإجمالي" data-en="Total">الإجمالي</th>
-            <th></th>
-          </tr>
-        </thead>
-        <tbody id="po-tbody"></tbody>
-      </table>
-      <div id="po-empty" class="empty-state" style="display:none;">
-        <div class="empty-icon">📋</div>
-        <div data-ar="لا توجد طلبات شراء بعد" data-en="No purchase orders yet">لا توجد طلبات شراء بعد</div>
-        <button class="btn btn-primary" onclick="openPOModal()" style="margin-top:12px;">
-          <span data-ar="إنشاء أول طلب" data-en="Create First PO">إنشاء أول طلب</span>
-        </button>
+    <div class="table-wrap" id="pos-table-wrap">
+      <div class="loading-state">
+        <div class="loading-spinner">📋</div>
+        <div data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
       </div>
     </div>
   </div>
@@ -1072,135 +1058,195 @@ async function loadPOs(){
 }
 
 function renderPOs(){
-  const tbody = document.getElementById('po-tbody');
-  const empty = document.getElementById('po-empty');
-  if(!tbody) return;
-  const search = (document.getElementById('po-search')?.value || '').toLowerCase().trim();
-  const filtered = allPOs.filter(p => {
-    if(!search) return true;
-    return (p.po_number || '').toLowerCase().includes(search) ||
-           (p.supplier_name || '').toLowerCase().includes(search);
-  });
+  const wrap = document.getElementById('pos-table-wrap');
+  if(!wrap) return;
+  const ar = currentLang === 'ar';
+  const search = (document.getElementById('search-pos')?.value || '').toLowerCase().trim();
 
-  if(!filtered.length){
-    tbody.innerHTML = '';
-    empty.style.display = allPOs.length === 0 ? '' : 'none';
-    if(allPOs.length > 0){
-      tbody.innerHTML = `<tr><td colspan="7" style="text-align:center;color:var(--muted);padding:24px;">لا توجد نتائج · No results</td></tr>`;
-    }
-  } else {
-    empty.style.display = 'none';
-    tbody.innerHTML = filtered.map(p => {
-      const statusBadge = poStatusBadge(p.status || 'draft');
-      const supplier = escapeHTML(p.supplier_name || '—');
-      return `<tr>
-        <td style="font-family:'DM Mono',monospace;font-weight:600;">${escapeHTML(p.po_number || '')}</td>
-        <td>${p.po_date || '—'}</td>
-        <td>${supplier}</td>
-        <td>${statusBadge}</td>
-        <td style="text-align:center;">${p._line_count}</td>
-        <td style="text-align:end;font-family:'DM Mono',monospace;">SAR ${fmt(p.total || 0)}</td>
-        <td><button class="btn btn-ghost btn-sm" onclick="viewPO('${p.id}')" data-ar="عرض" data-en="View">عرض</button></td>
-      </tr>`;
-    }).join('');
-  }
-
-  /* Stats */
+  /* Stats first (always update, even on empty) */
   setText('stat-po-count', allPOs.length);
   setText('stat-po-drafts', allPOs.filter(p => (p.status || 'draft') === 'draft').length);
   setText('stat-po-open', allPOs.filter(p => ['sent','partial'].includes(p.status)).length);
   const totalValue = allPOs.reduce((s, p) => s + (parseFloat(p.total) || 0), 0);
   setText('stat-po-value', 'SAR ' + fmt(totalValue));
   setText('count-orders', allPOs.length);
+
+  let pos = allPOs.slice();
+  if(search){
+    pos = pos.filter(p =>
+      (p.po_number||'').toLowerCase().includes(search) ||
+      (p.supplier_name||'').toLowerCase().includes(search)
+    );
+  }
+
+  if(allPOs.length === 0){
+    wrap.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">📋</div>
+        <div class="title">${ar?'لا توجد طلبات شراء بعد':'No purchase orders yet'}</div>
+        <div class="text">${ar
+          ? 'أنشئ طلبات شراء وتتبع حالة الاستلام والفواتير.'
+          : 'Create purchase orders and track receipt + invoice status.'}</div>
+        <button class="btn btn-primary" onclick="openPOModal()">+ ${ar?'طلب شراء جديد':'New PO'}</button>
+      </div>`;
+    return;
+  }
+
+  if(pos.length === 0){
+    wrap.innerHTML = `
+      <div class="empty-state">
+        <div class="icon">🔍</div>
+        <div class="title">${ar?'لا توجد نتائج':'No results'}</div>
+        <div class="text">${ar?'جرب بحثاً آخر.':'Try a different search.'}</div>
+      </div>`;
+    return;
+  }
+
+  wrap.innerHTML = `
+    <table class="tbl">
+      <thead>
+        <tr>
+          <th>${ar?'رقم الطلب':'PO #'}</th>
+          <th>${ar?'التاريخ':'Date'}</th>
+          <th>${ar?'المورد':'Supplier'}</th>
+          <th class="center">${ar?'الحالة':'Status'}</th>
+          <th class="num">${ar?'الأصناف':'Items'}</th>
+          <th class="num">${ar?'الإجمالي':'Total'}</th>
+          <th class="center"></th>
+        </tr>
+      </thead>
+      <tbody>
+        ${pos.map(p => `
+          <tr class="clickable" onclick="viewPO('${p.id}')">
+            <td><strong>${escHTML(p.po_number || '')}</strong></td>
+            <td>${escHTML(p.po_date || '—')}</td>
+            <td>${escHTML(p.supplier_name || '—')}</td>
+            <td class="center">${poStatusBadge(p.status || 'draft')}</td>
+            <td class="num">${p._line_count}</td>
+            <td class="num">SAR ${fmt(p.total || 0)}</td>
+            <td class="center">
+              <div class="row-actions">
+                <button class="row-actions-btn" onclick="event.stopPropagation();toggleRowMenu(this)" title="${ar?'إجراءات':'Actions'}">⋮</button>
+                <div class="row-actions-menu" onclick="event.stopPropagation()">
+                  <button class="row-action-item" onclick="closeAllMenus();viewPO('${p.id}')">👁️ ${ar?'عرض':'View'}</button>
+                </div>
+              </div>
+            </td>
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
 }
 
 function poStatusBadge(status){
+  const ar = currentLang === 'ar';
   const map = {
-    draft:    {bg:'#e5e7eb', fg:'#374151', ar:'مسودة',    en:'Draft'},
-    sent:     {bg:'#dbeafe', fg:'#1e40af', ar:'مُرسل',    en:'Sent'},
+    draft:    {bg:'#e5e7eb', fg:'#374151', ar:'مسودة',     en:'Draft'},
+    sent:     {bg:'#dbeafe', fg:'#1e40af', ar:'مُرسل',     en:'Sent'},
     partial:  {bg:'#fef3c7', fg:'#92400e', ar:'استلام جزئي', en:'Partial'},
-    received: {bg:'#dcfce7', fg:'#166534', ar:'مُستلم',    en:'Received'},
-    cancelled:{bg:'#fee2e2', fg:'#991b1b', ar:'ملغي',     en:'Cancelled'}
+    received: {bg:'#dcfce7', fg:'#166534', ar:'مُستلم',     en:'Received'},
+    cancelled:{bg:'#fee2e2', fg:'#991b1b', ar:'ملغي',      en:'Cancelled'}
   };
   const m = map[status] || map.draft;
-  return `<span style="background:${m.bg};color:${m.fg};padding:3px 10px;border-radius:10px;font-size:11px;font-weight:600;">${m.ar}</span>`;
-}
-
-function escapeHTML(s){
-  return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
+  return `<span style="background:${m.bg};color:${m.fg};padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;display:inline-block;">${ar?m.ar:m.en}</span>`;
 }
 
 /* ───── PO CREATE MODAL ───── */
 async function openPOModal(){
   if(!currentBiz?.id){
-    notify(currentLang==='ar'?'لم يتم تحميل بيانات المنشأة':'Business not loaded', 'r');
+    notify(currentLang==='ar'?'لم يتم تحميل بيانات المنشأة':'Business not loaded', 'error');
     return;
   }
   poItems = [{description:'', item_id:null, quantity:1, unit_price:0, vat_rate:15}];
 
   const today = new Date().toISOString().slice(0,10);
   const nextNum = await fetchNextPONumber();
+  const ar = currentLang === 'ar';
 
-  const modal = document.createElement('div');
-  modal.className = 'modal-overlay show';
-  modal.id = 'po-modal';
-  modal.innerHTML = `
-    <div class="modal-box" style="max-width:900px;">
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay show';
+  overlay.id = 'po-modal';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:900px;">
       <div class="modal-head">
-        <h3 data-ar="طلب شراء جديد" data-en="New Purchase Order">طلب شراء جديد</h3>
+        <div class="modal-title" data-ar="طلب شراء جديد" data-en="New Purchase Order">طلب شراء جديد</div>
         <button class="modal-close" onclick="closePOModal()">×</button>
       </div>
       <div class="modal-body">
-        <div class="form-grid-2">
-          <div class="form-field">
-            <label data-ar="رقم الطلب" data-en="PO #">رقم الطلب</label>
-            <input type="text" id="po-f-num" value="${escapeHTML(nextNum)}" readonly>
+        <div class="field-row double">
+          <div class="field">
+            <div class="field-label"><span data-ar="رقم الطلب" data-en="PO #">رقم الطلب</span></div>
+            <input type="text" id="po-f-num" class="mono" value="${escHTML(nextNum)}" readonly dir="ltr">
           </div>
-          <div class="form-field">
-            <label data-ar="التاريخ" data-en="Date">التاريخ</label>
+          <div class="field">
+            <div class="field-label"><span data-ar="التاريخ" data-en="Date">التاريخ</span><span class="req">*</span></div>
             <input type="date" id="po-f-date" value="${today}">
           </div>
-          <div class="form-field">
-            <label data-ar="تاريخ التسليم المتوقع" data-en="Expected Delivery">تاريخ التسليم المتوقع</label>
-            <input type="date" id="po-f-expected">
-          </div>
-          <div class="form-field">
-            <label data-ar="المورد" data-en="Supplier">المورد</label>
+        </div>
+        <div class="field-row double">
+          <div class="field">
+            <div class="field-label">
+              <span data-ar="المورد" data-en="Supplier">المورد</span>
+              <span class="opt">(optional)</span>
+            </div>
             <select id="po-f-supplier">
-              <option value="" data-ar="-- اختر المورد --" data-en="-- Select supplier --">-- اختر المورد --</option>
-              ${allSuppliers.map(s => `<option value="${s.id}" data-name="${escapeHTML(s.name_ar || s.name || '')}">${escapeHTML(s.name_ar || s.name || '')}${s.name_en ? ' · ' + escapeHTML(s.name_en) : ''}</option>`).join('')}
+              <option value="">${ar?'-- اختر المورد --':'-- Select supplier --'}</option>
+              ${allSuppliers.map(s => `<option value="${s.id}">${escHTML(s.name_ar || s.name || '')}${s.name_en ? ' · ' + escHTML(s.name_en) : ''}</option>`).join('')}
             </select>
+          </div>
+          <div class="field">
+            <div class="field-label">
+              <span data-ar="تاريخ التسليم المتوقع" data-en="Expected Delivery">تاريخ التسليم المتوقع</span>
+              <span class="opt">(optional)</span>
+            </div>
+            <input type="date" id="po-f-expected">
           </div>
         </div>
 
-        <div class="form-section-title" style="margin-top:18px;" data-ar="بنود الطلب" data-en="Order Lines">بنود الطلب</div>
-        <table class="line-items-tbl" id="po-lines-tbl">
-          <thead>
-            <tr>
-              <th data-ar="الصنف / الوصف" data-en="Item / Description" style="width:42%;">الصنف / الوصف</th>
-              <th data-ar="الكمية" data-en="Qty" style="width:12%;">الكمية</th>
-              <th data-ar="السعر" data-en="Unit Price" style="width:16%;">السعر</th>
-              <th data-ar="الضريبة%" data-en="VAT%" style="width:10%;">الضريبة%</th>
-              <th data-ar="الإجمالي" data-en="Total" style="width:14%;">الإجمالي</th>
-              <th style="width:6%;"></th>
-            </tr>
-          </thead>
-          <tbody id="po-lines-body"></tbody>
-        </table>
+        <div class="field-label" style="margin-top:14px;margin-bottom:8px;">
+          <span data-ar="بنود الطلب" data-en="Order Lines">بنود الطلب</span>
+          <span class="req">*</span>
+        </div>
+        <div class="table-wrap" style="overflow-x:auto;">
+          <table class="tbl" id="po-lines-tbl">
+            <thead>
+              <tr>
+                <th style="min-width:280px;">${ar?'الصنف / الوصف':'Item / Description'}</th>
+                <th class="num" style="width:90px;">${ar?'الكمية':'Qty'}</th>
+                <th class="num" style="width:120px;">${ar?'السعر':'Unit Price'}</th>
+                <th class="num" style="width:80px;">${ar?'الضريبة%':'VAT%'}</th>
+                <th class="num" style="width:120px;">${ar?'الإجمالي':'Total'}</th>
+                <th class="center" style="width:40px;"></th>
+              </tr>
+            </thead>
+            <tbody id="po-lines-body"></tbody>
+          </table>
+        </div>
         <button class="btn btn-ghost btn-sm" onclick="addPOLine()" style="margin-top:8px;">
-          <span data-ar="+ إضافة بند" data-en="+ Add Line">+ إضافة بند</span>
+          + <span data-ar="إضافة بند" data-en="Add Line">إضافة بند</span>
         </button>
 
         <div style="margin-top:18px;display:flex;justify-content:flex-end;">
-          <div style="width:300px;">
-            <div class="totals-row"><span data-ar="الإجمالي" data-en="Subtotal">الإجمالي</span><span id="po-tot-sub" style="font-family:'DM Mono',monospace;">SAR 0.00</span></div>
-            <div class="totals-row"><span data-ar="الضريبة" data-en="VAT">الضريبة</span><span id="po-tot-vat" style="font-family:'DM Mono',monospace;">SAR 0.00</span></div>
-            <div class="totals-row" style="font-weight:700;border-top:1px solid var(--border);padding-top:6px;margin-top:6px;"><span data-ar="المجموع" data-en="Total">المجموع</span><span id="po-tot-grand" style="font-family:'DM Mono',monospace;">SAR 0.00</span></div>
+          <div style="width:300px;background:var(--tint);border-radius:8px;padding:12px 14px;">
+            <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px;">
+              <span data-ar="الإجمالي قبل الضريبة" data-en="Subtotal">الإجمالي قبل الضريبة</span>
+              <span id="po-tot-sub" class="mono" style="font-family:'DM Mono',monospace;">SAR 0.00</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:3px 0;font-size:13px;">
+              <span data-ar="الضريبة" data-en="VAT">الضريبة</span>
+              <span id="po-tot-vat" class="mono" style="font-family:'DM Mono',monospace;">SAR 0.00</span>
+            </div>
+            <div style="display:flex;justify-content:space-between;padding:6px 0 0;font-size:14px;font-weight:700;border-top:1px solid var(--border);margin-top:6px;color:var(--ink);">
+              <span data-ar="المجموع" data-en="Total">المجموع</span>
+              <span id="po-tot-grand" style="font-family:'DM Mono',monospace;">SAR 0.00</span>
+            </div>
           </div>
         </div>
 
-        <div class="form-field" style="margin-top:14px;">
-          <label data-ar="ملاحظات" data-en="Notes">ملاحظات</label>
+        <div class="field" style="margin-top:14px;">
+          <div class="field-label">
+            <span data-ar="ملاحظات" data-en="Notes">ملاحظات</span>
+            <span class="opt">(optional)</span>
+          </div>
           <textarea id="po-f-notes" rows="2"></textarea>
         </div>
       </div>
@@ -1211,8 +1257,8 @@ async function openPOModal(){
       </div>
     </div>
   `;
-  document.body.appendChild(modal);
-  applyLanguage();
+  document.body.appendChild(overlay);
+  applyLang();
   renderPOLines();
 }
 
@@ -1258,7 +1304,9 @@ function updatePOLine(idx, field, value){
 function renderPOLines(){
   const tbody = document.getElementById('po-lines-body');
   if(!tbody) return;
+  const ar = currentLang === 'ar';
   let subtotal = 0, vatTotal = 0;
+
   tbody.innerHTML = poItems.map((it, idx) => {
     const lineSub = (parseFloat(it.quantity)||0) * (parseFloat(it.unit_price)||0);
     const lineVat = lineSub * ((parseFloat(it.vat_rate)||0) / 100);
@@ -1267,17 +1315,25 @@ function renderPOLines(){
     vatTotal += lineVat;
     return `<tr>
       <td>
-        <select onchange="updatePOLine(${idx},'item_id',this.value)" style="width:100%;margin-bottom:4px;">
-          <option value="">-- ${currentLang==='ar'?'صنف من المخزون':'Pick from inventory'} --</option>
-          ${allItems.map(i => `<option value="${i.id}"${it.item_id===i.id?' selected':''}>${escapeHTML(i.name_ar || i.name || '')} ${i.sku ? '(' + escapeHTML(i.sku) + ')' : ''}</option>`).join('')}
-        </select>
-        <input type="text" value="${escapeHTML(it.description||'')}" oninput="updatePOLine(${idx},'description',this.value)" placeholder="${currentLang==='ar'?'وصف البند':'Description'}" style="width:100%;">
+        <div class="field" style="margin:0;">
+          <select onchange="updatePOLine(${idx},'item_id',this.value)" style="margin-bottom:4px;">
+            <option value="">-- ${ar?'صنف من المخزون':'Pick from inventory'} --</option>
+            ${allItems.map(i => `<option value="${i.id}"${it.item_id===i.id?' selected':''}>${escHTML(i.name_ar || i.name || '')}${i.sku ? ' · ' + escHTML(i.sku) : ''}</option>`).join('')}
+          </select>
+          <input type="text" value="${escHTML(it.description||'')}" oninput="updatePOLine(${idx},'description',this.value)" placeholder="${ar?'وصف البند':'Description'}">
+        </div>
       </td>
-      <td><input type="number" step="0.001" min="0" value="${it.quantity}" oninput="updatePOLine(${idx},'quantity',this.value)" style="width:100%;"></td>
-      <td><input type="number" step="0.01" min="0" value="${it.unit_price}" oninput="updatePOLine(${idx},'unit_price',this.value)" style="width:100%;"></td>
-      <td><input type="number" step="0.01" min="0" value="${it.vat_rate}" oninput="updatePOLine(${idx},'vat_rate',this.value)" style="width:100%;"></td>
-      <td style="text-align:end;font-family:'DM Mono',monospace;">SAR ${fmt(lineTotal)}</td>
-      <td><button class="btn btn-ghost btn-sm" onclick="removePOLine(${idx})" title="Remove" style="color:#dc2626;">×</button></td>
+      <td>
+        <div class="field" style="margin:0;"><input type="number" step="0.001" min="0" class="mono" value="${it.quantity}" oninput="updatePOLine(${idx},'quantity',this.value)" style="text-align:end;"></div>
+      </td>
+      <td>
+        <div class="field" style="margin:0;"><input type="number" step="0.01" min="0" class="mono" value="${it.unit_price}" oninput="updatePOLine(${idx},'unit_price',this.value)" style="text-align:end;"></div>
+      </td>
+      <td>
+        <div class="field" style="margin:0;"><input type="number" step="0.01" min="0" class="mono" value="${it.vat_rate}" oninput="updatePOLine(${idx},'vat_rate',this.value)" style="text-align:end;"></div>
+      </td>
+      <td class="num">SAR ${fmt(lineTotal)}</td>
+      <td class="center"><button class="btn btn-ghost btn-sm" onclick="removePOLine(${idx})" title="${ar?'حذف':'Remove'}" style="color:var(--red);padding:4px 8px;">×</button></td>
     </tr>`;
   }).join('');
 
@@ -1307,13 +1363,13 @@ async function fetchNextPONumber(){
 
 async function savePO(status){
   if(!currentBiz?.id || !currentUser){
-    notify('Auth or business not loaded', 'r');
+    notify(currentLang==='ar'?'لم يتم تحميل المستخدم':'Auth or business not loaded', 'error');
     return;
   }
   /* Validate at least one valid line */
   const validLines = poItems.filter(it => (it.quantity||0) > 0 && (it.unit_price||0) > 0 && (it.description||'').trim());
   if(!validLines.length){
-    notify(currentLang==='ar'?'أضف بنداً واحداً على الأقل':'Add at least one line item', 'r');
+    notify(currentLang==='ar'?'أضف بنداً واحداً على الأقل':'Add at least one line item', 'error');
     return;
   }
 
@@ -1346,7 +1402,7 @@ async function savePO(status){
   const {data: poInserted, error: poErr} = await sb.from('purchase_orders').insert(poRow).select().single();
   if(poErr){
     console.error('PO insert:', poErr);
-    notify((currentLang==='ar'?'فشل الحفظ: ':'Save failed: ') + (poErr.message || ''), 'r');
+    notify((currentLang==='ar'?'فشل الحفظ: ':'Save failed: ') + (poErr.message || ''), 'error');
     return;
   }
 
@@ -1370,20 +1426,19 @@ async function savePO(status){
   const {error: linesErr} = await sb.from('po_items').insert(lineRows);
   if(linesErr){
     console.error('PO lines insert:', linesErr);
-    notify((currentLang==='ar'?'تم حفظ الرأس لكن فشلت البنود: ':'Header saved but lines failed: ') + (linesErr.message || ''), 'r');
-    /* Don't roll back — header exists, user can manually clean up */
+    notify((currentLang==='ar'?'تم حفظ الرأس لكن فشلت البنود: ':'Header saved but lines failed: ') + (linesErr.message || ''), 'error');
     return;
   }
 
-  notify(currentLang==='ar'?'تم حفظ طلب الشراء':'Purchase order saved', 'g');
+  notify(currentLang==='ar'?'✅ تم حفظ طلب الشراء':'✅ Purchase order saved', 'success');
   closePOModal();
   await loadPOs();
   renderPOs();
 }
 
-/* Stub for future: view/edit existing PO. For now just show a not-implemented message. */
+/* Stub for future: view/edit existing PO. */
 function viewPO(id){
-  notify(currentLang==='ar'?'عرض/تعديل قريباً':'View/edit coming soon', 'a');
+  notify(currentLang==='ar'?'عرض/تعديل قريباً':'View/edit coming soon', 'info');
 }
 
 
