@@ -2254,41 +2254,64 @@ function closeInvoiceModal(){
 }
 
 async function fetchNextInvoiceNumber(){
-  /* Atomic server-side generation via RPC (Round 12 — prevents race conditions).
-     Falls back to client-side generation if RPC fails (e.g. function not yet deployed),
-     but with a console warning so the issue surfaces during development. */
-  if(currentBiz?.id){
-    try {
-      const {data, error} = await sb.rpc('next_invoice_number', {p_business_id: currentBiz.id});
-      if(!error && data){
-        setVal('f-invnum', data);
-        return;
-      }
-      if(error){
-        console.warn('[GL] next_invoice_number RPC failed, falling back to client-side:', error.message);
-      }
-    } catch(e){
-      console.warn('[GL] next_invoice_number RPC threw, falling back to client-side:', e.message);
+  /* Round C bugfix: bypass the broken next_invoice_number RPC.
+     The RPC has a latent lpad-truncation bug: it concatenates year+suffix into
+     a single number then increments + lpad(N, 3, '0'). PostgreSQL's lpad
+     TRUNCATES strings longer than the target width — so lpad('2026203', 3, '0')
+     returns '202', causing the RPC to return the same number that's already in
+     the table. Collision on insert.
+
+     Until the RPC is fixed at the SQL level (separate migration), we compute
+     the next number entirely in JS using a sane algorithm:
+       1. Find all invoices for this business with prefix INV-{year}-
+       2. Take the trailing-digit suffix only (NOT year+suffix concatenated)
+       3. Sanity cap at 99999 to ignore any malformed values left over from
+          past RPC runs that may have produced 7-digit suffixes
+       4. Return max+1, padded to 3 digits
+
+     Voided invoices are INCLUDED in the scan (ZATCA requires sequence to be
+     monotonic and never reuse numbers, even for voided). Drafts (DRAFT-xxx)
+     are excluded automatically by the LIKE pattern.
+
+     Race condition: if two clients call this concurrently they could both
+     compute the same "next". The 23505 retry path in generateInvoice handles
+     that case by re-running this function. */
+  const year = new Date().getFullYear();
+  const prefix = 'INV-' + year + '-';
+
+  if(!currentBiz?.id){
+    setVal('f-invnum', prefix + '001');
+    return;
+  }
+
+  const {data, error} = await sb.from('invoices')
+    .select('invoice_number')
+    .eq('business_id', currentBiz.id)
+    .like('invoice_number', prefix + '%');
+
+  if(error){
+    console.warn('[GL] fetchNextInvoiceNumber query failed:', error.message);
+    setVal('f-invnum', prefix + '001');
+    return;
+  }
+
+  let maxN = 0;
+  for(const r of (data || [])){
+    /* Match ONLY trailing digits — `(\d+)$` — to avoid the year+suffix
+       concatenation bug from the old RPC. */
+    const m = (r.invoice_number || '').match(/(\d+)$/);
+    if(m){
+      const n = parseInt(m[1], 10);
+      /* Sanity cap: any suffix > 99999 is a malformed leftover from the RPC
+         bug and should be ignored when computing the next sane number. */
+      if(n > maxN && n <= 99999) maxN = n;
     }
   }
 
-  /* Fallback (legacy path, race-prone — only hit if RPC is unavailable) */
-  const {data} = await sb.from('invoices')
-    .select('invoice_number')
-    .eq('business_id', currentBiz?.id || '')
-    .neq('status','draft')
-    .order('created_at',{ascending:false})
-    .limit(1);
-  let nextNum = 'INV-' + new Date().getFullYear() + '-001';
-  if(data && data.length > 0){
-    const last = data[0].invoice_number;
-    const m = last && last.match(/(\d+)$/);
-    if(m){
-      const n = String(parseInt(m[1])+1).padStart(3,'0');
-      nextNum = last.replace(/\d+$/, n);
-    }
-  }
-  setVal('f-invnum', nextNum);
+  const nextN = maxN + 1;
+  /* Pad to AT LEAST 3 digits (001, 002, ..., 999, 1000, 1001, ...) */
+  const padded = String(nextN).padStart(3, '0');
+  setVal('f-invnum', prefix + padded);
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -2910,23 +2933,10 @@ async function generateInvoice(){
      invoice number for ZATCA compliance. */
   let formNum = v('f-invnum');
   if(!formNum || isDraftPlaceholder(formNum)){
-    if(currentBiz?.id){
-      try {
-        const {data: nextNum, error: rpcErr} = await sb.rpc('next_invoice_number', {p_business_id: currentBiz.id});
-        if(!rpcErr && nextNum){
-          setVal('f-invnum', nextNum);
-          formNum = nextNum;
-        }
-      } catch(e){
-        console.warn('[GL] next_invoice_number RPC threw at generate:', e.message);
-      }
-    }
-    /* Last-resort fallback: client-side number computation. The 23505 retry
-       below catches collisions if this races. */
-    if(!formNum || isDraftPlaceholder(formNum)){
-      await fetchNextInvoiceNumber();
-      formNum = v('f-invnum');
-    }
+    /* Round C bugfix: use fetchNextInvoiceNumber (fixed client-side computation)
+       instead of the broken next_invoice_number RPC. */
+    await fetchNextInvoiceNumber();
+    formNum = v('f-invnum');
   }
 
   /* Validation */
@@ -3021,10 +3031,11 @@ async function generateInvoice(){
     if(error && (error.code === '23505' || /unique/i.test(error.message || ''))){
       console.warn('[GL] Invoice number collision on UPDATE, retrying with fresh number');
       try {
-        const {data: nextNum} = await sb.rpc('next_invoice_number', {p_business_id: currentBiz.id});
-        if(nextNum){
+        /* Round C bugfix: bypass broken RPC, use fixed client-side computation */
+        await fetchNextInvoiceNumber();
+        const nextNum = v('f-invnum');
+        if(nextNum && !isDraftPlaceholder(nextNum)){
           payload.invoice_number = nextNum;
-          setVal('f-invnum', nextNum);
           ({error} = await sb.from('invoices').update(payload).eq('id', invoiceId));
         }
       } catch(retryErr){
@@ -3040,10 +3051,11 @@ async function generateInvoice(){
     if(error && (error.code === '23505' || /unique/i.test(error.message || ''))){
       console.warn('[GL] Invoice number collision detected, retrying with fresh number');
       try {
-        const {data: nextNum} = await sb.rpc('next_invoice_number', {p_business_id: currentBiz.id});
-        if(nextNum){
+        /* Round C bugfix: bypass broken RPC, use fixed client-side computation */
+        await fetchNextInvoiceNumber();
+        const nextNum = v('f-invnum');
+        if(nextNum && !isDraftPlaceholder(nextNum)){
           payload.invoice_number = nextNum;
-          setVal('f-invnum', nextNum);
           ({data, error} = await sb.from('invoices').insert(payload).select().single());
         }
       } catch(retryErr){
