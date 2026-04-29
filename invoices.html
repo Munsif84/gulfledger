@@ -680,9 +680,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .item-row{display:grid;grid-template-columns:24px 1.6fr 60px 80px 60px 100px 28px;gap:6px;margin-bottom:6px;align-items:center;}
 .item-row input{padding:8px 9px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px;color:var(--ink);width:100%;transition:all .15s;}
 .item-row input:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 2px rgba(61,170,101,0.15);}
-.item-row input[readonly]{background:var(--tint);color:var(--muted);font-family:'DM Mono',monospace;font-weight:600;}
-
-/* Discount field with % suffix */
+.item-row input[readonly]{background:var(--tint);color:var(--muted);font-family:'DM Mono',monospace;font-weight:600;}/* Discount field with % suffix */
 .disc-wrap{position:relative;}
 .disc-input{padding-inline-end:22px!important;border-color:#fde68a!important;background:#fffbeb!important;}
 .disc-suffix{position:absolute;top:50%;transform:translateY(-50%);inset-inline-end:8px;font-size:11px;font-weight:700;color:var(--amber);pointer-events:none;font-family:'DM Mono',monospace;}
@@ -692,6 +690,14 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .item-desc-wrap{position:relative;}
 .btn-pick{position:absolute;top:50%;transform:translateY(-50%);inset-inline-end:4px;background:var(--tint);border:1px solid var(--light);border-radius:5px;cursor:pointer;font-size:12px;padding:3px 6px;color:var(--blue);transition:all .15s;}
 .btn-pick:hover{background:var(--light);}
+
+/* Round C (Layer 2): linked-row chip when an invoice line is bound to inventory_items */
+.linked-chip{display:flex;align-items:center;gap:6px;padding:7px 9px;padding-inline-end:38px;border:1px solid var(--blue);border-radius:6px;background:rgba(0,108,53,0.06);font-size:13px;color:var(--ink);min-height:34px;line-height:1.2;position:relative;}
+.linked-chip .chip-icon{flex-shrink:0;font-size:12px;color:var(--blue);}
+.linked-chip .chip-name{flex:1;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
+.linked-chip .chip-sku{font-family:'DM Mono',monospace;font-size:10px;color:var(--muted);font-weight:500;flex-shrink:0;}
+.linked-chip .btn-unlink{position:absolute;top:50%;transform:translateY(-50%);inset-inline-end:4px;width:22px;height:22px;display:flex;align-items:center;justify-content:center;background:transparent;border:none;border-radius:4px;cursor:pointer;font-size:14px;color:var(--muted);transition:all .15s;line-height:1;}
+.linked-chip .btn-unlink:hover{background:#fef2f2;color:var(--red);}
 .del-btn{width:26px;height:26px;border-radius:50%;border:1px solid #fca5a5;background:#fff5f5;color:var(--red);cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center;transition:all .15s;}
 .del-btn:hover{background:var(--red);color:#fff;}
 
@@ -2481,12 +2487,29 @@ function renderItems(){
     const total = net * 1.15;
     const row = document.createElement('div');
     row.className = 'item-row';
+
+    /* Round C (Layer 2): linked rows show a read-only chip instead of free-text input.
+       To change the linked product, click the picker icon (📦) and re-pick.
+       To convert back to free-text, click × to unlink. */
+    let descCellHtml;
+    if(item.itemId){
+      const displayName = (item.desc || '').replace(/"/g,'&quot;');
+      descCellHtml = `
+        <div class="linked-chip" title="${currentLang==='ar'?'مرتبط بالمخزون — انقر 📦 لتغيير المنتج':'Linked to inventory — click 📦 to change product'}">
+          <span class="chip-icon">🔗</span>
+          <span class="chip-name">${displayName}</span>
+          <button type="button" class="btn-unlink" onclick="unlinkItem(${i})" aria-label="${currentLang==='ar'?'إلغاء الربط':'Unlink'}" title="${currentLang==='ar'?'إلغاء الربط (تحويل إلى نص حر)':'Unlink (convert to free-text)'}">×</button>
+        </div>
+        <button class="btn-pick" onclick="openInventoryPicker(${i})" title="${currentLang==='ar'?'تغيير المنتج':'Change product'}">📦</button>`;
+    } else {
+      descCellHtml = `
+        <input type="text" class="desc-input" value="${(item.desc||'').replace(/"/g,'&quot;')}" placeholder="${currentLang==='ar'?'اختر من المخزون أو اكتب الوصف':'Pick from inventory or type'}" oninput="items[${i}].desc=this.value">
+        <button class="btn-pick" onclick="openInventoryPicker(${i})" title="${currentLang==='ar'?'اختر من المخزون':'Pick from inventory'}">📦</button>`;
+    }
+
     row.innerHTML = `
       <div class="item-num">${i+1}</div>
-      <div class="item-desc-wrap">
-        <input type="text" class="desc-input" value="${(item.desc||'').replace(/"/g,'&quot;')}" placeholder="${currentLang==='ar'?'اختر من المخزون أو اكتب الوصف':'Pick from inventory or type'}" oninput="items[${i}].desc=this.value">
-        <button class="btn-pick" onclick="openInventoryPicker(${i})" title="${currentLang==='ar'?'اختر من المخزون':'Pick from inventory'}">📦</button>
-      </div>
+      <div class="item-desc-wrap">${descCellHtml}</div>
       <input type="number" value="${item.qty||''}" placeholder="1" min="0" step="any" oninput="items[${i}].qty=parseFloat(this.value)||0;updateItemRow(${i})">
       <input type="number" value="${item.price||''}" placeholder="0.00" min="0" step="0.01" oninput="items[${i}].price=parseFloat(this.value)||0;updateItemRow(${i})">
       <div class="disc-wrap">
@@ -2498,6 +2521,16 @@ function renderItems(){
     `;
     c.appendChild(row);
   });
+}
+
+/* Round C (Layer 2): clear item_id link, leaving desc/price intact so user
+   can edit as free-text. Re-renders so input replaces the chip. */
+function unlinkItem(i){
+  if(!items[i]) return;
+  items[i].itemId = null;
+  /* desc/desc_ar/price stay — user may want to keep the same text but mark
+     it as a free-text line (e.g., custom service riff on a product name). */
+  renderItems();
 }
 
 function updateItemRow(i){
@@ -2708,6 +2741,7 @@ async function saveDraft(){
         invoice_id: invoiceId,
         description: it.desc,
         description_ar: it.desc_ar || null,
+        item_id: it.itemId || null, /* Round C: persist link to inventory_items */
         quantity: it.qty,
         unit_price: it.price,
         discount_pct: it.disc || 0,
@@ -2794,6 +2828,7 @@ async function previewInvoice(){
       invoice_id: invoiceId,
       description: it.desc,
       description_ar: it.desc_ar || null,
+      item_id: it.itemId || null, /* Round C: persist link to inventory_items */
       quantity: it.qty,
       unit_price: it.price,
       discount_pct: it.disc || 0,
@@ -2932,35 +2967,64 @@ async function generateInvoice(){
     currentInvoiceId = invoiceId;
   }
 
-  /* Round 13 (M-3): Pre-check stock availability BEFORE inserting any rows.
-     Sum requested qty per item; reject if any item exceeds available batches.
-     Better UX than letting the RPC fail mid-save. */
+  /* Round C (Layer 3): Pre-check stock availability across BOTH costing modes.
+     FIFO uses inventory_batches.qty_remaining, WAC uses inventory_items.current_qty.
+     If any item is short, show a single confirm() listing all shortfalls.
+     User accepts → proceed (allows negative stock); cancels → abort save.
+
+     Replaces Round 13 (M-3) hard-block which only fired in FIFO mode and
+     silently allowed negative stock under WAC. */
   if(currentBiz?.id){
     const useFIFO = (currentBiz.costing_method || 'wac') === 'fifo';
-    if(useFIFO){
-      const reqByItem = {};
-      for(const it of validItems){
-        if(!it.itemId || !it.qty) continue;
-        reqByItem[it.itemId] = (reqByItem[it.itemId] || 0) + Math.abs(it.qty);
-      }
-      for(const itemId of Object.keys(reqByItem)){
+    const reqByItem = {};
+    for(const it of validItems){
+      if(!it.itemId || !it.qty) continue;
+      reqByItem[it.itemId] = (reqByItem[it.itemId] || 0) + Math.abs(it.qty);
+    }
+    const shortfalls = []; /* [{name, avail, req}] */
+    for(const itemId of Object.keys(reqByItem)){
+      let avail = 0;
+      if(useFIFO){
         const {data: batches} = await sb.from('inventory_batches')
           .select('qty_remaining')
           .eq('item_id', itemId)
           .eq('business_id', currentBiz.id)
           .eq('is_depleted', false);
-        const avail = (batches || []).reduce((s, b) => s + (parseFloat(b.qty_remaining) || 0), 0);
-        if(avail < reqByItem[itemId]){
-          const {data: itemRow} = await sb.from('inventory_items')
-            .select('name').eq('id', itemId).single();
-          const itemName = itemRow?.name || itemId;
-          notify(currentLang === 'ar'
-            ? `المخزون غير كافٍ للصنف "${itemName}": متوفر ${avail}، مطلوب ${reqByItem[itemId]}`
-            : `Insufficient stock for "${itemName}": available ${avail}, requested ${reqByItem[itemId]}`,
-            'r');
-          throw new Error('insufficient_stock');
-        }
+        avail = (batches || []).reduce((s, b) => s + (parseFloat(b.qty_remaining) || 0), 0);
+      } else {
+        const {data: itemRow} = await sb.from('inventory_items')
+          .select('current_qty').eq('id', itemId).single();
+        avail = parseFloat(itemRow?.current_qty) || 0;
       }
+      if(avail < reqByItem[itemId]){
+        const {data: itemRow} = await sb.from('inventory_items')
+          .select('name, name_ar').eq('id', itemId).single();
+        const itemName = (currentLang === 'ar' ? itemRow?.name_ar : itemRow?.name) || itemRow?.name || itemId;
+        shortfalls.push({ name: itemName, avail, req: reqByItem[itemId] });
+      }
+    }
+
+    if(shortfalls.length > 0){
+      const ar = currentLang === 'ar';
+      /* Build human-readable summary line per item */
+      const lines = shortfalls.map(s =>
+        ar
+          ? `• ${s.name} — متوفر ${s.avail}, مطلوب ${s.req} (نقص ${s.req - s.avail})`
+          : `• ${s.name} — available ${s.avail}, requested ${s.req} (short by ${s.req - s.avail})`
+      ).join('\n');
+      const header = ar
+        ? '⚠️ المخزون غير كافٍ للأصناف التالية:\n\n'
+        : '⚠️ Insufficient stock for these items:\n\n';
+      const footer = ar
+        ? '\n\nالاستمرار سيؤدي إلى مخزون سالب. هل تريد المتابعة على أي حال؟'
+        : '\n\nContinuing will result in negative stock. Save anyway?';
+      if(!confirm(header + lines + footer)){
+        throw new Error('insufficient_stock');
+      }
+      /* User explicitly opted in. Proceed. The decrement code below clamps to 0
+         for inventory_items.current_qty (Math.max line 3007), which is consistent
+         with the prior WAC behavior. FIFO consumption RPC tolerates partial
+         availability — if it can't consume the full qty, fallback to invItem.cost_price. */
     }
   }
 
@@ -2974,6 +3038,7 @@ async function generateInvoice(){
       invoice_id: invoiceId,
       description: it.desc,
       description_ar: it.desc_ar || null,
+      item_id: it.itemId || null, /* Round C: persist link to inventory_items */
       quantity: it.qty,
       unit_price: it.price,
       discount_pct: it.disc || 0,
@@ -3280,7 +3345,8 @@ async function openInvoiceModalWithDraft(id){
 
   items = (invItems||[]).map(it => ({
     desc: it.description, desc_ar: it.description_ar||'',
-    qty: it.quantity, price: it.unit_price, disc: it.discount_pct||0, itemId: null
+    qty: it.quantity, price: it.unit_price, disc: it.discount_pct||0,
+    itemId: it.item_id || null /* Round C: restore link from DB */
   }));
   if(!items.length) items = [{desc:'',desc_ar:'',qty:0,price:0,disc:0,itemId:null}];
 
