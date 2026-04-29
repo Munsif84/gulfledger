@@ -1255,10 +1255,18 @@ async function openPOModal(id){
               <span data-ar="المورد" data-en="Supplier">المورد</span>
               <span class="opt">(optional)</span>
             </div>
-            <select id="po-f-supplier" ${ro}>
-              <option value="">${ar?'-- اختر المورد --':'-- Select supplier --'}</option>
-              ${allSuppliers.map(s => `<option value="${s.id}"${s.id===supplierId?' selected':''}>${escHTML(s.name_ar || s.name || '')}${s.name_en ? ' · ' + escHTML(s.name_en) : ''}</option>`).join('')}
-            </select>
+            <input type="text" id="po-f-supplier-search"
+                   list="po-supplier-list"
+                   value="${supplierId ? escHTML(allSuppliers.find(s => s.id === supplierId)?.name_ar || allSuppliers.find(s => s.id === supplierId)?.name || '') : ''}"
+                   placeholder="${ar?'اكتب أول حرف للبحث...':'Type to search...'}"
+                   oninput="onPOSupplierTyped(this.value)" ${ro}>
+            <input type="hidden" id="po-f-supplier" value="${supplierId || ''}">
+            <datalist id="po-supplier-list">
+              ${allSuppliers.map(s => {
+                const label = (s.name_ar || s.name || '') + (s.name_en ? ' · ' + s.name_en : '');
+                return `<option value="${escHTML(s.name_ar || s.name || '')}" data-id="${s.id}" label="${escHTML(label)}"></option>`;
+              }).join('')}
+            </datalist>
           </div>
           <div class="field">
             <div class="field-label">
@@ -1363,6 +1371,24 @@ function removePOLine(idx){
   renderPOLines();
 }
 
+/* Supplier searchable picker: typed name → resolve to supplier_id.
+   datalist works by matching the visible value, but we need the underlying
+   id to save. This sync function keeps the hidden input in sync. */
+function onPOSupplierTyped(typedName){
+  const trimmed = (typedName || '').trim().toLowerCase();
+  const hidden = document.getElementById('po-f-supplier');
+  if(!hidden) return;
+  if(!trimmed){ hidden.value = ''; return; }
+  /* Match by name_ar OR name_en OR name (case-insensitive) */
+  const match = allSuppliers.find(s =>
+    (s.name_ar||'').toLowerCase() === trimmed ||
+    (s.name_en||'').toLowerCase() === trimmed ||
+    (s.name||'').toLowerCase() === trimmed
+  );
+  hidden.value = match ? match.id : '';
+}
+
+
 function updatePOLine(idx, field, value){
   if(!poItems[idx]) return;
   if(field === 'item_id'){
@@ -1375,12 +1401,43 @@ function updatePOLine(idx, field, value){
     } else {
       poItems[idx].item_id = null;
     }
-  } else if(['quantity','unit_price','vat_rate'].includes(field)){
+    renderPOLines(); /* item_id change DOES need re-render to update description/price inputs */
+    return;
+  }
+  if(['quantity','unit_price','vat_rate'].includes(field)){
     poItems[idx][field] = parseFloat(value) || 0;
   } else {
     poItems[idx][field] = value;
   }
-  renderPOLines();
+  /* Round 4b fix: do NOT re-render on input — that destroys the input element
+     and breaks typing past one character. Just recalc the live totals + this
+     row's line total without rebuilding any input DOM. */
+  recalcPOTotals();
+}
+
+/* Recalc totals in-place (no DOM rebuild). Called from oninput so typing
+   stays uninterrupted. */
+function recalcPOTotals(){
+  let subtotal = 0, vatTotal = 0;
+  poItems.forEach((it, idx) => {
+    const lineSub = (parseFloat(it.quantity)||0) * (parseFloat(it.unit_price)||0);
+    const lineVat = lineSub * ((parseFloat(it.vat_rate)||0) / 100);
+    subtotal += lineSub;
+    vatTotal += lineVat;
+    /* Update this row's total cell text without touching its inputs */
+    const row = document.querySelector(`#po-lines-body tr:nth-child(${idx+1})`);
+    if(row){
+      /* Find the line-total cell — second-to-last in editable mode (5 cells before action),
+         last in read-only mode. We're editable here. */
+      const cells = row.querySelectorAll('td');
+      if(cells.length >= 6){
+        cells[4].textContent = 'SAR ' + fmt(lineSub + lineVat);
+      }
+    }
+  });
+  setText('po-tot-sub', 'SAR ' + fmt(subtotal));
+  setText('po-tot-vat', 'SAR ' + fmt(vatTotal));
+  setText('po-tot-grand', 'SAR ' + fmt(subtotal + vatTotal));
 }
 
 function renderPOLines(readOnly){
