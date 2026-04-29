@@ -194,7 +194,9 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:#E5EDE9;color:var(
 .inv-items-tbl th .th-en{display:block;font-size:9px;font-weight:500;text-transform:uppercase;letter-spacing:.04em;color:rgba(255,255,255,0.78);margin-top:1px;text-align:center;white-space:nowrap;}
 .inv-items-tbl td{padding:11px 14px;border-bottom:1px solid #f0f4f0;vertical-align:top;line-height:1.45;word-wrap:break-word;}
 .inv-items-tbl td.mono{font-family:'DM Mono',monospace;text-align:end;}
-.inv-items-tbl td.desc-cell{font-weight:500;line-height:1.5;}
+/* Round D fix: explicit text-align so description follows reading direction (right in RTL). */
+.inv-items-tbl td.desc-cell{font-weight:500;line-height:1.5;text-align:start;}
+.inv-items-tbl td.desc-cell .desc-primary{font-weight:600;}
 .inv-items-tbl td.desc-cell .desc-secondary{color:var(--muted);font-weight:400;font-size:11px;margin-top:2px;}
 .inv-items-tbl tr:last-child td{border-bottom:none;}
 /* First row sits flush with header (no gap) */
@@ -315,10 +317,18 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:#E5EDE9;color:var(
   .inv-public-footer,.share-modal-overlay,.notify,
   .preview-banner{display:none!important;}
   .inv-doc-wrap{padding:0!important;background:#fff!important;}
-  /* Reset all the screen-mode flex/min-height tricks — natural flow in print */
-  .inv-doc{box-shadow:none!important;border-radius:0!important;border:none!important;width:100%!important;max-width:100%!important;min-height:0!important;display:block!important;}
-  .inv-doc-body{padding:0!important;display:block!important;}
-  .inv-doc-body > .inv-qr-area{margin-top:0!important;padding-top:20px!important;align-items:center!important;}
+
+  /* Round D fix: keep the screen-mode flex layout in print so margin-top:auto on
+     .inv-qr-area still pushes the QR + footer area to the bottom of the page.
+     Previously we forced display:block which broke that mechanism — QR ended
+     up floating in the middle of empty space on short invoices.
+
+     For multi-page invoices, content overflows naturally; flex column with
+     min-height:297mm gives us the equivalent of "first page is full height,
+     subsequent pages use natural flow." page-break-inside:avoid below keeps
+     the totals + QR + footer together on the last page. */
+  .inv-doc{box-shadow:none!important;border-radius:0!important;border:none!important;width:100%!important;max-width:100%!important;}
+  .inv-doc-body{padding:0!important;}
   *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
 
   /* Force parties grid to stay 2-column in print */
@@ -1155,8 +1165,20 @@ function renderItems(items){
     const subtotal = parseFloat(it.subtotal) || 0;
     const vat = parseFloat(it.vat_amount) || 0;
     const total = parseFloat(it.total) || 0;
+    /* Round D fix: bilingual description (ZATCA compliance — Arabic must be visible).
+       Show Arabic on top, English below as muted secondary line. Fall back gracefully:
+       if only one language exists, show just that one without an empty muted line. */
+    const descAr = (it.description_ar || '').trim();
+    const descEn = (it.description || '').trim();
+    let descCell;
+    if(descAr && descEn && descAr !== descEn){
+      descCell = `<div class="desc-primary" dir="rtl">${escapeHTML(descAr)}</div>` +
+                 `<div class="desc-secondary" dir="ltr">${escapeHTML(descEn)}</div>`;
+    } else {
+      descCell = escapeHTML(descAr || descEn || '—');
+    }
     return `<tr>
-      <td class="desc-cell">${escapeHTML(it.description || '—')}</td>
+      <td class="desc-cell">${descCell}</td>
       <td class="mono">${parseFloat(it.quantity)||0}</td>
       <td class="mono">SAR ${fmt(it.unit_price)}</td>
       <td class="mono">${disc > 0 ? disc + '%' : '—'}</td>
