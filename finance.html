@@ -914,19 +914,96 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   </div>
 
   <!-- ════════════════════════════════════════════════
-       PANE: RECONCILIATION — placeholder (next session)
+       PANE: RECONCILIATION — Round 4j (Scope A: manual)
+       Worksheet for matching book transactions against bank statements.
+       Saves a snapshot per reconciliation for audit trail.
+       Future: CSV import + auto-match (Scope B/C in dedicated session).
   ════════════════════════════════════════════════ -->
   <div id="pane-reconciliation" style="display:none;">
-    <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:60px 30px;text-align:center;max-width:560px;margin:30px auto;">
-      <div style="font-size:48px;margin-bottom:14px;">🔄</div>
-      <h2 style="font-size:20px;font-weight:700;color:var(--navy);margin-bottom:8px;" data-ar="التسوية البنكية" data-en="Bank Reconciliation">التسوية البنكية</h2>
-      <p style="color:var(--muted);font-size:14px;line-height:1.7;margin-bottom:18px;"
-         data-ar="مطابقة كشوف الحسابات البنكية مع المعاملات المسجلة في النظام، وحل الفروقات. (قريباً)"
-         data-en="Match bank statements with system-recorded transactions and resolve discrepancies. (Coming soon)">
-        مطابقة كشوف الحسابات البنكية مع المعاملات المسجلة في النظام، وحل الفروقات.
+
+    <!-- Setup form: account + statement info -->
+    <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:14px;">
+      <h3 style="font-size:15px;font-weight:700;color:var(--navy);margin:0 0 12px;display:flex;align-items:center;gap:6px;">
+        🔄 <span data-ar="بدء تسوية بنكية" data-en="Start a bank reconciliation">بدء تسوية بنكية</span>
+      </h3>
+      <p style="color:var(--muted);font-size:12px;line-height:1.7;margin:0 0 14px;"
+         data-ar="اختر حساباً وأدخل تاريخ الكشف البنكي والرصيد النهائي. ثم حدد المعاملات التي تظهر على الكشف. عندما يتطابق الفرق مع صفر، احفظ التسوية."
+         data-en="Pick an account, enter the statement date and ending balance. Then check off transactions that appear on the statement. When the difference equals zero, save the reconciliation.">
+        اختر حساباً وأدخل تاريخ الكشف البنكي والرصيد النهائي.
       </p>
-      <span style="display:inline-block;background:var(--tint);color:var(--blue);padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600;"
-            data-ar="🚧 قيد التطوير" data-en="🚧 Coming soon">🚧 قيد التطوير</span>
+      <div class="field-row triple">
+        <div class="field">
+          <div class="field-label"><span data-ar="الحساب" data-en="Account">الحساب</span><span class="req">*</span></div>
+          <select id="recon-account" onchange="onReconAccountChange()">
+            <option value="" data-ar="-- اختر حساب --" data-en="-- pick an account --">-- اختر حساب --</option>
+          </select>
+        </div>
+        <div class="field">
+          <div class="field-label"><span data-ar="تاريخ الكشف" data-en="Statement Date">تاريخ الكشف</span><span class="req">*</span></div>
+          <input type="date" id="recon-date" onchange="renderReconWorksheet()">
+        </div>
+        <div class="field">
+          <div class="field-label"><span data-ar="الرصيد النهائي على الكشف" data-en="Ending Balance">الرصيد النهائي على الكشف</span><span class="req">*</span></div>
+          <input type="number" step="0.01" id="recon-ending" class="mono" style="text-align:end;" oninput="updateReconLiveCalc()" placeholder="0.00">
+        </div>
+      </div>
+    </div>
+
+    <!-- Worksheet (hidden until account picked) -->
+    <div id="recon-worksheet" style="display:none;">
+      <!-- Live calc bar -->
+      <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:14px;margin-bottom:14px;">
+        <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(140px,1fr));gap:10px;">
+          <div style="text-align:center;padding:8px;background:var(--bg);border-radius:8px;">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:700;" data-ar="رصيد افتتاحي" data-en="Opening">رصيد افتتاحي</div>
+            <div style="font-size:14px;font-family:'DM Mono',monospace;font-weight:700;color:var(--navy);" id="recon-opening">SAR 0</div>
+          </div>
+          <div style="text-align:center;padding:8px;background:#dcfce7;border-radius:8px;">
+            <div style="font-size:10px;color:#166534;text-transform:uppercase;letter-spacing:0.05em;font-weight:700;" data-ar="مطابق (داخل)" data-en="Matched In">مطابق (داخل)</div>
+            <div style="font-size:14px;font-family:'DM Mono',monospace;font-weight:700;color:#166534;" id="recon-matched-in">SAR 0</div>
+          </div>
+          <div style="text-align:center;padding:8px;background:#fee2e2;border-radius:8px;">
+            <div style="font-size:10px;color:#991b1b;text-transform:uppercase;letter-spacing:0.05em;font-weight:700;" data-ar="مطابق (خارج)" data-en="Matched Out">مطابق (خارج)</div>
+            <div style="font-size:14px;font-family:'DM Mono',monospace;font-weight:700;color:#991b1b;" id="recon-matched-out">SAR 0</div>
+          </div>
+          <div style="text-align:center;padding:8px;background:var(--bg);border-radius:8px;">
+            <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;font-weight:700;" data-ar="الرصيد المتوقع" data-en="Expected">الرصيد المتوقع</div>
+            <div style="font-size:14px;font-family:'DM Mono',monospace;font-weight:700;color:var(--navy);" id="recon-expected">SAR 0</div>
+          </div>
+          <div style="text-align:center;padding:8px;background:#fef3c7;border-radius:8px;" id="recon-diff-card">
+            <div style="font-size:10px;color:#78350f;text-transform:uppercase;letter-spacing:0.05em;font-weight:700;" data-ar="الفرق" data-en="Difference">الفرق</div>
+            <div style="font-size:16px;font-family:'DM Mono',monospace;font-weight:800;color:#78350f;" id="recon-diff">SAR 0</div>
+          </div>
+        </div>
+        <div id="recon-status-msg" style="margin-top:10px;font-size:12px;text-align:center;"></div>
+      </div>
+
+      <!-- Toolbar: search + select-all -->
+      <div class="toolbar" style="margin-bottom:10px;">
+        <div class="toolbar-left">
+          <div class="search-wrap">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="search-input" id="recon-search" oninput="renderReconRows()" placeholder="بحث..." data-ph-ar="بحث..." data-ph-en="Search...">
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="toggleSelectAllRecon()" data-ar="حدد الكل / إلغاء" data-en="Toggle all">حدد الكل / إلغاء</button>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-secondary" onclick="abandonReconciliation()" id="recon-abandon-btn" style="display:none;" data-ar="إلغاء التسوية" data-en="Abandon">إلغاء</button>
+          <button class="btn btn-primary" onclick="saveReconciliation()" id="recon-save-btn" disabled data-ar="حفظ التسوية" data-en="Save Reconciliation">حفظ التسوية</button>
+        </div>
+      </div>
+
+      <!-- Transactions worksheet -->
+      <div id="recon-rows-wrap" style="background:#fff;border:1px solid var(--border);border-radius:14px;overflow:hidden;"></div>
+    </div>
+
+    <!-- History of past reconciliations -->
+    <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px;margin-top:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <h3 style="font-size:14px;font-weight:700;color:var(--navy);margin:0;display:flex;align-items:center;gap:6px;">📋 <span data-ar="السجل" data-en="History">السجل</span></h3>
+        <span style="font-size:11px;color:var(--muted);" data-ar="آخر 20 تسوية" data-en="Last 20 reconciliations">آخر 20 تسوية</span>
+      </div>
+      <div id="recon-history-wrap"></div>
     </div>
   </div>
 
@@ -3064,6 +3141,402 @@ function exportCashflowCSV(){
 }
 
 
+/* ═══════════════════════════════════════════════════════
+   RECONCILIATION — Round 4j (Scope A)
+   Manual bank reconciliation worksheet.
+   User picks an account + statement date + ending balance,
+   checks transactions that match the statement,
+   saves a snapshot, marks transactions reconciled.
+   Future scaffolding: import_id + source_format columns reserved
+   for CSV import (Scope B) in a dedicated session.
+═══════════════════════════════════════════════════════ */
+let allReconciliations = [];
+let reconSelected = {};        /* { transaction_id: true } */
+let reconCurrentAccount = null;
+
+async function loadReconciliations(){
+  if(!currentBiz?.id){ allReconciliations = []; return; }
+  const {data, error} = await sb.from('bank_reconciliations')
+    .select('*')
+    .eq('business_id', currentBiz.id)
+    .order('statement_date', {ascending:false})
+    .order('created_at', {ascending:false})
+    .limit(20);
+  if(error){
+    if((error.message||'').includes('does not exist') || error.code === '42P01'){
+      allReconciliations = [];
+      return;
+    }
+    console.error('[GL] loadReconciliations', error);
+    allReconciliations = [];
+    return;
+  }
+  allReconciliations = data || [];
+}
+
+function populateReconAccountPicker(){
+  const sel = document.getElementById('recon-account');
+  if(!sel) return;
+  const ar = currentLang === 'ar';
+  const currentVal = sel.value;
+  const accts = (allBankAccounts || []).filter(a => a.is_active);
+  sel.innerHTML = `<option value="">${ar?'-- اختر حساب --':'-- pick an account --'}</option>` +
+    accts.map(a => `<option value="${a.id}">${escHTML(ar ? (a.account_name_ar || a.account_name) : a.account_name)} · ${a.currency}</option>`).join('');
+  if(currentVal) sel.value = currentVal;
+}
+
+function renderReconciliation(){
+  populateReconAccountPicker();
+  /* Default statement date to today */
+  const dateEl = document.getElementById('recon-date');
+  if(dateEl && !dateEl.value) dateEl.value = todayISO();
+  renderReconHistory();
+}
+
+function onReconAccountChange(){
+  const accId = document.getElementById('recon-account').value;
+  reconCurrentAccount = (allBankAccounts || []).find(a => a.id === accId) || null;
+  reconSelected = {}; /* reset selections when account changes */
+  const worksheet = document.getElementById('recon-worksheet');
+  if(!accId){
+    worksheet.style.display = 'none';
+    return;
+  }
+  worksheet.style.display = '';
+  renderReconWorksheet();
+}
+
+function renderReconWorksheet(){
+  if(!reconCurrentAccount) return;
+  renderReconRows();
+  updateReconLiveCalc();
+}
+
+function renderReconRows(){
+  const wrap = document.getElementById('recon-rows-wrap');
+  if(!wrap || !reconCurrentAccount) return;
+  const ar = currentLang === 'ar';
+  const stmtDate = document.getElementById('recon-date')?.value || todayISO();
+  const search = (document.getElementById('recon-search')?.value || '').toLowerCase().trim();
+
+  /* Filter transactions for this account, dated <= statement date, NOT yet reconciled.
+     We DO show already-matched transactions from THIS reconciliation session
+     (so the user can uncheck them). */
+  let txs = (allBankTransactions || []).filter(t =>
+    t.account_id === reconCurrentAccount.id &&
+    t.transaction_date <= stmtDate &&
+    !t.is_reconciled
+  );
+
+  if(search){
+    txs = txs.filter(t =>
+      (t.description||'').toLowerCase().includes(search) ||
+      (t.reference_number||'').toLowerCase().includes(search) ||
+      (t.counterparty||'').toLowerCase().includes(search) ||
+      String(t.amount||'').includes(search)
+    );
+  }
+
+  /* Sort by date ascending so user reads in chronological order */
+  txs.sort((a, b) => (a.transaction_date || '').localeCompare(b.transaction_date || ''));
+
+  if(txs.length === 0){
+    wrap.innerHTML = `
+      <div style="text-align:center;padding:40px 20px;color:var(--muted);">
+        <div style="font-size:32px;margin-bottom:8px;opacity:0.5;">📋</div>
+        <div style="font-weight:700;margin-bottom:4px;">${ar?'لا توجد معاملات للتسوية':'No transactions to reconcile'}</div>
+        <div style="font-size:12px;">${ar
+          ? 'كل المعاملات حتى تاريخ الكشف مسوّاة بالفعل، أو لم يتم تسجيل معاملات بعد.'
+          : 'All transactions through the statement date are already reconciled, or none have been recorded.'}</div>
+      </div>`;
+    return;
+  }
+
+  wrap.innerHTML = `
+    <table class="tbl" style="margin:0;">
+      <thead>
+        <tr>
+          <th style="width:40px;text-align:center;">✓</th>
+          <th>${ar?'التاريخ':'Date'}</th>
+          <th>${ar?'الوصف':'Description'}</th>
+          <th>${ar?'النوع':'Type'}</th>
+          <th class="num">${ar?'المبلغ':'Amount'}</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${txs.map(t => {
+          const isInflow = t.transaction_type === 'deposit' || t.transaction_type === 'transfer_in';
+          const sign = isInflow ? '+' : '−';
+          const color = isInflow ? 'var(--green)' : 'var(--red)';
+          const checked = reconSelected[t.id] ? 'checked' : '';
+          const typeBadge = bankTxTypeBadge(t.transaction_type);
+          return `<tr style="cursor:pointer;${checked ? 'background:#f0fdf4;' : ''}" onclick="toggleReconRow('${t.id}', event)">
+            <td style="text-align:center;"><input type="checkbox" id="rcn-${t.id}" ${checked} onclick="event.stopPropagation();toggleReconRow('${t.id}')"></td>
+            <td class="mono" style="font-size:12px;">${escHTML(t.transaction_date || '—')}</td>
+            <td style="font-size:13px;">
+              ${escHTML(t.description || t.counterparty || '—')}
+              ${t.reference_number ? `<div style="color:var(--muted);font-family:'DM Mono',monospace;font-size:11px;">${escHTML(t.reference_number)}</div>` : ''}
+            </td>
+            <td>${typeBadge}</td>
+            <td class="num" style="color:${color};font-weight:700;font-family:'DM Mono',monospace;">${sign}${reconCurrentAccount.currency} ${fmt(parseFloat(t.amount)||0)}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function toggleReconRow(txId, e){
+  if(e && e.target && e.target.tagName === 'INPUT') return; /* checkbox onclick already handled it */
+  reconSelected[txId] = !reconSelected[txId];
+  renderReconRows();
+  updateReconLiveCalc();
+}
+
+function toggleSelectAllRecon(){
+  if(!reconCurrentAccount) return;
+  const stmtDate = document.getElementById('recon-date')?.value || todayISO();
+  const txs = (allBankTransactions || []).filter(t =>
+    t.account_id === reconCurrentAccount.id &&
+    t.transaction_date <= stmtDate &&
+    !t.is_reconciled
+  );
+  /* Toggle: if any are unselected, select all; otherwise clear all */
+  const anyUnselected = txs.some(t => !reconSelected[t.id]);
+  if(anyUnselected){
+    txs.forEach(t => { reconSelected[t.id] = true; });
+  } else {
+    txs.forEach(t => { reconSelected[t.id] = false; });
+  }
+  renderReconRows();
+  updateReconLiveCalc();
+}
+
+function updateReconLiveCalc(){
+  if(!reconCurrentAccount) return;
+  const ar = currentLang === 'ar';
+  const stmtDate = document.getElementById('recon-date')?.value || todayISO();
+  const endingBal = parseFloat(document.getElementById('recon-ending')?.value) || 0;
+
+  /* Opening balance = ALL reconciled transactions for this account up to (statement date − 1 day),
+     plus the account's recorded opening_balance.
+     Actually simpler: opening = current_balance MINUS sum of all unreconciled txs after stmt date,
+     PLUS sum of unreconciled txs before/on stmt date that we're NOT matching this round.
+     
+     Simpler still and correct: opening = sum of all PREVIOUSLY reconciled transactions up to and including
+     the day before statement date, plus account's opening_balance.
+     For Scope A simplicity, we compute opening as: account.current_balance minus all transactions
+     after the statement date. This gives the true book balance "as of statement date". */
+  const txsAfter = (allBankTransactions || []).filter(t =>
+    t.account_id === reconCurrentAccount.id && t.transaction_date > stmtDate
+  );
+  let bookBalanceAtStmt = parseFloat(reconCurrentAccount.current_balance) || 0;
+  for(const t of txsAfter){
+    const amt = parseFloat(t.amount) || 0;
+    if(t.transaction_type === 'deposit' || t.transaction_type === 'transfer_in'){
+      bookBalanceAtStmt -= amt; /* reverse: if deposit happened after, it shouldn't be in stmt-date balance */
+    } else {
+      bookBalanceAtStmt += amt;
+    }
+  }
+
+  /* Now: book balance at statement date = previously-reconciled portion + currently-unreconciled portion
+     We want: opening = book balance at statement date − amount of currently-unreconciled txs in this period. */
+  const unreconciledTxs = (allBankTransactions || []).filter(t =>
+    t.account_id === reconCurrentAccount.id &&
+    t.transaction_date <= stmtDate &&
+    !t.is_reconciled
+  );
+
+  let matchedIn = 0, matchedOut = 0;
+  let unmatchedIn = 0, unmatchedOut = 0;
+  for(const t of unreconciledTxs){
+    const amt = parseFloat(t.amount) || 0;
+    const isInflow = t.transaction_type === 'deposit' || t.transaction_type === 'transfer_in';
+    if(reconSelected[t.id]){
+      if(isInflow) matchedIn += amt;
+      else matchedOut += amt;
+    } else {
+      if(isInflow) unmatchedIn += amt;
+      else unmatchedOut += amt;
+    }
+  }
+
+  /* Opening = book balance at stmt date − net of unreconciled txs in this period.
+     This represents the balance BEFORE any unreconciled activity. */
+  const opening = bookBalanceAtStmt - (matchedIn + unmatchedIn) + (matchedOut + unmatchedOut);
+
+  /* Expected ending = opening + matched (only matched flows count toward statement balance) */
+  const expected = opening + matchedIn - matchedOut;
+  const diff = endingBal - expected;
+
+  setText('recon-opening', `${reconCurrentAccount.currency} ${fmt(opening)}`);
+  setText('recon-matched-in', `${reconCurrentAccount.currency} ${fmt(matchedIn)}`);
+  setText('recon-matched-out', `${reconCurrentAccount.currency} ${fmt(matchedOut)}`);
+  setText('recon-expected', `${reconCurrentAccount.currency} ${fmt(expected)}`);
+  setText('recon-diff', `${diff < 0 ? '−' : ''}${reconCurrentAccount.currency} ${fmt(Math.abs(diff))}`);
+
+  /* Status visualization */
+  const card = document.getElementById('recon-diff-card');
+  const msg = document.getElementById('recon-status-msg');
+  const saveBtn = document.getElementById('recon-save-btn');
+  if(card && msg && saveBtn){
+    if(Math.abs(diff) < 0.01){
+      /* Balanced */
+      card.style.background = '#dcfce7';
+      card.querySelectorAll('div').forEach(d => d.style.color = '#166534');
+      msg.style.color = 'var(--green)';
+      msg.style.fontWeight = '700';
+      msg.textContent = ar ? '✓ متطابق! يمكنك حفظ التسوية الآن.' : '✓ Balanced! You can save the reconciliation now.';
+      saveBtn.disabled = false;
+    } else {
+      card.style.background = '#fef3c7';
+      card.querySelectorAll('div').forEach(d => d.style.color = '#78350f');
+      msg.style.color = 'var(--amber)';
+      msg.style.fontWeight = '600';
+      const hint = diff > 0 ? (ar?'الكشف يظهر مبلغاً أعلى. ربما رسوم بنكية أو فوائد لم تسجل بعد.':'Statement shows more. Maybe bank charges or interest not yet recorded.') : (ar?'الكشف يظهر مبلغاً أقل. ربما معاملة في الكشف لم تسجلها أو لم تختار معاملاتها.':'Statement shows less. Maybe a transaction on the statement is not yet in books, or you missed checking some.');
+      msg.textContent = hint;
+      saveBtn.disabled = true;
+    }
+  }
+}
+
+async function saveReconciliation(){
+  if(!currentBiz?.id || !currentUser){
+    notify(currentLang==='ar'?'لم يتم تحميل المستخدم':'Auth not loaded','error');
+    return;
+  }
+  if(!reconCurrentAccount){ notify(currentLang==='ar'?'اختر حساباً':'Pick an account','error'); return; }
+  const ar = currentLang === 'ar';
+  const stmtDate = document.getElementById('recon-date').value;
+  const endingBal = parseFloat(document.getElementById('recon-ending').value) || 0;
+  if(!stmtDate){ notify(ar?'تاريخ الكشف مطلوب':'Statement date required','error'); return; }
+
+  const matchedIds = Object.keys(reconSelected).filter(id => reconSelected[id]);
+  if(matchedIds.length === 0){
+    if(!confirm(ar?'لم تحدد أي معاملة. متابعة حفظ التسوية فارغة؟':'No transactions checked. Save empty reconciliation?')) return;
+  }
+
+  /* Compute totals for snapshot */
+  const matchedTxs = (allBankTransactions || []).filter(t => reconSelected[t.id]);
+  const matchedIn = matchedTxs
+    .filter(t => t.transaction_type === 'deposit' || t.transaction_type === 'transfer_in')
+    .reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
+  const matchedOut = matchedTxs
+    .filter(t => t.transaction_type === 'withdrawal' || t.transaction_type === 'transfer_out')
+    .reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
+  const matchedNet = matchedIn - matchedOut;
+
+  /* Insert reconciliation snapshot */
+  const {data: recon, error: rErr} = await sb.from('bank_reconciliations').insert({
+    business_id: currentBiz.id,
+    user_id: currentUser.id,
+    account_id: reconCurrentAccount.id,
+    statement_date: stmtDate,
+    statement_ending_balance: endingBal,
+    status: 'completed',
+    matched_count: matchedIds.length,
+    matched_total: matchedNet,
+    unmatched_count: 0,
+    difference: 0, /* save button only enabled when balanced */
+    source_format: 'manual',
+    completed_at: new Date().toISOString()
+  }).select().single();
+
+  if(rErr){
+    if((rErr.message||'').includes('does not exist') || rErr.code === '42P01'){
+      notify(ar?'⚠ يجب تشغيل ميغريشن جدول التسوية أولاً':'⚠ Run bank_reconciliations migration first','error');
+      console.error('[GL] bank_reconciliations table missing — run bank_reconciliations_migration.sql');
+      return;
+    }
+    console.error('[GL] saveReconciliation', rErr);
+    notify((ar?'فشل الحفظ: ':'Save failed: ') + (rErr.message||''), 'error');
+    return;
+  }
+
+  /* Mark matched transactions as reconciled. Done in batches to avoid huge IN clauses. */
+  if(matchedIds.length > 0){
+    const reconciledAt = new Date().toISOString();
+    const chunkSize = 100;
+    for(let i = 0; i < matchedIds.length; i += chunkSize){
+      const chunk = matchedIds.slice(i, i + chunkSize);
+      const {error: updErr} = await sb.from('bank_transactions').update({
+        is_reconciled: true,
+        reconciled_at: reconciledAt,
+        reconciliation_id: recon.id
+      }).in('id', chunk);
+      if(updErr){
+        console.error('[GL] mark reconciled', updErr);
+        notify((ar?'تم حفظ التسوية لكن فشل تحديث بعض المعاملات: ':'Reconciliation saved but some transactions failed to update: ') + (updErr.message||''), 'error');
+        break;
+      }
+    }
+  }
+
+  notify(ar?`✅ تم حفظ التسوية. ${matchedIds.length} معاملة مطابقة.`:`✅ Reconciliation saved. ${matchedIds.length} transactions matched.`,'success');
+
+  /* Reset for next reconciliation */
+  reconSelected = {};
+  setVal('recon-ending','');
+  /* Reload data */
+  await Promise.all([loadBankTransactions(), loadReconciliations()]);
+  renderReconWorksheet();
+  renderReconHistory();
+}
+
+async function abandonReconciliation(){
+  reconSelected = {};
+  setVal('recon-ending','');
+  setVal('recon-account','');
+  reconCurrentAccount = null;
+  document.getElementById('recon-worksheet').style.display = 'none';
+}
+
+function renderReconHistory(){
+  const wrap = document.getElementById('recon-history-wrap');
+  if(!wrap) return;
+  const ar = currentLang === 'ar';
+
+  if(allReconciliations.length === 0){
+    wrap.innerHTML = `<div style="text-align:center;padding:20px;color:var(--muted);font-size:12px;">${ar?'لا توجد تسويات سابقة':'No prior reconciliations'}</div>`;
+    return;
+  }
+
+  wrap.innerHTML = `
+    <table class="tbl" style="margin:0;">
+      <thead>
+        <tr>
+          <th>${ar?'التاريخ':'Date'}</th>
+          <th>${ar?'الحساب':'Account'}</th>
+          <th class="num">${ar?'الرصيد على الكشف':'Statement Balance'}</th>
+          <th class="num">${ar?'معاملات مطابقة':'Matched Count'}</th>
+          <th class="num">${ar?'صافي مطابق':'Matched Net'}</th>
+          <th>${ar?'الحالة':'Status'}</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${allReconciliations.map(r => {
+          const account = (allBankAccounts || []).find(a => a.id === r.account_id);
+          const acctName = account ? (ar ? (account.account_name_ar || account.account_name) : account.account_name) : '—';
+          const currency = account?.currency || 'SAR';
+          const statusBadge = r.status === 'completed'
+            ? `<span style="background:#dcfce7;color:#166534;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700;">${ar?'مكتملة':'Completed'}</span>`
+            : `<span style="background:#fef3c7;color:#78350f;padding:2px 8px;border-radius:8px;font-size:11px;font-weight:700;">${ar?'قيد التنفيذ':'In progress'}</span>`;
+          return `<tr>
+            <td class="mono" style="font-size:12px;">${escHTML(r.statement_date)}</td>
+            <td style="font-size:13px;">${escHTML(acctName)}</td>
+            <td class="num" style="font-family:'DM Mono',monospace;">${currency} ${fmt(parseFloat(r.statement_ending_balance)||0)}</td>
+            <td class="num">${r.matched_count || 0}</td>
+            <td class="num" style="font-family:'DM Mono',monospace;color:${(parseFloat(r.matched_total)||0) >= 0 ? 'var(--green)' : 'var(--red)'};">${(parseFloat(r.matched_total)||0) >= 0 ? '+' : '−'}${currency} ${fmt(Math.abs(parseFloat(r.matched_total)||0))}</td>
+            <td>${statusBadge}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+
 /* ─── tabs ─── */
 function switchTab(name){
   currentTab = name;
@@ -3087,6 +3560,19 @@ function switchTab(name){
       Promise.all([loadBankAccounts(), loadBankTransactions()]).then(renderCashFlow);
     } else {
       renderCashFlow();
+    }
+  }
+
+  /* Round 4j: reconciliation needs banks data + reconciliations history */
+  if(name === 'reconciliation'){
+    if(!window._banksLoaded){
+      window._banksLoaded = true;
+      Promise.all([loadBankAccounts(), loadBankTransactions(), loadReconciliations()]).then(renderReconciliation);
+    } else if(!window._reconLoaded){
+      window._reconLoaded = true;
+      loadReconciliations().then(renderReconciliation);
+    } else {
+      renderReconciliation();
     }
   }
 }
