@@ -1184,6 +1184,9 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         <button type="button" class="report-view-btn" id="rview-bs" onclick="setReportView('bs')">
           ⚖️ <span data-ar="الميزانية" data-en="Balance Sheet">الميزانية</span>
         </button>
+        <button type="button" class="report-view-btn" id="rview-cf" onclick="setReportView('cf')">
+          💧 <span data-ar="التدفقات النقدية" data-en="Cash Flow">التدفقات النقدية</span>
+        </button>
         <button type="button" class="report-view-btn" id="rview-tb" onclick="setReportView('tb')">
           ✅ <span data-ar="ميزان المراجعة" data-en="Trial Balance">ميزان المراجعة</span>
         </button>
@@ -3323,7 +3326,7 @@ async function reverseEntry(entryId){
 
 function setReportView(name){
   reportView = name;
-  ['pl','bs','tb'].forEach(v => {
+  ['pl','bs','cf','tb'].forEach(v => {
     document.getElementById('rview-'+v)?.classList.toggle('on', v === name);
   });
   /* Compare toggle only meaningful for P&L (period-based) */
@@ -3406,6 +3409,7 @@ async function loadAndRenderReport(){
   try {
     if(reportView === 'pl') await renderPL(period);
     else if(reportView === 'bs') await renderBalanceSheet(period);
+    else if(reportView === 'cf') await renderCashFlow(period);
     else if(reportView === 'tb') await renderTrialBalance(period);
   } catch(e){
     console.error('[GL] report render failed:', e);
@@ -3658,6 +3662,229 @@ async function renderBalanceSheet(period){
     </div>
   `;
 }
+
+/* ─── CASH FLOW STATEMENT (IFRS, Indirect Method) ───
+   Round 4i.2: IFRS-compliant Cash Flow Statement for Qawaem submission.
+
+   Method: Indirect — start from Net Income, adjust for non-cash items
+   and changes in working capital, then split into Operating / Investing / Financing.
+
+   Account classification (KSA SOCPA chart of accounts conventions):
+   - 1000-1099  Cash & equivalents      → not classified, used as the BALANCE
+   - 1100-1199  Bank accounts           → not classified, used as the BALANCE
+   - 1200-1299  Accounts receivable     → Operating (working capital change)
+   - 1300-1399  Inventory               → Operating (working capital change)
+   - 1400-1499  Fixed assets, accumulated depreciation → Investing
+   - 1500-1599  Intangibles             → Investing
+   - 2100-2199  Accounts payable        → Operating (working capital change)
+   - 2200-2299  Accrued / VAT payable / short-term loans → Operating
+   - 2300-2499  Long-term loans         → Financing
+   - 3000-3999  Equity (capital, drawings, retained earnings) → Financing
+   - 4000-4999  Revenue                  → Operating (via net income)
+   - 5000-5999  COGS                     → Operating (via net income)
+   - 6000-6999  Operating expenses        → Operating (via net income)
+   - 7000-7999  Other income/expenses    → Operating (via net income)
+
+   The classifications are best-effort defaults. A banner reminds users
+   to review with their CPA before Qawaem submission.
+*/
+function classifyCashFlowSection(code){
+  const c = String(code || '');
+  /* Cash itself — not classified, it's the balance */
+  if(/^10\d{2}$/.test(c) || /^11\d{2}$/.test(c)) return 'cash';
+  /* Operating: receivables, inventory, payables, accrued */
+  if(/^12\d{2}$/.test(c)) return 'operating';   /* AR */
+  if(/^13\d{2}$/.test(c)) return 'operating';   /* Inventory */
+  if(/^21\d{2}$/.test(c)) return 'operating';   /* AP */
+  if(/^22\d{2}$/.test(c)) return 'operating';   /* Accrued, VAT */
+  /* Investing: fixed assets, intangibles */
+  if(/^14\d{2}$/.test(c)) return 'investing';
+  if(/^15\d{2}$/.test(c)) return 'investing';
+  /* Financing: long-term debt, equity */
+  if(/^23\d{2}$/.test(c)) return 'financing';
+  if(/^24\d{2}$/.test(c)) return 'financing';
+  if(/^3\d{3}$/.test(c)) return 'financing';
+  /* Income statement accounts roll up via net income (handled separately) */
+  if(/^[4-7]\d{3}$/.test(c)) return 'income_statement';
+  return 'unclassified';
+}
+
+async function renderCashFlow(period){
+  const ar = currentLang === 'ar';
+  const content = document.getElementById('report-content');
+  const [fromISO, toISO] = periodRange(period);
+
+  /* ── STEP 1: Compute Net Income for the period (P&L bottom line) ── */
+  const periodBal = await computeAccountBalances(fromISO, toISO);
+  let revenue = 0, expenses = 0;
+  for(const code in periodBal){
+    const b = periodBal[code];
+    if(/^4\d{3}$/.test(code)){
+      /* Revenue: credit-natured, normal balance is credit, contributes positively */
+      revenue += -b.net; /* -net because credit is negative in (dr-cr) */
+    } else if(/^[5-7]\d{3}$/.test(code)){
+      /* Expenses: debit-natured, contributes negatively */
+      expenses += b.net;
+    }
+  }
+  const netIncome = revenue - expenses;
+
+  /* ── STEP 2: Compute opening and closing balances for balance-sheet accounts ── */
+  /* Opening = balance up to (fromISO - 1 day). Closing = balance up to toISO. */
+  const openingDate = fromISO ? new Date(new Date(fromISO).getTime() - 86400000).toISOString().slice(0,10) : null;
+  const opening = openingDate ? await computeAccountBalances(null, openingDate) : {};
+  const closing = await computeAccountBalances(null, toISO);
+
+  /* Helper: get net change in account = closing - opening
+     Asset accounts: positive net change = increase = USE of cash
+     Liability/equity accounts: positive net change = increase = SOURCE of cash */
+  const netChange = (code) => {
+    const op = opening[code]?.net || 0;
+    const cl = closing[code]?.net || 0;
+    return cl - op;
+  };
+
+  /* ── STEP 3: Bucket every BS account by section ── */
+  /* Operating section: working capital changes */
+  const operating = []; /* {code, name, label, amount} amount is cash impact (positive = inflow, negative = outflow) */
+  const investing = [];
+  const financing = [];
+
+  /* Track cash accounts to compute the actual closing cash for verification */
+  let openingCash = 0, closingCash = 0;
+
+  /* Walk every account in chart_of_accounts (or any account that has activity) */
+  const allCodes = new Set([...Object.keys(opening), ...Object.keys(closing)]);
+  for(const code of allCodes){
+    const section = classifyCashFlowSection(code);
+    const account = (chartOfAccounts || []).find(a => a.code === code);
+    const name = account ? (ar ? account.name_ar : account.name_en) : code;
+    const change = netChange(code);
+    if(change === 0) continue;
+
+    if(section === 'cash'){
+      openingCash += opening[code]?.net || 0;
+      closingCash += closing[code]?.net || 0;
+      continue;
+    }
+
+    if(section === 'income_statement') continue; /* Already in net income */
+
+    /* Determine if account is debit-natured (asset) or credit-natured (liability/equity).
+       For DR-natured: positive change = USE of cash (subtract).
+       For CR-natured: positive change = SOURCE of cash (add). */
+    const isDR = account ? !['liability','equity','income'].includes(account.type)
+                         : (/^1\d{3}$/.test(code) || /^[5-7]\d{3}$/.test(code));
+    const cashImpact = isDR ? -change : change;
+
+    const item = { code, name, amount: cashImpact };
+    if(section === 'operating') operating.push(item);
+    else if(section === 'investing') investing.push(item);
+    else if(section === 'financing') financing.push(item);
+  }
+
+  /* Sort each section by absolute amount descending for readability */
+  [operating, investing, financing].forEach(arr => arr.sort((a,b) => Math.abs(b.amount) - Math.abs(a.amount)));
+
+  /* ── STEP 4: Compute section totals ── */
+  const operatingTotal = netIncome + operating.reduce((s, x) => s + x.amount, 0);
+  const investingTotal = investing.reduce((s, x) => s + x.amount, 0);
+  const financingTotal = financing.reduce((s, x) => s + x.amount, 0);
+  const netCashChange = operatingTotal + investingTotal + financingTotal;
+  const computedClosingCash = openingCash + netCashChange;
+
+  /* Reconciliation: difference between computed closing cash and actual ledger closing */
+  const reconDiff = closingCash - computedClosingCash;
+
+  /* ── STEP 5: Render ── */
+  const renderRow = (label, amount, indent=0) => {
+    const sign = amount >= 0 ? '' : '−';
+    const abs = Math.abs(amount);
+    const color = amount >= 0 ? 'var(--green)' : 'var(--red)';
+    return `<tr>
+      <td style="padding:7px 10px;${indent ? `padding-${ar?'right':'left'}:${indent*16+10}px;` : ''}font-size:13px;">${escHTML(label)}</td>
+      <td style="padding:7px 10px;text-align:end;font-family:'DM Mono',monospace;font-size:13px;color:${color};white-space:nowrap;">${sign}SAR ${fmt(abs)}</td>
+    </tr>`;
+  };
+
+  const renderSection = (titleAr, titleEn, items, total, anchor) => {
+    return `
+      <tr><td colspan="2" style="padding:14px 10px 6px;font-size:13px;font-weight:700;color:var(--navy);text-transform:uppercase;letter-spacing:0.05em;background:var(--bg);border-top:2px solid var(--border);">${ar?titleAr:titleEn}</td></tr>
+      ${items.length === 0 ? `<tr><td colspan="2" style="padding:8px 14px;font-size:12px;color:var(--muted);font-style:italic;">${ar?'لا توجد حركات':'No activity'}</td></tr>` : items.map(it => renderRow(it.name, it.amount, 1)).join('')}
+      ${anchor ? renderRow(ar?'صافي الدخل':'Net income', anchor, 1) : ''}
+      <tr style="border-top:1px solid var(--border);background:#f8fcf9;">
+        <td style="padding:8px 10px;font-size:13px;font-weight:700;">${ar?'صافي '+titleAr:'Net cash from '+titleEn.toLowerCase()}</td>
+        <td style="padding:8px 10px;text-align:end;font-family:'DM Mono',monospace;font-size:14px;font-weight:700;color:${total >= 0 ? 'var(--green)' : 'var(--red)'};">${total >= 0 ? '' : '−'}SAR ${fmt(Math.abs(total))}</td>
+      </tr>
+    `;
+  };
+
+  content.innerHTML = `
+    <div class="report-card">
+      <div class="report-head">
+        <div>
+          <div class="report-title">${ar?'قائمة التدفقات النقدية':'Cash Flow Statement'}</div>
+          <div class="report-subtitle">${reportPeriodSubtitle(period, false)} · ${ar?'الطريقة غير المباشرة':'Indirect method'}</div>
+        </div>
+        ${currentBiz ? `<div class="report-biz">${escHTML(ar?(currentBiz.name_ar||currentBiz.name):currentBiz.name)}</div>` : ''}
+      </div>
+
+      <!-- IFRS compliance disclaimer -->
+      <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#78350f;">
+        ⚠️ <strong>${ar?'تنويه:':'Disclaimer:'}</strong>
+        ${ar
+          ? 'تصنيف الحسابات بدائي اعتماداً على نطاقات أرقام الحسابات. راجع مع محاسبك القانوني المعتمد قبل التقديم على منصة قوائم. هذه القائمة استرشادية للأغراض التشغيلية.'
+          : 'Account classification is preliminary based on account-code ranges. Review with your CPA before Qawaem submission. This statement is informational for operational use.'}
+      </div>
+
+      <!-- Cross-reference to operational tracker -->
+      <div style="background:var(--tint);border:1px solid var(--light);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--blue);">
+        💧 ${ar
+          ? 'لتتبع التدفقات النقدية اليومية والتنبؤ بالسيولة:'
+          : 'For day-to-day cash flow tracking and liquidity forecasting:'}
+        <a href="finance.html?tab=cashflow" style="color:var(--blue);font-weight:700;text-decoration:underline;margin-inline-start:6px;">${ar?'المالية ← التدفق النقدي':'Finance → Cash Flow'}</a>
+      </div>
+
+      <table class="report-table" style="width:100%;border-collapse:collapse;">
+        <thead>
+          <tr>
+            <th style="text-align:start;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;background:var(--bg);">${ar?'البند':'Item'}</th>
+            <th style="text-align:end;padding:8px 10px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.05em;background:var(--bg);">${ar?'المبلغ':'Amount'}</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${renderSection('الأنشطة التشغيلية', 'Operating Activities', operating, operatingTotal, netIncome)}
+          ${renderSection('الأنشطة الاستثمارية', 'Investing Activities', investing, investingTotal, null)}
+          ${renderSection('الأنشطة التمويلية', 'Financing Activities', financing, financingTotal, null)}
+
+          <!-- Net change in cash -->
+          <tr style="border-top:2px solid var(--navy);background:#dcfce7;">
+            <td style="padding:10px;font-size:14px;font-weight:800;color:var(--navy);">${ar?'صافي التغير في النقد':'Net change in cash'}</td>
+            <td style="padding:10px;text-align:end;font-family:'DM Mono',monospace;font-size:15px;font-weight:800;color:${netCashChange >= 0 ? 'var(--green)' : 'var(--red)'};">${netCashChange >= 0 ? '' : '−'}SAR ${fmt(Math.abs(netCashChange))}</td>
+          </tr>
+          <tr>
+            <td style="padding:7px 10px;font-size:13px;color:var(--muted);">${ar?'الرصيد الافتتاحي للنقد':'Opening cash balance'}</td>
+            <td style="padding:7px 10px;text-align:end;font-family:'DM Mono',monospace;font-size:13px;color:var(--muted);">SAR ${fmt(openingCash)}</td>
+          </tr>
+          <tr style="border-top:1px solid var(--border);background:#f8fcf9;">
+            <td style="padding:8px 10px;font-size:13px;font-weight:700;">${ar?'الرصيد الختامي للنقد (محسوب)':'Closing cash balance (computed)'}</td>
+            <td style="padding:8px 10px;text-align:end;font-family:'DM Mono',monospace;font-size:14px;font-weight:700;">SAR ${fmt(computedClosingCash)}</td>
+          </tr>
+          <tr>
+            <td style="padding:7px 10px;font-size:13px;color:var(--muted);">${ar?'الرصيد الختامي للنقد (الفعلي)':'Closing cash balance (actual ledger)'}</td>
+            <td style="padding:7px 10px;text-align:end;font-family:'DM Mono',monospace;font-size:13px;color:var(--muted);">SAR ${fmt(closingCash)}</td>
+          </tr>
+          ${Math.abs(reconDiff) > 0.5 ? `
+          <tr style="background:#fee2e2;">
+            <td style="padding:8px 10px;font-size:12px;color:#991b1b;">⚠️ ${ar?'فرق التسوية':'Reconciliation difference'}</td>
+            <td style="padding:8px 10px;text-align:end;font-family:'DM Mono',monospace;font-size:12px;color:#991b1b;">${reconDiff >= 0 ? '+' : '−'}SAR ${fmt(Math.abs(reconDiff))}</td>
+          </tr>` : ''}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
 
 /* ─── TRIAL BALANCE ─── */
 async function renderTrialBalance(period){
