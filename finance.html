@@ -1432,7 +1432,18 @@ function safeAttr(s){
     .replace(/\n/g, ' ');
 }
 function fmt(n){ return (parseFloat(n) || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}); }
-function todayISO(){ return new Date().toISOString().slice(0,10); }
+/* Local-date helpers — fixes timezone bug where toISOString() shifts dates
+   back by the timezone offset in positive-offset zones (KSA is UTC+3).
+   Always use these for expense/invoice dates which are stored as plain
+   YYYY-MM-DD (no time/zone). */
+function localDateISO(d){
+  d = d || new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+function todayISO(){ return localDateISO(); }
 function escHTML(s){ if(s == null) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
 function setText(id, v){ const el = document.getElementById(id); if(el) el.textContent = v; }
 function setVal(id, v){ const el = document.getElementById(id); if(el) el.value = v; }
@@ -1622,7 +1633,8 @@ function populateCategoryFilter(){
 /* ─── stats ─── */
 function computeStats(){
   const now = new Date();
-  const thisMonth = now.toISOString().slice(0,7);
+  /* Use local-month string to avoid UTC shift issue in positive-offset timezones */
+  const thisMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
 
   const monthExpenses = allExpenses.filter(e =>
     e.status !== 'voided' && (e.expense_date || '').startsWith(thisMonth)
@@ -1694,8 +1706,9 @@ function renderExpenses(){
       to = new Date(now.getFullYear(), 11, 31);
     }
     if(from && to){
-      const fromISO = from.toISOString().slice(0,10);
-      const toISO = to.toISOString().slice(0,10);
+      /* Bug fix: use local-date string (KSA is UTC+3, .toISOString() shifts back) */
+      const fromISO = localDateISO(from);
+      const toISO = localDateISO(to);
       list = list.filter(e => e.expense_date >= fromISO && e.expense_date <= toISO);
     }
   }
@@ -1726,7 +1739,7 @@ function renderExpenses(){
         <a href="expenses.html" class="clear-btn">${ar?'مسح الفلتر':'Clear filter'} ✕</a>
       </div>`;
   } else if(urlFilter === 'overdue'){
-    const today = new Date().toISOString().slice(0,10);
+    const today = todayISO();
     list = list.filter(e => e.status === 'posted' && e.payment_status !== 'paid' && e.due_date && e.due_date < today);
     urlFilterBanner = `
       <div class="url-filter-banner">
@@ -2475,7 +2488,7 @@ function onVendorSelect(vendorId){
     const days = vendor?.payment_terms_days || 30;
     const due = new Date();
     due.setDate(due.getDate() + days);
-    setVal('exp-due-date', due.toISOString().slice(0,10));
+    setVal('exp-due-date', localDateISO(due));
   }
   evaluateVendorWarning();
 }
@@ -2554,7 +2567,7 @@ function setPaymentMethod(method){
       const days = vendor?.payment_terms_days || 30;
       const due = new Date();
       due.setDate(due.getDate() + days);
-      setVal('exp-due-date', due.toISOString().slice(0,10));
+      setVal('exp-due-date', localDateISO(due));
     }
   }
 }
