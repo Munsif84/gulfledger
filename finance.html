@@ -2778,8 +2778,20 @@ function renderCashflowChart(periodTx, fromISO, toISO){
   }
 
   const monthKeys = Object.keys(months).sort();
-  if(monthKeys.length === 0){
-    wrap.innerHTML = `<div style="text-align:center;padding:40px;color:var(--muted);font-size:13px;">${ar?'لا توجد بيانات في هذه الفترة':'No data in this period'}</div>`;
+  /* Check if any month actually has data — pre-filled buckets are all-zero by default */
+  const hasAnyData = monthKeys.some(k => months[k].in > 0 || months[k].out > 0);
+  if(monthKeys.length === 0 || !hasAnyData){
+    wrap.innerHTML = `
+      <div style="text-align:center;padding:30px;color:var(--muted);font-size:13px;line-height:1.7;">
+        <div style="font-size:32px;margin-bottom:8px;opacity:0.5;">📊</div>
+        <div style="font-weight:700;margin-bottom:6px;">${ar?'لا توجد معاملات بنكية بعد':'No bank transactions yet'}</div>
+        <div style="font-size:12px;max-width:380px;margin:0 auto;">${ar
+          ? 'سيظهر الرسم البياني هنا عندما تسجل معاملات في تبويب "البنوك". حالياً، يمكنك مشاهدة التنبؤ بناءً على الفواتير المستحقة.'
+          : 'The chart appears once you record transactions in the Banks tab. For now, check the Forecast view for a projection based on outstanding invoices.'}</div>
+        <button class="btn btn-primary btn-sm" style="margin-top:12px;" onclick="switchTab('banks');setTimeout(openTransactionModal,200);">
+          + ${ar?'سجّل معاملة':'Add Transaction'}
+        </button>
+      </div>`;
     return;
   }
 
@@ -2906,11 +2918,15 @@ async function renderCashflowForecast(){
   /* Pull outstanding invoices (paid_status != paid) and unpaid expenses with due_date */
   if(!currentBiz?.id){ wrap.innerHTML = ''; return; }
 
-  /* Outstanding invoices: not fully paid, has due_date */
-  const {data: invoices} = await sb.from('invoices')
-    .select('invoice_number, total, due_date, customer_name, payment_status, status')
+  /* Outstanding invoices: not fully paid, has due_date.
+     NOTE: invoices table does NOT have a customer_name column — only customer_id.
+     Selecting non-existent column makes Supabase return an error and silently
+     drop the whole query. Removed customer_name from select. */
+  const {data: invoices, error: invErr} = await sb.from('invoices')
+    .select('invoice_number, total, due_date, payment_status, status')
     .eq('business_id', currentBiz.id)
     .neq('status', 'voided');
+  if(invErr) console.error('[GL] cashflow forecast invoices', invErr);
   const today = todayISO();
   const unpaidInvs = (invoices || []).filter(inv =>
     inv.due_date && inv.payment_status !== 'paid' && inv.status !== 'draft'
