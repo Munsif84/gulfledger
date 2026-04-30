@@ -1,7 +1,8 @@
 <!DOCTYPE html>
+
 <!--
 ═══════════════════════════════════════════════════════════════════════════════
-  GulfLedger — invoices.html (v3 — list-first redesign)
+  GulfLedger -- invoices.html (v3 -- list-first redesign)
 ═══════════════════════════════════════════════════════════════════════════════
 
   ARCHITECTURE
@@ -20,7 +21,7 @@
     Customers pane: search + filter + customer list
     Modals: New Invoice modal, Add Customer popup, Payment modal, Inventory picker
 
-  SQL MIGRATIONS REQUIRED — RUN IN SUPABASE BEFORE TESTING
+  SQL MIGRATIONS REQUIRED -- RUN IN SUPABASE BEFORE TESTING
   ========================================================
     -- Invoices: total-level discount
     ALTER TABLE invoices ADD COLUMN IF NOT EXISTS discount_pct numeric DEFAULT 0;
@@ -59,7 +60,7 @@
     ALTER TABLE customers ADD COLUMN IF NOT EXISTS company_name_en text;
 
     -- Buyer name on invoice gets bilingual support too (so the rendered invoice
-    -- can show buyer name in BOTH languages — Arabic for ZATCA, English for B2B)
+    -- can show buyer name in BOTH languages -- Arabic for ZATCA, English for B2B)
     ALTER TABLE invoices ADD COLUMN IF NOT EXISTS buyer_name_en text;
 
     -- One-time backfill: for existing customers without name_ar/name_en, detect
@@ -98,7 +99,7 @@
     -- ─── ZATCA Phase 2 forward-compatibility ───────────────────────
     -- These columns are populated when Fatoora integration is built (later phase).
     -- Adding now to avoid migration on a busy invoices table later.
-    -- The current code does NOT use these columns — they sit empty until needed.
+    -- The current code does NOT use these columns -- they sit empty until needed.
     --
     -- Architecture plan (when Phase 2 is implemented):
     --   1. User clicks "Generate Invoice" in browser → invoice saved with zatca_status='pending'
@@ -108,7 +109,7 @@
     --   5. On failure: zatca_status='rejected' with errors in jsonb for retry/fix
     --   6. Each invoice references the previous via previous_invoice_hash (ZATCA hash chain)
     --
-    -- Browser-side submission is NOT possible — ZATCA requires server-issued certs (CSIDs)
+    -- Browser-side submission is NOT possible -- ZATCA requires server-issued certs (CSIDs)
     -- and mutual TLS with the Fatoora API. The Edge Function approach is industry standard.
     ALTER TABLE invoices ADD COLUMN IF NOT EXISTS zatca_status text DEFAULT 'not_required';
       -- Values: not_required (Phase 1 / B2C low-value) | pending | submitted | cleared | rejected | failed
@@ -136,7 +137,7 @@
 
   BUG FIXES IN THIS VERSION
   =========================
-    1. AI calls disabled (gated by AI_ENABLED feature flag — was hitting api.anthropic.com)
+    1. AI calls disabled (gated by AI_ENABLED feature flag -- was hitting api.anthropic.com)
     2. PUBLIC_URL_BASE constant (was hardcoded gulfledger.net which doesn't exist yet)
     3. Tajawal font (matches index.html and dashboard.html)
     4. Single flash-prevention script (was duplicated)
@@ -153,7 +154,7 @@
     - RLS policy verification on all tables
     - invoice-view.html redesign in next pass (this file links to it)
 
-  PHASE 2 ZATCA INTEGRATION ROADMAP (future work — schema is ready)
+  PHASE 2 ZATCA INTEGRATION ROADMAP (future work -- schema is ready)
   ================================================================
     Deferred until clients are ready / payment gateway is live.
     The 5 ZATCA columns added in this migration sit empty until Phase 2 is built.
@@ -162,7 +163,7 @@
 
     0. PAYMENTS HISTORY & ADJUSTMENTS (deferred):
          User want: ability to view payment history per invoice + per customer,
-         and to reverse a wrong payment (audit-trail safe — no edits/deletes).
+         and to reverse a wrong payment (audit-trail safe -- no edits/deletes).
 
          Architecture (when built):
          - New table: payments(
@@ -234,11 +235,12 @@
 
 ═══════════════════════════════════════════════════════════════════════════════
 -->
+
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
 <script>
-/* Apply language before render — prevents flash */
+/* Apply language before render -- prevents flash */
 (function(){
   var lang = localStorage.getItem('gl_lang') || 'ar';
   document.documentElement.setAttribute('lang', lang);
@@ -248,13 +250,14 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex,nofollow">
 <meta name="theme-color" content="#1A3C2A">
-<title>GulfLedger — Sales</title>
+<title>GulfLedger -- Sales</title>
 
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&family=Playfair+Display:wght@700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
 <script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
 
 <style>
@@ -289,7 +292,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .app-nav-link:hover{background:rgba(255,255,255,0.12);color:#fff;}
 .app-nav-link.active{background:rgba(255,255,255,0.18);color:#fff;}
 
-/* ═══ ROUND D1 — Canonical nav additions (profile dropdown + dashboard icon) ═══ */
+/* ═══ ROUND D1 -- Canonical nav additions (profile dropdown + dashboard icon) ═══ */
 .nav-settings-btn, .btn-logout { display: none !important; }
 .profile-menu { position: relative; }
 .profile-trigger { display: inline-flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 13px; transition: background .15s; font-family: inherit; }
@@ -473,11 +476,11 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 /* ─── LIST ROWS (clean, no decorative cards) ─── */
 .list-rows{display:flex;flex-direction:column;}
 
-/* List header row — column labels (must mirror .list-row grid exactly) */
+/* List header row -- column labels (must mirror .list-row grid exactly) */
 .list-header{display:grid;gap:16px;align-items:center;padding:10px 18px;background:var(--bg);border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;}
-/* Invoice list: 8 columns — #, Date, Customer, Type, Amount, Status, ZATCA, Actions */
+/* Invoice list: 8 columns -- #, Date, Customer, Type, Amount, Status, ZATCA, Actions */
 .list-header.invoices-header{grid-template-columns:130px 95px minmax(170px, 1fr) 70px 120px 100px 130px 180px;}
-/* Customer list: 8 columns — avatar, code, name, type, last invoice, outstanding, total, actions */
+/* Customer list: 8 columns -- avatar, code, name, type, last invoice, outstanding, total, actions */
 .list-header.customers-header{grid-template-columns:36px 90px minmax(160px, 1fr) 70px 110px 120px 120px 200px;}
 .list-header span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
 .list-header .h-amount{text-align:end;}
@@ -575,7 +578,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   .modal-foot{border-radius:0;}
 }
 
-/* Sub-modal (Add Customer) — z-index higher than parent */
+/* Sub-modal (Add Customer) -- z-index higher than parent */
 .modal-overlay.sub-modal{z-index:9100;background:rgba(13,38,24,0.6);}
 
 /* ─── FORM FIELDS ─── */
@@ -787,12 +790,15 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
   .nav-name span{display:none;}
 }
 </style>
+
 </head>
 <body>
 
 <!-- ═══ TOP NAVIGATION ═══ -->
+
 <!-- ═══ CANONICAL TOP NAV (Round D1) ═══
      Identical on every page. Active state set by JS at runtime. -->
+
 <div class="topnav">
   <a href="dashboard.html" class="nav-logo" aria-label="GulfLedger home">
     <div class="nav-bars">
@@ -818,70 +824,74 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
           <span data-ar="عميل جديد" data-en="New Customer">عميل جديد</span>
         </a>
 
-        <div class="gl-qa-div"></div>
-        <div class="gl-qa-cat" data-ar="المشتريات" data-en="Purchasing">المشتريات</div>
-        <a href="purchasing.html?tab=suppliers&action=new_supplier" class="gl-qa-item" role="menuitem">
-          <span class="gl-qa-icon">🏭</span>
-          <span data-ar="مورد جديد" data-en="New Supplier">مورد جديد</span>
-        </a>
-        <a href="purchasing.html?tab=products&action=new_product" class="gl-qa-item" role="menuitem">
-          <span class="gl-qa-icon">📦</span>
-          <span data-ar="منتج جديد" data-en="New Product">منتج جديد</span>
-        </a>
+```
+    <div class="gl-qa-div"></div>
+    <div class="gl-qa-cat" data-ar="المشتريات" data-en="Purchasing">المشتريات</div>
+    <a href="purchasing.html?tab=suppliers&action=new_supplier" class="gl-qa-item" role="menuitem">
+      <span class="gl-qa-icon">🏭</span>
+      <span data-ar="مورد جديد" data-en="New Supplier">مورد جديد</span>
+    </a>
+    <a href="purchasing.html?tab=products&action=new_product" class="gl-qa-item" role="menuitem">
+      <span class="gl-qa-icon">📦</span>
+      <span data-ar="منتج جديد" data-en="New Product">منتج جديد</span>
+    </a>
 
-        <div class="gl-qa-div"></div>
-        <div class="gl-qa-cat" data-ar="المخزون" data-en="Inventory">المخزون</div>
-        <a href="inventory.html?tab=receive&action=new_receipt" class="gl-qa-item" role="menuitem">
-          <span class="gl-qa-icon">📥</span>
-          <span data-ar="استلام بضاعة" data-en="Receive Stock">استلام بضاعة</span>
-        </a>
+    <div class="gl-qa-div"></div>
+    <div class="gl-qa-cat" data-ar="المخزون" data-en="Inventory">المخزون</div>
+    <a href="inventory.html?tab=receive&action=new_receipt" class="gl-qa-item" role="menuitem">
+      <span class="gl-qa-icon">📥</span>
+      <span data-ar="استلام بضاعة" data-en="Receive Stock">استلام بضاعة</span>
+    </a>
 
-        <div class="gl-qa-div"></div>
-        <div class="gl-qa-cat" data-ar="المالية" data-en="Finance">المالية</div>
-        <a href="finance.html?tab=expenses&action=new_expense" class="gl-qa-item" role="menuitem">
-          <span class="gl-qa-icon">💸</span>
-          <span data-ar="مصروف جديد" data-en="New Expense">مصروف جديد</span>
-        </a>
-        <a href="finance.html?tab=vendors&action=new_vendor" class="gl-qa-item" role="menuitem">
-          <span class="gl-qa-icon">🏢</span>
-          <span data-ar="مورد مصروفات" data-en="New Expense Vendor">مورد مصروفات</span>
-        </a>
+    <div class="gl-qa-div"></div>
+    <div class="gl-qa-cat" data-ar="المالية" data-en="Finance">المالية</div>
+    <a href="finance.html?tab=expenses&action=new_expense" class="gl-qa-item" role="menuitem">
+      <span class="gl-qa-icon">💸</span>
+      <span data-ar="مصروف جديد" data-en="New Expense">مصروف جديد</span>
+    </a>
+    <a href="finance.html?tab=vendors&action=new_vendor" class="gl-qa-item" role="menuitem">
+      <span class="gl-qa-icon">🏢</span>
+      <span data-ar="مورد مصروفات" data-en="New Expense Vendor">مورد مصروفات</span>
+    </a>
 
-        <div class="gl-qa-div"></div>
-        <div class="gl-qa-cat" data-ar="محاسبة" data-en="Accounting">محاسبة</div>
-        <a href="accounting.html?sub=ledger&action=new_journal" class="gl-qa-item" role="menuitem">
-          <span class="gl-qa-icon">📒</span>
-          <span data-ar="قيد محاسبي" data-en="New Journal Entry">قيد محاسبي</span>
-        </a>
-      </div>
-    </div>
-    <div class="lang-switch">
-      <button class="lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button>
-      <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
-    </div>
-    <div class="nav-divider"></div>
-    <span class="nav-biz" id="biz-name" title="">...</span>
-    <div class="profile-menu" id="profile-menu">
-      <button class="profile-trigger" onclick="toggleProfileMenu(event)" aria-haspopup="true" aria-expanded="false" aria-label="Profile menu">
-        <span class="profile-avatar" id="profile-avatar">👤</span>
-        <span class="profile-caret">▾</span>
-      </button>
-      <div class="profile-dropdown" id="profile-dropdown" role="menu">
-        <a href="settings.html" class="profile-item" role="menuitem">
-          <span class="profile-icon">⚙️</span>
-          <span data-ar="الإعدادات" data-en="Settings">الإعدادات</span>
-        </a>
-        <div class="profile-divider"></div>
-        <button class="profile-item profile-item-button" onclick="logout()" role="menuitem">
-          <span class="profile-icon">🚪</span>
-          <span data-ar="تسجيل الخروج" data-en="Sign out">تسجيل الخروج</span>
-        </button>
-      </div>
-    </div>
+    <div class="gl-qa-div"></div>
+    <div class="gl-qa-cat" data-ar="محاسبة" data-en="Accounting">محاسبة</div>
+    <a href="accounting.html?sub=ledger&action=new_journal" class="gl-qa-item" role="menuitem">
+      <span class="gl-qa-icon">📒</span>
+      <span data-ar="قيد محاسبي" data-en="New Journal Entry">قيد محاسبي</span>
+    </a>
+  </div>
+</div>
+<div class="lang-switch">
+  <button class="lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button>
+  <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
+</div>
+<div class="nav-divider"></div>
+<span class="nav-biz" id="biz-name" title="">...</span>
+<div class="profile-menu" id="profile-menu">
+  <button class="profile-trigger" onclick="toggleProfileMenu(event)" aria-haspopup="true" aria-expanded="false" aria-label="Profile menu">
+    <span class="profile-avatar" id="profile-avatar">👤</span>
+    <span class="profile-caret">▾</span>
+  </button>
+  <div class="profile-dropdown" id="profile-dropdown" role="menu">
+    <a href="settings.html" class="profile-item" role="menuitem">
+      <span class="profile-icon">⚙️</span>
+      <span data-ar="الإعدادات" data-en="Settings">الإعدادات</span>
+    </a>
+    <div class="profile-divider"></div>
+    <button class="profile-item profile-item-button" onclick="logout()" role="menuitem">
+      <span class="profile-icon">🚪</span>
+      <span data-ar="تسجيل الخروج" data-en="Sign out">تسجيل الخروج</span>
+    </button>
+  </div>
+</div>
+```
+
   </div>
 </div>
 
 <!-- ═══ MAIN APP NAVIGATION ═══ -->
+
 <div class="app-nav" id="app-nav">
   <a href="dashboard.html" class="app-nav-link app-nav-icon" title="Dashboard" aria-label="Dashboard"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></a>
   <a href="purchasing.html" class="app-nav-link" data-ar="المشتريات" data-en="Purchasing">المشتريات</a>
@@ -903,15 +913,18 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
 </script>
 
 <!-- Loading state -->
+
 <div class="loading-state" id="loading-state">
   <div class="loading-spinner">🧾</div>
   <div data-ar="جارٍ تحميل المبيعات..." data-en="Loading sales...">جارٍ تحميل المبيعات...</div>
 </div>
 
-<!-- ═══ MAIN PAGE — INVOICE LIST + CUSTOMER LIST ═══ -->
+<!-- ═══ MAIN PAGE -- INVOICE LIST + CUSTOMER LIST ═══ -->
+
 <div class="main" id="page" style="display:none;">
 
   <!-- Page header -->
+
   <div class="page-header">
     <div>
       <h1 class="page-title" data-ar="المبيعات" data-en="Sales">المبيعات</h1>
@@ -920,6 +933,7 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
   </div>
 
   <!-- Drafts banner (auto-hides if no drafts) -->
+
   <div class="drafts-banner" id="drafts-banner" style="display:none;">
     <div class="drafts-banner-head" onclick="toggleDraftsBanner()">
       <div class="drafts-banner-left">
@@ -932,93 +946,103 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
   </div>
 
   <!-- Stats row -->
+
   <div class="stats">
     <div class="stat">
       <div class="stat-label" data-ar="مبيعات الشهر" data-en="Sales (Month)">مبيعات الشهر</div>
-      <div class="stat-val loading" id="s-revenue">—</div>
+      <div class="stat-val loading" id="s-revenue">--</div>
       <div class="stat-sub" data-ar="هذا الشهر" data-en="This month">هذا الشهر</div>
     </div>
     <div class="stat s-amber">
       <div class="stat-label" data-ar="مستحقات" data-en="Outstanding">مستحقات</div>
-      <div class="stat-val loading" id="s-outstanding">—</div>
+      <div class="stat-val loading" id="s-outstanding">--</div>
       <div class="stat-sub" data-ar="غير مدفوع" data-en="Unpaid">غير مدفوع</div>
     </div>
     <div class="stat s-green">
       <div class="stat-label" data-ar="تم تحصيله" data-en="Collected">تم تحصيله</div>
-      <div class="stat-val loading" id="s-collected">—</div>
+      <div class="stat-val loading" id="s-collected">--</div>
       <div class="stat-sub" data-ar="هذا الشهر" data-en="This month">هذا الشهر</div>
     </div>
     <div class="stat">
       <div class="stat-label" data-ar="عملاء" data-en="Customers">عملاء</div>
-      <div class="stat-val loading" id="s-customers">—</div>
+      <div class="stat-val loading" id="s-customers">--</div>
       <div class="stat-sub" data-ar="إجمالي" data-en="Total">إجمالي</div>
     </div>
   </div>
 
   <!-- Section card: tabs + list -->
+
   <div class="section-card">
 
-    <div class="tabs-row">
-      <div class="section-tabs">
-        <button class="section-tab active" id="tab-invoices" onclick="switchTab('invoices')">
-          <span class="section-tab-icon">🧾</span>
-          <span data-ar="الفواتير" data-en="Invoices">الفواتير</span>
-          <span class="section-tab-count" id="tab-count-invoices">0</span>
-        </button>
-        <button class="section-tab" id="tab-customers" onclick="switchTab('customers')">
-          <span class="section-tab-icon">👥</span>
-          <span data-ar="العملاء" data-en="Customers">العملاء</span>
-          <span class="section-tab-count" id="tab-count-customers">0</span>
-        </button>
-      </div>
-    </div>
+```
+<div class="tabs-row">
+  <div class="section-tabs">
+    <button class="section-tab active" id="tab-invoices" onclick="switchTab('invoices')">
+      <span class="section-tab-icon">🧾</span>
+      <span data-ar="الفواتير" data-en="Invoices">الفواتير</span>
+      <span class="section-tab-count" id="tab-count-invoices">0</span>
+    </button>
+    <button class="section-tab" id="tab-customers" onclick="switchTab('customers')">
+      <span class="section-tab-icon">👥</span>
+      <span data-ar="العملاء" data-en="Customers">العملاء</span>
+      <span class="section-tab-count" id="tab-count-customers">0</span>
+    </button>
+  </div>
+</div>
 
-    <!-- INVOICES PANE -->
-    <div id="pane-invoices">
-      <div class="list-toolbar">
-        <div class="search-wrap">
-          <span class="search-icon">🔍</span>
-          <input type="text" class="search-input" id="inv-search" placeholder="بحث برقم الفاتورة، اسم العميل..." oninput="renderInvList()">
-        </div>
-        <div class="list-actions">
-          <div class="filter-group">
-            <button class="filter-btn active" data-filter="all" onclick="setInvFilter('all')" data-ar="الكل" data-en="All">الكل</button>
-            <button class="filter-btn" data-filter="unpaid" onclick="setInvFilter('unpaid')" data-ar="غير مدفوع" data-en="Unpaid">غير مدفوع</button>
-            <button class="filter-btn" data-filter="partial" onclick="setInvFilter('partial')" data-ar="جزئي" data-en="Partial">جزئي</button>
-            <button class="filter-btn" data-filter="paid" onclick="setInvFilter('paid')" data-ar="مدفوع" data-en="Paid">مدفوع</button>
-          </div>
-          <button class="btn btn-secondary btn-sm" onclick="loadInvoices()" title="تحديث">↻</button>
-        </div>
-      </div>
-      <div id="inv-list">
-        <div class="skel-row"><div class="skel-bar"></div></div>
-        <div class="skel-row"><div class="skel-bar"></div></div>
-        <div class="skel-row"><div class="skel-bar"></div></div>
-      </div>
+<!-- INVOICES PANE -->
+<div id="pane-invoices">
+  <div class="list-toolbar">
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input type="text" class="search-input" id="inv-search" placeholder="بحث برقم الفاتورة، اسم العميل..." oninput="renderInvList()">
     </div>
+    <div class="list-actions">
+      <div class="filter-group">
+        <button class="filter-btn active" data-filter="all" onclick="setInvFilter('all')" data-ar="الكل" data-en="All">الكل</button>
+        <button class="filter-btn" data-filter="unpaid" onclick="setInvFilter('unpaid')" data-ar="غير مدفوع" data-en="Unpaid">غير مدفوع</button>
+        <button class="filter-btn" data-filter="partial" onclick="setInvFilter('partial')" data-ar="جزئي" data-en="Partial">جزئي</button>
+        <button class="filter-btn" data-filter="paid" onclick="setInvFilter('paid')" data-ar="مدفوع" data-en="Paid">مدفوع</button>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="loadInvoices()" title="تحديث">↻</button>
+      <button class="btn btn-primary btn-sm" onclick="openInvoiceModal()">
+        + <span data-ar="فاتورة جديدة" data-en="New Invoice">فاتورة جديدة</span>
+      </button>
+    </div>
+  </div>
+  <div id="inv-list">
+    <div class="skel-row"><div class="skel-bar"></div></div>
+    <div class="skel-row"><div class="skel-bar"></div></div>
+    <div class="skel-row"><div class="skel-bar"></div></div>
+  </div>
+</div>
 
-    <!-- CUSTOMERS PANE -->
-    <div id="pane-customers" style="display:none;">
-      <div class="list-toolbar">
-        <div class="search-wrap">
-          <span class="search-icon">🔍</span>
-          <input type="text" class="search-input" id="cust-search" placeholder="بحث بالاسم، الجوال، الرقم الضريبي..." oninput="renderCustList()">
-        </div>
-        <div class="list-actions">
-          <div class="filter-group">
-            <button class="filter-btn active" data-cfilter="all" onclick="setCustFilter('all')" data-ar="الكل" data-en="All">الكل</button>
-            <button class="filter-btn" data-cfilter="b2b" onclick="setCustFilter('b2b')">B2B</button>
-            <button class="filter-btn" data-cfilter="b2c" onclick="setCustFilter('b2c')">B2C</button>
-          </div>
-          <button class="btn btn-secondary btn-sm" onclick="loadCustomers()" title="تحديث">↻</button>
-        </div>
-      </div>
-      <div id="cust-list">
-        <div class="skel-row"><div class="skel-bar"></div></div>
-        <div class="skel-row"><div class="skel-bar"></div></div>
-        <div class="skel-row"><div class="skel-bar"></div></div>
-      </div>
+<!-- CUSTOMERS PANE -->
+<div id="pane-customers" style="display:none;">
+  <div class="list-toolbar">
+    <div class="search-wrap">
+      <span class="search-icon">🔍</span>
+      <input type="text" class="search-input" id="cust-search" placeholder="بحث بالاسم، الجوال، الرقم الضريبي..." oninput="renderCustList()">
     </div>
+    <div class="list-actions">
+      <div class="filter-group">
+        <button class="filter-btn active" data-cfilter="all" onclick="setCustFilter('all')" data-ar="الكل" data-en="All">الكل</button>
+        <button class="filter-btn" data-cfilter="b2b" onclick="setCustFilter('b2b')">B2B</button>
+        <button class="filter-btn" data-cfilter="b2c" onclick="setCustFilter('b2c')">B2C</button>
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="loadCustomers()" title="تحديث">↻</button>
+      <button class="btn btn-primary btn-sm" onclick="openAddCustomerModal()">
+        + <span data-ar="عميل جديد" data-en="New Customer">عميل جديد</span>
+      </button>
+    </div>
+  </div>
+  <div id="cust-list">
+    <div class="skel-row"><div class="skel-bar"></div></div>
+    <div class="skel-row"><div class="skel-bar"></div></div>
+    <div class="skel-row"><div class="skel-bar"></div></div>
+  </div>
+</div>
+```
 
   </div>
 </div>
@@ -1026,6 +1050,7 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
 <!-- ═══════════════════════════════════════════════════════
      NEW INVOICE MODAL
 ═══════════════════════════════════════════════════════ -->
+
 <div class="modal-overlay" id="invoice-modal" role="dialog" aria-modal="true" aria-labelledby="inv-modal-title">
   <div class="modal-box">
     <div class="modal-head">
@@ -1036,160 +1061,164 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
       <button class="modal-close" onclick="closeInvoiceModal()" aria-label="إغلاق">×</button>
     </div>
 
-    <div class="modal-body">
+```
+<div class="modal-body">
 
-      <!-- Type pill toggle -->
-      <div class="type-pill-group">
-        <button class="type-pill active" id="pill-quick" onclick="setInvType('quick')">
-          <span>⚡</span><span data-ar="سريعة" data-en="Quick">سريعة</span>
-        </button>
-        <button class="type-pill" id="pill-tax" onclick="setInvType('tax')">
-          <span>🏢</span><span data-ar="ضريبية" data-en="Tax">ضريبية</span>
-        </button>
-      </div>
+  <!-- Type pill toggle -->
+  <div class="type-pill-group">
+    <button class="type-pill active" id="pill-quick" onclick="setInvType('quick')">
+      <span>⚡</span><span data-ar="سريعة" data-en="Quick">سريعة</span>
+    </button>
+    <button class="type-pill" id="pill-tax" onclick="setInvType('tax')">
+      <span>🏢</span><span data-ar="ضريبية" data-en="Tax">ضريبية</span>
+    </button>
+  </div>
 
-      <!-- Compact meta strip -->
-      <div class="meta-strip cols-2" id="meta-strip">
-        <div class="meta-cell">
-          <span class="meta-label" data-ar="رقم الفاتورة · Invoice No." data-en="Invoice No. · رقم الفاتورة">رقم الفاتورة · Invoice No.</span>
-          <input type="text" class="meta-input" id="f-invnum" readonly>
-        </div>
-        <div class="meta-cell">
-          <span class="meta-label" data-ar="التاريخ · Issue Date" data-en="Issue Date · التاريخ">التاريخ · Issue Date</span>
-          <input type="date" class="meta-input" id="f-date" lang="en" oninput="autoFillDueDate()">
-        </div>
-        <div class="meta-cell" id="duedate-cell" style="display:none;">
-          <span class="meta-label" data-ar="تاريخ الاستحقاق · Due Date" data-en="Due Date · تاريخ الاستحقاق">تاريخ الاستحقاق · Due Date</span>
-          <input type="date" class="meta-input" id="f-duedate" lang="en">
-        </div>
-        <div class="meta-cell" id="po-cell" style="display:none;">
-          <span class="meta-label" data-ar="أمر الشراء · PO No. (اختياري)" data-en="PO No. · أمر الشراء (optional)">أمر الشراء · PO No. (اختياري)</span>
-          <input type="text" class="meta-input" id="f-po-num" placeholder="PO-2026-001" dir="ltr">
-        </div>
-      </div>
-
-      <!-- ZATCA banner (Tax mode only) -->
-      <div class="zatca-banner" id="zatca-banner" style="display:none;">
-        <span class="zatca-banner-icon">✓</span>
-        <span><strong>فاتورة ضريبية B2B</strong> — متطلبات زاتكا: العميل يجب أن يكون مسجلاً ببياناته الكاملة</span>
-      </div>
-
-      <!-- Buyer section: just one search field + selected pill -->
-      <div class="section-label">
-        <span data-ar="المشتري · Buyer" data-en="Buyer · المشتري">المشتري · Buyer</span>
-        <span class="small-meta" id="buyer-section-hint" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
-      </div>
-
-      <div class="customer-lookup-wrap" id="customer-lookup-wrap">
-        <div class="customer-lookup">
-          <span class="customer-lookup-icon">🔍</span>
-          <input type="text" class="customer-lookup-input" id="customer-search"
-            placeholder="ابحث بالاسم، الجوال، أو الرقم الضريبي"
-            oninput="onCustomerSearchInput(this.value)"
-            onfocus="onCustomerSearchInput(this.value)"
-            autocomplete="off">
-          <div class="customer-dd" id="customer-dd"></div>
-        </div>
-        <div class="customer-hint">
-          💡 <span data-ar="العميل الموجود يُعبأ تلقائياً · العميل الجديد يُحفظ بضغطة زر" data-en="Existing customer auto-fills · New customer saved with one click">العميل الموجود يُعبأ تلقائياً · العميل الجديد يُحفظ بضغطة زر</span>
-        </div>
-      </div>
-
-      <!-- Selected customer pill (shown when customer chosen) -->
-      <div id="selected-customer-wrap" style="display:none;">
-        <div class="customer-pill">
-          <div class="customer-pill-info">
-            <div class="customer-pill-name" id="selected-customer-name"></div>
-            <div class="customer-pill-meta" id="selected-customer-meta"></div>
-          </div>
-          <button class="customer-pill-x" onclick="clearSelectedCustomer()" title="إزالة" aria-label="Remove">×</button>
-        </div>
-      </div>
-
-      <!-- Items section -->
-      <div class="section-label">
-        <span data-ar="البنود · Items" data-en="Items · البنود">البنود · Items</span>
-        <span class="small-meta" id="items-zatca-note" data-ar="(الوصف العربي مطلوب لزاتكا)" data-en="(Arabic description required for ZATCA)">(الوصف العربي مطلوب لزاتكا)</span>
-      </div>
-
-      <div class="items-section">
-        <div class="items-header">
-          <span>#</span>
-          <span data-ar="الوصف" data-en="Description">الوصف</span>
-          <span data-ar="كمية" data-en="Qty">كمية</span>
-          <span data-ar="سعر" data-en="Price">سعر</span>
-          <span data-ar="خصم" data-en="Disc">خصم</span>
-          <span data-ar="الإجمالي" data-en="Total">الإجمالي</span>
-          <span></span>
-        </div>
-        <div id="items-container"></div>
-        <button class="btn-add-item" onclick="addItem()">
-          + <span data-ar="إضافة بند" data-en="Add Item">إضافة بند</span>
-        </button>
-      </div>
-
-      <!-- Totals box -->
-      <div class="items-totals">
-        <div class="items-totals-row">
-          <span><span data-ar="الإجمالي قبل الضريبة" data-en="Subtotal">الإجمالي قبل الضريبة</span> <span style="font-size:10px;color:var(--muted);">· Subtotal</span></span>
-          <span class="items-totals-val" id="t-sub">SAR 0.00</span>
-        </div>
-        <div class="items-totals-row discount-input">
-          <span class="discount-label">
-            <span data-ar="خصم على الإجمالي" data-en="Total discount">خصم على الإجمالي</span>
-            <span class="discount-pct-wrap">
-              <input type="number" class="discount-pct-input" id="f-disc-pct" value="0" min="0" max="100" step="0.5" oninput="renderTotals()">
-              <span class="discount-pct-suffix">%</span>
-            </span>
-          </span>
-          <span class="discount-amount" id="t-disc">- SAR 0.00</span>
-        </div>
-        <div class="items-totals-row subtotal-net" id="t-net-row" style="display:none;">
-          <span><span data-ar="الصافي قبل الضريبة" data-en="Net subtotal">الصافي قبل الضريبة</span> <span style="font-size:10px;color:var(--muted);">· Net</span></span>
-          <span class="items-totals-val" id="t-net">SAR 0.00</span>
-        </div>
-        <div class="items-totals-row">
-          <span><span data-ar="ضريبة القيمة المضافة 15٪" data-en="VAT 15%">ضريبة القيمة المضافة 15٪</span></span>
-          <span class="items-totals-val" id="t-vat">SAR 0.00</span>
-        </div>
-        <div class="items-totals-row grand">
-          <span><span data-ar="الإجمالي شامل الضريبة" data-en="Total">الإجمالي شامل الضريبة</span></span>
-          <span class="items-totals-val" id="t-total">SAR 0.00</span>
-        </div>
-      </div>
-
-      <!-- Notes (collapsible) -->
-      <div class="notes-toggle" onclick="toggleNotes()" id="notes-toggle">
-        <span class="notes-toggle-label">📝 <span data-ar="ملاحظات (اختياري)" data-en="Notes (optional)">ملاحظات (اختياري)</span></span>
-        <span class="notes-arrow" id="notes-arrow">▾</span>
-      </div>
-      <div id="notes-body" class="notes-body" style="display:none;">
-        <textarea id="f-notes" rows="3" placeholder="شروط الدفع، ملاحظات التسليم..."></textarea>
-      </div>
-
-      <!-- Hidden field for invoice type -->
-      <input type="hidden" id="f-type" value="quick">
-
+  <!-- Compact meta strip -->
+  <div class="meta-strip cols-2" id="meta-strip">
+    <div class="meta-cell">
+      <span class="meta-label" data-ar="رقم الفاتورة · Invoice No." data-en="Invoice No. · رقم الفاتورة">رقم الفاتورة · Invoice No.</span>
+      <input type="text" class="meta-input" id="f-invnum" readonly>
     </div>
-
-    <div class="modal-foot">
-      <button class="btn btn-ghost" onclick="closeInvoiceModal()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
-      <button class="btn btn-secondary" id="btn-save-draft" onclick="btnAction(this, saveDraft, 'تم الحفظ')">
-        <span data-ar="حفظ كمسودة" data-en="Save Draft">حفظ كمسودة</span>
-      </button>
-      <button class="btn btn-secondary" id="btn-preview" onclick="btnAction(this, previewInvoice, 'فتح المعاينة')">
-        👁 <span data-ar="معاينة" data-en="Preview">معاينة</span>
-      </button>
-      <button class="btn btn-primary" id="btn-generate" onclick="btnAction(this, generateInvoice, 'تم التصدير')">
-        <span data-ar="تصدير الفاتورة" data-en="Generate Invoice">تصدير الفاتورة</span>
-      </button>
+    <div class="meta-cell">
+      <span class="meta-label" data-ar="التاريخ · Issue Date" data-en="Issue Date · التاريخ">التاريخ · Issue Date</span>
+      <input type="date" class="meta-input" id="f-date" lang="en" oninput="autoFillDueDate()">
     </div>
+    <div class="meta-cell" id="duedate-cell" style="display:none;">
+      <span class="meta-label" data-ar="تاريخ الاستحقاق · Due Date" data-en="Due Date · تاريخ الاستحقاق">تاريخ الاستحقاق · Due Date</span>
+      <input type="date" class="meta-input" id="f-duedate" lang="en">
+    </div>
+    <div class="meta-cell" id="po-cell" style="display:none;">
+      <span class="meta-label" data-ar="أمر الشراء · PO No. (اختياري)" data-en="PO No. · أمر الشراء (optional)">أمر الشراء · PO No. (اختياري)</span>
+      <input type="text" class="meta-input" id="f-po-num" placeholder="PO-2026-001" dir="ltr">
+    </div>
+  </div>
+
+  <!-- ZATCA banner (Tax mode only) -->
+  <div class="zatca-banner" id="zatca-banner" style="display:none;">
+    <span class="zatca-banner-icon">✓</span>
+    <span><strong>فاتورة ضريبية B2B</strong> -- متطلبات زاتكا: العميل يجب أن يكون مسجلاً ببياناته الكاملة</span>
+  </div>
+
+  <!-- Buyer section: just one search field + selected pill -->
+  <div class="section-label">
+    <span data-ar="المشتري · Buyer" data-en="Buyer · المشتري">المشتري · Buyer</span>
+    <span class="small-meta" id="buyer-section-hint" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
+  </div>
+
+  <div class="customer-lookup-wrap" id="customer-lookup-wrap">
+    <div class="customer-lookup">
+      <span class="customer-lookup-icon">🔍</span>
+      <input type="text" class="customer-lookup-input" id="customer-search"
+        placeholder="ابحث بالاسم، الجوال، أو الرقم الضريبي"
+        oninput="onCustomerSearchInput(this.value)"
+        onfocus="onCustomerSearchInput(this.value)"
+        autocomplete="off">
+      <div class="customer-dd" id="customer-dd"></div>
+    </div>
+    <div class="customer-hint">
+      💡 <span data-ar="العميل الموجود يُعبأ تلقائياً · العميل الجديد يُحفظ بضغطة زر" data-en="Existing customer auto-fills · New customer saved with one click">العميل الموجود يُعبأ تلقائياً · العميل الجديد يُحفظ بضغطة زر</span>
+    </div>
+  </div>
+
+  <!-- Selected customer pill (shown when customer chosen) -->
+  <div id="selected-customer-wrap" style="display:none;">
+    <div class="customer-pill">
+      <div class="customer-pill-info">
+        <div class="customer-pill-name" id="selected-customer-name"></div>
+        <div class="customer-pill-meta" id="selected-customer-meta"></div>
+      </div>
+      <button class="customer-pill-x" onclick="clearSelectedCustomer()" title="إزالة" aria-label="Remove">×</button>
+    </div>
+  </div>
+
+  <!-- Items section -->
+  <div class="section-label">
+    <span data-ar="البنود · Items" data-en="Items · البنود">البنود · Items</span>
+    <span class="small-meta" id="items-zatca-note" data-ar="(الوصف العربي مطلوب لزاتكا)" data-en="(Arabic description required for ZATCA)">(الوصف العربي مطلوب لزاتكا)</span>
+  </div>
+
+  <div class="items-section">
+    <div class="items-header">
+      <span>#</span>
+      <span data-ar="الوصف" data-en="Description">الوصف</span>
+      <span data-ar="كمية" data-en="Qty">كمية</span>
+      <span data-ar="سعر" data-en="Price">سعر</span>
+      <span data-ar="خصم" data-en="Disc">خصم</span>
+      <span data-ar="الإجمالي" data-en="Total">الإجمالي</span>
+      <span></span>
+    </div>
+    <div id="items-container"></div>
+    <button class="btn-add-item" onclick="addItem()">
+      + <span data-ar="إضافة بند" data-en="Add Item">إضافة بند</span>
+    </button>
+  </div>
+
+  <!-- Totals box -->
+  <div class="items-totals">
+    <div class="items-totals-row">
+      <span><span data-ar="الإجمالي قبل الضريبة" data-en="Subtotal">الإجمالي قبل الضريبة</span> <span style="font-size:10px;color:var(--muted);">· Subtotal</span></span>
+      <span class="items-totals-val" id="t-sub">SAR 0.00</span>
+    </div>
+    <div class="items-totals-row discount-input">
+      <span class="discount-label">
+        <span data-ar="خصم على الإجمالي" data-en="Total discount">خصم على الإجمالي</span>
+        <span class="discount-pct-wrap">
+          <input type="number" class="discount-pct-input" id="f-disc-pct" value="0" min="0" max="100" step="0.5" oninput="renderTotals()">
+          <span class="discount-pct-suffix">%</span>
+        </span>
+      </span>
+      <span class="discount-amount" id="t-disc">- SAR 0.00</span>
+    </div>
+    <div class="items-totals-row subtotal-net" id="t-net-row" style="display:none;">
+      <span><span data-ar="الصافي قبل الضريبة" data-en="Net subtotal">الصافي قبل الضريبة</span> <span style="font-size:10px;color:var(--muted);">· Net</span></span>
+      <span class="items-totals-val" id="t-net">SAR 0.00</span>
+    </div>
+    <div class="items-totals-row">
+      <span><span data-ar="ضريبة القيمة المضافة 15٪" data-en="VAT 15%">ضريبة القيمة المضافة 15٪</span></span>
+      <span class="items-totals-val" id="t-vat">SAR 0.00</span>
+    </div>
+    <div class="items-totals-row grand">
+      <span><span data-ar="الإجمالي شامل الضريبة" data-en="Total">الإجمالي شامل الضريبة</span></span>
+      <span class="items-totals-val" id="t-total">SAR 0.00</span>
+    </div>
+  </div>
+
+  <!-- Notes (collapsible) -->
+  <div class="notes-toggle" onclick="toggleNotes()" id="notes-toggle">
+    <span class="notes-toggle-label">📝 <span data-ar="ملاحظات (اختياري)" data-en="Notes (optional)">ملاحظات (اختياري)</span></span>
+    <span class="notes-arrow" id="notes-arrow">▾</span>
+  </div>
+  <div id="notes-body" class="notes-body" style="display:none;">
+    <textarea id="f-notes" rows="3" placeholder="شروط الدفع، ملاحظات التسليم..."></textarea>
+  </div>
+
+  <!-- Hidden field for invoice type -->
+  <input type="hidden" id="f-type" value="quick">
+
+</div>
+
+<div class="modal-foot">
+  <button class="btn btn-ghost" onclick="closeInvoiceModal()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+  <button class="btn btn-secondary" id="btn-save-draft" onclick="btnAction(this, saveDraft, 'تم الحفظ')">
+    <span data-ar="حفظ كمسودة" data-en="Save Draft">حفظ كمسودة</span>
+  </button>
+  <button class="btn btn-secondary" id="btn-preview" onclick="btnAction(this, previewInvoice, 'فتح المعاينة')">
+    👁 <span data-ar="معاينة" data-en="Preview">معاينة</span>
+  </button>
+  <button class="btn btn-primary" id="btn-generate" onclick="btnAction(this, generateInvoice, 'تم التصدير')">
+    <span data-ar="تصدير الفاتورة" data-en="Generate Invoice">تصدير الفاتورة</span>
+  </button>
+</div>
+```
+
   </div>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════
-     ADD CUSTOMER MODAL (sub-modal — opens on top of invoice modal)
+     ADD CUSTOMER MODAL (sub-modal -- opens on top of invoice modal)
 ═══════════════════════════════════════════════════════ -->
+
 <div class="modal-overlay sub-modal" id="customer-modal" role="dialog" aria-modal="true">
   <div class="modal-box compact">
     <div class="modal-head">
@@ -1200,196 +1229,246 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
       <button class="modal-close" onclick="closeAddCustomerModal()" aria-label="إغلاق">×</button>
     </div>
 
-    <div class="modal-body">
+```
+<div class="modal-body">
 
-      <!-- Customer type toggle -->
-      <div class="type-pill-group full-width">
-        <button class="type-pill active" id="cust-pill-b2c" onclick="setCustomerType('b2c')">
-          <span>👤</span><span data-ar="فرد · Individual" data-en="Individual · فرد">فرد · Individual</span>
-        </button>
-        <button class="type-pill" id="cust-pill-b2b" onclick="setCustomerType('b2b')">
-          <span>🏢</span><span data-ar="شركة · Business" data-en="Business · شركة">شركة · Business</span>
-        </button>
-      </div>
+  <!-- Customer type toggle -->
+  <div class="type-pill-group full-width">
+    <button class="type-pill active" id="cust-pill-b2c" onclick="setCustomerType('b2c')">
+      <span>👤</span><span data-ar="فرد · Individual" data-en="Individual · فرد">فرد · Individual</span>
+    </button>
+    <button class="type-pill" id="cust-pill-b2b" onclick="setCustomerType('b2b')">
+      <span>🏢</span><span data-ar="شركة · Business" data-en="Business · شركة">شركة · Business</span>
+    </button>
+  </div>
 
-      <!-- Customer name (bilingual — ZATCA requires Arabic) -->
-      <div class="field-row single">
-        <div class="field">
-          <label class="field-label">
-            <span id="cm-name-ar-label" data-ar="الاسم بالعربية" data-en="Name in Arabic">الاسم بالعربية</span>
-            <span class="req">*</span>
-            <span class="zatca-tag" title="مطلوب لزاتكا · Required for ZATCA">ZATCA</span>
-          </label>
-          <input type="text" id="cm-name-ar" placeholder="أحمد محمد" dir="rtl" oninput="onNameInput('ar')">
-          <div class="lang-hint" id="cm-name-ar-hint"></div>
-        </div>
-      </div>
-
-      <div class="field-row double">
-        <div class="field">
-          <label class="field-label">
-            <span id="cm-name-en-label" data-ar="الاسم بالإنجليزية" data-en="Name in English">الاسم بالإنجليزية</span>
-            <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
-          </label>
-          <input type="text" id="cm-name-en" placeholder="Ahmed Mohammed" dir="ltr" oninput="onNameInput('en')">
-          <div class="lang-hint" id="cm-name-en-hint"></div>
-        </div>
-        <div class="field">
-          <label class="field-label">
-            <span data-ar="الجوال · Mobile" data-en="Mobile · الجوال">الجوال · Mobile</span>
-            <span class="req">*</span>
-          </label>
-          <input type="tel" id="cm-mobile" class="mono" placeholder="05XXXXXXXX" dir="ltr">
-        </div>
-      </div>
-
-      <!-- B2B identifiers (TRN + CR) -->
-      <div class="field-row double" id="cm-b2b-row1" style="display:none;">
-        <div class="field">
-          <label class="field-label">
-            <span data-ar="الرقم الضريبي · TRN" data-en="TRN · الرقم الضريبي">الرقم الضريبي · TRN</span>
-            <span class="req" id="cm-trn-req">*</span>
-          </label>
-          <input type="text" id="cm-trn" class="mono" placeholder="300000000000003" maxlength="15" dir="ltr">
-        </div>
-        <div class="field">
-          <label class="field-label">
-            <span data-ar="السجل التجاري · CR" data-en="CR · السجل التجاري">السجل التجاري · CR</span>
-            <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
-          </label>
-          <input type="text" id="cm-cr" class="mono" placeholder="1010123456" dir="ltr">
-        </div>
-      </div>
-
-      <!-- Payment terms (B2B — used to auto-fill due date on invoices) -->
-      <div class="field-row single" id="cm-payment-terms-row" style="display:none;">
-        <div class="field">
-          <label class="field-label">
-            <span data-ar="مدة السداد · Payment Terms" data-en="Payment Terms · مدة السداد">مدة السداد · Payment Terms</span>
-            <span class="opt" data-ar="(يستخدم لاحتساب تاريخ الاستحقاق)" data-en="(used to calculate due date)">(يستخدم لاحتساب تاريخ الاستحقاق)</span>
-          </label>
-          <select id="cm-payment-terms" class="mono">
-            <option value="0">فوري · Immediate (Net 0)</option>
-            <option value="7">7 أيام · Net 7</option>
-            <option value="15">15 يوم · Net 15</option>
-            <option value="30" selected>30 يوم · Net 30</option>
-            <option value="45">45 يوم · Net 45</option>
-            <option value="60">60 يوم · Net 60</option>
-            <option value="90">90 يوم · Net 90</option>
-          </select>
-        </div>
-      </div>
-
-      <!-- Email (optional, both modes) -->
-      <div class="field-row single">
-        <div class="field">
-          <label class="field-label">
-            <span data-ar="البريد الإلكتروني · Email" data-en="Email · البريد الإلكتروني">البريد الإلكتروني · Email</span>
-            <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
-          </label>
-          <input type="email" id="cm-email" placeholder="email@example.com" dir="ltr">
-        </div>
-      </div>
-
-      <!-- ZATCA National Address (B2B only) -->
-      <div id="cm-address-group" style="display:none;">
-        <div class="address-group">
-          <div class="address-group-head">
-            <span class="address-group-icon">📍</span>
-            <span class="address-group-label">
-              <span data-ar="العنوان الوطني · National Address" data-en="National Address · العنوان الوطني">العنوان الوطني · National Address</span>
-              <span class="req">*</span>
-            </span>
-          </div>
-          <span class="address-group-hint" data-ar="من بطاقة العنوان الوطني — يظهر في الفاتورة الضريبية" data-en="From National Address ID — appears on tax invoice">من بطاقة العنوان الوطني — يظهر في الفاتورة الضريبية</span>
-
-          <!-- Row 1: Building# - Street - Additional# -->
-          <div class="field-row address-row1">
-            <div class="field">
-              <label class="field-label">
-                <span data-ar="رقم المبنى" data-en="Building #">رقم المبنى</span>
-                <span class="req">*</span>
-              </label>
-              <input type="text" id="cm-building" class="short" placeholder="1234" maxlength="4">
-            </div>
-            <div class="field">
-              <label class="field-label">
-                <span data-ar="الشارع · Street" data-en="Street · الشارع">الشارع · Street</span>
-                <span class="req">*</span>
-              </label>
-              <input type="text" id="cm-street" placeholder="شارع الملك فهد">
-            </div>
-            <div class="field">
-              <label class="field-label">
-                <span data-ar="رقم إضافي" data-en="Additional #">رقم إضافي</span>
-                <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
-              </label>
-              <input type="text" id="cm-additional" class="short" placeholder="5678" maxlength="4">
-            </div>
-          </div>
-
-          <!-- Row 2: District - City - Postal Code -->
-          <div class="field-row address-row2">
-            <div class="field">
-              <label class="field-label">
-                <span data-ar="الحي · District" data-en="District · الحي">الحي · District</span>
-                <span class="req">*</span>
-              </label>
-              <input type="text" id="cm-district" placeholder="حي العليا">
-            </div>
-            <div class="field">
-              <label class="field-label">
-                <span data-ar="المدينة · City" data-en="City · المدينة">المدينة · City</span>
-                <span class="req">*</span>
-              </label>
-              <input type="text" id="cm-city" placeholder="الرياض">
-            </div>
-            <div class="field">
-              <label class="field-label">
-                <span data-ar="رمز بريدي" data-en="Postal #">رمز بريدي</span>
-                <span class="req">*</span>
-              </label>
-              <input type="text" id="cm-postal" class="short" placeholder="12345" maxlength="5">
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <!-- B2C hint -->
-      <div id="cm-b2c-hint" style="font-size:11px;color:var(--muted);text-align:center;padding:10px;background:var(--bg);border-radius:8px;margin-top:6px;">
-        💡 <span data-ar="اضغط Business إذا كان العميل شركة لإضافة الرقم الضريبي والعنوان الوطني" data-en="Click Business if customer is a company (TRN + National Address)">اضغط Business إذا كان العميل شركة لإضافة الرقم الضريبي والعنوان الوطني</span>
-      </div>
-
-      <!-- Notes (CRM-lite) -->
-      <div class="notes-toggle" onclick="toggleCustNotes()" style="margin-top:12px;">
-        <span class="notes-toggle-label">📝 <span data-ar="ملاحظات داخلية" data-en="Internal notes">ملاحظات داخلية</span> <span class="opt" style="font-size:11px;color:var(--muted);font-weight:400;">(اختياري)</span></span>
-        <span class="notes-arrow" id="cust-notes-arrow">▾</span>
-      </div>
-      <div id="cust-notes-body" class="notes-body" style="display:none;">
-        <textarea id="cm-notes" rows="2" placeholder="مثال: يفضل الدفع نقداً، يطلب يوم الأحد..." data-ar="مثال: يفضل الدفع نقداً، يطلب يوم الأحد..." data-en="e.g. prefers cash, orders on Sundays..."></textarea>
-      </div>
-
-      <!-- Hidden field for customer type -->
-      <input type="hidden" id="cm-type" value="b2c">
-      <!-- Hidden field for editing existing customer -->
-      <input type="hidden" id="cm-edit-id" value="">
-
+  <!-- Customer name (bilingual -- ZATCA requires Arabic) -->
+  <div class="field-row single">
+    <div class="field">
+      <label class="field-label">
+        <span id="cm-name-ar-label" data-ar="الاسم بالعربية" data-en="Name in Arabic">الاسم بالعربية</span>
+        <span class="req">*</span>
+        <span class="zatca-tag" title="مطلوب لزاتكا · Required for ZATCA">ZATCA</span>
+      </label>
+      <input type="text" id="cm-name-ar" placeholder="أحمد محمد" dir="rtl" oninput="onNameInput('ar')">
+      <div class="lang-hint" id="cm-name-ar-hint"></div>
     </div>
+  </div>
 
-    <div class="modal-foot">
-      <span class="speed-badge" id="cm-speed-badge">⚡ ~10 ثوانٍ</span>
-      <div class="modal-foot-spacer"></div>
-      <button class="btn btn-ghost" onclick="closeAddCustomerModal()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
-      <button class="btn btn-primary" id="btn-save-customer" onclick="btnAction(this, saveCustomer, 'تم الحفظ')">
-        <span data-ar="حفظ العميل" data-en="Save Customer">حفظ العميل</span>
-      </button>
+  <div class="field-row double">
+    <div class="field">
+      <label class="field-label">
+        <span id="cm-name-en-label" data-ar="الاسم بالإنجليزية" data-en="Name in English">الاسم بالإنجليزية</span>
+        <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
+      </label>
+      <input type="text" id="cm-name-en" placeholder="Ahmed Mohammed" dir="ltr" oninput="onNameInput('en')">
+      <div class="lang-hint" id="cm-name-en-hint"></div>
     </div>
+    <div class="field">
+      <label class="field-label">
+        <span data-ar="الجوال · Mobile" data-en="Mobile · الجوال">الجوال · Mobile</span>
+        <span class="req">*</span>
+      </label>
+      <input type="tel" id="cm-mobile" class="mono" placeholder="05XXXXXXXX" dir="ltr">
+    </div>
+  </div>
+
+  <!-- B2B identifiers (TRN + CR) -->
+  <div class="field-row double" id="cm-b2b-row1" style="display:none;">
+    <div class="field">
+      <label class="field-label">
+        <span data-ar="الرقم الضريبي · TRN" data-en="TRN · الرقم الضريبي">الرقم الضريبي · TRN</span>
+        <span class="req" id="cm-trn-req">*</span>
+      </label>
+      <input type="text" id="cm-trn" class="mono" placeholder="300000000000003" maxlength="15" dir="ltr">
+    </div>
+    <div class="field">
+      <label class="field-label">
+        <span data-ar="السجل التجاري · CR" data-en="CR · السجل التجاري">السجل التجاري · CR</span>
+        <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
+      </label>
+      <input type="text" id="cm-cr" class="mono" placeholder="1010123456" dir="ltr">
+    </div>
+  </div>
+
+  <!-- Payment terms (B2B -- used to auto-fill due date on invoices) -->
+  <div class="field-row single" id="cm-payment-terms-row" style="display:none;">
+    <div class="field">
+      <label class="field-label">
+        <span data-ar="مدة السداد · Payment Terms" data-en="Payment Terms · مدة السداد">مدة السداد · Payment Terms</span>
+        <span class="opt" data-ar="(يستخدم لاحتساب تاريخ الاستحقاق)" data-en="(used to calculate due date)">(يستخدم لاحتساب تاريخ الاستحقاق)</span>
+      </label>
+      <select id="cm-payment-terms" class="mono">
+        <option value="0">فوري · Immediate (Net 0)</option>
+        <option value="7">7 أيام · Net 7</option>
+        <option value="15">15 يوم · Net 15</option>
+        <option value="30" selected>30 يوم · Net 30</option>
+        <option value="45">45 يوم · Net 45</option>
+        <option value="60">60 يوم · Net 60</option>
+        <option value="90">90 يوم · Net 90</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Email (optional, both modes) -->
+  <div class="field-row single">
+    <div class="field">
+      <label class="field-label">
+        <span data-ar="البريد الإلكتروني · Email" data-en="Email · البريد الإلكتروني">البريد الإلكتروني · Email</span>
+        <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
+      </label>
+      <input type="email" id="cm-email" placeholder="email@example.com" dir="ltr">
+    </div>
+  </div>
+
+  <!-- Country (drives VAT treatment: domestic / GCC zero-rated / export zero-rated) -->
+  <div class="field-row" style="margin-top:8px;">
+    <div class="field">
+      <label class="field-label">
+        <span data-ar="الدولة · Country" data-en="Country · الدولة">الدولة · Country</span>
+        <span class="req">*</span>
+      </label>
+      <select id="cm-country" onchange="onCustCountryChange()">
+        <option value="SA" selected>🇸🇦 السعودية · Saudi Arabia</option>
+        <optgroup label="GCC (zero-rated export)">
+          <option value="AE">🇦🇪 الإمارات · United Arab Emirates</option>
+          <option value="BH">🇧🇭 البحرين · Bahrain</option>
+          <option value="KW">🇰🇼 الكويت · Kuwait</option>
+          <option value="OM">🇴🇲 عُمان · Oman</option>
+          <option value="QA">🇶🇦 قطر · Qatar</option>
+        </optgroup>
+        <optgroup label="Other (zero-rated export)">
+          <option value="CN">🇨🇳 الصين · China</option>
+          <option value="IN">🇮🇳 الهند · India</option>
+          <option value="TR">🇹🇷 تركيا · Turkey</option>
+          <option value="EG">🇪🇬 مصر · Egypt</option>
+          <option value="JO">🇯🇴 الأردن · Jordan</option>
+          <option value="LB">🇱🇧 لبنان · Lebanon</option>
+          <option value="US">🇺🇸 الولايات المتحدة · United States</option>
+          <option value="GB">🇬🇧 المملكة المتحدة · United Kingdom</option>
+          <option value="DE">🇩🇪 ألمانيا · Germany</option>
+          <option value="FR">🇫🇷 فرنسا · France</option>
+          <option value="IT">🇮🇹 إيطاليا · Italy</option>
+          <option value="ES">🇪🇸 إسبانيا · Spain</option>
+          <option value="NL">🇳🇱 هولندا · Netherlands</option>
+          <option value="JP">🇯🇵 اليابان · Japan</option>
+          <option value="KR">🇰🇷 كوريا · South Korea</option>
+          <option value="MY">🇲🇾 ماليزيا · Malaysia</option>
+          <option value="TH">🇹🇭 تايلاند · Thailand</option>
+          <option value="ID">🇮🇩 إندونيسيا · Indonesia</option>
+          <option value="PK">🇵🇰 باكستان · Pakistan</option>
+          <option value="BD">🇧🇩 بنغلاديش · Bangladesh</option>
+          <option value="OTHER">🌐 أخرى · Other</option>
+        </optgroup>
+      </select>
+      <div id="cm-country-hint" class="field-hint" style="display:none;color:var(--amber);font-weight:600;">
+        ⚠️ <span data-ar="عميل خارج المملكة -- الفواتير ستكون بضريبة صفرية (تصدير معفى)" data-en="Foreign customer -- invoices will be zero-rated (exempt export)">عميل خارج المملكة -- الفواتير ستكون بضريبة صفرية (تصدير معفى)</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ZATCA National Address (B2B only) -->
+  <div id="cm-address-group" style="display:none;">
+    <div class="address-group">
+      <div class="address-group-head">
+        <span class="address-group-icon">📍</span>
+        <span class="address-group-label">
+          <span data-ar="العنوان الوطني · National Address" data-en="National Address · العنوان الوطني">العنوان الوطني · National Address</span>
+          <span class="req">*</span>
+        </span>
+      </div>
+      <span class="address-group-hint" data-ar="من بطاقة العنوان الوطني -- يظهر في الفاتورة الضريبية" data-en="From National Address ID -- appears on tax invoice">من بطاقة العنوان الوطني -- يظهر في الفاتورة الضريبية</span>
+
+      <!-- Row 1: Building# - Street - Additional# -->
+      <div class="field-row address-row1">
+        <div class="field">
+          <label class="field-label">
+            <span data-ar="رقم المبنى" data-en="Building #">رقم المبنى</span>
+            <span class="req">*</span>
+          </label>
+          <input type="text" id="cm-building" class="short" placeholder="1234" maxlength="4">
+        </div>
+        <div class="field">
+          <label class="field-label">
+            <span data-ar="الشارع · Street" data-en="Street · الشارع">الشارع · Street</span>
+            <span class="req">*</span>
+          </label>
+          <input type="text" id="cm-street" placeholder="شارع الملك فهد">
+        </div>
+        <div class="field">
+          <label class="field-label">
+            <span data-ar="رقم إضافي" data-en="Additional #">رقم إضافي</span>
+            <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
+          </label>
+          <input type="text" id="cm-additional" class="short" placeholder="5678" maxlength="4">
+        </div>
+      </div>
+
+      <!-- Row 2: District - City - Postal Code -->
+      <div class="field-row address-row2">
+        <div class="field">
+          <label class="field-label">
+            <span data-ar="الحي · District" data-en="District · الحي">الحي · District</span>
+            <span class="req">*</span>
+          </label>
+          <input type="text" id="cm-district" placeholder="حي العليا">
+        </div>
+        <div class="field">
+          <label class="field-label">
+            <span data-ar="المدينة · City" data-en="City · المدينة">المدينة · City</span>
+            <span class="req">*</span>
+          </label>
+          <input type="text" id="cm-city" placeholder="الرياض">
+        </div>
+        <div class="field">
+          <label class="field-label">
+            <span data-ar="رمز بريدي" data-en="Postal #">رمز بريدي</span>
+            <span class="req">*</span>
+          </label>
+          <input type="text" id="cm-postal" class="short" placeholder="12345" maxlength="5">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- B2C hint -->
+  <div id="cm-b2c-hint" style="font-size:11px;color:var(--muted);text-align:center;padding:10px;background:var(--bg);border-radius:8px;margin-top:6px;">
+    💡 <span data-ar="اضغط Business إذا كان العميل شركة لإضافة الرقم الضريبي والعنوان الوطني" data-en="Click Business if customer is a company (TRN + National Address)">اضغط Business إذا كان العميل شركة لإضافة الرقم الضريبي والعنوان الوطني</span>
+  </div>
+
+  <!-- Notes (CRM-lite) -->
+  <div class="notes-toggle" onclick="toggleCustNotes()" style="margin-top:12px;">
+    <span class="notes-toggle-label">📝 <span data-ar="ملاحظات داخلية" data-en="Internal notes">ملاحظات داخلية</span> <span class="opt" style="font-size:11px;color:var(--muted);font-weight:400;">(اختياري)</span></span>
+    <span class="notes-arrow" id="cust-notes-arrow">▾</span>
+  </div>
+  <div id="cust-notes-body" class="notes-body" style="display:none;">
+    <textarea id="cm-notes" rows="2" placeholder="مثال: يفضل الدفع نقداً، يطلب يوم الأحد..." data-ar="مثال: يفضل الدفع نقداً، يطلب يوم الأحد..." data-en="e.g. prefers cash, orders on Sundays..."></textarea>
+  </div>
+
+  <!-- Hidden field for customer type -->
+  <input type="hidden" id="cm-type" value="b2c">
+  <!-- Hidden field for editing existing customer -->
+  <input type="hidden" id="cm-edit-id" value="">
+
+</div>
+
+<div class="modal-foot">
+  <span class="speed-badge" id="cm-speed-badge">⚡ ~10 ثوانٍ</span>
+  <div class="modal-foot-spacer"></div>
+  <button class="btn btn-ghost" onclick="closeAddCustomerModal()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+  <button class="btn btn-primary" id="btn-save-customer" onclick="btnAction(this, saveCustomer, 'تم الحفظ')">
+    <span data-ar="حفظ العميل" data-en="Save Customer">حفظ العميل</span>
+  </button>
+</div>
+```
+
   </div>
 </div>
 
 <!-- ═══════════════════════════════════════════════════════
      PAYMENT MODAL
 ═══════════════════════════════════════════════════════ -->
+
 <div class="modal-overlay" id="payment-modal" role="dialog" aria-modal="true">
   <div class="modal-box compact">
     <div class="modal-head">
@@ -1402,53 +1481,56 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
     <div class="modal-body">
       <div class="payment-summary" id="pay-summary"></div>
 
-      <div class="field-row double">
-        <div class="field">
-          <label class="field-label">
-            <span data-ar="المبلغ · Amount" data-en="Amount · المبلغ">المبلغ · Amount</span>
-            <span class="req">*</span>
-          </label>
-          <input type="number" id="pay-amount" class="mono" step="0.01" min="0" placeholder="0.00">
-        </div>
-        <div class="field">
-          <label class="field-label">
-            <span data-ar="التاريخ · Date" data-en="Date · التاريخ">التاريخ · Date</span>
-            <span class="req">*</span>
-          </label>
-          <input type="date" id="pay-date" lang="en">
-        </div>
-      </div>
-      <div class="field-row double">
-        <div class="field">
-          <label class="field-label" data-ar="طريقة الدفع · Method" data-en="Method · طريقة الدفع">طريقة الدفع · Method</label>
-          <select id="pay-method">
-            <option value="cash" data-ar="نقداً · Cash" data-en="Cash · نقداً">نقداً · Cash</option>
-            <option value="bank" data-ar="تحويل بنكي · Bank" data-en="Bank · تحويل بنكي">تحويل بنكي · Bank</option>
-            <option value="card" data-ar="بطاقة · Card" data-en="Card · بطاقة">بطاقة · Card</option>
-            <option value="check" data-ar="شيك · Check" data-en="Check · شيك">شيك · Check</option>
-          </select>
-        </div>
-        <div class="field">
-          <label class="field-label">
-            <span data-ar="مرجع · Reference" data-en="Reference · مرجع">مرجع · Reference</span>
-            <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
-          </label>
-          <input type="text" id="pay-ref" placeholder="REF-001">
-        </div>
-      </div>
+```
+  <div class="field-row double">
+    <div class="field">
+      <label class="field-label">
+        <span data-ar="المبلغ · Amount" data-en="Amount · المبلغ">المبلغ · Amount</span>
+        <span class="req">*</span>
+      </label>
+      <input type="number" id="pay-amount" class="mono" step="0.01" min="0" placeholder="0.00">
     </div>
-    <div class="modal-foot">
-      <button class="btn btn-ghost" onclick="closePaymentModal()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
-      <button class="btn btn-primary" onclick="btnAction(this, confirmPayment, 'تم التسجيل')">
-        💰 <span data-ar="تسجيل" data-en="Record">تسجيل</span>
-      </button>
+    <div class="field">
+      <label class="field-label">
+        <span data-ar="التاريخ · Date" data-en="Date · التاريخ">التاريخ · Date</span>
+        <span class="req">*</span>
+      </label>
+      <input type="date" id="pay-date" lang="en">
     </div>
+  </div>
+  <div class="field-row double">
+    <div class="field">
+      <label class="field-label" data-ar="طريقة الدفع · Method" data-en="Method · طريقة الدفع">طريقة الدفع · Method</label>
+      <select id="pay-method">
+        <option value="cash" data-ar="نقداً · Cash" data-en="Cash · نقداً">نقداً · Cash</option>
+        <option value="bank" data-ar="تحويل بنكي · Bank" data-en="Bank · تحويل بنكي">تحويل بنكي · Bank</option>
+        <option value="card" data-ar="بطاقة · Card" data-en="Card · بطاقة">بطاقة · Card</option>
+        <option value="check" data-ar="شيك · Check" data-en="Check · شيك">شيك · Check</option>
+      </select>
+    </div>
+    <div class="field">
+      <label class="field-label">
+        <span data-ar="مرجع · Reference" data-en="Reference · مرجع">مرجع · Reference</span>
+        <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
+      </label>
+      <input type="text" id="pay-ref" placeholder="REF-001">
+    </div>
+  </div>
+</div>
+<div class="modal-foot">
+  <button class="btn btn-ghost" onclick="closePaymentModal()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+  <button class="btn btn-primary" onclick="btnAction(this, confirmPayment, 'تم التسجيل')">
+    💰 <span data-ar="تسجيل" data-en="Record">تسجيل</span>
+  </button>
+</div>
+```
+
   </div>
 </div>
 
 <script>
 /* ═══════════════════════════════════════════════════════
-   GulfLedger — invoices.html JavaScript
+   GulfLedger -- invoices.html JavaScript
    All Supabase calls and business logic preserved exactly.
 ═══════════════════════════════════════════════════════ */
 
@@ -1492,15 +1574,15 @@ function notify(msg, type){
 }
 /* Round D1: Language fallback for data fields.
    Returns the field in the current language; falls back to the other language;
-   shows '—' if both are empty.
+   shows '--' if both are empty.
    Usage: pickLang(customer, 'name') → reads name_ar / name_en based on currentLang */
 function pickLang(obj, baseField) {
-  if (!obj) return '—';
+  if (!obj) return '--';
   const ar = obj[baseField + '_ar'];
   const en = obj[baseField + '_en'];
   const fallback = obj[baseField] || null;
-  if (currentLang === 'en') return en || ar || fallback || '—';
-  return ar || en || fallback || '—';
+  if (currentLang === 'en') return en || ar || fallback || '--';
+  return ar || en || fallback || '--';
 }
 
 
@@ -1522,8 +1604,8 @@ function friendlyDbError(err){
   }
   if(/insufficient_stock/i.test(msg)){
     return ar
-      ? 'المخزون غير كافٍ لإحدى السلع — راجع الكميات.'
-      : 'Insufficient stock for one of the items — review the quantities.';
+      ? 'المخزون غير كافٍ لإحدى السلع -- راجع الكميات.'
+      : 'Insufficient stock for one of the items -- review the quantities.';
   }
   if(/business_not_owned|not_authenticated/i.test(msg)){
     return ar ? 'غير مصرّح بهذه العملية.' : 'Not authorized for this operation.';
@@ -1545,8 +1627,8 @@ function validateSaudiTRN(trn){
   }
   if(!/^3\d{12}03$/.test(cleaned)){
     return {valid: false, reason: ar
-      ? 'تنسيق الرقم الضريبي غير صحيح — يجب أن يبدأ بـ 3 وينتهي بـ 03'
-      : 'Invalid TRN format — must start with 3 and end with 03'};
+      ? 'تنسيق الرقم الضريبي غير صحيح -- يجب أن يبدأ بـ 3 وينتهي بـ 03'
+      : 'Invalid TRN format -- must start with 3 and end with 03'};
   }
   return {valid: true, reason: null};
 }
@@ -1577,7 +1659,7 @@ function safeAttr(s){
     .replace(/\n/g, ' ');
 }
 
-/* Round 16 (M-6): Audit log writer — duplicated from expenses.html.
+/* Round 16 (M-6): Audit log writer -- duplicated from expenses.html.
    No shared utility file in this project, so each module includes its own. */
 async function writeAuditLog({entity_type, entity_id, entity_reference, action, before_data, after_data, reason}){
   try {
@@ -1655,7 +1737,7 @@ function zatcaBadge(status){
       return `<span class="badge badge-zatca-failed">⚠️ ${ar?'فشل':'Failed'}</span>`;
     case 'not_required':
     default:
-      /* Phase 2 not yet integrated — set expectations clearly */
+      /* Phase 2 not yet integrated -- set expectations clearly */
       return `<span class="badge badge-zatca-soon" title="${ar?'سيتم تفعيل الربط مع زاتكا قريباً':'ZATCA integration coming soon'}">🔜 ${ar?'قريباً':'Coming Soon'}</span>`;
   }
 }
@@ -1762,26 +1844,26 @@ async function init(){
   loadInvoices();
   loadCustomers();
 
-  /* URL param handling — flows from invoice-view.html preview mode */
+  /* URL param handling -- flows from invoice-view.html preview mode */
   const urlParams = new URLSearchParams(window.location.search);
   const confirmId = urlParams.get('confirm');
   const editId = urlParams.get('edit');
   const actionParam = urlParams.get('action');
 
   if(confirmId){
-    /* Coming from preview "Confirm & Generate" — load draft, open modal, auto-trigger generate */
+    /* Coming from preview "Confirm & Generate" -- load draft, open modal, auto-trigger generate */
     setTimeout(() => loadDraftAndConfirm(confirmId), 600);
   } else if(editId){
-    /* Coming from preview "Edit Draft" — load draft and open modal for editing */
+    /* Coming from preview "Edit Draft" -- load draft and open modal for editing */
     setTimeout(() => loadDraftForEdit(editId), 600);
   } else if(actionParam === 'new_invoice' || window.location.hash === '#new'){
-    /* From Quick Action menu OR legacy #new hash — open invoice modal */
+    /* From Quick Action menu OR legacy #new hash -- open invoice modal */
     setTimeout(() => {
       openInvoiceModal();
       history.replaceState(null, '', 'invoices.html');
     }, 200);
   } else if(actionParam === 'new_customer'){
-    /* From Quick Action menu — open new customer modal */
+    /* From Quick Action menu -- open new customer modal */
     setTimeout(() => {
       openAddCustomerModal();
       history.replaceState(null, '', 'invoices.html');
@@ -1891,7 +1973,7 @@ async function loadInvoices(){
     return;
   }
   allInvoices = data || [];
-  /* Tab count = posted (non-draft) only — drafts have their own banner */
+  /* Tab count = posted (non-draft) only -- drafts have their own banner */
   const postedCount = allInvoices.filter(i => i.status !== 'draft').length;
   setText('tab-count-invoices', postedCount);
   renderDraftsBanner();
@@ -1908,7 +1990,7 @@ function setInvFilter(f){
 function renderInvList(){
   const search = (document.getElementById('inv-search')?.value || '').toLowerCase().trim();
 
-  /* Drafts NEVER appear in the main list — they live in the banner */
+  /* Drafts NEVER appear in the main list -- they live in the banner */
   let list = allInvoices.filter(i => i.status !== 'draft');
 
   /* Filter */
@@ -1996,8 +2078,8 @@ function renderInvList(){
     const zatcaCell = zatcaBadge(inv.zatca_status);
     const rowClick = `viewInvoice('${inv.id}')`;
     return `<div class="list-row${isVoided?' voided':''}" onclick="${rowClick}">
-      <div class="row-num">${inv.invoice_number||'—'}</div>
-      <div class="row-date">${formatDateDDMMYYYY(inv.issue_date)||'—'}</div>
+      <div class="row-num">${inv.invoice_number||'--'}</div>
+      <div class="row-date">${formatDateDDMMYYYY(inv.issue_date)||'--'}</div>
       <div class="row-buyer">${buyerDisplay || (currentLang==='ar'?'عميل غير محدد':'No customer')}</div>
       <div>${typeBadgeRow}</div>
       <div class="row-amount">SAR ${fmt(inv.total)}</div>
@@ -2034,12 +2116,12 @@ function renderDraftsBanner(){
     : `You have <strong>${drafts.length} unfinished draft${drafts.length===1?'':'s'}</strong> <span class="hint">· click to view and continue</span>`;
   document.getElementById('drafts-banner-text').innerHTML = text;
 
-  /* Body — compact draft rows */
+  /* Body -- compact draft rows */
   const body = document.getElementById('drafts-banner-body');
   body.innerHTML = drafts.map(inv => `
     <div class="draft-row" onclick="editDraft('${inv.id}')">
-      <div class="draft-num">${inv.invoice_number||'—'}</div>
-      <div class="draft-date">${formatDateDDMMYYYY(inv.issue_date)||'—'}</div>
+      <div class="draft-num">${inv.invoice_number||'--'}</div>
+      <div class="draft-date">${formatDateDDMMYYYY(inv.issue_date)||'--'}</div>
       <div class="draft-buyer${!inv.buyer_name?' empty':''}">${inv.buyer_name || (currentLang==='ar'?'بدون عميل':'No customer')}</div>
       <div class="draft-amount">SAR ${fmt(inv.total)}</div>
       <div class="draft-actions">
@@ -2185,15 +2267,15 @@ function renderCustList(){
     const typeBadge = isB2B
       ? '<span class="badge badge-b2b">B2B</span>'
       : '<span class="badge badge-b2c">B2C</span>';
-    const lastInvoiceDate = cust.last_invoice_date ? formatDateDDMMYYYY(cust.last_invoice_date) : '—';
+    const lastInvoiceDate = cust.last_invoice_date ? formatDateDDMMYYYY(cust.last_invoice_date) : '--';
     const outstanding = parseFloat(cust.total_outstanding) || 0;
     const totalSales = parseFloat(cust.total_invoiced) || 0;
     const outstandingClass = outstanding > 0 ? 'color:var(--red);' : 'color:var(--muted);';
     return `<div class="cust-row">
       <div class="cust-avatar">${initial}</div>
-      <div class="cust-code">${cust.customer_code || '—'}</div>
+      <div class="cust-code">${cust.customer_code || '--'}</div>
       <div class="row-buyer">
-        <div style="font-weight:600;">${nameAr || nameEn || '—'}</div>
+        <div style="font-weight:600;">${nameAr || nameEn || '--'}</div>
         ${(nameEn && nameAr && nameEn !== nameAr) ? '<div style="font-size:11px;color:var(--muted);">'+nameEn+'</div>' : ''}
       </div>
       <div class="cust-type">${typeBadge}</div>
@@ -2221,12 +2303,13 @@ function newInvoiceForCust(id){
 }
 
 /* ═══════════════════════════════════════════════════════
-   INVOICE MODAL — Open/Close/Reset
+   INVOICE MODAL -- Open/Close/Reset
 ═══════════════════════════════════════════════════════ */
 async function openInvoiceModal(){
   /* Reset to clean state */
   currentInvoiceId = null;
   selectedCustomer = null;
+  isExportInvoice = false;
   items = [{desc:'',desc_ar:'',qty:0,price:0,disc:0,itemId:null}];
 
   setVal('f-date', todayISO());
@@ -2257,7 +2340,7 @@ async function fetchNextInvoiceNumber(){
   /* Round C bugfix: bypass the broken next_invoice_number RPC.
      The RPC has a latent lpad-truncation bug: it concatenates year+suffix into
      a single number then increments + lpad(N, 3, '0'). PostgreSQL's lpad
-     TRUNCATES strings longer than the target width — so lpad('2026203', 3, '0')
+     TRUNCATES strings longer than the target width -- so lpad('2026203', 3, '0')
      returns '202', causing the RPC to return the same number that's already in
      the table. Collision on insert.
 
@@ -2297,7 +2380,7 @@ async function fetchNextInvoiceNumber(){
 
   let maxN = 0;
   for(const r of (data || [])){
-    /* Match ONLY trailing digits — `(\d+)$` — to avoid the year+suffix
+    /* Match ONLY trailing digits -- `(\d+)$` -- to avoid the year+suffix
        concatenation bug from the old RPC. */
     const m = (r.invoice_number || '').match(/(\d+)$/);
     if(m){
@@ -2337,7 +2420,7 @@ function setInvType(type){
 
   /* Buyer hint */
   setText('buyer-section-hint', isTax
-    ? (currentLang==='ar' ? '(مطلوب — مع رقم ضريبي)' : '(required — with TRN)')
+    ? (currentLang==='ar' ? '(مطلوب -- مع رقم ضريبي)' : '(required -- with TRN)')
     : (currentLang==='ar' ? '(اختياري)' : '(optional)'));
 
   /* If selected customer doesn't match new type, clear */
@@ -2364,7 +2447,7 @@ function doCustomerSearch(query){
   const dd = document.getElementById('customer-dd');
   query = (query||'').toLowerCase().trim();
 
-  /* Filter by current invoice type — Tax shows only B2B, Quick shows all */
+  /* Filter by current invoice type -- Tax shows only B2B, Quick shows all */
   const isTax = currentInvType === 'tax';
   let pool = allCustomers;
   if(isTax) pool = pool.filter(c => c.customer_type === 'b2b');
@@ -2391,7 +2474,7 @@ function doCustomerSearch(query){
     const typeBadge = isB2B ? '<span class="cust-item-badge badge-b2b">B2B</span>' : '<span class="cust-item-badge badge-b2c">B2C</span>';
     const nameAr = custNameAr(c);
     const nameEn = custNameEn(c);
-    const primary = nameAr || nameEn || '—';
+    const primary = nameAr || nameEn || '--';
     const secondary = (nameEn && nameAr && nameEn !== nameAr) ? nameEn : '';
     const meta = [c.customer_code, formatMobile(c.mobile), c.trn].filter(Boolean).join(' · ');
     return `<div class="cust-item" onclick="selectCustomerById('${c.id}')">
@@ -2432,18 +2515,101 @@ function selectCustomer(c){
   /* Show Arabic name as primary (ZATCA-compliant). English shows in meta if different. */
   const nameAr = custNameAr(c);
   const nameEn = custNameEn(c);
-  setText('selected-customer-name', nameAr || nameEn || '—');
+  setText('selected-customer-name', nameAr || nameEn || '--');
   const metaParts = [];
   if(nameEn && nameAr && nameEn !== nameAr) metaParts.push(nameEn);
   if(c.customer_code) metaParts.push(c.customer_code);
   if(c.mobile) metaParts.push(formatMobile(c.mobile));
   if(c.trn) metaParts.push('TRN: '+c.trn);
   metaParts.push(c.customer_type === 'b2b' ? 'B2B' : 'B2C');
+  /* Round 4c.1: show country flag for non-SA customers */
+  const region = getCustomerRegion(c);
+  if(region !== 'domestic'){
+    metaParts.push(region === 'gcc' ? 'GCC export' : 'Export');
+  }
   setText('selected-customer-meta', metaParts.join(' · '));
   wrap.style.display = 'block';
 
+  /* Round 4c.1: handle foreign customer -- show export banner + auto-zero VAT on lines */
+  applyExportTreatment();
+
   /* Auto-fill due date for B2B customers based on their payment terms */
   autoFillDueDate();
+}
+
+/* Round 4c.1: Country → region taxonomy.
+   Returns 'domestic' (KSA), 'gcc' (Bahrain/Kuwait/Oman/Qatar/UAE), or 'export' (rest). */
+function getCustomerRegion(c){
+  if(!c) return 'domestic';
+  const cc = (c.country || 'SA').toUpperCase();
+  if(cc === 'SA' || cc === '') return 'domestic';
+  if(['AE','BH','KW','OM','QA'].includes(cc)) return 'gcc';
+  return 'export';
+}
+
+/* Round 4c.1: Effective invoice_type for save.
+   - Domestic: returns the form-selected type ('b2b' or 'b2c').
+   - Foreign (GCC or rest of world): returns 'export' regardless of form.
+   This makes downstream code (ZATCA submission, reporting) able to filter
+   exports cleanly. The original b2b/b2c distinction is preserved on the
+   customer record. */
+function getEffectiveInvoiceType(){
+  const formType = v('f-type');
+  if(getCustomerRegion(selectedCustomer) !== 'domestic'){
+    return 'export';
+  }
+  return formType;
+}
+
+/* Country dropdown change handler -- show/hide the warning hint. */
+function onCustCountryChange(){
+  const cc = document.getElementById('cm-country')?.value || 'SA';
+  const hint = document.getElementById('cm-country-hint');
+  if(hint){
+    hint.style.display = (cc !== 'SA') ? '' : 'none';
+  }
+}
+
+/* When a foreign customer is selected, set isExportInvoice=true → VAT=0 in totals + banner.
+   Per ZATCA: exports outside KSA (including GCC) are zero-rated supplies. */
+let isExportInvoice = false;
+
+function applyExportTreatment(){
+  const region = getCustomerRegion(selectedCustomer);
+  isExportInvoice = (region !== 'domestic');
+
+  /* Banner display */
+  let banner = document.getElementById('export-treatment-banner');
+  if(isExportInvoice && !banner){
+    banner = document.createElement('div');
+    banner.id = 'export-treatment-banner';
+    banner.style.cssText = 'background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin:10px 0;font-size:13px;color:#78350f;';
+    /* Insert after selected-customer-wrap if possible */
+    const anchor = document.getElementById('selected-customer-wrap');
+    if(anchor && anchor.parentNode){
+      anchor.parentNode.insertBefore(banner, anchor.nextSibling);
+    }
+  }
+  if(banner){
+    if(isExportInvoice){
+      const ar = currentLang === 'ar';
+      const note = region === 'gcc'
+        ? (ar
+          ? '🌍 عميل من دول الخليج -- الفاتورة مصنفة كتصدير معفى (ضريبة 0%) وفقاً لنظام ضريبة القيمة المضافة.'
+          : '🌍 GCC customer -- invoice is classified as a zero-rated export (0% VAT) per VAT regulations.')
+        : (ar
+          ? '🌍 عميل خارج المملكة -- الفاتورة مصنفة كتصدير معفى (ضريبة 0%) وفقاً لنظام ضريبة القيمة المضافة.'
+          : '🌍 Foreign customer -- invoice is classified as a zero-rated export (0% VAT) per VAT regulations.');
+      banner.textContent = note;
+      banner.style.display = '';
+    } else {
+      banner.style.display = 'none';
+    }
+  }
+
+  /* Trigger totals refresh so VAT recomputes with the new flag */
+  if(typeof renderItems === 'function') renderItems();
+  if(typeof updateTotalsDisplay === 'function') updateTotalsDisplay();
 }
 
 /* Auto-fill due date = issue_date + customer.payment_terms_days
@@ -2459,7 +2625,7 @@ function autoFillDueDate(){
   if(selectedCustomer && selectedCustomer.payment_terms_days != null){
     termsDays = parseInt(selectedCustomer.payment_terms_days) || 0;
   } else if(currentInvType !== 'tax'){
-    /* B2C without selected customer — typically immediate */
+    /* B2C without selected customer -- typically immediate */
     termsDays = 0;
   }
 
@@ -2474,6 +2640,8 @@ function autoFillDueDate(){
 
 function clearSelectedCustomer(){
   selectedCustomer = null;
+  isExportInvoice = false;
+  applyExportTreatment(); /* hide banner, restore 15% VAT */
   document.getElementById('selected-customer-wrap').style.display = 'none';
   document.getElementById('customer-lookup-wrap').style.display = 'block';
   setVal('customer-search', '');
@@ -2518,7 +2686,7 @@ function renderItems(){
     if(item.itemId){
       const displayName = (item.desc || '').replace(/"/g,'&quot;');
       descCellHtml = `
-        <div class="linked-chip" title="${currentLang==='ar'?'مرتبط بالمخزون — انقر 📦 لتغيير المنتج':'Linked to inventory — click 📦 to change product'}">
+        <div class="linked-chip" title="${currentLang==='ar'?'مرتبط بالمخزون -- انقر 📦 لتغيير المنتج':'Linked to inventory -- click 📦 to change product'}">
           <span class="chip-icon">🔗</span>
           <span class="chip-name">${displayName}</span>
           <button type="button" class="btn-unlink" onclick="unlinkItem(${i})" aria-label="${currentLang==='ar'?'إلغاء الربط':'Unlink'}" title="${currentLang==='ar'?'إلغاء الربط (تحويل إلى نص حر)':'Unlink (convert to free-text)'}">×</button>
@@ -2551,7 +2719,7 @@ function renderItems(){
 function unlinkItem(i){
   if(!items[i]) return;
   items[i].itemId = null;
-  /* desc/desc_ar/price stay — user may want to keep the same text but mark
+  /* desc/desc_ar/price stay -- user may want to keep the same text but mark
      it as a free-text line (e.g., custom service riff on a product name). */
   renderItems();
 }
@@ -2635,7 +2803,7 @@ function toggleCustNotes(){
 async function openInventoryPicker(itemIdx){
   /* Defensive guard: refuse to query if currentBiz isn't loaded yet.
      Without this, an unset currentBiz would query for business_id='' which
-     returns nothing — but only because RLS blocks it. The guard here makes
+     returns nothing -- but only because RLS blocks it. The guard here makes
      the failure mode visible to the user and prevents any future code path
      from accidentally trusting a falsy business_id. */
   if(!currentBiz?.id){
@@ -2645,7 +2813,7 @@ async function openInventoryPicker(itemIdx){
     return;
   }
 
-  /* Round C bugfix: include name_en (was missing — caused inconsistent picker labels)
+  /* Round C bugfix: include name_en (was missing -- caused inconsistent picker labels)
      and filter out soft-deleted items (is_active=false). */
   const {data} = await sb.from('inventory_items')
     .select('id,name,name_ar,name_en,sku,sale_price,current_qty,unit')
@@ -2691,7 +2859,7 @@ function renderPickerItems(items, itemIdx){
        Top line = Arabic (primary, since app is Arabic-first / RTL).
        Bottom line = English (subdued).
        Falls back to legacy `name` field for older items missing name_ar/name_en. */
-    const ar = it.name_ar || it.name || '—';
+    const ar = it.name_ar || it.name || '--';
     const en = it.name_en || ((it.name && it.name !== it.name_ar) ? it.name : '');
     /* Pick callback: pass English to .desc, Arabic to .desc_ar.
        desc is what the print template renders as the primary description,
@@ -2702,7 +2870,7 @@ function renderPickerItems(items, itemIdx){
         <div class="picker-item-name" dir="rtl">${ar}</div>
         ${en ? '<div style="font-size:11px;color:var(--muted);" dir="ltr">'+en+'</div>' : ''}
       </div>
-      <div class="picker-item-sku">${it.sku||'—'}</div>
+      <div class="picker-item-sku">${it.sku||'--'}</div>
       <div class="picker-item-price">${fmt(it.sale_price||0)}</div>
       <div class="picker-item-stock ${stockClass}">${it.current_qty||0} ${it.unit||''}</div>
     </div>`;
@@ -2747,7 +2915,7 @@ async function saveDraft(){
     user_id: currentUser.id,
     business_id: currentBiz?.id,
     invoice_number: v('f-invnum'),
-    invoice_type: v('f-type'),
+    invoice_type: getEffectiveInvoiceType(),
     issue_date: v('f-date') || todayISO(),
     due_date: v('f-duedate') || null,
     buyer_name: selectedCustomer ? custNameAr(selectedCustomer) : '',
@@ -2810,7 +2978,7 @@ async function saveDraft(){
 }
 
 /* ═══════════════════════════════════════════════════════
-   PREVIEW INVOICE — saves as draft, redirects to invoice-view
+   PREVIEW INVOICE -- saves as draft, redirects to invoice-view
    in preview mode. NO invoice number assigned, NO journal posted,
    NO inventory consumed. User can review then click "Confirm & Generate"
    from the preview to commit. This avoids messy reversals from typos.
@@ -2819,7 +2987,7 @@ async function saveDraft(){
    Drafts don't consume real invoice_numbers; the sequential number is assigned
    only at confirm time in generateInvoice(). */
 function generateDraftNumber(){
-  /* 8 hex chars from random bytes — collision risk negligible at pilot scale.
+  /* 8 hex chars from random bytes -- collision risk negligible at pilot scale.
      Total uniqueness namespace per business: 16^8 = 4.3 billion. */
   const bytes = new Uint8Array(4);
   crypto.getRandomValues(bytes);
@@ -2836,7 +3004,7 @@ async function previewInvoice(){
   /* Compute totals */
   const totals = computeInvoiceTotals();
 
-  /* Soft validation only — don't block preview, but skip invoice number */
+  /* Soft validation only -- don't block preview, but skip invoice number */
   const validItems = items.filter(it => (it.qty||0) > 0 && (it.price||0) > 0);
   if(!validItems.length){
     notify(currentLang==='ar'?'أضف على الأقل بنداً واحداً للمعاينة':'Add at least one item to preview','r');
@@ -2854,20 +3022,20 @@ async function previewInvoice(){
      with one earlier). */
   let draftNumber;
   if(currentInvoiceId){
-    /* Existing draft — keep its current number unchanged. */
+    /* Existing draft -- keep its current number unchanged. */
     draftNumber = v('f-invnum') || null;
   } else {
-    /* Fresh preview — always use a unique placeholder. */
+    /* Fresh preview -- always use a unique placeholder. */
     draftNumber = generateDraftNumber();
     setVal('f-invnum', draftNumber);
   }
 
-  /* Build payload — save as draft. */
+  /* Build payload -- save as draft. */
   const payload = {
     user_id: currentUser.id,
     business_id: currentBiz?.id,
     invoice_number: draftNumber,
-    invoice_type: v('f-type'),
+    invoice_type: getEffectiveInvoiceType(),
     issue_date: v('f-date') || todayISO(),
     due_date: v('f-duedate') || null,
     buyer_name: selectedCustomer ? custNameAr(selectedCustomer) : '',
@@ -2932,7 +3100,7 @@ async function previewInvoice(){
 }
 
 /* ═══════════════════════════════════════════════════════
-   GENERATE INVOICE — full validation + ledger posting
+   GENERATE INVOICE -- full validation + ledger posting
 ═══════════════════════════════════════════════════════ */
 async function generateInvoice(){
   if(!currentUser) throw new Error('not authenticated');
@@ -2980,8 +3148,8 @@ async function generateInvoice(){
     });
     if(stillMissing > 0){
       notify(currentLang==='ar'
-        ? '⚠ لا يمكن التصدير — يجب إضافة الوصف العربي للبنود (متطلب زاتكا)'
-        : '⚠ Cannot generate — Arabic description required (ZATCA)','r');
+        ? '⚠ لا يمكن التصدير -- يجب إضافة الوصف العربي للبنود (متطلب زاتكا)'
+        : '⚠ Cannot generate -- Arabic description required (ZATCA)','r');
       throw new Error('validation');
     }
   }
@@ -3012,7 +3180,7 @@ async function generateInvoice(){
     user_id: currentUser.id,
     business_id: currentBiz?.id,
     invoice_number: v('f-invnum'),
-    invoice_type: v('f-type'),
+    invoice_type: getEffectiveInvoiceType(),
     issue_date: v('f-date') || todayISO(),
     due_date: v('f-duedate') || null,
     buyer_name: selectedCustomer ? custNameAr(selectedCustomer) : '',
@@ -3121,8 +3289,8 @@ async function generateInvoice(){
       /* Build human-readable summary line per item */
       const lines = shortfalls.map(s =>
         ar
-          ? `• ${s.name} — متوفر ${s.avail}, مطلوب ${s.req} (نقص ${s.req - s.avail})`
-          : `• ${s.name} — available ${s.avail}, requested ${s.req} (short by ${s.req - s.avail})`
+          ? `• ${s.name} -- متوفر ${s.avail}, مطلوب ${s.req} (نقص ${s.req - s.avail})`
+          : `• ${s.name} -- available ${s.avail}, requested ${s.req} (short by ${s.req - s.avail})`
       ).join('\n');
       const header = ar
         ? '⚠️ المخزون غير كافٍ للأصناف التالية:\n\n'
@@ -3136,11 +3304,11 @@ async function generateInvoice(){
       /* User explicitly opted in. Proceed. The decrement code below clamps to 0
          for inventory_items.current_qty (Math.max line 3007), which is consistent
          with the prior WAC behavior. FIFO consumption RPC tolerates partial
-         availability — if it can't consume the full qty, fallback to invItem.cost_price. */
+         availability -- if it can't consume the full qty, fallback to invItem.cost_price. */
     }
   }
 
-  /* Save invoice items — return rows so we have IDs for stock_consumption */
+  /* Save invoice items -- return rows so we have IDs for stock_consumption */
   await sb.from('invoice_items').delete().eq('invoice_id', invoiceId);
   const itemRows = validItems.map((it, idx) => {
     const sub = (it.qty||0) * (it.price||0);
@@ -3205,7 +3373,7 @@ async function generateInvoice(){
           balance_after: newQty,
           unit_cost: unitCost,
           reference: payload.invoice_number,
-          note: (currentLang==='ar'?'بيع — فاتورة ':'Sale — Invoice ') + payload.invoice_number,
+          note: (currentLang==='ar'?'بيع -- فاتورة ':'Sale -- Invoice ') + payload.invoice_number,
           movement_date: payload.issue_date
         });
       }
@@ -3225,7 +3393,7 @@ async function generateInvoice(){
             business_id: currentBiz.id,
             entry_date: payload.issue_date,
             reference: cogsRef,
-            description: (currentLang==='ar'?'تكلفة البضاعة المباعة — ':'COGS — ') + payload.invoice_number,
+            description: (currentLang==='ar'?'تكلفة البضاعة المباعة -- ':'COGS -- ') + payload.invoice_number,
             source: 'invoice',
             source_id: invoiceId,
             status: 'posted',
@@ -3237,10 +3405,10 @@ async function generateInvoice(){
           await sb.from('journal_lines').insert([
             {entry_id:cogsEntryId, user_id:currentUser.id, account_code:'5100', account_name:'تكلفة البضاعة المباعة',
              debit:totalCOGS, credit:0,
-             description:(currentLang==='ar'?'تكلفة مبيعات — ':'COGS — ') + payload.invoice_number},
+             description:(currentLang==='ar'?'تكلفة مبيعات -- ':'COGS -- ') + payload.invoice_number},
             {entry_id:cogsEntryId, user_id:currentUser.id, account_code:'1300', account_name:'المخزون',
              debit:0, credit:totalCOGS,
-             description:(currentLang==='ar'?'إخراج من المخزون — ':'Inventory out — ') + payload.invoice_number}
+             description:(currentLang==='ar'?'إخراج من المخزون -- ':'Inventory out -- ') + payload.invoice_number}
           ]);
         }
       }
@@ -3312,7 +3480,9 @@ function computeInvoiceTotals(){
   const discPct = parseFloat(v('f-disc-pct')) || 0;
   const discAmt = sub * (discPct/100);
   const net = sub - discAmt;
-  const vat = net * 0.15;
+  /* Round 4c.1: Zero-rate VAT for export invoices (foreign customer). */
+  const vatRate = isExportInvoice ? 0 : 0.15;
+  const vat = net * vatRate;
   const total = net + vat;
   return {
     sub: roundCurrency(sub),
@@ -3324,7 +3494,7 @@ function computeInvoiceTotals(){
 }
 
 /* ═══════════════════════════════════════════════════════
-   AUTO-POST SALES JOURNAL — preserved
+   AUTO-POST SALES JOURNAL -- preserved
 ═══════════════════════════════════════════════════════ */
 async function autoPostInvoice(invoice){
   if(!currentUser) return;
@@ -3350,7 +3520,7 @@ async function autoPostInvoice(invoice){
           user_id: currentUser.id, business_id: currentBiz?.id,
           entry_date: date,
           reference: 'REV-' + ref,
-          description: (currentLang==='ar'?'عكس فاتورة — ':'Reversal — ') + (invoice.buyer_name||''),
+          description: (currentLang==='ar'?'عكس فاتورة -- ':'Reversal -- ') + (invoice.buyer_name||''),
           source: 'invoice_reversal', source_id: invoice.id,
           status: 'posted', is_balanced: true
         }).select().single();
@@ -3371,7 +3541,7 @@ async function autoPostInvoice(invoice){
     const {data:entry, error} = await sb.from('journal_entries').insert({
       user_id: currentUser.id, business_id: currentBiz?.id,
       entry_date: date, reference: ref,
-      description: (currentLang==='ar'?'فاتورة مبيعات — ':'Sales invoice — ') + (invoice.buyer_name || ''),
+      description: (currentLang==='ar'?'فاتورة مبيعات -- ':'Sales invoice -- ') + (invoice.buyer_name || ''),
       source: 'invoice', source_id: invoice.id,
       status: 'posted', is_balanced: true
     }).select().single();
@@ -3383,10 +3553,10 @@ async function autoPostInvoice(invoice){
        description:(currentLang==='ar'?'مستحقات من ':'Receivable from ') + (invoice.buyer_name||'عميل')},
       {entry_id:entry.id, user_id:currentUser.id, account_code:'4100', account_name:'إيرادات المبيعات',
        debit:0, credit:sub,
-       description:(currentLang==='ar'?'إيرادات مبيعات — ':'Sales — ') + ref},
-      {entry_id:entry.id, user_id:currentUser.id, account_code:'2200', account_name:'ضريبة القيمة المضافة — مخرجات',
+       description:(currentLang==='ar'?'إيرادات مبيعات -- ':'Sales -- ') + ref},
+      {entry_id:entry.id, user_id:currentUser.id, account_code:'2200', account_name:'ضريبة القيمة المضافة -- مخرجات',
        debit:0, credit:vat,
-       description:'VAT مخرجات 15% — ' + ref}
+       description:'VAT مخرجات 15% -- ' + ref}
     ]);
   } catch(e){
     console.warn('Auto-post failed:', e.message);
@@ -3394,7 +3564,7 @@ async function autoPostInvoice(invoice){
 }
 
 /* ═══════════════════════════════════════════════════════
-   FIFO BATCH CONSUMPTION — Round 13: server-side atomic
+   FIFO BATCH CONSUMPTION -- Round 13: server-side atomic
    ═══════════════════════════════════════════════════════
    Calls the consume_inventory_fifo RPC which:
    - Checks total stock available BEFORE consuming (raises insufficient_stock if short)
@@ -3421,7 +3591,7 @@ async function consumeFIFOBatches(itemId, qtyNeeded, businessId, invoiceId, invo
 }
 
 /* ═══════════════════════════════════════════════════════
-   DRAFT — Edit / Delete
+   DRAFT -- Edit / Delete
 ═══════════════════════════════════════════════════════ */
 async function editDraft(id){
   const ok = await openInvoiceModalWithDraft(id);
@@ -3437,7 +3607,7 @@ async function openInvoiceModalWithDraft(id){
   await openInvoiceModal();
 
   currentInvoiceId = id;
-  /* Set invoice number — if draft was created via "Preview" with no number, fetch the next one */
+  /* Set invoice number -- if draft was created via "Preview" with no number, fetch the next one */
   if(inv.invoice_number){
     setVal('f-invnum', inv.invoice_number);
   } else {
@@ -3495,7 +3665,7 @@ async function deleteDraft(id, num){
     return;
   }
 
-  /* Delete with explicit status='draft' filter — if RLS or status changed since check,
+  /* Delete with explicit status='draft' filter -- if RLS or status changed since check,
      the delete simply matches zero rows rather than removing a posted invoice. */
   await sb.from('invoice_items').delete().eq('invoice_id', id);
   const {error: delErr} = await sb.from('invoices')
@@ -3519,11 +3689,11 @@ async function deleteDraft(id, num){
 }
 
 /* ═══════════════════════════════════════════════════════
-   VOID INVOICE — preserved (credit note reversal)
+   VOID INVOICE -- preserved (credit note reversal)
 ═══════════════════════════════════════════════════════ */
 async function voidInvoice(id, num, total, buyerName){
   /* User-friendly action with clear explanation of what really happens
-     (Internally still a void — posts credit-note reversal in the journal,
+     (Internally still a void -- posts credit-note reversal in the journal,
       restores inventory consumed by this invoice, marks invoice as voided) */
   const message = currentLang==='ar'
     ? `إلغاء الفاتورة ${num}؟\n\n` +
@@ -3608,7 +3778,7 @@ async function voidInvoice(id, num, total, buyerName){
         user_id: currentUser.id, business_id: currentBiz?.id,
         entry_date: todayISO(),
         reference: 'CN-' + num,
-        description: (currentLang==='ar'?'إشعار دائن — إلغاء فاتورة ':'Credit Note — Void ') + num,
+        description: (currentLang==='ar'?'إشعار دائن -- إلغاء فاتورة ':'Credit Note -- Void ') + num,
         source: 'credit_note', source_id: id,
         status: 'posted', is_balanced: true
       }).select().single();
@@ -3637,7 +3807,7 @@ async function voidInvoice(id, num, total, buyerName){
         user_id: currentUser.id, business_id: currentBiz?.id,
         entry_date: todayISO(),
         reference: 'CN-' + num + '-COGS',
-        description: (currentLang==='ar'?'عكس COGS — إلغاء فاتورة ':'COGS reversal — voided invoice ') + num,
+        description: (currentLang==='ar'?'عكس COGS -- إلغاء فاتورة ':'COGS reversal -- voided invoice ') + num,
         source: 'credit_note', source_id: id,
         status: 'posted', is_balanced: true
       }).select().single();
@@ -3666,9 +3836,9 @@ async function voidInvoice(id, num, total, buyerName){
       }
     } else {
       if(restoreInfo && restoreInfo.restored_lines > 0){
-        successMsg = `✅ Invoice ${num} reversed — stock returned to inventory`;
+        successMsg = `✅ Invoice ${num} reversed -- stock returned to inventory`;
       } else if(restoreInfo && restoreInfo.retroactive){
-        successMsg = `✅ Invoice ${num} reversed — (pre-Round 13 invoice, adjust inventory manually if needed)`;
+        successMsg = `✅ Invoice ${num} reversed -- (pre-Round 13 invoice, adjust inventory manually if needed)`;
       } else {
         successMsg = `✅ Invoice ${num} reversed`;
       }
@@ -3700,7 +3870,7 @@ function openPaymentModal(invoiceId, num, total, buyerName, alreadyPaid){
   _paymentInvoiceTotal = parseFloat(total) || 0;
   const remaining = Math.max(0, _paymentInvoiceTotal - (parseFloat(alreadyPaid)||0));
 
-  setText('pay-modal-title', (currentLang==='ar'?'تسجيل دفعة — ':'Record Payment — ') + num);
+  setText('pay-modal-title', (currentLang==='ar'?'تسجيل دفعة -- ':'Record Payment -- ') + num);
   setText('pay-modal-sub', buyerName||'');
   document.getElementById('pay-summary').innerHTML = `
     <div class="payment-summary-row"><span>${currentLang==='ar'?'إجمالي الفاتورة':'Invoice total'}</span><span class="amt">SAR ${fmt(_paymentInvoiceTotal)}</span></div>
@@ -3791,8 +3961,8 @@ async function confirmPayment(){
   }
 
   notify(currentLang==='ar'
-    ? `✅ تم تسجيل ${fmt(amount)} SAR — ${status==='paid'?'مدفوع بالكامل':'دفعة جزئية'}`
-    : `✅ Recorded SAR ${fmt(amount)} — ${status==='paid'?'Fully paid':'Partial'}`, 'g');
+    ? `✅ تم تسجيل ${fmt(amount)} SAR -- ${status==='paid'?'مدفوع بالكامل':'دفعة جزئية'}`
+    : `✅ Recorded SAR ${fmt(amount)} -- ${status==='paid'?'Fully paid':'Partial'}`, 'g');
 
   setTimeout(() => {
     closePaymentModal();
@@ -3864,12 +4034,16 @@ function openAddCustomerModal(opts){
   _customerModalContext = opts;
   editingCustomerId = null;
 
-  /* Reset form — clear all fields including new bilingual name fields */
+  /* Reset form -- clear all fields including new bilingual name fields */
   ['cm-name-ar','cm-name-en','cm-mobile','cm-trn','cm-cr','cm-email',
    'cm-building','cm-street','cm-additional','cm-district','cm-city','cm-postal','cm-notes'
   ].forEach(id => setVal(id,''));
   /* Reset payment terms to default Net-30 */
   setVal('cm-payment-terms', '30');
+  /* Reset country to default SA */
+  setVal('cm-country', 'SA');
+  const hint = document.getElementById('cm-country-hint');
+  if(hint) hint.style.display = 'none';
 
   /* Clear language hints */
   ['cm-name-ar-hint','cm-name-en-hint'].forEach(id => {
@@ -3877,7 +4051,7 @@ function openAddCustomerModal(opts){
     if(el){ el.classList.remove('show'); el.textContent = ''; }
   });
 
-  /* Pre-fill name — auto-detect language and route to correct field */
+  /* Pre-fill name -- auto-detect language and route to correct field */
   if(opts.prefillName){
     const isArabicText = /[\u0600-\u06FF]/.test(opts.prefillName);
     if(isArabicText){
@@ -3964,6 +4138,8 @@ async function editCustomer(id){
   setVal('cm-district', c.district || '');
   setVal('cm-city', c.city || '');
   setVal('cm-postal', c.postal_code || '');
+  setVal('cm-country', c.country || 'SA');
+  onCustCountryChange(); /* show/hide foreign hint based on loaded country */
   setVal('cm-notes', c.notes || '');
   /* Payment terms (default 30 if missing) */
   setVal('cm-payment-terms', String(c.payment_terms_days != null ? c.payment_terms_days : 30));
@@ -4010,7 +4186,7 @@ function setCustomerType(type){
   document.getElementById('cm-address-group').style.display = isB2B ? '' : 'none';
   document.getElementById('cm-b2c-hint').style.display = isB2B ? 'none' : 'block';
 
-  /* Update name labels — for B2C: "Name", for B2B: "Company Name" */
+  /* Update name labels -- for B2C: "Name", for B2B: "Company Name" */
   setText('cm-name-ar-label', isB2B
     ? (currentLang==='ar' ? 'اسم الشركة بالعربية' : 'Company Name in Arabic')
     : (currentLang==='ar' ? 'الاسم بالعربية' : 'Name in Arabic'));
@@ -4059,7 +4235,7 @@ function onNameInput(field){
   console.log('[GL onNameInput]', field, 'value=', value, 'ar=', arabicChars, 'lat=', latinChars);
   const totalLetters = arabicChars + latinChars;
 
-  /* Trigger as soon as we have any letters at all (even 1 char) — quick feedback */
+  /* Trigger as soon as we have any letters at all (even 1 char) -- quick feedback */
   if(totalLetters < 1){
     hintEl.classList.remove('show');
     return;
@@ -4068,8 +4244,8 @@ function onNameInput(field){
   /* In Arabic field: warn if MORE Latin than Arabic chars (or only Latin) */
   if(field === 'ar' && latinChars > arabicChars){
     hintEl.textContent = currentLang==='ar'
-      ? 'هذا يبدو إنجليزياً — هل تقصد كتابة الاسم بالعربية في هذا الحقل؟'
-      : 'This looks English — did you mean to type the Arabic name here?';
+      ? 'هذا يبدو إنجليزياً -- هل تقصد كتابة الاسم بالعربية في هذا الحقل؟'
+      : 'This looks English -- did you mean to type the Arabic name here?';
     hintEl.classList.add('show');
     return;
   }
@@ -4077,8 +4253,8 @@ function onNameInput(field){
   /* In English field: warn if MORE Arabic than Latin chars */
   if(field === 'en' && arabicChars > latinChars){
     hintEl.textContent = currentLang==='ar'
-      ? 'هذا يبدو عربياً — حقل الاسم بالعربية في الأعلى'
-      : 'This looks Arabic — the Arabic name field is above';
+      ? 'هذا يبدو عربياً -- حقل الاسم بالعربية في الأعلى'
+      : 'This looks Arabic -- the Arabic name field is above';
     hintEl.classList.add('show');
     return;
   }
@@ -4136,23 +4312,27 @@ async function saveCustomer(){
       notify(currentLang==='ar'?'الرقم الضريبي مطلوب لـ B2B':'TRN required for B2B','r');
       throw new Error('validation');
     }
-    /* Round 16 (M-1): Saudi TRN structural validation */
-    const trnCheck = validateSaudiTRN(v('cm-trn'));
-    if(!trnCheck.valid){
-      notify(trnCheck.reason, 'r');
-      throw new Error('validation');
+    /* Round 16 (M-1): Saudi TRN structural validation -- only enforce for SA customers */
+    const country = v('cm-country') || 'SA';
+    if(country === 'SA'){
+      const trnCheck = validateSaudiTRN(v('cm-trn'));
+      if(!trnCheck.valid){
+        notify(trnCheck.reason, 'r');
+        throw new Error('validation');
+      }
+      /* Validate national address -- only required for SA B2B */
+      if(!v('cm-building') || !v('cm-street') || !v('cm-district') || !v('cm-city') || !v('cm-postal')){
+        notify(currentLang==='ar'?'العنوان الوطني الكامل مطلوب لـ B2B':'Full National Address required for B2B','r');
+        throw new Error('validation');
+      }
+      /* Validate postal: 5 digits */
+      const postal = v('cm-postal').replace(/\D/g,'');
+      if(postal.length !== 5){
+        notify(currentLang==='ar'?'الرمز البريدي يجب أن يكون 5 أرقام':'Postal code must be 5 digits','r');
+        throw new Error('validation');
+      }
     }
-    /* Validate national address */
-    if(!v('cm-building') || !v('cm-street') || !v('cm-district') || !v('cm-city') || !v('cm-postal')){
-      notify(currentLang==='ar'?'العنوان الوطني الكامل مطلوب لـ B2B':'Full National Address required for B2B','r');
-      throw new Error('validation');
-    }
-    /* Validate postal: 5 digits */
-    const postal = v('cm-postal').replace(/\D/g,'');
-    if(postal.length !== 5){
-      notify(currentLang==='ar'?'الرمز البريدي يجب أن يكون 5 أرقام':'Postal code must be 5 digits','r');
-      throw new Error('validation');
-    }
+    /* Foreign B2B customers: TRN format and national address are NOT enforced */
   }
 
   /* Check duplicate by mobile (within same business) */
@@ -4169,13 +4349,13 @@ async function saveCustomer(){
     }
   }
 
-  /* Build payload — write to NEW bilingual columns AND keep LEGACY 'name' for backward compatibility */
+  /* Build payload -- write to NEW bilingual columns AND keep LEGACY 'name' for backward compatibility */
   const payload = {
     user_id: currentUser.id,
     business_id: currentBiz?.id,
     name_ar: nameAr,
     name_en: nameEn || null,
-    name: nameAr,  /* legacy column — keep in sync with primary (Arabic) name for backward compatibility */
+    name: nameAr,  /* legacy column -- keep in sync with primary (Arabic) name for backward compatibility */
     mobile: mobile,
     customer_type: isB2B ? 'b2b' : 'b2c',
     trn: v('cm-trn') || null,
@@ -4190,6 +4370,9 @@ async function saveCustomer(){
     updated_at: new Date().toISOString()
   };
 
+  /* Country (drives VAT treatment -- domestic vs GCC vs export). Default 'SA'. */
+  payload.country = v('cm-country') || 'SA';
+
   if(isB2B){
     payload.building_number = v('cm-building');
     payload.street_name = v('cm-street');
@@ -4198,7 +4381,6 @@ async function saveCustomer(){
     payload.district = v('cm-district');
     payload.city = v('cm-city');
     payload.postal_code = v('cm-postal');
-    payload.country = 'SA';
     /* Payment terms (used to auto-fill due date on invoices) */
     const ptDays = parseInt(v('cm-payment-terms')) || 30;
     payload.payment_terms_days = ptDays;
@@ -4218,7 +4400,7 @@ async function saveCustomer(){
       /* If schema missing columns, retry without them */
       if(error.code === '42703' || error.message?.includes('column')){
         notify(currentLang==='ar'
-          ?'⚠ الجداول لم يتم تحديثها — راجع الميغريشن في أعلى الملف':'⚠ Schema missing — see migration at top of file','r');
+          ?'⚠ الجداول لم يتم تحديثها -- راجع الميغريشن في أعلى الملف':'⚠ Schema missing -- see migration at top of file','r');
         throw error;
       }
       notify(friendlyDbError(error),'r');
@@ -4296,8 +4478,9 @@ document.addEventListener('keydown', e => {
 init();
 
 </script>
+
 <script>
-/* ═══ ROUND D1 — Canonical nav JS (activates current tab, profile dropdown) ═══ */
+/* ═══ ROUND D1 -- Canonical nav JS (activates current tab, profile dropdown) ═══ */
 (function() {
   const currentPath = window.location.pathname.split('/').pop() || 'dashboard.html';
   document.querySelectorAll('.app-nav-link').forEach(link => {
