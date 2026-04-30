@@ -755,19 +755,66 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   </div>
 
   <!-- ════════════════════════════════════════════════
-       PANE: BANKS — placeholder (next session)
+       PANE: BANKS — Round 4h.1
+       Multi-account cash/bank tracking with multi-currency support.
+       Default "Cash on hand" account auto-created on first load.
   ════════════════════════════════════════════════ -->
   <div id="pane-banks" style="display:none;">
-    <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:60px 30px;text-align:center;max-width:560px;margin:30px auto;">
-      <div style="font-size:48px;margin-bottom:14px;">🏦</div>
-      <h2 style="font-size:20px;font-weight:700;color:var(--navy);margin-bottom:8px;" data-ar="البنوك" data-en="Bank Accounts">البنوك</h2>
-      <p style="color:var(--muted);font-size:14px;line-height:1.7;margin-bottom:18px;"
-         data-ar="إدارة الحسابات البنكية، تتبع الأرصدة، ومعاملات الإيداع والسحب. (قريباً)"
-         data-en="Manage bank accounts, track balances, and record deposits/withdrawals. (Coming soon)">
-        إدارة الحسابات البنكية، تتبع الأرصدة، ومعاملات الإيداع والسحب.
-      </p>
-      <span style="display:inline-block;background:var(--tint);color:var(--blue);padding:5px 14px;border-radius:20px;font-size:12px;font-weight:600;"
-            data-ar="🚧 قيد التطوير" data-en="🚧 Coming soon">🚧 قيد التطوير</span>
+    <!-- Stats -->
+    <div class="stats-row">
+      <div class="stat-card green">
+        <div class="label" data-ar="إجمالي النقد" data-en="Total Cash">إجمالي النقد</div>
+        <div class="value" id="stat-bank-total">SAR 0</div>
+        <div class="sub" data-ar="بمعادل الريال السعودي" data-en="in SAR equivalent">بمعادل الريال السعودي</div>
+      </div>
+      <div class="stat-card">
+        <div class="label" data-ar="عدد الحسابات" data-en="Accounts">عدد الحسابات</div>
+        <div class="value" id="stat-bank-count">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="label" data-ar="إيداعات هذا الشهر" data-en="Deposits This Month">إيداعات هذا الشهر</div>
+        <div class="value" id="stat-bank-deposits">SAR 0</div>
+      </div>
+      <div class="stat-card amber">
+        <div class="label" data-ar="مسحوبات هذا الشهر" data-en="Withdrawals This Month">مسحوبات هذا الشهر</div>
+        <div class="value" id="stat-bank-withdrawals">SAR 0</div>
+      </div>
+    </div>
+
+    <!-- Toolbar -->
+    <div class="toolbar">
+      <div class="toolbar-left">
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input type="text" class="search-input" id="search-banks" oninput="renderBankAccounts()"
+                 placeholder="بحث في الحسابات..." data-ph-ar="بحث في الحسابات..." data-ph-en="Search accounts...">
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <button class="btn btn-secondary" onclick="openTransferModal()">
+          ⇄ <span data-ar="تحويل بين الحسابات" data-en="Transfer">تحويل</span>
+        </button>
+        <button class="btn btn-secondary" onclick="openTransactionModal()">
+          + <span data-ar="معاملة" data-en="Transaction">معاملة</span>
+        </button>
+        <button class="btn btn-primary" onclick="openBankAccountModal()">
+          + <span data-ar="حساب جديد" data-en="New Account">حساب جديد</span>
+        </button>
+      </div>
+    </div>
+
+    <!-- Accounts grid -->
+    <div id="bank-accounts-wrap" style="margin-bottom:18px;"></div>
+
+    <!-- Recent transactions -->
+    <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;flex-wrap:wrap;gap:8px;">
+        <h3 style="font-size:15px;font-weight:700;color:var(--navy);margin:0;" data-ar="آخر المعاملات" data-en="Recent Transactions">آخر المعاملات</h3>
+        <select id="bank-tx-account-filter" onchange="renderBankTransactions()" style="padding:6px 10px;border:1px solid var(--border);border-radius:7px;font-size:13px;">
+          <option value="" data-ar="كل الحسابات" data-en="All accounts">كل الحسابات</option>
+        </select>
+      </div>
+      <div id="bank-transactions-wrap"></div>
     </div>
   </div>
 
@@ -1610,6 +1657,938 @@ async function loadVendors(){
   allVendors = data || [];
 }
 
+/* ═══════════════════════════════════════════════════════
+   BANKS — Round 4h.1
+   Multi-account, multi-currency cash/bank tracking.
+   Schema: bank_accounts + bank_transactions tables.
+   FX: rates stored on each transfer transaction (not real-time fetched).
+   Future: invoice/expense payment hooks (Round 4h.2).
+═══════════════════════════════════════════════════════ */
+let allBankAccounts = [];
+let allBankTransactions = [];
+let editingBankAccountId = null;
+
+/* KSA bank shortlist for the picker — covers ~95% of pilot use cases.
+   "Other" lets user type a custom bank name. */
+const KSA_BANKS = [
+  {code:'rajhi',  ar:'مصرف الراجحي',           en:'Al Rajhi Bank'},
+  {code:'snb',    ar:'البنك الأهلي السعودي',  en:'Saudi National Bank (SNB)'},
+  {code:'riyad',  ar:'بنك الرياض',              en:'Riyad Bank'},
+  {code:'anb',    ar:'البنك العربي الوطني',    en:'Arab National Bank (ANB)'},
+  {code:'sabb',   ar:'البنك السعودي البريطاني',en:'SABB'},
+  {code:'albilad',ar:'بنك البلاد',              en:'Bank Albilad'},
+  {code:'alinma', ar:'مصرف الإنماء',            en:'Alinma Bank'},
+  {code:'gib',    ar:'بنك الخليج الدولي',       en:'Gulf International Bank (GIB)'},
+  {code:'sib',    ar:'البنك السعودي للاستثمار', en:'Saudi Investment Bank (SIB)'},
+  {code:'aljazira',ar:'بنك الجزيرة',            en:'Bank Aljazira'},
+  {code:'stcpay', ar:'STC Pay',                  en:'STC Pay'},
+  {code:'cash',   ar:'نقد',                      en:'Cash'},
+  {code:'other',  ar:'أخرى',                     en:'Other'}
+];
+
+const BANK_CURRENCIES = ['SAR','USD','EUR','GBP','AED','BHD','KWD','QAR','OMR','EGP','TRY','JPY','CNY','INR'];
+
+async function loadBankAccounts(){
+  if(!currentBiz?.id){ allBankAccounts = []; return; }
+  const {data, error} = await sb.from('bank_accounts')
+    .select('*')
+    .eq('business_id', currentBiz.id)
+    .order('is_default', {ascending:false})
+    .order('created_at', {ascending:true});
+  if(error){
+    /* Schema may not be migrated yet — handle gracefully */
+    if((error.message||'').includes('does not exist') || error.code === '42P01'){
+      allBankAccounts = [];
+      return;
+    }
+    console.error('[GL] loadBankAccounts', error);
+    allBankAccounts = [];
+    return;
+  }
+  allBankAccounts = data || [];
+
+  /* Auto-seed default Cash on hand account on first use (per user's choice).
+     Only triggers when zero accounts exist for this business AND we have a user. */
+  if(allBankAccounts.length === 0 && currentUser){
+    await autoSeedCashAccount();
+    /* Re-load to pick up the seeded row */
+    const {data:reloaded} = await sb.from('bank_accounts')
+      .select('*')
+      .eq('business_id', currentBiz.id)
+      .order('is_default', {ascending:false})
+      .order('created_at', {ascending:true});
+    allBankAccounts = reloaded || [];
+  }
+}
+
+async function autoSeedCashAccount(){
+  /* Idempotency: only seed if there are zero accounts. Caller already checked. */
+  const {error} = await sb.from('bank_accounts').insert({
+    business_id: currentBiz.id,
+    user_id: currentUser.id,
+    account_name: 'Cash on hand',
+    account_name_ar: 'النقد في الصندوق',
+    bank_name: 'Cash',
+    bank_name_ar: 'نقد',
+    account_type: 'cash',
+    currency: 'SAR',
+    opening_balance: 0,
+    opening_date: todayISO(),
+    current_balance: 0,
+    is_default: true,
+    is_active: true
+  });
+  if(error){
+    console.error('[GL] auto-seed cash account', error);
+  }
+}
+
+async function loadBankTransactions(){
+  if(!currentBiz?.id){ allBankTransactions = []; return; }
+  const {data, error} = await sb.from('bank_transactions')
+    .select('*')
+    .eq('business_id', currentBiz.id)
+    .order('transaction_date', {ascending:false})
+    .order('created_at', {ascending:false})
+    .limit(500);
+  if(error){
+    if((error.message||'').includes('does not exist') || error.code === '42P01'){
+      allBankTransactions = [];
+      return;
+    }
+    console.error('[GL] loadBankTransactions', error);
+    allBankTransactions = [];
+    return;
+  }
+  allBankTransactions = data || [];
+}
+
+function renderBankAccounts(){
+  const wrap = document.getElementById('bank-accounts-wrap');
+  if(!wrap) return;
+  const ar = currentLang === 'ar';
+  const search = (document.getElementById('search-banks')?.value || '').toLowerCase().trim();
+
+  /* Stats */
+  /* Total cash converted to SAR. We don't track FX rates per account, so for
+     now non-SAR balances are summed in their own currency and shown only on
+     the account card. The stat shows ONLY SAR-account totals to avoid lying. */
+  const sarAccounts = allBankAccounts.filter(a => a.is_active && a.currency === 'SAR');
+  const totalSAR = sarAccounts.reduce((s, a) => s + (parseFloat(a.current_balance) || 0), 0);
+  setText('stat-bank-total', 'SAR ' + fmt(totalSAR));
+  setText('stat-bank-count', allBankAccounts.filter(a => a.is_active).length);
+
+  /* This-month deposits and withdrawals */
+  const now = new Date();
+  const monthPrefix = `${now.getFullYear()}-${String(now.getMonth()+1).padStart(2,'0')}`;
+  const monthTx = allBankTransactions.filter(t => (t.transaction_date||'').startsWith(monthPrefix));
+  const deposits = monthTx
+    .filter(t => t.transaction_type === 'deposit' || t.transaction_type === 'transfer_in')
+    .reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+  const withdrawals = monthTx
+    .filter(t => t.transaction_type === 'withdrawal' || t.transaction_type === 'transfer_out')
+    .reduce((s, t) => s + (parseFloat(t.amount) || 0), 0);
+  setText('stat-bank-deposits', 'SAR ' + fmt(deposits));
+  setText('stat-bank-withdrawals', 'SAR ' + fmt(withdrawals));
+
+  /* Populate transaction-filter dropdown with current accounts */
+  const txFilterSel = document.getElementById('bank-tx-account-filter');
+  if(txFilterSel){
+    const currentVal = txFilterSel.value;
+    txFilterSel.innerHTML = `<option value="">${ar?'كل الحسابات':'All accounts'}</option>` +
+      allBankAccounts.map(a => `<option value="${a.id}">${escHTML(ar ? (a.account_name_ar || a.account_name) : a.account_name)} · ${a.currency}</option>`).join('');
+    if(currentVal) txFilterSel.value = currentVal;
+  }
+
+  /* Filter accounts by search */
+  let accounts = allBankAccounts.slice();
+  if(search){
+    accounts = accounts.filter(a =>
+      (a.account_name||'').toLowerCase().includes(search) ||
+      (a.account_name_ar||'').toLowerCase().includes(search) ||
+      (a.bank_name||'').toLowerCase().includes(search) ||
+      (a.bank_name_ar||'').toLowerCase().includes(search) ||
+      (a.iban||'').toLowerCase().includes(search) ||
+      (a.account_number||'').toLowerCase().includes(search)
+    );
+  }
+
+  if(accounts.length === 0){
+    if(allBankAccounts.length === 0){
+      wrap.innerHTML = `
+        <div class="empty-state">
+          <div class="icon">🏦</div>
+          <div class="title">${ar?'لا توجد حسابات بعد':'No accounts yet'}</div>
+          <div class="text">${ar
+            ? 'أضف حساباتك البنكية وحساب النقد لتتبع التدفقات النقدية.'
+            : 'Add your bank accounts and cash to track cash flows.'}</div>
+          <button class="btn btn-primary" onclick="openBankAccountModal()">+ ${ar?'حساب جديد':'New Account'}</button>
+        </div>`;
+    } else {
+      wrap.innerHTML = `<div class="empty-state"><div class="icon">🔍</div><div class="title">${ar?'لا توجد نتائج':'No matches'}</div></div>`;
+    }
+    renderBankTransactions();
+    return;
+  }
+
+  /* Account cards grid */
+  wrap.innerHTML = `
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:12px;">
+      ${accounts.map(a => {
+        const name = ar ? (a.account_name_ar || a.account_name) : a.account_name;
+        const bank = ar ? (a.bank_name_ar || a.bank_name) : a.bank_name;
+        const balance = parseFloat(a.current_balance) || 0;
+        const balanceColor = balance >= 0 ? 'var(--green)' : 'var(--red)';
+        const typeIcon = a.account_type === 'cash' ? '💵' : a.account_type === 'savings' ? '💰' : a.account_type === 'credit_card' ? '💳' : '🏦';
+        const typeLabel = a.account_type === 'cash' ? (ar?'نقد':'Cash')
+                        : a.account_type === 'savings' ? (ar?'توفير':'Savings')
+                        : a.account_type === 'credit_card' ? (ar?'بطاقة ائتمان':'Credit card')
+                        : (ar?'جاري':'Checking');
+        const masked = a.iban ? maskIBAN(a.iban) : (a.account_number ? '****' + String(a.account_number).slice(-4) : '');
+        return `
+          <div class="bank-card" style="background:#fff;border:1px solid var(--border);border-radius:12px;padding:14px 16px;cursor:pointer;transition:transform .15s,box-shadow .15s;${a.is_default ? 'border-color:var(--blue);' : ''}" onclick="openBankAccountModal('${a.id}')">
+            <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:8px;gap:8px;">
+              <div style="flex:1;min-width:0;">
+                <div style="font-size:14px;font-weight:700;color:var(--navy);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${typeIcon} ${escHTML(name)}</div>
+                <div style="font-size:12px;color:var(--muted);margin-top:2px;">${escHTML(bank)} · ${escHTML(typeLabel)}</div>
+              </div>
+              ${a.is_default ? `<span style="background:var(--tint);color:var(--blue);font-size:10px;padding:2px 7px;border-radius:8px;font-weight:700;white-space:nowrap;" data-ar="افتراضي" data-en="Default">افتراضي</span>` : ''}
+            </div>
+            ${masked ? `<div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-bottom:8px;">${escHTML(masked)}</div>` : ''}
+            <div style="display:flex;justify-content:space-between;align-items:flex-end;border-top:1px solid var(--border);padding-top:8px;">
+              <div>
+                <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700;" data-ar="الرصيد" data-en="Balance">الرصيد</div>
+                <div style="font-size:18px;font-weight:700;color:${balanceColor};font-family:'DM Mono',monospace;">${a.currency} ${fmt(balance)}</div>
+              </div>
+              <button class="btn btn-ghost btn-sm" onclick="event.stopPropagation();openTransactionModal('${a.id}')" style="padding:5px 10px;font-size:11px;" title="${ar?'إضافة معاملة':'Add transaction'}">+ ${ar?'معاملة':'Tx'}</button>
+            </div>
+          </div>
+        `;
+      }).join('')}
+    </div>
+  `;
+
+  /* Render transactions list */
+  renderBankTransactions();
+}
+
+function maskIBAN(iban){
+  /* Show first 4 and last 4 only — safer for screenshots/sharing */
+  const clean = String(iban || '').replace(/\s/g, '');
+  if(clean.length <= 8) return clean;
+  return clean.slice(0, 4) + ' **** ' + clean.slice(-4);
+}
+
+function renderBankTransactions(){
+  const wrap = document.getElementById('bank-transactions-wrap');
+  if(!wrap) return;
+  const ar = currentLang === 'ar';
+  const accountFilter = document.getElementById('bank-tx-account-filter')?.value || '';
+
+  let txs = allBankTransactions.slice();
+  if(accountFilter){
+    txs = txs.filter(t => t.account_id === accountFilter);
+  }
+  txs = txs.slice(0, 50); /* Show last 50 */
+
+  if(txs.length === 0){
+    wrap.innerHTML = `<div style="text-align:center;padding:24px 14px;color:var(--muted);font-size:13px;">${ar
+      ? 'لا توجد معاملات بعد. أضف معاملة لبدء تتبع تدفق النقد.'
+      : 'No transactions yet. Add one to start tracking cash flow.'}</div>`;
+    return;
+  }
+
+  wrap.innerHTML = `
+    <table class="tbl" style="margin:0;">
+      <thead>
+        <tr>
+          <th>${ar?'التاريخ':'Date'}</th>
+          <th>${ar?'النوع':'Type'}</th>
+          <th>${ar?'الحساب':'Account'}</th>
+          <th>${ar?'الوصف':'Description'}</th>
+          <th class="num">${ar?'المبلغ':'Amount'}</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${txs.map(t => {
+          const account = allBankAccounts.find(a => a.id === t.account_id);
+          const accountName = account ? (ar ? (account.account_name_ar || account.account_name) : account.account_name) : '—';
+          const accountCurrency = account ? account.currency : 'SAR';
+          const isInflow = t.transaction_type === 'deposit' || t.transaction_type === 'transfer_in';
+          const sign = isInflow ? '+' : '−';
+          const color = isInflow ? 'var(--green)' : 'var(--red)';
+          const typeBadge = bankTxTypeBadge(t.transaction_type);
+          return `<tr>
+            <td class="mono" style="font-size:12px;">${escHTML(t.transaction_date || '—')}</td>
+            <td>${typeBadge}</td>
+            <td style="font-size:12px;">${escHTML(accountName)}</td>
+            <td style="font-size:12px;">
+              ${escHTML(t.description || t.counterparty || '—')}
+              ${t.reference_number ? `<div style="color:var(--muted);font-family:'DM Mono',monospace;font-size:11px;">${escHTML(t.reference_number)}</div>` : ''}
+            </td>
+            <td class="num" style="color:${color};font-weight:700;">${sign}${accountCurrency} ${fmt(parseFloat(t.amount)||0)}</td>
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>
+  `;
+}
+
+function bankTxTypeBadge(type){
+  const ar = currentLang === 'ar';
+  const map = {
+    deposit:       {bg:'#dcfce7', fg:'#166534', ar:'إيداع',         en:'Deposit'},
+    withdrawal:    {bg:'#fee2e2', fg:'#991b1b', ar:'سحب',           en:'Withdrawal'},
+    transfer_in:   {bg:'#dbeafe', fg:'#1e40af', ar:'تحويل وارد',    en:'Transfer in'},
+    transfer_out:  {bg:'#fef3c7', fg:'#92400e', ar:'تحويل صادر',    en:'Transfer out'}
+  };
+  const m = map[type] || {bg:'#e5e7eb', fg:'#374151', ar:type, en:type};
+  return `<span style="background:${m.bg};color:${m.fg};padding:3px 9px;border-radius:10px;font-size:11px;font-weight:700;display:inline-block;white-space:nowrap;">${ar?m.ar:m.en}</span>`;
+}
+
+
+/* ───── BANK ACCOUNT MODAL (create/edit) ───── */
+async function openBankAccountModal(id){
+  if(!currentBiz?.id){
+    notify(currentLang==='ar'?'لم يتم تحميل المنشأة':'Business not loaded', 'error');
+    return;
+  }
+  editingBankAccountId = id || null;
+  const ar = currentLang === 'ar';
+  let header = null;
+  if(editingBankAccountId){
+    header = allBankAccounts.find(a => a.id === editingBankAccountId);
+    if(!header){
+      notify(ar?'تعذّر تحميل الحساب':'Could not load account', 'error');
+      return;
+    }
+  }
+  const isEdit = !!header;
+  const title = isEdit ? (ar?'تعديل حساب':'Edit Account') : (ar?'حساب جديد':'New Account');
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay open';
+  overlay.id = 'bank-modal';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:640px;">
+      <div class="modal-head">
+        <div class="modal-title">${title}</div>
+        <button class="modal-close" onclick="closeBankAccountModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="field-row double">
+          <div class="field">
+            <div class="field-label"><span data-ar="اسم الحساب (عربي)" data-en="Account Name (Arabic)">اسم الحساب (عربي)</span><span class="req">*</span></div>
+            <input type="text" id="ba-name-ar" value="${escHTML(header?.account_name_ar || '')}" placeholder="${ar?'مثل: الحساب التشغيلي':'e.g. الحساب التشغيلي'}">
+          </div>
+          <div class="field">
+            <div class="field-label"><span data-ar="اسم الحساب (إنجليزي)" data-en="Account Name (English)">اسم الحساب (إنجليزي)</span></div>
+            <input type="text" id="ba-name-en" value="${escHTML(header?.account_name || '')}" placeholder="e.g. Main Operating">
+          </div>
+        </div>
+        <div class="field-row double">
+          <div class="field">
+            <div class="field-label"><span data-ar="البنك" data-en="Bank">البنك</span><span class="req">*</span></div>
+            <select id="ba-bank-code" onchange="onBankPickerChange()">
+              ${KSA_BANKS.map(b => {
+                /* Pre-select if matches saved bank_name (Arabic or English) */
+                const sel = (header && (header.bank_name === b.en || header.bank_name_ar === b.ar)) ? 'selected' : '';
+                return `<option value="${b.code}" ${sel}>${ar?b.ar:b.en}</option>`;
+              }).join('')}
+            </select>
+          </div>
+          <div class="field">
+            <div class="field-label"><span data-ar="نوع الحساب" data-en="Account Type">نوع الحساب</span></div>
+            <select id="ba-type">
+              <option value="checking" ${header?.account_type === 'checking' || !header ? 'selected' : ''}>${ar?'جاري':'Checking'}</option>
+              <option value="savings" ${header?.account_type === 'savings' ? 'selected' : ''}>${ar?'توفير':'Savings'}</option>
+              <option value="cash" ${header?.account_type === 'cash' ? 'selected' : ''}>${ar?'نقد':'Cash'}</option>
+              <option value="credit_card" ${header?.account_type === 'credit_card' ? 'selected' : ''}>${ar?'بطاقة ائتمان':'Credit card'}</option>
+            </select>
+          </div>
+        </div>
+        <!-- Custom bank name field — shown only when "Other" is picked -->
+        <div class="field-row double" id="ba-custom-bank-row" style="${(header && !KSA_BANKS.find(b => b.en === header.bank_name || b.ar === header.bank_name_ar)) ? '' : 'display:none;'}">
+          <div class="field">
+            <div class="field-label"><span data-ar="اسم البنك (عربي)" data-en="Bank Name (Arabic)">اسم البنك (عربي)</span></div>
+            <input type="text" id="ba-bank-ar" value="${escHTML(header?.bank_name_ar || '')}">
+          </div>
+          <div class="field">
+            <div class="field-label"><span data-ar="اسم البنك (إنجليزي)" data-en="Bank Name (English)">اسم البنك (إنجليزي)</span></div>
+            <input type="text" id="ba-bank-en" value="${escHTML(header?.bank_name || '')}">
+          </div>
+        </div>
+        <div class="field-row double">
+          <div class="field">
+            <div class="field-label"><span data-ar="رقم IBAN" data-en="IBAN">رقم IBAN</span><span class="opt">(optional)</span></div>
+            <input type="text" id="ba-iban" class="mono" value="${escHTML(header?.iban || '')}" placeholder="SA00 0000 0000 0000 0000 0000" dir="ltr">
+          </div>
+          <div class="field">
+            <div class="field-label"><span data-ar="رقم الحساب" data-en="Account #">رقم الحساب</span><span class="opt">(optional)</span></div>
+            <input type="text" id="ba-acct-num" class="mono" value="${escHTML(header?.account_number || '')}" dir="ltr">
+          </div>
+        </div>
+        <div class="field-row double">
+          <div class="field">
+            <div class="field-label"><span data-ar="العملة" data-en="Currency">العملة</span><span class="req">*</span></div>
+            <select id="ba-currency" ${isEdit ? 'disabled' : ''}>
+              ${BANK_CURRENCIES.map(c => `<option value="${c}" ${(header?.currency || 'SAR') === c ? 'selected' : ''}>${c}</option>`).join('')}
+            </select>
+            ${isEdit ? `<div class="field-hint" style="color:var(--muted);font-size:11px;" data-ar="لا يمكن تغيير العملة بعد الإنشاء" data-en="Cannot change currency after creation">لا يمكن تغيير العملة بعد الإنشاء</div>` : ''}
+          </div>
+          <div class="field">
+            <div class="field-label"><span data-ar="الرصيد الافتتاحي" data-en="Opening Balance">الرصيد الافتتاحي</span></div>
+            <input type="number" step="0.01" id="ba-opening" class="mono" value="${header?.opening_balance ?? 0}" ${isEdit ? 'readonly' : ''} style="text-align:end;">
+            ${isEdit ? `<div class="field-hint" style="color:var(--muted);font-size:11px;" data-ar="لتعديل الرصيد، أضف معاملة تسوية" data-en="To adjust balance, add an adjustment transaction">لتعديل الرصيد، أضف معاملة تسوية</div>` : ''}
+          </div>
+        </div>
+        <div class="field-row double">
+          <div class="field">
+            <div class="field-label"><span data-ar="تاريخ الفتح" data-en="Opening Date">تاريخ الفتح</span></div>
+            <input type="date" id="ba-opening-date" value="${header?.opening_date || todayISO()}" ${isEdit ? 'readonly' : ''}>
+          </div>
+          <div class="field" style="display:flex;align-items:flex-end;gap:14px;">
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;">
+              <input type="checkbox" id="ba-default" ${header?.is_default ? 'checked' : ''}>
+              <span data-ar="حساب افتراضي" data-en="Default account">حساب افتراضي</span>
+            </label>
+            <label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:13px;">
+              <input type="checkbox" id="ba-active" ${(header ? header.is_active : true) ? 'checked' : ''}>
+              <span data-ar="نشط" data-en="Active">نشط</span>
+            </label>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label"><span data-ar="ملاحظات" data-en="Notes">ملاحظات</span><span class="opt">(optional)</span></div>
+          <textarea id="ba-notes" rows="2">${escHTML(header?.notes || '')}</textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        ${isEdit ? `<button class="btn btn-danger" onclick="deleteBankAccount('${header.id}')" style="margin-inline-end:auto;">🗑 ${ar?'حذف':'Delete'}</button>` : ''}
+        <button class="btn btn-ghost" onclick="closeBankAccountModal()">${ar?'إلغاء':'Cancel'}</button>
+        <button class="btn btn-primary" onclick="saveBankAccount()">${ar?'حفظ':'Save'}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  applyLang();
+}
+
+function closeBankAccountModal(){
+  document.getElementById('bank-modal')?.remove();
+  editingBankAccountId = null;
+}
+
+function onBankPickerChange(){
+  const code = document.getElementById('ba-bank-code')?.value;
+  const customRow = document.getElementById('ba-custom-bank-row');
+  if(!customRow) return;
+  if(code === 'other'){
+    customRow.style.display = '';
+  } else {
+    customRow.style.display = 'none';
+    /* Auto-fill the custom fields with the selected bank's names so save reads them correctly */
+    const bank = KSA_BANKS.find(b => b.code === code);
+    if(bank){
+      setVal('ba-bank-ar', bank.ar);
+      setVal('ba-bank-en', bank.en);
+    }
+  }
+}
+
+async function saveBankAccount(){
+  if(!currentBiz?.id || !currentUser){
+    notify(currentLang==='ar'?'لم يتم تحميل المستخدم':'Auth not loaded', 'error');
+    return;
+  }
+  const ar = currentLang === 'ar';
+  const isEdit = !!editingBankAccountId;
+
+  const nameAr = (document.getElementById('ba-name-ar').value || '').trim();
+  const nameEn = (document.getElementById('ba-name-en').value || '').trim();
+  if(!nameAr && !nameEn){
+    notify(ar?'اسم الحساب مطلوب':'Account name is required', 'error');
+    return;
+  }
+  /* Resolve bank name: if "other" picked, use the custom fields; otherwise look up KSA_BANKS */
+  const bankCode = document.getElementById('ba-bank-code').value;
+  let bankAr, bankEn;
+  if(bankCode === 'other'){
+    bankAr = (document.getElementById('ba-bank-ar').value || '').trim();
+    bankEn = (document.getElementById('ba-bank-en').value || '').trim();
+    if(!bankAr && !bankEn){
+      notify(ar?'اسم البنك مطلوب':'Bank name is required', 'error');
+      return;
+    }
+  } else {
+    const b = KSA_BANKS.find(x => x.code === bankCode);
+    bankAr = b?.ar || '';
+    bankEn = b?.en || '';
+  }
+
+  const payload = {
+    business_id: currentBiz.id,
+    user_id: currentUser.id,
+    account_name: nameEn || nameAr, /* fallback */
+    account_name_ar: nameAr || null,
+    bank_name: bankEn || bankAr,
+    bank_name_ar: bankAr || null,
+    account_type: document.getElementById('ba-type').value,
+    iban: (document.getElementById('ba-iban').value || '').replace(/\s/g, '').toUpperCase() || null,
+    account_number: document.getElementById('ba-acct-num').value || null,
+    notes: document.getElementById('ba-notes').value || null,
+    is_default: document.getElementById('ba-default').checked,
+    is_active: document.getElementById('ba-active').checked,
+    updated_at: new Date().toISOString()
+  };
+
+  if(!isEdit){
+    payload.currency = document.getElementById('ba-currency').value;
+    payload.opening_balance = parseFloat(document.getElementById('ba-opening').value) || 0;
+    payload.opening_date = document.getElementById('ba-opening-date').value || todayISO();
+    payload.current_balance = payload.opening_balance;
+  }
+
+  /* If is_default checked, unset default on other accounts first (one default per business) */
+  if(payload.is_default){
+    await sb.from('bank_accounts')
+      .update({is_default: false})
+      .eq('business_id', currentBiz.id)
+      .neq('id', editingBankAccountId || '00000000-0000-0000-0000-000000000000');
+  }
+
+  let saved, error;
+  if(isEdit){
+    /* Strip immutable fields */
+    delete payload.business_id;
+    delete payload.user_id;
+    ({data: saved, error} = await sb.from('bank_accounts').update(payload).eq('id', editingBankAccountId).select().single());
+  } else {
+    ({data: saved, error} = await sb.from('bank_accounts').insert(payload).select().single());
+  }
+  if(error){
+    if((error.message||'').includes('does not exist') || error.code === '42P01'){
+      notify(ar?'⚠ يجب تشغيل ميغريشن جداول البنوك أولاً':'⚠ Run bank_accounts migration first', 'error');
+      console.error('bank_accounts table missing — run bank_accounts_migration.sql');
+      return;
+    }
+    console.error('[GL] saveBankAccount', error);
+    notify((ar?'فشل الحفظ: ':'Save failed: ') + (error.message||''), 'error');
+    return;
+  }
+
+  /* For new accounts: if opening balance != 0, create an opening transaction so the audit trail is intact */
+  if(!isEdit && payload.opening_balance !== 0){
+    await sb.from('bank_transactions').insert({
+      business_id: currentBiz.id,
+      user_id: currentUser.id,
+      account_id: saved.id,
+      transaction_type: payload.opening_balance > 0 ? 'deposit' : 'withdrawal',
+      transaction_date: payload.opening_date,
+      amount: Math.abs(payload.opening_balance),
+      balance_after: payload.opening_balance,
+      description: ar ? 'الرصيد الافتتاحي' : 'Opening balance',
+      source_type: 'opening'
+    });
+  }
+
+  notify(ar?'✅ تم الحفظ':'✅ Saved', 'success');
+  closeBankAccountModal();
+  await Promise.all([loadBankAccounts(), loadBankTransactions()]);
+  renderBankAccounts();
+}
+
+async function deleteBankAccount(id){
+  const ar = currentLang === 'ar';
+  /* Check transaction count to warn user */
+  const {count} = await sb.from('bank_transactions')
+    .select('id', {count:'exact', head:true})
+    .eq('account_id', id);
+  const txCount = count || 0;
+  let msg;
+  if(txCount > 0){
+    msg = ar
+      ? `⚠️ هذا الحساب لديه ${txCount} معاملة. الحذف سيزيلها أيضاً ولا يمكن التراجع. متابعة؟`
+      : `⚠️ This account has ${txCount} transactions. Deleting will remove them too and cannot be undone. Continue?`;
+  } else {
+    msg = ar?'حذف هذا الحساب؟ لا يمكن التراجع.':'Delete this account? Cannot be undone.';
+  }
+  if(!confirm(msg)) return;
+  /* Cascade via FK on transactions */
+  const {error} = await sb.from('bank_accounts').delete().eq('id', id);
+  if(error){
+    console.error('[GL] deleteBankAccount', error);
+    notify((ar?'فشل الحذف: ':'Delete failed: ') + (error.message||''), 'error');
+    return;
+  }
+  notify(ar?'تم الحذف':'Deleted', 'success');
+  closeBankAccountModal();
+  await Promise.all([loadBankAccounts(), loadBankTransactions()]);
+  renderBankAccounts();
+}
+
+
+/* ───── TRANSACTION MODAL ───── */
+function openTransactionModal(prefilledAccountId){
+  if(!currentBiz?.id){
+    notify(currentLang==='ar'?'لم يتم تحميل المنشأة':'Business not loaded', 'error');
+    return;
+  }
+  if(allBankAccounts.length === 0){
+    notify(currentLang==='ar'?'أضف حساباً أولاً':'Add an account first', 'error');
+    return;
+  }
+  const ar = currentLang === 'ar';
+  /* Default to first active account (or default account) */
+  const defaultAccount = prefilledAccountId
+    ? allBankAccounts.find(a => a.id === prefilledAccountId)
+    : (allBankAccounts.find(a => a.is_default) || allBankAccounts.find(a => a.is_active) || allBankAccounts[0]);
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay open';
+  overlay.id = 'tx-modal';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-head">
+        <div class="modal-title" data-ar="معاملة جديدة" data-en="New Transaction">معاملة جديدة</div>
+        <button class="modal-close" onclick="closeTransactionModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <div class="field-label"><span data-ar="الحساب" data-en="Account">الحساب</span><span class="req">*</span></div>
+          <select id="tx-account" onchange="onTxAccountChange()">
+            ${allBankAccounts.filter(a => a.is_active).map(a => `
+              <option value="${a.id}" ${a.id === defaultAccount?.id ? 'selected' : ''}>${escHTML(ar ? (a.account_name_ar || a.account_name) : a.account_name)} · ${a.currency} · ${fmt(parseFloat(a.current_balance)||0)}</option>
+            `).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <div class="field-label"><span data-ar="نوع المعاملة" data-en="Type">نوع المعاملة</span><span class="req">*</span></div>
+          <div style="display:flex;gap:6px;background:var(--tint);padding:4px;border-radius:8px;">
+            <button type="button" class="tx-type-btn active" data-type="deposit" onclick="setTxType(this,'deposit')" style="flex:1;padding:8px;border:none;background:#fff;color:var(--green);border-radius:6px;font-weight:700;cursor:pointer;">⬇ ${ar?'إيداع':'Deposit'}</button>
+            <button type="button" class="tx-type-btn" data-type="withdrawal" onclick="setTxType(this,'withdrawal')" style="flex:1;padding:8px;border:none;background:transparent;color:var(--muted);border-radius:6px;cursor:pointer;">⬆ ${ar?'سحب':'Withdrawal'}</button>
+          </div>
+          <input type="hidden" id="tx-type" value="deposit">
+        </div>
+        <div class="field-row double">
+          <div class="field">
+            <div class="field-label"><span data-ar="التاريخ" data-en="Date">التاريخ</span><span class="req">*</span></div>
+            <input type="date" id="tx-date" value="${todayISO()}">
+          </div>
+          <div class="field">
+            <div class="field-label"><span data-ar="المبلغ" data-en="Amount">المبلغ</span><span class="req">*</span></div>
+            <input type="number" step="0.01" min="0.01" id="tx-amount" class="mono" style="text-align:end;" placeholder="0.00">
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label"><span data-ar="الوصف" data-en="Description">الوصف</span></div>
+          <input type="text" id="tx-description" placeholder="${ar?'مثل: راتب موظف، إيجار، مبيعات':'e.g. Salary, rent, sales'}">
+        </div>
+        <div class="field-row double">
+          <div class="field">
+            <div class="field-label"><span data-ar="رقم المرجع" data-en="Reference #">رقم المرجع</span><span class="opt">(optional)</span></div>
+            <input type="text" id="tx-reference" placeholder="${ar?'رقم الشيك أو الحوالة':'Cheque/transfer ref'}">
+          </div>
+          <div class="field">
+            <div class="field-label"><span data-ar="الطرف الآخر" data-en="Counterparty">الطرف الآخر</span><span class="opt">(optional)</span></div>
+            <input type="text" id="tx-counterparty">
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label"><span data-ar="ملاحظات" data-en="Notes">ملاحظات</span><span class="opt">(optional)</span></div>
+          <textarea id="tx-notes" rows="2"></textarea>
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" onclick="closeTransactionModal()">${ar?'إلغاء':'Cancel'}</button>
+        <button class="btn btn-primary" onclick="saveTransaction()">${ar?'حفظ':'Save'}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  applyLang();
+}
+
+function closeTransactionModal(){
+  document.getElementById('tx-modal')?.remove();
+}
+
+function setTxType(btn, type){
+  document.querySelectorAll('.tx-type-btn').forEach(b => {
+    b.classList.remove('active');
+    b.style.background = 'transparent';
+    b.style.color = 'var(--muted)';
+  });
+  btn.classList.add('active');
+  btn.style.background = '#fff';
+  btn.style.color = type === 'deposit' ? 'var(--green)' : 'var(--red)';
+  setVal('tx-type', type);
+}
+
+function onTxAccountChange(){
+  /* Could update placeholder/hints based on currency in future */
+}
+
+async function saveTransaction(){
+  if(!currentBiz?.id || !currentUser){
+    notify(currentLang==='ar'?'لم يتم تحميل المستخدم':'Auth not loaded', 'error');
+    return;
+  }
+  const ar = currentLang === 'ar';
+  const accountId = document.getElementById('tx-account').value;
+  const type = document.getElementById('tx-type').value;
+  const date = document.getElementById('tx-date').value;
+  const amount = parseFloat(document.getElementById('tx-amount').value) || 0;
+
+  if(!accountId){ notify(ar?'اختر الحساب':'Select an account','error'); return; }
+  if(!date){ notify(ar?'التاريخ مطلوب':'Date is required','error'); return; }
+  if(amount <= 0){ notify(ar?'أدخل مبلغاً صحيحاً':'Enter a valid amount','error'); return; }
+
+  const account = allBankAccounts.find(a => a.id === accountId);
+  if(!account){ notify(ar?'الحساب غير موجود':'Account not found','error'); return; }
+
+  /* Compute new balance */
+  const currentBal = parseFloat(account.current_balance) || 0;
+  const newBal = type === 'deposit' ? currentBal + amount : currentBal - amount;
+
+  /* Insert transaction */
+  const {error: txErr} = await sb.from('bank_transactions').insert({
+    business_id: currentBiz.id,
+    user_id: currentUser.id,
+    account_id: accountId,
+    transaction_type: type,
+    transaction_date: date,
+    amount: amount,
+    balance_after: newBal,
+    description: document.getElementById('tx-description').value || null,
+    reference_number: document.getElementById('tx-reference').value || null,
+    counterparty: document.getElementById('tx-counterparty').value || null,
+    notes: document.getElementById('tx-notes').value || null,
+    source_type: 'manual'
+  });
+  if(txErr){
+    console.error('[GL] saveTransaction', txErr);
+    notify((ar?'فشل الحفظ: ':'Save failed: ') + (txErr.message||''), 'error');
+    return;
+  }
+
+  /* Update account balance */
+  await sb.from('bank_accounts').update({
+    current_balance: newBal,
+    updated_at: new Date().toISOString()
+  }).eq('id', accountId);
+
+  notify(ar?'✅ تم الحفظ':'✅ Saved', 'success');
+  closeTransactionModal();
+  await Promise.all([loadBankAccounts(), loadBankTransactions()]);
+  renderBankAccounts();
+}
+
+
+/* ───── TRANSFER MODAL ───── */
+function openTransferModal(){
+  if(!currentBiz?.id){
+    notify(currentLang==='ar'?'لم يتم تحميل المنشأة':'Business not loaded', 'error');
+    return;
+  }
+  const activeAccts = allBankAccounts.filter(a => a.is_active);
+  if(activeAccts.length < 2){
+    notify(currentLang==='ar'?'أضف حسابين على الأقل لإجراء تحويل':'Add at least 2 accounts to transfer', 'error');
+    return;
+  }
+  const ar = currentLang === 'ar';
+
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay open';
+  overlay.id = 'transfer-modal';
+  overlay.innerHTML = `
+    <div class="modal" style="max-width:560px;">
+      <div class="modal-head">
+        <div class="modal-title" data-ar="تحويل بين الحسابات" data-en="Transfer Between Accounts">تحويل بين الحسابات</div>
+        <button class="modal-close" onclick="closeTransferModal()">×</button>
+      </div>
+      <div class="modal-body">
+        <div class="field">
+          <div class="field-label"><span data-ar="من حساب" data-en="From Account">من حساب</span><span class="req">*</span></div>
+          <select id="tr-from" onchange="onTransferAccountChange()">
+            ${activeAccts.map(a => `<option value="${a.id}">${escHTML(ar ? (a.account_name_ar || a.account_name) : a.account_name)} · ${a.currency} · ${fmt(parseFloat(a.current_balance)||0)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field">
+          <div class="field-label"><span data-ar="إلى حساب" data-en="To Account">إلى حساب</span><span class="req">*</span></div>
+          <select id="tr-to" onchange="onTransferAccountChange()">
+            ${activeAccts.map((a, idx) => `<option value="${a.id}" ${idx === 1 ? 'selected' : ''}>${escHTML(ar ? (a.account_name_ar || a.account_name) : a.account_name)} · ${a.currency} · ${fmt(parseFloat(a.current_balance)||0)}</option>`).join('')}
+          </select>
+        </div>
+        <div class="field-row double">
+          <div class="field">
+            <div class="field-label"><span data-ar="التاريخ" data-en="Date">التاريخ</span></div>
+            <input type="date" id="tr-date" value="${todayISO()}">
+          </div>
+          <div class="field">
+            <div class="field-label"><span data-ar="المبلغ المرسل" data-en="Amount Sent">المبلغ المرسل</span><span class="req">*</span></div>
+            <input type="number" step="0.01" min="0.01" id="tr-amount" class="mono" style="text-align:end;" oninput="onTransferAmountChange()">
+            <div class="field-hint" id="tr-from-currency-hint" style="font-size:11px;color:var(--muted);"></div>
+          </div>
+        </div>
+        <!-- FX section, shown only when source and dest currencies differ -->
+        <div id="tr-fx-section" style="display:none;background:var(--tint);padding:10px 12px;border-radius:8px;margin-bottom:10px;">
+          <div class="field-row double" style="margin-bottom:0;">
+            <div class="field">
+              <div class="field-label"><span data-ar="سعر الصرف" data-en="Exchange Rate">سعر الصرف</span><span class="req">*</span></div>
+              <input type="number" step="0.0001" min="0" id="tr-fx-rate" class="mono" style="text-align:end;" oninput="onTransferAmountChange()">
+              <div class="field-hint" id="tr-fx-hint" style="font-size:11px;color:var(--muted);"></div>
+            </div>
+            <div class="field">
+              <div class="field-label"><span data-ar="المبلغ المستلم" data-en="Amount Received">المبلغ المستلم</span></div>
+              <input type="number" step="0.01" id="tr-amount-received" class="mono" style="text-align:end;background:#f0f0f0;" readonly>
+            </div>
+          </div>
+        </div>
+        <div class="field">
+          <div class="field-label"><span data-ar="الوصف" data-en="Description">الوصف</span></div>
+          <input type="text" id="tr-description" placeholder="${ar?'مثل: تحويل من البنك إلى الصندوق':'e.g. Bank to cash transfer'}">
+        </div>
+      </div>
+      <div class="modal-foot">
+        <button class="btn btn-ghost" onclick="closeTransferModal()">${ar?'إلغاء':'Cancel'}</button>
+        <button class="btn btn-primary" onclick="saveTransfer()">${ar?'تحويل':'Transfer'}</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  applyLang();
+  onTransferAccountChange();
+}
+
+function closeTransferModal(){
+  document.getElementById('transfer-modal')?.remove();
+}
+
+function onTransferAccountChange(){
+  const fromId = document.getElementById('tr-from')?.value;
+  const toId = document.getElementById('tr-to')?.value;
+  const from = allBankAccounts.find(a => a.id === fromId);
+  const to = allBankAccounts.find(a => a.id === toId);
+  if(!from || !to) return;
+
+  /* Update currency hint */
+  const hint = document.getElementById('tr-from-currency-hint');
+  if(hint) hint.textContent = from.currency;
+
+  /* Show/hide FX section based on currency match */
+  const fxSection = document.getElementById('tr-fx-section');
+  if(from.currency !== to.currency){
+    fxSection.style.display = '';
+    const fxHint = document.getElementById('tr-fx-hint');
+    if(fxHint) fxHint.textContent = `1 ${from.currency} = ? ${to.currency}`;
+    /* Default rate to 1 to avoid empty field */
+    if(!document.getElementById('tr-fx-rate').value){
+      setVal('tr-fx-rate', '1');
+    }
+  } else {
+    fxSection.style.display = 'none';
+    /* Clear FX rate when currencies match */
+    setVal('tr-fx-rate', '');
+  }
+  onTransferAmountChange();
+}
+
+function onTransferAmountChange(){
+  const amount = parseFloat(document.getElementById('tr-amount')?.value) || 0;
+  const fxRate = parseFloat(document.getElementById('tr-fx-rate')?.value) || 1;
+  const received = amount * fxRate;
+  setVal('tr-amount-received', received.toFixed(2));
+}
+
+async function saveTransfer(){
+  if(!currentBiz?.id || !currentUser){
+    notify(currentLang==='ar'?'لم يتم تحميل المستخدم':'Auth not loaded', 'error');
+    return;
+  }
+  const ar = currentLang === 'ar';
+  const fromId = document.getElementById('tr-from').value;
+  const toId = document.getElementById('tr-to').value;
+  const date = document.getElementById('tr-date').value;
+  const amount = parseFloat(document.getElementById('tr-amount').value) || 0;
+  const description = document.getElementById('tr-description').value || null;
+
+  if(fromId === toId){ notify(ar?'لا يمكن التحويل لنفس الحساب':'Cannot transfer to same account','error'); return; }
+  if(amount <= 0){ notify(ar?'أدخل مبلغاً صحيحاً':'Enter a valid amount','error'); return; }
+  if(!date){ notify(ar?'التاريخ مطلوب':'Date required','error'); return; }
+
+  const from = allBankAccounts.find(a => a.id === fromId);
+  const to = allBankAccounts.find(a => a.id === toId);
+  if(!from || !to){ notify(ar?'الحساب غير موجود':'Account not found','error'); return; }
+
+  /* FX handling */
+  const sameCurrency = from.currency === to.currency;
+  const fxRate = sameCurrency ? 1 : (parseFloat(document.getElementById('tr-fx-rate').value) || 0);
+  if(!sameCurrency && fxRate <= 0){
+    notify(ar?'سعر الصرف مطلوب':'Exchange rate required', 'error');
+    return;
+  }
+  const amountReceived = amount * fxRate;
+
+  /* Compute new balances */
+  const fromNewBal = (parseFloat(from.current_balance)||0) - amount;
+  const toNewBal = (parseFloat(to.current_balance)||0) + amountReceived;
+
+  /* Insert two transactions and link them via transfer_pair_id.
+     Insert OUT first, get its id, insert IN with pair_id = OUT.id, then update OUT.pair_id = IN.id. */
+  const {data: outTx, error: outErr} = await sb.from('bank_transactions').insert({
+    business_id: currentBiz.id,
+    user_id: currentUser.id,
+    account_id: fromId,
+    transaction_type: 'transfer_out',
+    transaction_date: date,
+    amount: amount,
+    balance_after: fromNewBal,
+    description: description || (ar?`تحويل إلى ${to.account_name_ar || to.account_name}`:`Transfer to ${to.account_name || to.account_name_ar}`),
+    source_type: 'transfer',
+    transfer_fx_rate: sameCurrency ? null : fxRate
+  }).select().single();
+  if(outErr){
+    console.error('[GL] saveTransfer out', outErr);
+    notify((ar?'فشل التحويل: ':'Transfer failed: ') + (outErr.message||''), 'error');
+    return;
+  }
+
+  const {data: inTx, error: inErr} = await sb.from('bank_transactions').insert({
+    business_id: currentBiz.id,
+    user_id: currentUser.id,
+    account_id: toId,
+    transaction_type: 'transfer_in',
+    transaction_date: date,
+    amount: amountReceived,
+    balance_after: toNewBal,
+    description: description || (ar?`تحويل من ${from.account_name_ar || from.account_name}`:`Transfer from ${from.account_name || from.account_name_ar}`),
+    source_type: 'transfer',
+    transfer_pair_id: outTx.id,
+    transfer_fx_rate: sameCurrency ? null : fxRate
+  }).select().single();
+  if(inErr){
+    /* Rollback: delete the OUT transaction */
+    await sb.from('bank_transactions').delete().eq('id', outTx.id);
+    console.error('[GL] saveTransfer in', inErr);
+    notify((ar?'فشل التحويل: ':'Transfer failed: ') + (inErr.message||''), 'error');
+    return;
+  }
+
+  /* Update OUT to point to IN (for symmetric pair lookup) */
+  await sb.from('bank_transactions').update({transfer_pair_id: inTx.id}).eq('id', outTx.id);
+
+  /* Update both account balances */
+  await sb.from('bank_accounts').update({current_balance: fromNewBal, updated_at: new Date().toISOString()}).eq('id', fromId);
+  await sb.from('bank_accounts').update({current_balance: toNewBal, updated_at: new Date().toISOString()}).eq('id', toId);
+
+  notify(ar?'✅ تم التحويل':'✅ Transfer complete', 'success');
+  closeTransferModal();
+  await Promise.all([loadBankAccounts(), loadBankTransactions()]);
+  renderBankAccounts();
+}
+
+
 /* ─── tabs ─── */
 function switchTab(name){
   currentTab = name;
@@ -1619,6 +2598,12 @@ function switchTab(name){
     if(pane) pane.style.display = (t === name) ? '' : 'none';
   });
   history.replaceState(null, '', '?tab='+name);
+
+  /* Round 4h.1: lazy-load Banks data on first visit */
+  if(name === 'banks' && !window._banksLoaded){
+    window._banksLoaded = true;
+    Promise.all([loadBankAccounts(), loadBankTransactions()]).then(renderBankAccounts);
+  }
 }
 
 /* ─── filters ─── */
