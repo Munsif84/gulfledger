@@ -3381,22 +3381,34 @@ function updateReconLiveCalc(){
   const msg = document.getElementById('recon-status-msg');
   const saveBtn = document.getElementById('recon-save-btn');
   if(card && msg && saveBtn){
+    /* Save button is ALWAYS enabled once a statement-ending value is entered.
+       Difference of zero = "balanced" (green save).
+       Non-zero = "save with discrepancy" (amber save) — user explicitly acknowledges. */
+    saveBtn.disabled = false;
+
     if(Math.abs(diff) < 0.01){
       /* Balanced */
       card.style.background = '#dcfce7';
       card.querySelectorAll('div').forEach(d => d.style.color = '#166534');
       msg.style.color = 'var(--green)';
       msg.style.fontWeight = '700';
-      msg.textContent = ar ? '✓ متطابق! يمكنك حفظ التسوية الآن.' : '✓ Balanced! You can save the reconciliation now.';
-      saveBtn.disabled = false;
+      msg.textContent = ar ? '✓ متطابق! احفظ التسوية الآن.' : '✓ Balanced! Save the reconciliation.';
+      saveBtn.textContent = ar ? '✓ حفظ التسوية' : '✓ Save Reconciliation';
+      saveBtn.style.background = '';
+      saveBtn.style.borderColor = '';
     } else {
       card.style.background = '#fef3c7';
       card.querySelectorAll('div').forEach(d => d.style.color = '#78350f');
       msg.style.color = 'var(--amber)';
       msg.style.fontWeight = '600';
-      const hint = diff > 0 ? (ar?'الكشف يظهر مبلغاً أعلى. ربما رسوم بنكية أو فوائد لم تسجل بعد.':'Statement shows more. Maybe bank charges or interest not yet recorded.') : (ar?'الكشف يظهر مبلغاً أقل. ربما معاملة في الكشف لم تسجلها أو لم تختار معاملاتها.':'Statement shows less. Maybe a transaction on the statement is not yet in books, or you missed checking some.');
+      const hint = diff > 0
+        ? (ar?'الكشف يظهر مبلغاً أعلى. ربما رسوم بنكية أو فوائد لم تسجل بعد. يمكنك الحفظ مع تسجيل الفرق.':'Statement shows more. Maybe bank charges or interest not yet recorded. You can save with the discrepancy logged.')
+        : (ar?'الكشف يظهر مبلغاً أقل. ربما معاملة في الكشف لم تسجلها أو لم تختار معاملاتها. يمكنك الحفظ مع تسجيل الفرق.':'Statement shows less. Maybe a transaction on the statement is not yet in books, or you missed checking some. You can save with the discrepancy logged.');
       msg.textContent = hint;
-      saveBtn.disabled = true;
+      /* Differentiate the button visually so user knows they're saving an unbalanced rec */
+      saveBtn.textContent = ar ? `⚠ حفظ مع فرق ${reconCurrentAccount.currency} ${fmt(Math.abs(diff))}` : `⚠ Save with ${reconCurrentAccount.currency} ${fmt(Math.abs(diff))} discrepancy`;
+      saveBtn.style.background = '#f59e0b';
+      saveBtn.style.borderColor = '#d97706';
     }
   }
 }
@@ -3427,26 +3439,64 @@ async function saveReconciliation(){
     .reduce((s, t) => s + (parseFloat(t.amount)||0), 0);
   const matchedNet = matchedIn - matchedOut;
 
-  /* Insert reconciliation snapshot */
+  /* Compute book balance at statement date and the difference */
+  const txsAfter = (allBankTransactions || []).filter(t =>
+    t.account_id === reconCurrentAccount.id && t.transaction_date > stmtDate
+  );
+  let bookBalanceAtStmt = parseFloat(reconCurrentAccount.current_balance) || 0;
+  for(const t of txsAfter){
+    const amt = parseFloat(t.amount) || 0;
+    if(t.transaction_type === 'deposit' || t.transaction_type === 'transfer_in'){
+      bookBalanceAtStmt -= amt;
+    } else {
+      bookBalanceAtStmt += amt;
+    }
+  }
+  const unreconciledTxs = (allBankTransactions || []).filter(t =>
+    t.account_id === reconCurrentAccount.id &&
+    t.transaction_date <= stmtDate &&
+    !t.is_reconciled
+  );
+  let unmatchedIn = 0, unmatchedOut = 0;
+  for(const t of unreconciledTxs){
+    if(reconSelected[t.id]) continue;
+    const amt = parseFloat(t.amount) || 0;
+    if(t.transaction_type === 'deposit' || t.transaction_type === 'transfer_in') unmatchedIn += amt;
+    else unmatchedOut += amt;
+  }
+  const opening = bookBalanceAtStmt - (matchedIn + unmatchedIn) + (matchedOut + unmatchedOut);
+  const expected = opening + matchedIn - matchedOut;
+  const difference = endingBal - expected;
+  const unreconciledTotal = unmatchedIn - unmatchedOut;
+
+  /* If there's a discrepancy, require explicit confirmation */
+  if(Math.abs(difference) >= 0.01){
+    const confirmMsg = ar
+      ? `يوجد فرق ${reconCurrentAccount.currency} ${fmt(Math.abs(difference))} بين الكشف ودفاترك. سيُحفظ الفرق مع التسوية كملاحظة. متابعة؟`
+      : `There's a ${reconCurrentAccount.currency} ${fmt(Math.abs(difference))} discrepancy between the statement and your books. The difference will be logged with the reconciliation. Continue?`;
+    if(!confirm(confirmMsg)) return;
+  }
+
+  /* Insert reconciliation snapshot — schema matches reconciliations_migration.sql */
   const {data: recon, error: rErr} = await sb.from('bank_reconciliations').insert({
     business_id: currentBiz.id,
     user_id: currentUser.id,
     account_id: reconCurrentAccount.id,
     statement_date: stmtDate,
     statement_ending_balance: endingBal,
-    status: 'completed',
+    book_balance_at_date: expected,
     matched_count: matchedIds.length,
     matched_total: matchedNet,
-    unmatched_count: 0,
-    difference: 0, /* save button only enabled when balanced */
-    source_format: 'manual',
+    unreconciled_total: unreconciledTotal,
+    difference: difference,
+    status: 'completed',
     completed_at: new Date().toISOString()
   }).select().single();
 
   if(rErr){
     if((rErr.message||'').includes('does not exist') || rErr.code === '42P01'){
-      notify(ar?'⚠ يجب تشغيل ميغريشن جدول التسوية أولاً':'⚠ Run bank_reconciliations migration first','error');
-      console.error('[GL] bank_reconciliations table missing — run bank_reconciliations_migration.sql');
+      notify(ar?'⚠ يجب تشغيل ميغريشن جدول التسوية أولاً':'⚠ Run reconciliations_migration.sql first','error');
+      console.error('[GL] bank_reconciliations table missing — run reconciliations_migration.sql');
       return;
     }
     console.error('[GL] saveReconciliation', rErr);
@@ -3473,7 +3523,10 @@ async function saveReconciliation(){
     }
   }
 
-  notify(ar?`✅ تم حفظ التسوية. ${matchedIds.length} معاملة مطابقة.`:`✅ Reconciliation saved. ${matchedIds.length} transactions matched.`,'success');
+  const successMsg = Math.abs(difference) < 0.01
+    ? (ar?`✅ تم حفظ التسوية. ${matchedIds.length} معاملة مطابقة.`:`✅ Reconciliation saved. ${matchedIds.length} transactions matched.`)
+    : (ar?`✅ تم حفظ التسوية مع فرق ${reconCurrentAccount.currency} ${fmt(Math.abs(difference))}.`:`✅ Reconciliation saved with ${reconCurrentAccount.currency} ${fmt(Math.abs(difference))} discrepancy.`);
+  notify(successMsg,'success');
 
   /* Reset for next reconciliation */
   reconSelected = {};
