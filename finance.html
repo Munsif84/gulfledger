@@ -5360,17 +5360,11 @@ function openPayModal(expenseId){
 async function populateExpensePayBankAccounts(){
   const sel = document.getElementById('pay-bank-account-exp');
   if(!sel || !currentBiz?.id) return;
-  const ar = currentLang === 'ar';
-  /* Always rebuild — accounts may have changed since last open */
-  const skipOption = sel.querySelector('option[value=""]');
-  sel.innerHTML = '';
-  if(skipOption) sel.appendChild(skipOption);
-
+  /* Use already-loaded allBankAccounts when available */
   let accounts = allBankAccounts;
   if(!accounts || accounts.length === 0){
-    /* Banks tab not visited yet — fetch directly */
     const {data, error} = await sb.from('bank_accounts')
-      .select('id, account_name, account_name_ar, currency, is_default, is_active')
+      .select('id, account_name, account_name_ar, currency, account_type, is_default, is_active')
       .eq('business_id', currentBiz.id)
       .eq('is_active', true)
       .order('is_default', {ascending: false})
@@ -5383,13 +5377,45 @@ async function populateExpensePayBankAccounts(){
   } else {
     accounts = accounts.filter(a => a.is_active);
   }
+  /* Cache for re-filtering on method change */
+  window._expPayBankAccounts = accounts;
+  refilterExpensePayAccountPicker();
+}
 
-  for(const acc of accounts){
+function refilterExpensePayAccountPicker(){
+  const sel = document.getElementById('pay-bank-account-exp');
+  if(!sel || !window._expPayBankAccounts) return;
+  const ar = currentLang === 'ar';
+  const method = v('pay-method') || 'cash';
+  const wantCash = (method === 'cash');
+  const filtered = window._expPayBankAccounts.filter(a =>
+    wantCash ? a.account_type === 'cash' : a.account_type !== 'cash'
+  );
+
+  const prevValue = sel.value;
+  sel.innerHTML = '';
+  const skipOpt = document.createElement('option');
+  skipOpt.value = '';
+  skipOpt.textContent = ar ? '-- لا تنشئ معاملة بنكية --' : '-- skip bank transaction --';
+  sel.appendChild(skipOpt);
+
+  if(filtered.length === 0){
+    const hintOpt = document.createElement('option');
+    hintOpt.value = '';
+    hintOpt.disabled = true;
+    hintOpt.textContent = ar
+      ? `⚠ لا يوجد ${wantCash ? 'حساب نقدي' : 'حساب بنكي'} — أضف من المالية ← البنوك`
+      : `⚠ No ${wantCash ? 'cash' : 'bank'} account — add from Finance → Banks`;
+    sel.appendChild(hintOpt);
+    return;
+  }
+
+  for(const acc of filtered){
     const name = ar ? (acc.account_name_ar || acc.account_name) : acc.account_name;
     const opt = document.createElement('option');
     opt.value = acc.id;
     opt.textContent = `${name} · ${acc.currency}`;
-    if(acc.is_default) opt.selected = true;
+    if(acc.is_default || acc.id === prevValue) opt.selected = true;
     sel.appendChild(opt);
   }
 }
@@ -5404,6 +5430,10 @@ function setPayMethod(method){
   ['cash','bank'].forEach(m => {
     document.getElementById('pay-method-'+m)?.classList.toggle('on', m === method);
   });
+  /* Round 4h.2.1: re-filter bank account picker to match method */
+  if(typeof refilterExpensePayAccountPicker === 'function'){
+    refilterExpensePayAccountPicker();
+  }
 }
 
 function updatePayPreview(){

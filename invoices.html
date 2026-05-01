@@ -1485,6 +1485,34 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
       <!-- Hidden field for invoice type -->
       <input type="hidden" id="f-type" value="quick">
 
+      <!-- Round 4h.2.1: Mark-as-paid block (auto-records payment for B2C invoices).
+           Visible only when invoice type === 'quick' (B2C). Hidden for tax/B2B invoices.
+           User can toggle off if not actually paid. -->
+      <div id="mark-paid-block" style="margin-top:14px;padding:12px 14px;background:#f0fdf4;border:1px solid #86efac;border-radius:10px;">
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;font-size:14px;font-weight:600;color:#166534;">
+          <input type="checkbox" id="f-mark-paid" checked onchange="onMarkPaidToggle()" style="width:18px;height:18px;cursor:pointer;">
+          <span>💵 <span data-ar="تم استلام الدفعة كاملة الآن" data-en="Payment received in full now">تم استلام الدفعة كاملة الآن</span></span>
+        </label>
+        <div style="font-size:11px;color:#166534;margin-top:4px;line-height:1.5;" data-ar="عند الإصدار، سيُسجل النظام دفعة كاملة وحركة بنكية تلقائياً." data-en="On generate, the system records a full payment and a bank transaction automatically.">عند الإصدار، سيُسجل النظام دفعة كاملة وحركة بنكية تلقائياً.</div>
+
+        <div id="mark-paid-options" style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px;">
+          <div>
+            <div class="field-label" style="margin-bottom:4px;font-size:12px;" data-ar="طريقة الدفع" data-en="Method">طريقة الدفع</div>
+            <select id="f-mark-paid-method" onchange="refilterInvFormBankAccounts()" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+              <option value="cash" data-ar="نقد" data-en="Cash">نقد</option>
+              <option value="bank" data-ar="تحويل بنكي" data-en="Bank">تحويل بنكي</option>
+              <option value="card" data-ar="بطاقة" data-en="Card">بطاقة</option>
+            </select>
+          </div>
+          <div>
+            <div class="field-label" style="margin-bottom:4px;font-size:12px;" data-ar="الحساب" data-en="Account">الحساب</div>
+            <select id="f-mark-paid-account" style="width:100%;padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-size:13px;">
+              <option value="" data-ar="-- بدون حركة بنكية --" data-en="-- skip bank tx --">-- بدون حركة بنكية --</option>
+            </select>
+          </div>
+        </div>
+      </div>
+
     </div>
 
     <div class="modal-foot">
@@ -1782,7 +1810,7 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
       <div class="field-row double">
         <div class="field">
           <label class="field-label" data-ar="طريقة الدفع · Method" data-en="Method · طريقة الدفع">طريقة الدفع · Method</label>
-          <select id="pay-method">
+          <select id="pay-method" onchange="refilterPaymentAccountPicker()">
             <option value="cash" data-ar="نقداً · Cash" data-en="Cash · نقداً">نقداً · Cash</option>
             <option value="bank" data-ar="تحويل بنكي · Bank" data-en="Bank · تحويل بنكي">تحويل بنكي · Bank</option>
             <option value="card" data-ar="بطاقة · Card" data-en="Card · بطاقة">بطاقة · Card</option>
@@ -2140,6 +2168,8 @@ async function init(){
   const urlParams = new URLSearchParams(window.location.search);
   const confirmId = urlParams.get('confirm');
   const editId = urlParams.get('edit');
+  const payId = urlParams.get('pay');
+  const reverseId = urlParams.get('reverse');
   const actionParam = urlParams.get('action');
 
   if(confirmId){
@@ -2148,6 +2178,12 @@ async function init(){
   } else if(editId){
     /* Coming from preview "Edit Draft" — load draft and open modal for editing */
     setTimeout(() => loadDraftForEdit(editId), 600);
+  } else if(payId){
+    /* Round 4h.2.1: from preview "Record Payment" — open payment modal directly */
+    setTimeout(() => openPaymentForInvoiceId(payId), 600);
+  } else if(reverseId){
+    /* Round 4h.2.1: from preview "Reverse" — confirm + reverse */
+    setTimeout(() => reverseInvoiceById(reverseId), 600);
   } else if(actionParam === 'new_invoice' || window.location.hash === '#new'){
     /* From Quick Action menu OR legacy #new hash — open invoice modal */
     setTimeout(() => {
@@ -2160,6 +2196,212 @@ async function init(){
       openAddCustomerModal();
       history.replaceState(null, '', 'invoices.html');
     }, 200);
+  }
+}
+
+/* Round 4h.2.1: Mark-as-paid auto-payment for B2C invoices.
+   When user generates a B2C invoice with the checkbox on, after the invoice
+   saves we automatically record a full payment (and optional bank tx) so the
+   user doesn't have to take the second step. */
+
+function onMarkPaidToggle(){
+  const checked = document.getElementById('f-mark-paid')?.checked;
+  const opts = document.getElementById('mark-paid-options');
+  if(opts) opts.style.display = checked ? 'grid' : 'none';
+}
+
+async function populateInvFormBankAccounts(){
+  const sel = document.getElementById('f-mark-paid-account');
+  if(!sel || !currentBiz?.id) return;
+  /* Reuse cache if confirmPayment already populated it; otherwise fetch */
+  if(!_cachedBankAccounts){
+    const {data, error} = await sb.from('bank_accounts')
+      .select('id, account_name, account_name_ar, currency, account_type, is_default')
+      .eq('business_id', currentBiz.id)
+      .eq('is_active', true)
+      .order('is_default', {ascending: false})
+      .order('account_name');
+    if(error){
+      if(!(error.message||'').includes('does not exist')) console.warn('[GL] bank accounts load:', error);
+      _cachedBankAccounts = [];
+      return;
+    }
+    _cachedBankAccounts = data || [];
+  }
+  refilterInvFormBankAccounts();
+}
+
+function refilterInvFormBankAccounts(){
+  const sel = document.getElementById('f-mark-paid-account');
+  if(!sel || !_cachedBankAccounts) return;
+  const ar = currentLang === 'ar';
+  const method = v('f-mark-paid-method') || 'cash';
+  const wantCash = (method === 'cash');
+  const filtered = _cachedBankAccounts.filter(a =>
+    wantCash ? a.account_type === 'cash' : a.account_type !== 'cash'
+  );
+
+  const prevValue = sel.value;
+  sel.innerHTML = '';
+  const skipOpt = document.createElement('option');
+  skipOpt.value = '';
+  skipOpt.textContent = ar ? '-- بدون حركة بنكية --' : '-- skip bank tx --';
+  sel.appendChild(skipOpt);
+
+  if(filtered.length === 0){
+    const hintOpt = document.createElement('option');
+    hintOpt.value = '';
+    hintOpt.disabled = true;
+    hintOpt.textContent = ar
+      ? `⚠ لا يوجد ${wantCash ? 'حساب نقدي' : 'حساب بنكي'}`
+      : `⚠ No ${wantCash ? 'cash' : 'bank'} account`;
+    sel.appendChild(hintOpt);
+    return;
+  }
+
+  for(const acc of filtered){
+    const name = ar ? (acc.account_name_ar || acc.account_name) : acc.account_name;
+    const opt = document.createElement('option');
+    opt.value = acc.id;
+    opt.textContent = `${name} · ${acc.currency}`;
+    if(acc.is_default || acc.id === prevValue) opt.selected = true;
+    sel.appendChild(opt);
+  }
+}
+
+/* Called from generateInvoice after the invoice has been saved and we have its id+number+total.
+   Idempotent enough: if anything fails, the invoice is still saved correctly — payment can be
+   recorded manually later. We never block invoice generation on payment recording. */
+async function autoRecordB2CPayment(invoiceId, invoiceNumber, total){
+  /* Only run if the checkbox is checked AND this is a B2C invoice */
+  const checked = document.getElementById('f-mark-paid')?.checked;
+  const isQuick = (v('f-type') === 'b2c');
+  if(!checked || !isQuick) return false;
+
+  const method = v('f-mark-paid-method') || 'cash';
+  const accountId = v('f-mark-paid-account') || '';
+  const date = todayISO();
+
+  try {
+    /* 1. Update invoice payment fields */
+    const {error: invErr} = await sb.from('invoices').update({
+      payment_status: 'paid',
+      payment_date: date,
+      payment_method: method,
+      amount_paid: total,
+      updated_at: new Date().toISOString()
+    }).eq('id', invoiceId).eq('business_id', currentBiz?.id || '');
+    if(invErr){
+      console.warn('[GL] auto-payment invoice update failed:', invErr);
+      return false;
+    }
+
+    /* 2. Post journal entry — DR Cash/Bank / CR AR */
+    try {
+      const accountCode = (method==='bank'||method==='card') ? '1101' : '1100';
+      const accountName = (method==='bank'||method==='card')
+        ? (currentLang==='ar'?'البنك':'Bank')
+        : (currentLang==='ar'?'النقد':'Cash');
+      const {data: entry} = await sb.from('journal_entries').insert({
+        user_id: currentUser.id, business_id: currentBiz?.id,
+        entry_date: date,
+        reference: 'AUTO-PMT-' + invoiceNumber,
+        description: currentLang==='ar'?'دفعة فورية عند الإصدار':'Payment on issuance',
+        source: 'payment',
+        status: 'posted', is_balanced: true
+      }).select().single();
+      if(entry){
+        await sb.from('journal_lines').insert([
+          {entry_id:entry.id, user_id:currentUser.id, account_code:accountCode, account_name:accountName,
+           debit:total, credit:0, description:currentLang==='ar'?'استلام دفعة':'Payment received'},
+          {entry_id:entry.id, user_id:currentUser.id, account_code:'1200', account_name:currentLang==='ar'?'ذمم مدينة تجارية':'Trade Receivables',
+           debit:0, credit:total, description:currentLang==='ar'?'إقفال ذمة':'Clear receivable'}
+        ]);
+      }
+    } catch(e){ console.warn('[GL] auto-payment journal skipped:', e.message); }
+
+    /* 3. Auto-create bank deposit if user picked an account */
+    if(accountId){
+      try {
+        const {data: acc} = await sb.from('bank_accounts').select('current_balance').eq('id', accountId).single();
+        if(acc){
+          const newBalance = (parseFloat(acc.current_balance)||0) + total;
+          await sb.from('bank_transactions').insert({
+            business_id: currentBiz?.id,
+            user_id: currentUser.id,
+            account_id: accountId,
+            transaction_type: 'deposit',
+            transaction_date: date,
+            amount: total,
+            balance_after: newBalance,
+            description: (currentLang==='ar' ? 'دفعة فاتورة ' : 'Invoice payment ') + invoiceNumber,
+            source_type: 'invoice',
+            source_id: invoiceId
+          });
+          await sb.from('bank_accounts').update({
+            current_balance: newBalance,
+            updated_at: new Date().toISOString()
+          }).eq('id', accountId);
+        }
+      } catch(e){ console.warn('[GL] auto-payment bank tx skipped:', e.message); }
+    }
+
+    return true;
+  } catch(e){
+    console.warn('[GL] autoRecordB2CPayment failed:', e);
+    return false;
+  }
+}
+async function openPaymentForInvoiceId(invoiceId){
+  const inv = allInvoices.find(i => i.id === invoiceId);
+  if(!inv){
+    /* Invoice list might still be loading — try fetching directly */
+    const {data, error} = await sb.from('invoices')
+      .select('id, invoice_number, total, buyer_name, amount_paid, payment_status, status')
+      .eq('id', invoiceId).single();
+    if(error || !data){
+      notify(currentLang==='ar'?'تعذّر تحميل الفاتورة':'Could not load invoice','r');
+      history.replaceState(null, '', 'invoices.html');
+      return;
+    }
+    if(data.status === 'voided'){
+      notify(currentLang==='ar'?'لا يمكن تسجيل دفعة على فاتورة ملغية':'Cannot record payment on a voided invoice','r');
+      history.replaceState(null, '', 'invoices.html');
+      return;
+    }
+    if(data.payment_status === 'paid'){
+      notify(currentLang==='ar'?'هذه الفاتورة مدفوعة بالكامل':'This invoice is fully paid','info');
+      history.replaceState(null, '', 'invoices.html');
+      return;
+    }
+    history.replaceState(null, '', 'invoices.html');
+    openPaymentModal(data.id, data.invoice_number, data.total, data.buyer_name, data.amount_paid || 0);
+    return;
+  }
+  if(inv.status === 'voided'){
+    notify(currentLang==='ar'?'لا يمكن تسجيل دفعة على فاتورة ملغية':'Cannot record payment on a voided invoice','r');
+    history.replaceState(null, '', 'invoices.html');
+    return;
+  }
+  if(inv.payment_status === 'paid'){
+    notify(currentLang==='ar'?'هذه الفاتورة مدفوعة بالكامل':'This invoice is fully paid','info');
+    history.replaceState(null, '', 'invoices.html');
+    return;
+  }
+  history.replaceState(null, '', 'invoices.html');
+  openPaymentModal(inv.id, inv.invoice_number, inv.total, inv.buyer_name, inv.amount_paid || 0);
+}
+
+/* Round 4h.2.1: reverse invoice by ID — confirms then triggers existing reversal flow */
+async function reverseInvoiceById(invoiceId){
+  history.replaceState(null, '', 'invoices.html');
+  /* Defer to existing reversal handler if present, else fall back to a notify */
+  if(typeof openReverseModal === 'function'){
+    openReverseModal(invoiceId);
+  } else if(typeof reverseInvoice === 'function'){
+    reverseInvoice(invoiceId);
+  } else {
+    notify(currentLang==='ar'?'افتح الفاتورة لإلغائها':'Open the invoice to reverse it','info');
   }
 }
 
@@ -2706,6 +2948,17 @@ function setInvType(type){
   meta.classList.remove('cols-3');
   document.getElementById('po-cell').style.display = isTax ? '' : 'none';
   document.getElementById('duedate-cell').style.display = isTax ? '' : 'none';
+
+  /* Round 4h.2.1: Mark-as-paid block — visible only for B2C (Quick) invoices.
+     B2B invoices are typically credit; payment recorded separately when received. */
+  const markPaidBlock = document.getElementById('mark-paid-block');
+  if(markPaidBlock){
+    markPaidBlock.style.display = isTax ? 'none' : '';
+    if(!isTax){
+      /* Populate bank account picker on first show */
+      populateInvFormBankAccounts();
+    }
+  }
 
   /* ZATCA banner */
   document.getElementById('zatca-banner').style.display = isTax ? 'flex' : 'none';
@@ -3738,8 +3991,15 @@ async function generateInvoice(){
     await sb.from('customers').update(updates).eq('id', selectedCustomer.id);
   }
 
+  /* Round 4h.2.1: auto-record payment if "Mark as paid" checkbox was on (B2C only).
+     Done BEFORE navigation so the invoice-view shows correct paid status. */
+  const autoPaid = await autoRecordB2CPayment(invoiceId, payload.invoice_number, payload.total);
+  const successMsg = autoPaid
+    ? (currentLang==='ar' ? `✅ ${payload.invoice_number} — مُصدرة ومدفوعة` : `✅ ${payload.invoice_number} — generated & paid`)
+    : (currentLang==='ar' ? `✅ تم تصدير ${payload.invoice_number}` : `✅ ${payload.invoice_number} generated`);
+
   closeInvoiceModal();
-  notify(currentLang==='ar'?`✅ تم تصدير ${payload.invoice_number}`:`✅ ${payload.invoice_number} generated`, 'g');
+  notify(successMsg, 'g');
 
   /* Navigate to invoice-view to see the rendered invoice */
   setTimeout(() => {
@@ -4181,31 +4441,70 @@ function openPaymentModal(invoiceId, num, total, buyerName, alreadyPaid){
   document.getElementById('payment-modal').classList.add('show');
 }
 
+/* Round 4h.2.1: cache accounts so method-change filtering doesn't refetch */
+let _cachedBankAccounts = null;
+
 async function populatePaymentBankAccounts(){
   const sel = document.getElementById('pay-bank-account');
   if(!sel || !currentBiz?.id) return;
+  if(!_cachedBankAccounts){
+    const {data, error} = await sb.from('bank_accounts')
+      .select('id, account_name, account_name_ar, currency, account_type, is_default')
+      .eq('business_id', currentBiz.id)
+      .eq('is_active', true)
+      .order('is_default', {ascending: false})
+      .order('account_name');
+    if(error){
+      if(!(error.message||'').includes('does not exist')) console.warn('[GL] bank accounts load:', error);
+      _cachedBankAccounts = [];
+      return;
+    }
+    _cachedBankAccounts = data || [];
+  }
+  refilterPaymentAccountPicker();
+}
+
+/* Filter the picker based on currently-selected payment method.
+   - cash → only cash accounts
+   - bank/card/check → only non-cash accounts (checking/savings/credit_card)
+   If no accounts match, show a helpful empty option pointing to setup. */
+function refilterPaymentAccountPicker(){
+  const sel = document.getElementById('pay-bank-account');
+  if(!sel || !_cachedBankAccounts) return;
   const ar = currentLang === 'ar';
-  /* Skip if already populated this session */
-  if(sel.options.length > 1) return;
-  const {data, error} = await sb.from('bank_accounts')
-    .select('id, account_name, account_name_ar, currency, is_default')
-    .eq('business_id', currentBiz.id)
-    .eq('is_active', true)
-    .order('is_default', {ascending: false})
-    .order('account_name');
-  if(error){
-    /* Bank accounts table may not exist yet on older deployments — fail silent */
-    if(!(error.message||'').includes('does not exist')) console.warn('[GL] bank accounts load:', error);
+  const method = v('pay-method') || 'cash';
+  const wantCash = (method === 'cash');
+  const filtered = _cachedBankAccounts.filter(a =>
+    wantCash ? a.account_type === 'cash' : a.account_type !== 'cash'
+  );
+
+  /* Preserve current selection if still present after re-filter */
+  const prevValue = sel.value;
+  /* Rebuild options */
+  sel.innerHTML = '';
+  const skipOpt = document.createElement('option');
+  skipOpt.value = '';
+  skipOpt.textContent = ar ? '-- لا تنشئ معاملة بنكية --' : '-- skip bank transaction --';
+  sel.appendChild(skipOpt);
+
+  if(filtered.length === 0){
+    /* Hint about setup */
+    const hintOpt = document.createElement('option');
+    hintOpt.value = '';
+    hintOpt.disabled = true;
+    hintOpt.textContent = ar
+      ? `⚠ لا يوجد ${wantCash ? 'حساب نقدي' : 'حساب بنكي'} — أضف من المالية ← البنوك`
+      : `⚠ No ${wantCash ? 'cash' : 'bank'} account — add from Finance → Banks`;
+    sel.appendChild(hintOpt);
     return;
   }
-  const accounts = data || [];
-  const skipOption = sel.querySelector('option[value=""]');
-  for(const acc of accounts){
+
+  for(const acc of filtered){
     const name = ar ? (acc.account_name_ar || acc.account_name) : acc.account_name;
     const opt = document.createElement('option');
     opt.value = acc.id;
     opt.textContent = `${name} · ${acc.currency}`;
-    if(acc.is_default) opt.selected = true;
+    if(acc.is_default || acc.id === prevValue) opt.selected = true;
     sel.appendChild(opt);
   }
 }
@@ -4232,7 +4531,7 @@ async function confirmPayment(){
   }
 
   /* Get current state */
-  const {data:invData} = await sb.from('invoices').select('amount_paid,total,customer_id').eq('id', _paymentInvoiceId).single();
+  const {data:invData} = await sb.from('invoices').select('amount_paid,total,customer_id,invoice_number').eq('id', _paymentInvoiceId).single();
   const alreadyPaid = parseFloat(invData?.amount_paid)||0;
   const total = parseFloat(invData?.total) || _paymentInvoiceTotal;
   const cumulative = alreadyPaid + amount;
@@ -4290,7 +4589,7 @@ async function confirmPayment(){
           transaction_date: date,
           amount: amount,
           balance_after: newBalance,
-          description: (currentLang==='ar' ? 'دفعة فاتورة #' : 'Invoice payment #') + (_paymentInvoiceId.slice(0, 8)),
+          description: (currentLang==='ar' ? 'دفعة فاتورة ' : 'Invoice payment ') + (invData?.invoice_number || ('#' + _paymentInvoiceId.slice(0, 8))),
           reference_number: ref || null,
           source_type: 'invoice',
           source_id: _paymentInvoiceId
