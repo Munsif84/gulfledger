@@ -1366,9 +1366,7 @@ async function generateInvoicePDFBlob(){
   /* Wait a tick for any pending renders (QR, fonts) */
   await new Promise(r => setTimeout(r, 100));
 
-  /* Render from a CLONE, not the live element. The live .inv-doc has
-     min-height:297mm + display:flex + margin-top:auto on QR which causes
-     empty space below content on screen. Capturing that = empty space in PDF. */
+  /* Render from a CLONE without screen-only min-height/flex tricks */
   const clone = docEl.cloneNode(true);
   clone.style.minHeight = '0';
   clone.style.display = 'block';
@@ -1391,7 +1389,44 @@ async function generateInvoicePDFBlob(){
   document.body.appendChild(clone);
 
   let canvas;
+  let breakpoints = []; /* Y-pixel positions in canvas where it's SAFE to slice (between rows) */
+
   try {
+    /* Wait for layout to settle on the clone */
+    await new Promise(r => setTimeout(r, 50));
+
+    /* Round 4k.2: collect Y-positions of safe-to-break boundaries.
+       A breakpoint is the bottom edge of a "block" we can't split:
+       - Header (always whole)
+       - Each <tr> in the items table (each row whole)
+       - Totals area (always whole)
+       - QR area (always whole)
+       - Footer (always whole)
+       Slicing must happen AT or AFTER a breakpoint, never inside a block. */
+    const cloneRect = clone.getBoundingClientRect();
+    const collectBottom = (el) => {
+      if(!el) return;
+      const r = el.getBoundingClientRect();
+      breakpoints.push(r.bottom - cloneRect.top);
+    };
+
+    /* Header — first major block */
+    collectBottom(clone.querySelector('.inv-doc-header'));
+    /* Parties cards block (treat as one unit if possible) */
+    collectBottom(clone.querySelector('.inv-parties'));
+    /* Each row of the items table */
+    clone.querySelectorAll('.inv-items-tbl tbody tr').forEach(tr => collectBottom(tr));
+    /* Totals area */
+    collectBottom(clone.querySelector('.inv-totals-area'));
+    /* QR area */
+    collectBottom(clone.querySelector('.inv-qr-area'));
+    /* Footer */
+    collectBottom(clone.querySelector('.inv-doc-footer'));
+
+    /* Sort & dedupe breakpoints */
+    breakpoints = [...new Set(breakpoints.map(v => Math.round(v)))].sort((a,b) => a-b);
+
+    /* Snapshot the clone */
     canvas = await html2canvas(clone, {
       scale: 2,
       useCORS: true,
@@ -1401,6 +1436,10 @@ async function generateInvoicePDFBlob(){
       windowWidth: clone.offsetWidth,
       windowHeight: clone.offsetHeight
     });
+
+    /* Convert breakpoints from CSS pixels to canvas pixels (we used scale:2) */
+    const cssToCanvasScale = canvas.height / clone.offsetHeight;
+    breakpoints = breakpoints.map(y => Math.round(y * cssToCanvasScale));
   } finally {
     document.body.removeChild(clone);
   }
@@ -1415,30 +1454,57 @@ async function generateInvoicePDFBlob(){
   });
   const pdfWidthMM = 210;
   const pdfHeightMM = 297;
-  const marginMM = 0;
-  const usableWidthMM = pdfWidthMM - marginMM * 2;
-  const usableHeightMM = pdfHeightMM - marginMM * 2;
   const pageNumberAreaMM = 8;
-  const contentHeightMM = usableHeightMM - pageNumberAreaMM;
+  const usableHeightMM = pdfHeightMM - pageNumberAreaMM;
+  const pxPerMM = canvas.width / pdfWidthMM;
+  const pageHeightPx = Math.floor(usableHeightMM * pxPerMM);
 
-  const pxPerMM = canvas.width / usableWidthMM;
-  const pageHeightPx = Math.floor(contentHeightMM * pxPerMM);
-  const totalPages = Math.ceil(canvas.height / pageHeightPx);
+  /* Round 4k.2: smart paginator — walk through breakpoints choosing the
+     LAST breakpoint that fits within the current page's height.
+     This guarantees we never slice through a row. */
+  const pages = []; /* array of {startY, endY} canvas pixel ranges */
+  let pageStart = 0;
+  let safety = 0; /* infinite-loop guard */
+  while(pageStart < canvas.height && safety++ < 500){
+    const pageBudget = pageStart + pageHeightPx;
+    /* Find the largest breakpoint that's > pageStart and <= pageBudget */
+    let bestBreak = -1;
+    for(const bp of breakpoints){
+      if(bp > pageStart && bp <= pageBudget) bestBreak = bp;
+      else if(bp > pageBudget) break;
+    }
+    let pageEnd;
+    if(bestBreak > pageStart){
+      pageEnd = bestBreak;
+    } else {
+      /* No breakpoint fits in budget — happens when a single block (e.g. very tall
+         header) exceeds page height. Fall back to hard cut at pageBudget. */
+      pageEnd = Math.min(pageBudget, canvas.height);
+    }
+    /* If pageEnd didn't advance (degenerate case), force advance to avoid infinite loop */
+    if(pageEnd <= pageStart){
+      pageEnd = Math.min(pageStart + pageHeightPx, canvas.height);
+    }
+    pages.push({startY: pageStart, endY: pageEnd});
+    pageStart = pageEnd;
+  }
+
+  const totalPages = pages.length;
 
   for(let i = 0; i < totalPages; i++){
     if(i > 0) pdf.addPage();
-    const sliceY = i * pageHeightPx;
-    const sliceHeight = Math.min(pageHeightPx, canvas.height - sliceY);
+    const {startY, endY} = pages[i];
+    const sliceHeight = endY - startY;
 
     const sliceCanvas = document.createElement('canvas');
     sliceCanvas.width = canvas.width;
     sliceCanvas.height = sliceHeight;
     const ctx = sliceCanvas.getContext('2d');
-    ctx.drawImage(canvas, 0, sliceY, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
+    ctx.drawImage(canvas, 0, startY, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
 
     const sliceImg = sliceCanvas.toDataURL('image/jpeg', 0.92);
     const sliceHeightMM = sliceHeight / pxPerMM;
-    pdf.addImage(sliceImg, 'JPEG', marginMM, marginMM, usableWidthMM, sliceHeightMM, undefined, 'FAST');
+    pdf.addImage(sliceImg, 'JPEG', 0, 0, pdfWidthMM, sliceHeightMM, undefined, 'FAST');
 
     pdf.setFontSize(9);
     pdf.setTextColor(150);
