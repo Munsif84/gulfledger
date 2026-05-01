@@ -1,10 +1,4 @@
 <!DOCTYPE html>
-<!--
-  GulfLedger — vendor-detail.html
-  Round 4l.3: minimal vendor detail page.
-  Shows: vendor info + 4 stat cards + tabbed list (expenses / payments / POs).
-  URL param: ?id=<supplier_uuid>
--->
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
@@ -15,10 +9,7 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-:root{
-  --bg:#F5F7F5;--ink:#0F1F18;--navy:#0F1F18;--brand:#0E5C3F;--blue:#1D7A4D;--green:#1D9E75;
-  --tint:#E6F2EC;--light:#C4DFD0;--muted:#6B7770;--border:#DCE5DD;--red:#B8492A;--amber:#C68B0E;
-}
+:root{--bg:#F5F7F5;--ink:#0F1F18;--navy:#0F1F18;--brand:#0E5C3F;--blue:#1D7A4D;--green:#1D9E75;--tint:#E6F2EC;--light:#C4DFD0;--muted:#6B7770;--border:#DCE5DD;--red:#B8492A;--amber:#C68B0E;}
 *{box-sizing:border-box;margin:0;padding:0;}
 body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;font-size:14px;line-height:1.5;}
 .mono{font-family:'DM Mono',monospace;}
@@ -65,17 +56,13 @@ a:hover{text-decoration:underline;}
 </style>
 </head>
 <body>
-
 <div class="topnav">
   <div class="topnav-brand">GulfLedger</div>
-  <a href="finance.html?tab=vendors" class="topnav-back">← العودة للموردين · Back to vendors</a>
+  <a href="finance.html?tab=vendors" class="topnav-back">← العودة · Back</a>
 </div>
-
 <div id="loading-state" class="loading">جارٍ التحميل... · Loading...</div>
 <div id="error-state" class="error" style="display:none;"></div>
-
 <div class="page" id="page" style="display:none;">
-
   <div class="page-header">
     <div>
       <div class="cust-title" id="vend-name-ar">—</div>
@@ -83,238 +70,143 @@ a:hover{text-decoration:underline;}
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
       <span id="vend-type-badge"></span>
-      <a href="#" id="new-expense-btn" style="background:var(--blue);color:#fff;padding:8px 16px;border-radius:8px;font-weight:700;font-size:13px;">
-        + مصروف جديد · New Expense
-      </a>
+      <a href="#" id="new-expense-btn" style="background:var(--blue);color:#fff;padding:8px 16px;border-radius:8px;font-weight:700;font-size:13px;">+ مصروف جديد · New Expense</a>
     </div>
   </div>
-
   <div class="stats">
-    <div class="stat">
-      <div class="stat-label">عدد المصاريف · Expense Count</div>
-      <div class="stat-value" id="stat-count">0</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">إجمالي المشتريات · Total Purchases</div>
-      <div class="stat-value" id="stat-total">SAR 0</div>
-    </div>
-    <div class="stat red">
-      <div class="stat-label">المتبقي للدفع · Outstanding</div>
-      <div class="stat-value" id="stat-outstanding">SAR 0</div>
-    </div>
-    <div class="stat">
-      <div class="stat-label">آخر معاملة · Last Activity</div>
-      <div class="stat-value" id="stat-last-date" style="font-size:14px;">—</div>
-    </div>
+    <div class="stat"><div class="stat-label">عدد المصاريف · Expenses</div><div class="stat-value" id="stat-count">0</div></div>
+    <div class="stat"><div class="stat-label">إجمالي المشتريات · Total</div><div class="stat-value" id="stat-total">SAR 0</div></div>
+    <div class="stat red"><div class="stat-label">المتبقي · Outstanding</div><div class="stat-value" id="stat-outstanding">SAR 0</div></div>
+    <div class="stat"><div class="stat-label">آخر معاملة · Last</div><div class="stat-value" id="stat-last-date" style="font-size:14px;">—</div></div>
   </div>
-
-  <div class="info-card">
-    <div class="info-grid" id="info-grid"></div>
-  </div>
-
+  <div class="info-card"><div class="info-grid" id="info-grid"></div></div>
   <div class="tabs">
     <button class="tab active" id="tab-expenses" onclick="switchTab('expenses')">المصاريف · Expenses</button>
     <button class="tab" id="tab-pos" onclick="switchTab('pos')">أوامر الشراء · POs</button>
   </div>
-
-  <div id="pane-expenses">
-    <div id="expenses-list"></div>
-  </div>
-  <div id="pane-pos" style="display:none;">
-    <div id="pos-list"></div>
-  </div>
-
+  <div id="pane-expenses"><div id="expenses-list"></div></div>
+  <div id="pane-pos" style="display:none;"><div id="pos-list"></div></div>
 </div>
-
 <script>
-const SUPABASE_URL = 'https://eepqhnmzghsuoidvhmgd.supabase.co';
-const SUPABASE_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVlcHFobm16Z2hzdW9pZHZobWdkIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzU3MTczMzgsImV4cCI6MjA1MTI5MzMzOH0.Mx9dSQOP-6Ur45h-h1-tVUMQGHYwLp2nbPK0LMwRNgI';
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_ANON_KEY);
-
-let currentVendor = null;
-let allExpenses = [];
-let allPOs = [];
-
-function fmt(n){ return Number(n||0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}); }
-function escHTML(s){ return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m])); }
+const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+let currentUser=null, currentBiz=null, currentVendor=null, allExpenses=[], allPOs=[];
+function fmt(n){return Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function escHTML(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
 
 async function init(){
-  const params = new URLSearchParams(window.location.search);
-  const vendorId = params.get('id');
-  if(!vendorId){
-    showError('لا يوجد رقم مورد · No vendor ID');
-    return;
-  }
-  const {data:{user}} = await sb.auth.getUser();
-  if(!user){ window.location.href = 'index.html'; return; }
-
+  const vendorId = new URLSearchParams(window.location.search).get('id');
+  if(!vendorId){ showError('لا يوجد رقم مورد · No vendor ID in URL'); return; }
+  const {data:{session}} = await sb.auth.getSession();
+  if(!session){ window.location.href='login.html'; return; }
+  currentUser = session.user;
+  const {data: membership} = await sb.from('business_users').select('business_id, role').eq('user_id', currentUser.id).eq('status','active').limit(5);
+  if(!membership || membership.length === 0){ showError('لا يوجد منشأة نشطة · No active business'); return; }
+  const chosen = membership.find(m=>m.role==='owner') || membership[0];
+  const {data: biz} = await sb.from('businesses').select('*').eq('id', chosen.business_id).maybeSingle();
+  if(!biz){ showError('فشل تحميل المنشأة · Failed to load business'); return; }
+  currentBiz = biz;
   try {
-    const {data: v, error: vErr} = await sb.from('suppliers').select('*').eq('id', vendorId).single();
-    if(vErr || !v){
-      showError('المورد غير موجود · Vendor not found');
-      return;
-    }
+    const {data: v, error: vErr} = await sb.from('suppliers').select('*').eq('id', vendorId).maybeSingle();
+    if(vErr){ console.error(vErr); showError('فشل التحميل · ' + vErr.message); return; }
+    if(!v){ showError('المورد غير موجود · Vendor not found'); return; }
     currentVendor = v;
-
-    /* Load expenses */
     const {data: exps} = await sb.from('expenses')
       .select('id, expense_number, expense_date, due_date, total, amount_paid, status, payment_status, category')
-      .eq('supplier_id', vendorId)
-      .order('expense_date', {ascending: false});
+      .eq('supplier_id', vendorId).order('expense_date',{ascending:false});
     allExpenses = exps || [];
-
-    /* Load POs (silent fail if table doesn't exist) */
     try {
       const {data: pos} = await sb.from('purchase_orders')
-        .select('id, po_number, po_date, total, status')
-        .eq('supplier_id', vendorId)
-        .order('po_date', {ascending: false});
+        .select('id, po_number, po_date, total, status').eq('supplier_id', vendorId).order('po_date',{ascending:false});
       allPOs = pos || [];
     } catch(e){ allPOs = []; }
-
     renderAll();
-    document.getElementById('loading-state').style.display = 'none';
-    document.getElementById('page').style.display = '';
-  } catch(e){
-    console.error('[GL] vendor-detail init', e);
-    showError('فشل التحميل · Load failed: ' + e.message);
-  }
+    document.getElementById('loading-state').style.display='none';
+    document.getElementById('page').style.display='';
+  } catch(e){ console.error(e); showError('فشل التحميل · ' + (e.message||'')); }
 }
-
 function showError(msg){
-  document.getElementById('loading-state').style.display = 'none';
+  document.getElementById('loading-state').style.display='none';
   const err = document.getElementById('error-state');
-  err.textContent = msg;
-  err.style.display = '';
+  err.textContent = msg; err.style.display='';
 }
-
 function renderAll(){
   const v = currentVendor;
-  document.getElementById('vend-name-ar').textContent = v.name_ar || v.name_en || '—';
-  document.getElementById('vend-name-en').textContent = v.name_en || '';
-
+  const nameAr = v.name_ar || v.name || '';
+  const nameEn = v.name_en || '';
+  document.getElementById('vend-name-ar').textContent = nameAr || nameEn || '—';
+  document.getElementById('vend-name-en').textContent = (nameEn && nameEn !== nameAr) ? nameEn : '';
   const typeBadge = document.getElementById('vend-type-badge');
   const usage = v.usage_type || 'expense';
-  let badgeClass, label;
-  if(usage === 'purchase'){ badgeClass = 'purchase'; label = 'مشتريات · Purchase'; }
-  else if(usage === 'both'){ badgeClass = 'both'; label = 'الاثنان · Both'; }
-  else { badgeClass = 'expense'; label = 'مصاريف · Expense'; }
-  typeBadge.innerHTML = `<span class="badge ${badgeClass}">${label}</span>`;
-
+  let cls, label;
+  if(usage==='purchase'){ cls='purchase'; label='مشتريات · Purchase'; }
+  else if(usage==='both'){ cls='both'; label='الاثنان · Both'; }
+  else { cls='expense'; label='مصاريف · Expense'; }
+  typeBadge.innerHTML = `<span class="badge ${cls}">${label}</span>`;
   document.getElementById('new-expense-btn').href = `finance.html?tab=expenses&action=new_expense&vendor=${v.id}`;
-
-  /* Stats */
-  const validExps = allExpenses.filter(e => e.status !== 'voided');
+  const validExps = allExpenses.filter(e=>e.status!=='voided');
   document.getElementById('stat-count').textContent = validExps.length;
-  document.getElementById('stat-total').textContent = 'SAR ' + fmt(v.total_purchases || 0);
-  document.getElementById('stat-outstanding').textContent = 'SAR ' + fmt(v.total_outstanding || 0);
-  const lastExp = validExps[0];
-  document.getElementById('stat-last-date').textContent = lastExp ? (lastExp.expense_date || '—') : '—';
-
-  /* Info grid */
+  document.getElementById('stat-total').textContent = 'SAR ' + fmt(v.total_purchases||0);
+  document.getElementById('stat-outstanding').textContent = 'SAR ' + fmt(v.total_outstanding||0);
+  document.getElementById('stat-last-date').textContent = validExps[0]?.expense_date || '—';
   const info = document.getElementById('info-grid');
   const items = [];
   if(v.cr_number) items.push(['CR · سجل تجاري', v.cr_number, true]);
-  if(v.tax_number || v.trn) items.push(['VAT · الرقم الضريبي', v.tax_number || v.trn, true]);
-  if(v.phone) items.push(['الهاتف · Phone', v.phone, true]);
+  if(v.tax_number || v.trn) items.push(['VAT · الرقم الضريبي', v.tax_number||v.trn, true]);
+  if(v.phone || v.mobile) items.push(['الهاتف · Phone', v.phone||v.mobile, true]);
   if(v.email) items.push(['البريد · Email', v.email, false]);
   if(v.contact_person) items.push(['جهة الاتصال · Contact', v.contact_person, false]);
-  if(v.payment_terms_days != null) items.push(['شروط الدفع · Payment terms', `${v.payment_terms_days} يوم · days`, true]);
+  if(v.payment_terms_days != null) items.push(['شروط الدفع · Terms', `${v.payment_terms_days} يوم · days`, true]);
   if(v.bank_name) items.push(['البنك · Bank', v.bank_name, false]);
   if(v.bank_iban) items.push(['IBAN', v.bank_iban, true]);
   if(v.address) items.push(['العنوان · Address', v.address, false]);
   if(v.notes) items.push(['ملاحظات · Notes', v.notes, false]);
-  if(items.length === 0){
-    info.innerHTML = `<div style="color:var(--muted);font-size:13px;">لا توجد بيانات إضافية · No additional info</div>`;
-  } else {
-    info.innerHTML = items.map(([label, value, mono]) =>
-      `<div class="info-item">
-        <div class="info-label">${escHTML(label)}</div>
-        <div class="info-value ${mono ? 'mono' : ''}">${escHTML(value)}</div>
-      </div>`
-    ).join('');
-  }
-
+  info.innerHTML = items.length === 0
+    ? '<div style="color:var(--muted);font-size:13px;">لا توجد بيانات إضافية · No additional info</div>'
+    : items.map(([l,vv,m])=>`<div><div class="info-label">${escHTML(l)}</div><div class="info-value ${m?'mono':''}">${escHTML(vv)}</div></div>`).join('');
   renderExpensesList();
   renderPOsList();
 }
-
 function renderExpensesList(){
   const wrap = document.getElementById('expenses-list');
-  if(allExpenses.length === 0){
-    wrap.innerHTML = `<div class="empty">لا توجد مصاريف · No expenses yet</div>`;
-    return;
-  }
-  wrap.innerHTML = `
-    <table class="tbl">
-      <thead>
-        <tr>
-          <th>الرقم · Number</th>
-          <th>التاريخ · Date</th>
-          <th>الفئة · Category</th>
-          <th class="num">الإجمالي · Total</th>
-          <th class="num">المدفوع · Paid</th>
-          <th>الحالة · Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${allExpenses.map(e => {
-          const total = parseFloat(e.total) || 0;
-          const paid = parseFloat(e.amount_paid) || 0;
-          let statusBadge;
-          if(e.status === 'voided') statusBadge = '<span class="status-voided">ملغية · Voided</span>';
-          else if(e.payment_status === 'paid') statusBadge = '<span class="status-paid">مدفوعة · Paid</span>';
-          else if(e.payment_status === 'partial') statusBadge = '<span class="status-partial">جزئية · Partial</span>';
-          else statusBadge = '<span class="status-unpaid">غير مدفوعة · Unpaid</span>';
-          return `<tr onclick="window.location.href='finance.html?tab=expenses&expense=${e.id}'">
-            <td class="mono" style="font-weight:700;">${escHTML(e.expense_number || '—')}</td>
-            <td class="mono">${escHTML(e.expense_date || '—')}</td>
-            <td>${escHTML(e.category || '—')}</td>
-            <td class="num">SAR ${fmt(total)}</td>
-            <td class="num">SAR ${fmt(paid)}</td>
-            <td>${statusBadge}</td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-    </table>
-  `;
+  if(allExpenses.length===0){ wrap.innerHTML='<div class="empty">لا توجد مصاريف · No expenses yet</div>'; return; }
+  wrap.innerHTML = `<table class="tbl"><thead><tr>
+    <th>الرقم · Number</th><th>التاريخ · Date</th><th>الفئة · Category</th>
+    <th class="num">الإجمالي · Total</th><th class="num">المدفوع · Paid</th><th>الحالة · Status</th>
+  </tr></thead><tbody>${allExpenses.map(e=>{
+    const total=parseFloat(e.total)||0, paid=parseFloat(e.amount_paid)||0;
+    let badge;
+    if(e.status==='voided') badge='<span class="status-voided">ملغية · Voided</span>';
+    else if(e.payment_status==='paid') badge='<span class="status-paid">مدفوعة · Paid</span>';
+    else if(e.payment_status==='partial') badge='<span class="status-partial">جزئية · Partial</span>';
+    else badge='<span class="status-unpaid">غير مدفوعة · Unpaid</span>';
+    return `<tr onclick="window.location.href='finance.html?tab=expenses&expense=${e.id}'">
+      <td class="mono" style="font-weight:700;">${escHTML(e.expense_number||'—')}</td>
+      <td class="mono">${escHTML(e.expense_date||'—')}</td>
+      <td>${escHTML(e.category||'—')}</td>
+      <td class="num">SAR ${fmt(total)}</td>
+      <td class="num">SAR ${fmt(paid)}</td>
+      <td>${badge}</td></tr>`;
+  }).join('')}</tbody></table>`;
 }
-
 function renderPOsList(){
   const wrap = document.getElementById('pos-list');
-  if(allPOs.length === 0){
-    wrap.innerHTML = `<div class="empty">لا توجد أوامر شراء · No purchase orders</div>`;
-    return;
-  }
-  wrap.innerHTML = `
-    <table class="tbl">
-      <thead>
-        <tr>
-          <th>الرقم · Number</th>
-          <th>التاريخ · Date</th>
-          <th class="num">الإجمالي · Total</th>
-          <th>الحالة · Status</th>
-        </tr>
-      </thead>
-      <tbody>
-        ${allPOs.map(po => `<tr onclick="window.location.href='purchasing.html?tab=pos&po=${po.id}'">
-            <td class="mono" style="font-weight:700;">${escHTML(po.po_number || '—')}</td>
-            <td class="mono">${escHTML(po.po_date || '—')}</td>
-            <td class="num">SAR ${fmt(parseFloat(po.total) || 0)}</td>
-            <td>${escHTML(po.status || '—')}</td>
-          </tr>`).join('')}
-      </tbody>
-    </table>
-  `;
+  if(allPOs.length===0){ wrap.innerHTML='<div class="empty">لا توجد أوامر شراء · No purchase orders</div>'; return; }
+  wrap.innerHTML = `<table class="tbl"><thead><tr>
+    <th>الرقم · Number</th><th>التاريخ · Date</th><th class="num">الإجمالي · Total</th><th>الحالة · Status</th>
+  </tr></thead><tbody>${allPOs.map(po=>`<tr onclick="window.location.href='purchasing.html?tab=pos&po=${po.id}'">
+    <td class="mono" style="font-weight:700;">${escHTML(po.po_number||'—')}</td>
+    <td class="mono">${escHTML(po.po_date||'—')}</td>
+    <td class="num">SAR ${fmt(parseFloat(po.total)||0)}</td>
+    <td>${escHTML(po.status||'—')}</td></tr>`).join('')}</tbody></table>`;
 }
-
 function switchTab(name){
-  ['expenses','pos'].forEach(t => {
-    document.getElementById('tab-'+t).classList.toggle('active', t === name);
-    document.getElementById('pane-'+t).style.display = t === name ? '' : 'none';
+  ['expenses','pos'].forEach(t=>{
+    document.getElementById('tab-'+t).classList.toggle('active', t===name);
+    document.getElementById('pane-'+t).style.display = t===name?'':'none';
   });
 }
-
 init();
 </script>
 </body>
