@@ -1316,6 +1316,18 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         <input type="hidden" id="pay-method" value="cash">
       </div>
 
+      <!-- Round 4h.2: bank account picker for auto-withdrawal -->
+      <div class="field" style="margin-top:10px;">
+        <div class="field-label">
+          <span data-ar="سحب من حساب" data-en="Withdraw from account">سحب من حساب</span>
+          <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
+        </div>
+        <select id="pay-bank-account-exp">
+          <option value="" data-ar="-- لا تنشئ معاملة بنكية --" data-en="-- skip bank transaction --">-- لا تنشئ معاملة بنكية --</option>
+        </select>
+        <div class="field-hint" style="font-size:11px;color:var(--muted);margin-top:4px;" data-ar="سيُنشئ معاملة سحب تلقائياً في الحساب المختار" data-en="Will auto-create a withdrawal in the selected account">سيُنشئ معاملة سحب تلقائياً في الحساب المختار</div>
+      </div>
+
       <div class="field" style="margin-top:10px;">
         <div class="field-label">
           <span data-ar="ملاحظة" data-en="Note">ملاحظة</span>
@@ -5335,9 +5347,51 @@ function openPayModal(expenseId){
   setVal('pay-date', todayISO());
   setVal('pay-note', '');
   setPayMethod('cash');
+
+  /* Round 4h.2: populate bank account picker. Reuse already-loaded allBankAccounts
+     when available, otherwise fetch fresh. */
+  populateExpensePayBankAccounts();
+
   document.getElementById('pay-modal').classList.add('open');
   updatePayPreview();
   setTimeout(() => document.getElementById('pay-amount')?.focus(), 100);
+}
+
+async function populateExpensePayBankAccounts(){
+  const sel = document.getElementById('pay-bank-account-exp');
+  if(!sel || !currentBiz?.id) return;
+  const ar = currentLang === 'ar';
+  /* Always rebuild — accounts may have changed since last open */
+  const skipOption = sel.querySelector('option[value=""]');
+  sel.innerHTML = '';
+  if(skipOption) sel.appendChild(skipOption);
+
+  let accounts = allBankAccounts;
+  if(!accounts || accounts.length === 0){
+    /* Banks tab not visited yet — fetch directly */
+    const {data, error} = await sb.from('bank_accounts')
+      .select('id, account_name, account_name_ar, currency, is_default, is_active')
+      .eq('business_id', currentBiz.id)
+      .eq('is_active', true)
+      .order('is_default', {ascending: false})
+      .order('account_name');
+    if(error){
+      if(!(error.message||'').includes('does not exist')) console.warn('[GL] bank accounts load:', error);
+      return;
+    }
+    accounts = data || [];
+  } else {
+    accounts = accounts.filter(a => a.is_active);
+  }
+
+  for(const acc of accounts){
+    const name = ar ? (acc.account_name_ar || acc.account_name) : acc.account_name;
+    const opt = document.createElement('option');
+    opt.value = acc.id;
+    opt.textContent = `${name} · ${acc.currency}`;
+    if(acc.is_default) opt.selected = true;
+    sel.appendChild(opt);
+  }
 }
 
 function closePayModal(){
@@ -5432,6 +5486,43 @@ async function confirmPayment(){
 
   /* 3. Post payment journal entry: DR Accounts Payable / CR Cash or Bank */
   await postPaymentJournal(exp, newPayAmount, payMethod, payDate, payNote);
+
+  /* Round 4h.2: auto-create bank withdrawal if user picked an account.
+     Tied to expense via source_type='expense', source_id=expense.id (idempotent
+     for backfill: backfill checks for existing source_type+source_id). */
+  const bankAccountId = document.getElementById('pay-bank-account-exp')?.value;
+  if(bankAccountId){
+    try {
+      const {data: acc} = await sb.from('bank_accounts').select('current_balance, currency').eq('id', bankAccountId).single();
+      if(acc){
+        const newBalance = (parseFloat(acc.current_balance)||0) - newPayAmount;
+        const {error: txErr} = await sb.from('bank_transactions').insert({
+          business_id: currentBiz.id,
+          user_id: currentUser.id,
+          account_id: bankAccountId,
+          transaction_type: 'withdrawal',
+          transaction_date: payDate,
+          amount: newPayAmount,
+          balance_after: newBalance,
+          description: (currentLang==='ar' ? 'دفع مصروف ' : 'Expense payment ') + (exp.expense_number || ''),
+          counterparty: exp.vendor_name_snapshot || null,
+          notes: payNote || null,
+          source_type: 'expense',
+          source_id: currentPayExpenseId
+        });
+        if(!txErr){
+          await sb.from('bank_accounts').update({
+            current_balance: newBalance,
+            updated_at: new Date().toISOString()
+          }).eq('id', bankAccountId);
+        } else {
+          console.warn('[GL] auto-withdrawal failed (payment still recorded):', txErr);
+        }
+      }
+    } catch(e){
+      console.warn('[GL] bank withdrawal skipped:', e.message);
+    }
+  }
 
   /* 4. Audit log */
   await writeAuditLog({

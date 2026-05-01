@@ -1797,6 +1797,19 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
           <input type="text" id="pay-ref" placeholder="REF-001">
         </div>
       </div>
+      <!-- Round 4h.2: bank account picker — auto-creates a deposit transaction -->
+      <div class="field-row" style="grid-template-columns:1fr;">
+        <div class="field">
+          <label class="field-label">
+            <span data-ar="إيداع في حساب · Deposit to account" data-en="Deposit to · إيداع في حساب">إيداع في حساب · Deposit to account</span>
+            <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
+          </label>
+          <select id="pay-bank-account">
+            <option value="" data-ar="-- لا تنشئ معاملة بنكية --" data-en="-- skip bank transaction --">-- لا تنشئ معاملة بنكية --</option>
+          </select>
+          <div class="field-hint" style="font-size:11px;color:var(--muted);margin-top:4px;" data-ar="سيُنشئ معاملة إيداع تلقائياً في الحساب المختار" data-en="Will auto-create a deposit in the selected account">سيُنشئ معاملة إيداع تلقائياً في الحساب المختار</div>
+        </div>
+      </div>
     </div>
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closePaymentModal()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
@@ -4161,7 +4174,40 @@ function openPaymentModal(invoiceId, num, total, buyerName, alreadyPaid){
   setVal('pay-method','cash');
   setVal('pay-ref','');
 
+  /* Round 4h.2: populate bank account picker (auto-deposit on save).
+     Loads on demand — keeps openPaymentModal sync but populates async. */
+  populatePaymentBankAccounts();
+
   document.getElementById('payment-modal').classList.add('show');
+}
+
+async function populatePaymentBankAccounts(){
+  const sel = document.getElementById('pay-bank-account');
+  if(!sel || !currentBiz?.id) return;
+  const ar = currentLang === 'ar';
+  /* Skip if already populated this session */
+  if(sel.options.length > 1) return;
+  const {data, error} = await sb.from('bank_accounts')
+    .select('id, account_name, account_name_ar, currency, is_default')
+    .eq('business_id', currentBiz.id)
+    .eq('is_active', true)
+    .order('is_default', {ascending: false})
+    .order('account_name');
+  if(error){
+    /* Bank accounts table may not exist yet on older deployments — fail silent */
+    if(!(error.message||'').includes('does not exist')) console.warn('[GL] bank accounts load:', error);
+    return;
+  }
+  const accounts = data || [];
+  const skipOption = sel.querySelector('option[value=""]');
+  for(const acc of accounts){
+    const name = ar ? (acc.account_name_ar || acc.account_name) : acc.account_name;
+    const opt = document.createElement('option');
+    opt.value = acc.id;
+    opt.textContent = `${name} · ${acc.currency}`;
+    if(acc.is_default) opt.selected = true;
+    sel.appendChild(opt);
+  }
 }
 
 function closePaymentModal(){
@@ -4226,6 +4272,42 @@ async function confirmPayment(){
       ]);
     }
   } catch(e){console.warn('Journal skipped:', e.message);}
+
+  /* Round 4h.2: auto-create bank deposit transaction if user picked an account.
+     Tied to invoice via source_type='invoice', source_id=invoice.id (idempotent —
+     backfill checks for existing source_type+source_id before creating). */
+  const bankAccountId = v('pay-bank-account');
+  if(bankAccountId){
+    try {
+      const {data: acc} = await sb.from('bank_accounts').select('current_balance, currency').eq('id', bankAccountId).single();
+      if(acc){
+        const newBalance = (parseFloat(acc.current_balance)||0) + amount;
+        const {error: txErr} = await sb.from('bank_transactions').insert({
+          business_id: currentBiz?.id,
+          user_id: currentUser.id,
+          account_id: bankAccountId,
+          transaction_type: 'deposit',
+          transaction_date: date,
+          amount: amount,
+          balance_after: newBalance,
+          description: (currentLang==='ar' ? 'دفعة فاتورة #' : 'Invoice payment #') + (_paymentInvoiceId.slice(0, 8)),
+          reference_number: ref || null,
+          source_type: 'invoice',
+          source_id: _paymentInvoiceId
+        });
+        if(!txErr){
+          await sb.from('bank_accounts').update({
+            current_balance: newBalance,
+            updated_at: new Date().toISOString()
+          }).eq('id', bankAccountId);
+        } else {
+          console.warn('[GL] auto-deposit failed (payment still recorded):', txErr);
+        }
+      }
+    } catch(e){
+      console.warn('[GL] bank deposit skipped:', e.message);
+    }
+  }
 
   /* Update customer aggregates */
   if(invData?.customer_id){
