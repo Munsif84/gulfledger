@@ -2392,17 +2392,168 @@ async function openPaymentForInvoiceId(invoiceId){
   openPaymentModal(inv.id, inv.invoice_number, inv.total, inv.buyer_name, inv.amount_paid || 0);
 }
 
-/* Round 4h.2.1: reverse invoice by ID — confirms then triggers existing reversal flow */
+/* Round 4l.4: reverse invoice → create credit note (CN-2026-NNN).
+   ZATCA Article 53: credit note must reference original invoice, sequential
+   numbering, same VAT treatment. Scope v1: full-invoice reversal only. */
 async function reverseInvoiceById(invoiceId){
   history.replaceState(null, '', 'invoices.html');
-  /* Defer to existing reversal handler if present, else fall back to a notify */
-  if(typeof openReverseModal === 'function'){
-    openReverseModal(invoiceId);
-  } else if(typeof reverseInvoice === 'function'){
-    reverseInvoice(invoiceId);
-  } else {
-    notify(currentLang==='ar'?'افتح الفاتورة لإلغائها':'Open the invoice to reverse it','info');
+  const ar = currentLang === 'ar';
+
+  /* Load the original invoice and its items */
+  const {data: inv, error: invErr} = await sb.from('invoices')
+    .select('*')
+    .eq('id', invoiceId)
+    .single();
+  if(invErr || !inv){
+    notify(ar?'الفاتورة غير موجودة':'Invoice not found','r');
+    return;
   }
+  if(inv.status === 'voided'){
+    notify(ar?'الفاتورة ملغية بالفعل':'Invoice already voided','info');
+    return;
+  }
+  if(inv.credited_at){
+    notify(ar?'تم إصدار إشعار دائن لهذه الفاتورة بالفعل':'A credit note already exists for this invoice','info');
+    return;
+  }
+
+  /* Confirmation with ZATCA-aware language */
+  const confirmMsg = ar
+    ? `سيتم إصدار إشعار دائن (Credit Note) للفاتورة ${inv.invoice_number} بالكامل (SAR ${fmt(inv.total)}).\n\nهذا إجراء محاسبي رسمي ولا يمكن التراجع عنه.\n\nملاحظة: راجع مع محاسبك القانوني قبل المتابعة.\n\nمتابعة؟`
+    : `A Credit Note will be issued for the full amount of invoice ${inv.invoice_number} (SAR ${fmt(inv.total)}).\n\nThis is an official accounting entry and cannot be undone.\n\nNote: Review with your CPA before proceeding.\n\nContinue?`;
+  if(!confirm(confirmMsg)) return;
+
+  /* Reason input */
+  const reasonAr = prompt(ar?'سبب الإلغاء (اختياري):':'Reason for credit (optional):', '');
+
+  try {
+    /* Get items for the original invoice */
+    const {data: items} = await sb.from('invoice_items')
+      .select('*')
+      .eq('invoice_id', invoiceId)
+      .order('display_order', {ascending: true});
+
+    /* Generate next CN number for this business */
+    const cnNumber = await generateNextCreditNoteNumber();
+
+    /* Insert credit note header */
+    const {data: cn, error: cnErr} = await sb.from('credit_notes').insert({
+      business_id: currentBiz.id,
+      user_id: currentUser.id,
+      credit_note_number: cnNumber,
+      issue_date: todayISO(),
+      reason: reasonAr || (ar?'إلغاء الفاتورة':'Invoice reversal'),
+      original_invoice_id: invoiceId,
+      original_invoice_number: inv.invoice_number,
+      customer_id: inv.customer_id,
+      customer_name_ar: inv.buyer_name_ar || inv.buyer_name,
+      customer_name_en: inv.buyer_name_en,
+      customer_trn: inv.buyer_trn,
+      subtotal: inv.subtotal,
+      discount_amount: inv.discount_amount || 0,
+      vat_amount: inv.vat_amount,
+      total: inv.total,
+      status: 'issued'
+    }).select().single();
+
+    if(cnErr){
+      if((cnErr.message||'').includes('does not exist') || cnErr.code === '42P01'){
+        notify(ar?'⚠ يجب تشغيل ميغريشن إشعارات الدائن أولاً':'⚠ Run credit_notes_migration.sql first','r');
+        console.error('credit_notes table missing — run credit_notes_migration.sql');
+        return;
+      }
+      throw cnErr;
+    }
+
+    /* Insert items snapshot */
+    if(items && items.length > 0){
+      const cnItems = items.map((it, i) => ({
+        credit_note_id: cn.id,
+        description: it.description,
+        description_ar: it.description_ar,
+        description_en: it.description_en,
+        quantity: it.quantity,
+        unit_price: it.unit_price,
+        discount_pct: it.discount_pct || 0,
+        subtotal: it.subtotal,
+        vat_amount: it.vat_amount,
+        total: it.total,
+        display_order: it.display_order != null ? it.display_order : i
+      }));
+      await sb.from('credit_note_items').insert(cnItems);
+    }
+
+    /* Mark invoice as credited (link back) */
+    await sb.from('invoices').update({
+      credited_at: new Date().toISOString(),
+      credit_note_id: cn.id,
+      status: 'voided',
+      updated_at: new Date().toISOString()
+    }).eq('id', invoiceId);
+
+    /* Reverse customer aggregates if applicable */
+    if(inv.customer_id){
+      const {data:cust} = await sb.from('customers').select('total_invoiced,total_outstanding').eq('id', inv.customer_id).single();
+      if(cust){
+        await sb.from('customers').update({
+          total_invoiced: Math.max(0, (parseFloat(cust.total_invoiced)||0) - (parseFloat(inv.total)||0)),
+          total_outstanding: Math.max(0, (parseFloat(cust.total_outstanding)||0) - ((parseFloat(inv.total)||0) - (parseFloat(inv.amount_paid)||0))),
+          updated_at: new Date().toISOString()
+        }).eq('id', inv.customer_id);
+      }
+    }
+
+    /* Post reversal journal entry: DR Sales / CR AR (mirror of original) */
+    try {
+      const {data: entry} = await sb.from('journal_entries').insert({
+        user_id: currentUser.id, business_id: currentBiz.id,
+        entry_date: todayISO(),
+        reference: cnNumber,
+        description: ar?'إشعار دائن — إلغاء فاتورة':'Credit note — invoice reversal',
+        source: 'credit_note',
+        status: 'posted', is_balanced: true
+      }).select().single();
+      if(entry){
+        await sb.from('journal_lines').insert([
+          {entry_id:entry.id, user_id:currentUser.id, account_code:'4000', account_name:ar?'المبيعات':'Sales',
+           debit:inv.subtotal, credit:0, description:ar?'عكس مبيعات':'Reverse sales'},
+          {entry_id:entry.id, user_id:currentUser.id, account_code:'2210', account_name:ar?'ضريبة القيمة المضافة المستحقة':'VAT Output',
+           debit:inv.vat_amount, credit:0, description:ar?'عكس ضريبة':'Reverse VAT'},
+          {entry_id:entry.id, user_id:currentUser.id, account_code:'1200', account_name:ar?'ذمم مدينة تجارية':'Trade Receivables',
+           debit:0, credit:inv.total, description:ar?'إقفال ذمة':'Clear receivable'}
+        ]);
+      }
+    } catch(e){ console.warn('CN journal skipped:', e.message); }
+
+    notify(ar
+      ? `✅ تم إصدار إشعار دائن ${cnNumber}`
+      : `✅ Credit note ${cnNumber} issued`,'g');
+
+    /* Reload invoice list */
+    await loadInvoices();
+  } catch(e){
+    console.error('[GL] reverseInvoice', e);
+    notify(ar?`فشل: ${e.message}`:`Failed: ${e.message}`,'r');
+  }
+}
+
+/* Generate next sequential CN number per business: CN-YYYY-NNN */
+async function generateNextCreditNoteNumber(){
+  const year = new Date().getFullYear();
+  const prefix = `CN-${year}-`;
+  const {data} = await sb.from('credit_notes')
+    .select('credit_note_number')
+    .eq('business_id', currentBiz.id)
+    .like('credit_note_number', prefix + '%');
+  let maxN = 0;
+  for(const r of (data || [])){
+    const m = (r.credit_note_number || '').match(/(\d+)$/);
+    if(m){
+      const n = parseInt(m[1], 10);
+      if(n > maxN && n <= 99999) maxN = n;
+    }
+  }
+  return prefix + String(maxN + 1).padStart(3, '0');
 }
 
 /* Load a draft invoice and immediately confirm-generate it (called from preview "Confirm" button) */
@@ -2817,6 +2968,7 @@ function renderCustList(){
       <div class="row-amount" style="${outstandingClass}font-weight:${outstanding > 0 ? '700' : '500'};">SAR ${fmt(outstanding)}</div>
       <div class="row-amount" style="font-weight:600;">SAR ${fmt(totalSales)}</div>
       <div class="row-actions">
+        <button class="row-action-btn" onclick="window.location.href='customer-detail.html?id=${cust.id}'" title="${currentLang==='ar'?'عرض التفاصيل':'View details'}">👁 ${currentLang==='ar'?'تفاصيل':'Details'}</button>
         <button class="row-action-btn" onclick="editCustomer('${cust.id}')" title="${currentLang==='ar'?'تعديل العميل':'Edit customer'}">✏️ ${currentLang==='ar'?'تعديل':'Edit'}</button>
         <button class="row-action-btn primary" onclick="newInvoiceForCust('${cust.id}')">🧾 ${currentLang==='ar'?'فاتورة جديدة':'New Invoice'}</button>
       </div>
