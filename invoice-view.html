@@ -456,7 +456,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:#E5EDE9;color:var(
       <button class="btn btn-secondary" onclick="openShareModal()">
         🔗 <span data-ar="مشاركة" data-en="Share">مشاركة</span>
       </button>
-      <button class="btn btn-ghost" onclick="window.print()">
+      <button class="btn btn-ghost" onclick="printViaPDF()">
         🖨 <span data-ar="طباعة" data-en="Print">طباعة</span>
       </button>
       <div class="btn-more-wrap">
@@ -490,7 +490,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:#E5EDE9;color:var(
       <div class="inv-public-brand-name">GulfLedger</div>
     </div>
     <div class="inv-page-actions">
-      <button class="btn btn-ghost" onclick="window.print()">
+      <button class="btn btn-ghost" onclick="printViaPDF()">
         🖨 <span data-ar="طباعة" data-en="Print">طباعة</span>
       </button>
       <button class="btn btn-ghost" onclick="downloadPDF()">
@@ -1337,22 +1337,117 @@ function onConfirmAndGenerateClick(){
 
 /* ═══════════════════════════════════════════════════════
    PDF GENERATION (Round 4k)
-   Uses html2canvas to snapshot the rendered invoice → jsPDF for A4 PDF.
+   Uses html2canvas to snapshot a CLONE of the rendered invoice (without
+   screen-only min-height/flex tricks) → jsPDF for A4 PDF.
    This bypasses browser print quirks: WE control pagination, not the browser.
 
-   Algorithm:
-   1. Snapshot the entire .inv-doc element to a single tall canvas
-   2. Compute A4 dimensions in pixels at the canvas's actual DPR
-   3. Slice the canvas vertically into A4-height chunks → each chunk = one PDF page
-   4. Add page numbers at bottom of each page
+   Two entry points:
+   - downloadPDF()  → generates PDF and triggers download
+   - printViaPDF()  → generates PDF and opens it in a new tab for the user to
+                      print from there. Bypasses the fragile @media print CSS.
 
    Tradeoffs (honest):
-   - This is "rasterized PDF" — text is not selectable in the output
+   - Output is rasterized — text is not selectable
    - File sizes are larger than vector PDFs (~200-500KB per invoice)
    - But: fonts/RTL/Arabic ALWAYS render correctly because we capture what the
      browser already renders. No font embedding gotchas.
 ═══════════════════════════════════════════════════════ */
 let _pdfGenerating = false;
+
+async function generateInvoicePDFBlob(){
+  if(!currentInvoice) throw new Error('Invoice not loaded');
+  if(typeof html2canvas === 'undefined' || !window.jspdf){
+    throw new Error('PDF libraries not loaded');
+  }
+
+  const docEl = document.querySelector('.inv-doc');
+  if(!docEl) throw new Error('Invoice element not found');
+
+  /* Wait a tick for any pending renders (QR, fonts) */
+  await new Promise(r => setTimeout(r, 100));
+
+  /* Render from a CLONE, not the live element. The live .inv-doc has
+     min-height:297mm + display:flex + margin-top:auto on QR which causes
+     empty space below content on screen. Capturing that = empty space in PDF. */
+  const clone = docEl.cloneNode(true);
+  clone.style.minHeight = '0';
+  clone.style.display = 'block';
+  clone.style.boxShadow = 'none';
+  clone.style.border = 'none';
+  clone.style.borderRadius = '0';
+  clone.style.width = docEl.offsetWidth + 'px';
+  const cloneBody = clone.querySelector('.inv-doc-body');
+  if(cloneBody){
+    cloneBody.style.display = 'block';
+    cloneBody.style.flex = 'none';
+  }
+  const cloneQR = clone.querySelector('.inv-qr-area');
+  if(cloneQR){
+    cloneQR.style.marginTop = '20px';
+  }
+  clone.style.position = 'absolute';
+  clone.style.left = '-99999px';
+  clone.style.top = '0';
+  document.body.appendChild(clone);
+
+  let canvas;
+  try {
+    canvas = await html2canvas(clone, {
+      scale: 2,
+      useCORS: true,
+      allowTaint: false,
+      backgroundColor: '#ffffff',
+      logging: false,
+      windowWidth: clone.offsetWidth,
+      windowHeight: clone.offsetHeight
+    });
+  } finally {
+    document.body.removeChild(clone);
+  }
+
+  const ar = currentLang === 'ar';
+  const { jsPDF } = window.jspdf;
+  const pdf = new jsPDF({
+    orientation: 'portrait',
+    unit: 'mm',
+    format: 'a4',
+    compress: true
+  });
+  const pdfWidthMM = 210;
+  const pdfHeightMM = 297;
+  const marginMM = 0;
+  const usableWidthMM = pdfWidthMM - marginMM * 2;
+  const usableHeightMM = pdfHeightMM - marginMM * 2;
+  const pageNumberAreaMM = 8;
+  const contentHeightMM = usableHeightMM - pageNumberAreaMM;
+
+  const pxPerMM = canvas.width / usableWidthMM;
+  const pageHeightPx = Math.floor(contentHeightMM * pxPerMM);
+  const totalPages = Math.ceil(canvas.height / pageHeightPx);
+
+  for(let i = 0; i < totalPages; i++){
+    if(i > 0) pdf.addPage();
+    const sliceY = i * pageHeightPx;
+    const sliceHeight = Math.min(pageHeightPx, canvas.height - sliceY);
+
+    const sliceCanvas = document.createElement('canvas');
+    sliceCanvas.width = canvas.width;
+    sliceCanvas.height = sliceHeight;
+    const ctx = sliceCanvas.getContext('2d');
+    ctx.drawImage(canvas, 0, sliceY, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
+
+    const sliceImg = sliceCanvas.toDataURL('image/jpeg', 0.92);
+    const sliceHeightMM = sliceHeight / pxPerMM;
+    pdf.addImage(sliceImg, 'JPEG', marginMM, marginMM, usableWidthMM, sliceHeightMM, undefined, 'FAST');
+
+    pdf.setFontSize(9);
+    pdf.setTextColor(150);
+    const pageLabel = ar ? `صفحة ${i + 1} من ${totalPages}` : `Page ${i + 1} of ${totalPages}`;
+    pdf.text(pageLabel, pdfWidthMM / 2, pdfHeightMM - 4, { align: 'center' });
+  }
+
+  return pdf;
+}
 
 async function downloadPDF(){
   if(_pdfGenerating){
@@ -1363,94 +1458,64 @@ async function downloadPDF(){
     notify(currentLang==='ar'?'الفاتورة غير محملة':'Invoice not loaded','error');
     return;
   }
-  if(typeof html2canvas === 'undefined' || !window.jspdf){
-    notify(currentLang==='ar'
-      ? '⚠ مكتبات PDF لم تُحمّل، استخدم زر الطباعة'
-      : '⚠ PDF libraries not loaded, use Print button instead','error');
-    return;
-  }
-
   _pdfGenerating = true;
   const ar = currentLang === 'ar';
-
-  /* Show generating notification (PDF gen takes 2-5 seconds) */
   notify(ar?'⏳ جارٍ إنشاء PDF...':'⏳ Generating PDF...','info');
-
   try {
-    const docEl = document.querySelector('.inv-doc');
-    if(!docEl) throw new Error('invoice element not found');
-
-    /* Wait a tick for any pending renders (QR, fonts) */
-    await new Promise(r => setTimeout(r, 100));
-
-    /* Step 1: snapshot the whole invoice at 2x scale for crisp rendering */
-    const canvas = await html2canvas(docEl, {
-      scale: 2,
-      useCORS: true,
-      allowTaint: false,
-      backgroundColor: '#ffffff',
-      logging: false,
-      windowWidth: docEl.scrollWidth,
-      windowHeight: docEl.scrollHeight
-    });
-
-    /* Step 2: A4 dimensions and scaling math */
-    const { jsPDF } = window.jspdf;
-    const pdf = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
-      compress: true
-    });
-    const pdfWidthMM = 210;
-    const pdfHeightMM = 297;
-    const marginMM = 0; /* No margin — invoice has its own padding */
-    const usableWidthMM = pdfWidthMM - marginMM * 2;
-    const usableHeightMM = pdfHeightMM - marginMM * 2;
-    const pageNumberAreaMM = 8; /* reserve bottom 8mm for page number */
-    const contentHeightMM = usableHeightMM - pageNumberAreaMM;
-
-    /* Convert canvas pixels → MM. We want canvas to fit pdf width.
-       Therefore: 1mm of PDF = (canvas.width / usableWidthMM) pixels of canvas */
-    const pxPerMM = canvas.width / usableWidthMM;
-    const pageHeightPx = Math.floor(contentHeightMM * pxPerMM);
-    const totalPages = Math.ceil(canvas.height / pageHeightPx);
-
-    /* Step 3: render each page from a slice of the canvas */
-    for(let i = 0; i < totalPages; i++){
-      if(i > 0) pdf.addPage();
-
-      const sliceY = i * pageHeightPx;
-      const sliceHeight = Math.min(pageHeightPx, canvas.height - sliceY);
-
-      /* Create a temporary canvas for just this slice */
-      const sliceCanvas = document.createElement('canvas');
-      sliceCanvas.width = canvas.width;
-      sliceCanvas.height = sliceHeight;
-      const ctx = sliceCanvas.getContext('2d');
-      ctx.drawImage(canvas, 0, sliceY, canvas.width, sliceHeight, 0, 0, canvas.width, sliceHeight);
-
-      const sliceImg = sliceCanvas.toDataURL('image/jpeg', 0.92);
-      const sliceHeightMM = sliceHeight / pxPerMM;
-      pdf.addImage(sliceImg, 'JPEG', marginMM, marginMM, usableWidthMM, sliceHeightMM, undefined, 'FAST');
-
-      /* Page numbering at bottom-center */
-      pdf.setFontSize(9);
-      pdf.setTextColor(150);
-      const pageLabel = ar ? `صفحة ${i + 1} من ${totalPages}` : `Page ${i + 1} of ${totalPages}`;
-      pdf.text(pageLabel, pdfWidthMM / 2, pdfHeightMM - 4, { align: 'center' });
-    }
-
-    /* Step 4: filename */
-    const filename = `Invoice_${currentInvoice.invoice_number || 'INV'}.pdf`;
-    pdf.save(filename);
-
+    const pdf = await generateInvoicePDFBlob();
+    pdf.save(`Invoice_${currentInvoice.invoice_number || 'INV'}.pdf`);
     notify(ar?'✅ تم تحميل PDF':'✅ PDF downloaded','success');
   } catch(err){
     console.error('[GL] PDF generation failed:', err);
     notify(ar
-      ? `❌ فشل الإنشاء: ${err.message}. استخدم زر الطباعة كبديل.`
-      : `❌ PDF generation failed: ${err.message}. Use Print button as fallback.`,'error');
+      ? `❌ فشل الإنشاء: ${err.message}`
+      : `❌ PDF generation failed: ${err.message}`,'error');
+  } finally {
+    _pdfGenerating = false;
+  }
+}
+
+async function printViaPDF(){
+  /* Generate PDF and open in a new tab so the user can print FROM the PDF.
+     This bypasses the unreliable @media print CSS path entirely. */
+  if(_pdfGenerating){
+    notify(currentLang==='ar'?'جارٍ الإنشاء، انتظر...':'Already generating, please wait...','info');
+    return;
+  }
+  if(!currentInvoice){
+    notify(currentLang==='ar'?'الفاتورة غير محملة':'Invoice not loaded','error');
+    return;
+  }
+  _pdfGenerating = true;
+  const ar = currentLang === 'ar';
+  notify(ar?'⏳ جارٍ التحضير للطباعة...':'⏳ Preparing for print...','info');
+  try {
+    const pdf = await generateInvoicePDFBlob();
+    /* Open PDF in new tab — user prints from browser PDF viewer (consistent across all browsers) */
+    const blob = pdf.output('blob');
+    const url = URL.createObjectURL(blob);
+    const win = window.open(url, '_blank');
+    if(!win){
+      /* Popup blocked — fall back to download */
+      pdf.save(`Invoice_${currentInvoice.invoice_number || 'INV'}.pdf`);
+      notify(ar
+        ? '⚠ النافذة المنبثقة محجوبة — تم التحميل بدلاً من ذلك'
+        : '⚠ Popup blocked — downloaded instead','info');
+    } else {
+      /* Trigger print after the PDF loads in the new tab.
+         Some browsers ignore this — that's OK, user can manually press Ctrl+P. */
+      win.addEventListener('load', () => {
+        try { win.print(); } catch(e){ /* silent */ }
+      });
+      notify(ar?'✅ افتح نافذة الطباعة من علامة التبويب الجديدة':'✅ Use the new tab\'s print button','success');
+    }
+    /* Clean up object URL after a delay (let the new tab load first) */
+    setTimeout(() => URL.revokeObjectURL(url), 60000);
+  } catch(err){
+    console.error('[GL] Print via PDF failed:', err);
+    notify(ar
+      ? `❌ فشل: ${err.message}. استخدم زر التحميل بدلاً من ذلك.`
+      : `❌ Failed: ${err.message}. Use Download button instead.`,'error');
   } finally {
     _pdfGenerating = false;
   }
