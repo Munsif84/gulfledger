@@ -788,6 +788,10 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
       📊 <span data-ar="الحركات" data-en="Movements">الحركات</span>
       <span class="count-badge" id="count-movements">0</span>
     </button>
+    <button class="tab-btn" id="tab-transfers" onclick="switchTab('transfers')">
+      🔀 <span data-ar="التحويلات" data-en="Transfers">التحويلات</span>
+      <span class="count-badge" id="count-transfers">0</span>
+    </button>
     <button class="tab-btn" id="tab-stocktake" onclick="switchTab('stocktake')">
       🔢 <span data-ar="جرد المخزون" data-en="Stock Take">جرد المخزون</span>
       <span class="count-badge" id="count-stocktake">0</span>
@@ -1001,6 +1005,60 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
       <div class="loading-state">
         <div class="loading-spinner">📊</div>
         <div data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════
+       PANE: TRANSFERS (Round 4m)
+       Move stock between locations. Each transfer drains FIFO batches
+       from source location and creates new batches at destination on completion.
+  ════════════════════════════════════════════════ -->
+  <div id="pane-transfers" style="display:none;">
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="label" data-ar="إجمالي التحويلات" data-en="Total Transfers">إجمالي التحويلات</div>
+        <div class="value" id="stat-tr-count">0</div>
+      </div>
+      <div class="stat-card amber">
+        <div class="label" data-ar="قيد التنفيذ" data-en="In Transit">قيد التنفيذ</div>
+        <div class="value" id="stat-tr-intransit">0</div>
+      </div>
+      <div class="stat-card green">
+        <div class="label" data-ar="مكتمل" data-en="Completed">مكتمل</div>
+        <div class="value" id="stat-tr-completed">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="label" data-ar="آخر تحويل" data-en="Last Transfer">آخر تحويل</div>
+        <div class="value" id="stat-tr-last" style="font-size:14px;">—</div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" class="search-input" id="search-transfers" placeholder="البحث برقم التحويل، الموقع..." oninput="renderTransfers()">
+      </div>
+      <select id="tr-status-filter" onchange="renderTransfers()" style="padding:8px 12px;border:1px solid var(--border);border-radius:7px;font-family:inherit;font-size:13px;background:#fff;">
+        <option value="">الكل · All</option>
+        <option value="draft">مسودة · Draft</option>
+        <option value="in_transit">قيد التنفيذ · In Transit</option>
+        <option value="completed">مكتمل · Completed</option>
+        <option value="voided">ملغى · Voided</option>
+      </select>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;margin-inline-start:auto;">
+        <button class="btn btn-secondary btn-sm" onclick="loadTransfers().then(renderTransfers)" title="تحديث">↻</button>
+        <button class="btn btn-primary btn-sm" onclick="openTransferModal()">
+          + <span data-ar="تحويل جديد" data-en="New Transfer">تحويل جديد</span>
+        </button>
+      </div>
+    </div>
+
+    <div class="table-wrap" id="transfers-table-wrap">
+      <div class="empty-state">
+        <div class="icon">🔀</div>
+        <div class="title" data-ar="لا توجد تحويلات" data-en="No transfers">لا توجد تحويلات</div>
+        <div class="text" data-ar="استخدم التحويلات لنقل المخزون بين المواقع" data-en="Use transfers to move stock between locations">استخدم التحويلات لنقل المخزون بين المواقع</div>
       </div>
     </div>
   </div>
@@ -1371,6 +1429,96 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 <!-- ════════════════════════════════════════════════
      RECEIVE STOCK MODAL
 ════════════════════════════════════════════════ -->
+<!-- ═══════════════════════════════════════════════════════
+     TRANSFER MODAL (Round 4m)
+     Pick from/to locations, add items with available qty bound by source location stock.
+     States: draft (saved but not committed), in_transit (sent), completed (received & batches moved).
+═══════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="transfer-modal">
+  <div class="modal wide">
+    <div class="modal-head">
+      <div class="modal-title" id="transfer-modal-title" data-ar="تحويل جديد" data-en="New Transfer">تحويل جديد</div>
+      <button class="modal-close" onclick="closeTransferModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field-row triple">
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="رقم التحويل" data-en="Transfer #">رقم التحويل</span>
+          </div>
+          <input type="text" id="tr-number" class="mono" readonly style="background:var(--tint);cursor:not-allowed;">
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="التاريخ" data-en="Date">التاريخ</span>
+            <span class="req">*</span>
+          </div>
+          <input type="date" id="tr-date" class="mono">
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="الحالة" data-en="Status">الحالة</span>
+          </div>
+          <input type="text" id="tr-status-display" readonly value="مسودة · Draft" style="background:var(--tint);cursor:not-allowed;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;width:100%;">
+        </div>
+      </div>
+
+      <div class="field-row" style="grid-template-columns:1fr 40px 1fr;align-items:end;gap:10px;">
+        <div class="field">
+          <div class="field-label">
+            📍 <span data-ar="من موقع" data-en="From">من موقع</span>
+            <span class="req">*</span>
+          </div>
+          <select id="tr-from" onchange="onTransferLocationChange()" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;background:#fff;">
+            <option value="">--</option>
+          </select>
+        </div>
+        <div style="text-align:center;font-size:24px;color:var(--blue);padding-bottom:10px;">→</div>
+        <div class="field">
+          <div class="field-label">
+            📍 <span data-ar="إلى موقع" data-en="To">إلى موقع</span>
+            <span class="req">*</span>
+          </div>
+          <select id="tr-to" onchange="onTransferLocationChange()" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;background:#fff;">
+            <option value="">--</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="section-title-sm" data-ar="الأصناف المنقولة" data-en="Items to Transfer">الأصناف المنقولة</div>
+      <table class="receipt-items-table">
+        <thead>
+          <tr>
+            <th style="width:30px;">#</th>
+            <th style="width:50%;" data-ar="الصنف" data-en="Item">الصنف</th>
+            <th data-ar="المتاح بالمصدر" data-en="Avail. at Source">المتاح بالمصدر</th>
+            <th data-ar="الكمية" data-en="Qty">الكمية</th>
+            <th style="width:30px;"></th>
+          </tr>
+        </thead>
+        <tbody id="tr-items-body"></tbody>
+      </table>
+
+      <button class="btn btn-secondary btn-sm" onclick="addTransferItem()" style="margin-bottom:14px;">
+        + <span data-ar="إضافة صنف" data-en="Add Item">إضافة صنف</span>
+      </button>
+
+      <div class="field">
+        <div class="field-label">
+          <span data-ar="ملاحظات" data-en="Notes">ملاحظات</span>
+          <span class="opt">(optional)</span>
+        </div>
+        <textarea id="tr-notes" rows="2" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;resize:vertical;"></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeTransferModal()">إلغاء · Cancel</button>
+      <button class="btn btn-secondary" id="btn-tr-save-draft" onclick="saveTransfer('draft')">💾 حفظ مسودة · Save Draft</button>
+      <button class="btn btn-primary" id="btn-tr-complete" onclick="saveTransfer('completed')">✅ إكمال التحويل · Complete Transfer</button>
+    </div>
+  </div>
+</div>
+
 <div class="modal-overlay" id="receive-modal">
   <div class="modal wide">
     <div class="modal-head">
@@ -1865,6 +2013,7 @@ function populateLocationFilter(){
   if(prev && allLocations.find(l => l.id === prev)) sel.value = prev;
 }
 function escAttr(s){return String(s||'').replace(/"/g,'&quot;');}
+function escHTML(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
 
 async function loadItems(){
   const {data, error} = await sb.from('inventory_items')
@@ -2660,7 +2809,7 @@ function switchTab(name){
     location.href = 'purchasing.html?tab=suppliers';
     return;
   }
-  ['items','receive','movements','stocktake','valuation'].forEach(t => {
+  ['items','receive','movements','transfers','stocktake','valuation'].forEach(t => {
     document.getElementById('tab-' + t)?.classList.toggle('active', t === name);
     const pane = document.getElementById('pane-' + t);
     if(pane) pane.style.display = t === name ? '' : 'none';
@@ -2672,6 +2821,9 @@ function switchTab(name){
   if(name === 'movements' && !window._movementsLoaded){
     window._movementsLoaded = true;
     loadMovements().then(renderMovements);
+  } else if(name === 'transfers' && !window._transfersLoaded){
+    window._transfersLoaded = true;
+    loadTransfers().then(renderTransfers);
   } else if(name === 'stocktake' && !window._stockTakesLoaded){
     window._stockTakesLoaded = true;
     loadStockTakes().then(renderStockTakes);
@@ -5105,6 +5257,451 @@ document.addEventListener('keydown', e => {
     closeAllMenus();
   }
 });
+
+/* ═══════════════════════════════════════════════════════
+   ROUND 4M — STOCK TRANSFERS (multi-location)
+   load → render → modal → save (with FIFO batch movement on completion)
+═══════════════════════════════════════════════════════ */
+let allTransfers = [];
+let transferItems = [];   /* draft state for the modal: [{item_id, qty}] */
+let _editingTransferId = null;
+
+async function loadTransfers(){
+  const {data, error} = await sb.from('stock_transfers')
+    .select('*, from_loc:from_location_id(name, name_ar), to_loc:to_location_id(name, name_ar)')
+    .eq('business_id', currentBiz?.id || '')
+    .order('transfer_date', {ascending: false})
+    .order('created_at', {ascending: false});
+  if(error){ console.error('Transfers load:', error); allTransfers = []; return; }
+  allTransfers = data || [];
+}
+
+function renderTransfers(){
+  const wrap = document.getElementById('transfers-table-wrap');
+  if(!wrap) return;
+  const ar = currentLang === 'ar';
+  const search = (document.getElementById('search-transfers')?.value || '').toLowerCase().trim();
+  const statusFilter = document.getElementById('tr-status-filter')?.value || '';
+
+  let list = allTransfers;
+  if(statusFilter) list = list.filter(t => t.status === statusFilter);
+  if(search){
+    list = list.filter(t =>
+      (t.transfer_number||'').toLowerCase().includes(search) ||
+      (t.from_loc?.name||'').toLowerCase().includes(search) ||
+      (t.to_loc?.name||'').toLowerCase().includes(search) ||
+      (t.notes||'').toLowerCase().includes(search)
+    );
+  }
+
+  /* Stats */
+  const cnt = document.getElementById('count-transfers');
+  if(cnt) cnt.textContent = allTransfers.length;
+  document.getElementById('stat-tr-count').textContent = allTransfers.length;
+  document.getElementById('stat-tr-intransit').textContent = allTransfers.filter(t => t.status === 'in_transit' || t.status === 'draft').length;
+  document.getElementById('stat-tr-completed').textContent = allTransfers.filter(t => t.status === 'completed').length;
+  const last = allTransfers.find(t => t.status === 'completed');
+  document.getElementById('stat-tr-last').textContent = last ? (last.transfer_number + ' · ' + (last.transfer_date||'')) : '—';
+
+  if(list.length === 0){
+    wrap.innerHTML = `<div class="empty-state"><div class="icon">🔀</div>
+      <div class="title">${ar?'لا توجد تحويلات':'No transfers'}</div>
+      <div class="text">${ar?'استخدم التحويلات لنقل المخزون بين المواقع':'Use transfers to move stock between locations'}</div></div>`;
+    return;
+  }
+
+  wrap.innerHTML = `<table class="tbl">
+    <thead><tr>
+      <th>${ar?'الرقم':'Number'}</th>
+      <th>${ar?'التاريخ':'Date'}</th>
+      <th>${ar?'من':'From'}</th>
+      <th>${ar?'إلى':'To'}</th>
+      <th>${ar?'الحالة':'Status'}</th>
+      <th class="center"></th>
+    </tr></thead><tbody>
+      ${list.map(t => {
+        const sBadge = ({
+          draft: '<span class="badge" style="background:#e5e7eb;color:#374151;">📝 ' + (ar?'مسودة':'Draft') + '</span>',
+          in_transit: '<span class="badge" style="background:#fef3c7;color:#78350f;">🚚 ' + (ar?'قيد التنفيذ':'In Transit') + '</span>',
+          completed: '<span class="badge" style="background:#dcfce7;color:#166534;">✅ ' + (ar?'مكتمل':'Completed') + '</span>',
+          voided: '<span class="badge" style="background:#fee2e2;color:#991b1b;">↩ ' + (ar?'ملغى':'Voided') + '</span>'
+        })[t.status] || t.status;
+        return `<tr class="clickable" onclick="openTransferDetail('${t.id}')">
+          <td><strong style="font-family:'DM Mono',monospace;">${escHTML(t.transfer_number||'—')}</strong></td>
+          <td class="num">${escHTML(t.transfer_date||'—')}</td>
+          <td>${escHTML(t.from_loc?.name_ar || t.from_loc?.name || '—')}</td>
+          <td>${escHTML(t.to_loc?.name_ar || t.to_loc?.name || '—')}</td>
+          <td>${sBadge}</td>
+          <td class="center">→</td>
+        </tr>`;
+      }).join('')}
+    </tbody></table>`;
+}
+
+async function generateNextTransferNumber(){
+  const yr = new Date().getFullYear();
+  const prefix = 'TR-' + yr + '-';
+  const {data} = await sb.from('stock_transfers')
+    .select('transfer_number')
+    .eq('business_id', currentBiz.id)
+    .ilike('transfer_number', prefix + '%');
+  let maxN = 0;
+  for(const r of (data||[])){
+    const m = (r.transfer_number||'').match(/(\d+)$/);
+    if(m){ const n = parseInt(m[1],10); if(n > maxN && n <= 99999) maxN = n; }
+  }
+  return prefix + String(maxN + 1).padStart(3, '0');
+}
+
+async function openTransferModal(){
+  if(allLocations.length < 2){
+    notify(currentLang==='ar'?'تحتاج إلى موقعين على الأقل لإجراء تحويل':'You need at least 2 locations to transfer','error');
+    return;
+  }
+  _editingTransferId = null;
+  document.getElementById('transfer-modal-title').textContent = currentLang==='ar'?'تحويل جديد':'New Transfer';
+  document.getElementById('tr-status-display').value = currentLang==='ar'?'مسودة · Draft':'Draft';
+  document.getElementById('tr-date').value = todayISO();
+  document.getElementById('tr-notes').value = '';
+  document.getElementById('btn-tr-save-draft').style.display = '';
+  document.getElementById('btn-tr-complete').style.display = '';
+
+  /* Populate from/to dropdowns */
+  const ar = currentLang === 'ar';
+  const opts = `<option value="">--</option>` +
+    allLocations.map(l => `<option value="${l.id}">${escAttr(l.name_ar||l.name)}${l.is_default?' ⭐':''}</option>`).join('');
+  document.getElementById('tr-from').innerHTML = opts;
+  document.getElementById('tr-to').innerHTML = opts;
+
+  /* Pre-select default location as source */
+  const defaultLoc = allLocations.find(l => l.is_default);
+  if(defaultLoc) document.getElementById('tr-from').value = defaultLoc.id;
+
+  /* Reset items */
+  transferItems = [{item_id: '', qty: 1}];
+  renderTransferItems();
+
+  /* Generate next # */
+  document.getElementById('tr-number').value = await generateNextTransferNumber();
+
+  document.getElementById('transfer-modal').classList.add('open');
+}
+
+function closeTransferModal(){
+  document.getElementById('transfer-modal').classList.remove('open');
+}
+
+function addTransferItem(){
+  transferItems.push({item_id:'', qty:1});
+  renderTransferItems();
+}
+
+function removeTransferItem(idx){
+  transferItems.splice(idx, 1);
+  if(transferItems.length === 0) addTransferItem();
+  renderTransferItems();
+}
+
+function renderTransferItems(){
+  const tbody = document.getElementById('tr-items-body');
+  if(!tbody) return;
+  const fromLoc = document.getElementById('tr-from')?.value || '';
+  /* Items selectable: all active inventory items. Available qty: stockByLocation lookup. */
+  const ar = currentLang === 'ar';
+  tbody.innerHTML = transferItems.map((row, idx) => {
+    const availRow = fromLoc && row.item_id ? stockByLocation.find(s => s.item_id === row.item_id && s.location_id === fromLoc) : null;
+    const avail = availRow ? parseFloat(availRow.qty)||0 : 0;
+    const overLimit = row.qty > avail;
+    return `<tr>
+      <td style="text-align:center;color:var(--muted);">${idx+1}</td>
+      <td>
+        <select onchange="onTransferItemChange(${idx}, 'item_id', this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px;">
+          <option value="">${ar?'-- اختر صنف --':'-- Select item --'}</option>
+          ${allItems.map(it => `<option value="${it.id}"${row.item_id===it.id?' selected':''}>${escAttr(displayName(it))}</option>`).join('')}
+        </select>
+      </td>
+      <td style="text-align:end;font-family:'DM Mono',monospace;color:${overLimit?'var(--red)':'var(--muted)'};">${avail}</td>
+      <td>
+        <input type="number" min="0.0001" step="any" value="${row.qty}" oninput="onTransferItemChange(${idx}, 'qty', this.value)" style="width:80px;padding:6px 8px;border:1px solid ${overLimit?'var(--red)':'var(--border)'};border-radius:6px;font-family:'DM Mono',monospace;font-size:13px;text-align:end;">
+      </td>
+      <td style="text-align:center;">
+        <button onclick="removeTransferItem(${idx})" style="background:transparent;border:none;cursor:pointer;color:var(--muted);font-size:18px;">×</button>
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+function onTransferItemChange(idx, field, val){
+  if(field === 'qty') transferItems[idx].qty = parseFloat(val)||0;
+  else transferItems[idx][field] = val;
+  renderTransferItems();
+}
+
+function onTransferLocationChange(){
+  const from = document.getElementById('tr-from').value;
+  const to = document.getElementById('tr-to').value;
+  if(from && to && from === to){
+    notify(currentLang==='ar'?'⚠ لا يمكن التحويل لنفس الموقع':'⚠ Same location not allowed','amber');
+    document.getElementById('tr-to').value = '';
+  }
+  renderTransferItems();
+}
+
+async function saveTransfer(targetStatus){
+  /* targetStatus: 'draft' or 'completed'. Draft just saves the row;
+     completed performs FIFO batch movement and updates location stocks. */
+  const ar = currentLang === 'ar';
+  const fromId = document.getElementById('tr-from').value;
+  const toId = document.getElementById('tr-to').value;
+  const date = document.getElementById('tr-date').value || todayISO();
+  const notes = document.getElementById('tr-notes').value || null;
+
+  if(!fromId || !toId){ notify(ar?'اختر الموقع المصدر والوجهة':'Pick from/to locations','error'); return; }
+  if(fromId === toId){ notify(ar?'⚠ لا يمكن التحويل لنفس الموقع':'⚠ Same location not allowed','error'); return; }
+
+  const validItems = transferItems.filter(r => r.item_id && r.qty > 0);
+  if(validItems.length === 0){ notify(ar?'أضف صنفاً واحداً على الأقل':'Add at least one item','error'); return; }
+
+  /* Validate available qty per item at source */
+  for(const r of validItems){
+    const availRow = stockByLocation.find(s => s.item_id === r.item_id && s.location_id === fromId);
+    const avail = availRow ? parseFloat(availRow.qty)||0 : 0;
+    if(r.qty > avail){
+      const it = allItems.find(x => x.id === r.item_id);
+      notify((ar?'⚠ كمية غير كافية: ':'⚠ Insufficient qty: ') + (it?displayName(it):'') + ' (' + (ar?'متاح':'avail') + ': ' + avail + ')','error');
+      return;
+    }
+  }
+
+  const btnD = document.getElementById('btn-tr-save-draft');
+  const btnC = document.getElementById('btn-tr-complete');
+  if(btnD) btnD.disabled = true;
+  if(btnC) btnC.disabled = true;
+
+  try {
+    const trNumber = document.getElementById('tr-number').value || await generateNextTransferNumber();
+    /* 1. Create stock_transfer header */
+    const {data: tr, error: trErr} = await sb.from('stock_transfers').insert({
+      business_id: currentBiz.id,
+      user_id: currentUser.id,
+      transfer_number: trNumber,
+      transfer_date: date,
+      from_location_id: fromId,
+      to_location_id: toId,
+      status: targetStatus,
+      completed_at: targetStatus === 'completed' ? new Date().toISOString() : null,
+      notes: notes
+    }).select().single();
+    if(trErr) throw trErr;
+
+    /* 2. Insert transfer items */
+    const itemRows = validItems.map((r, i) => {
+      const it = allItems.find(x => x.id === r.item_id);
+      return {
+        transfer_id: tr.id,
+        item_id: r.item_id,
+        qty: r.qty,
+        unit_cost: parseFloat(it?.cost_price)||0,
+        display_order: i
+      };
+    });
+    const {data: insertedItems, error: itemsErr} = await sb.from('stock_transfer_items')
+      .insert(itemRows).select();
+    if(itemsErr) throw itemsErr;
+
+    /* 3. If completed: do FIFO batch movement now */
+    if(targetStatus === 'completed'){
+      for(let i = 0; i < validItems.length; i++){
+        const r = validItems[i];
+        const transferItemRow = insertedItems[i];
+        await executeTransferLineFIFO(tr, transferItemRow, r, fromId, toId);
+      }
+    }
+
+    notify('✅ ' + (ar?'تم':'Done') + ' ' + trNumber, 'success');
+    closeTransferModal();
+    /* Refresh data */
+    await Promise.all([loadTransfers(), loadStockByLocation(), loadItems()]);
+    renderTransfers();
+    renderItems();
+  } catch(e){
+    console.error('[GL] saveTransfer:', e);
+    notify((ar?'فشل: ':'Failed: ') + (e.message||''), 'error');
+  } finally {
+    if(btnD) btnD.disabled = false;
+    if(btnC) btnC.disabled = false;
+  }
+}
+
+/* FIFO consume from source location batches, create new batches at destination,
+   record movements (out from source / in at destination), update inventory_items.current_qty.
+   Note: current_qty is BUSINESS-WIDE total — transfer doesn't change it.
+   But individual movements help audit trail. */
+async function executeTransferLineFIFO(transfer, transferItem, lineInput, fromId, toId){
+  const ar = currentLang === 'ar';
+  /* Pull source-location batches with qty_remaining > 0, FIFO order */
+  const {data: srcBatches} = await sb.from('inventory_batches')
+    .select('*')
+    .eq('business_id', currentBiz.id)
+    .eq('item_id', lineInput.item_id)
+    .eq('location_id', fromId)
+    .eq('is_depleted', false)
+    .gt('qty_remaining', 0)
+    .order('received_date', {ascending: true})
+    .order('created_at', {ascending: true});
+
+  let qtyLeft = lineInput.qty;
+  const transferBatchRows = [];
+
+  for(const b of (srcBatches||[])){
+    if(qtyLeft <= 0) break;
+    const takeQty = Math.min(qtyLeft, parseFloat(b.qty_remaining));
+    const newSrcRem = parseFloat(b.qty_remaining) - takeQty;
+
+    /* Create destination batch (clone of source's cost) */
+    const {data: destBatch, error: destErr} = await sb.from('inventory_batches').insert({
+      business_id: currentBiz.id,
+      user_id: currentUser.id,
+      item_id: lineInput.item_id,
+      location_id: toId,
+      qty_received: takeQty,
+      qty_remaining: takeQty,
+      original_qty: takeQty,
+      unit_cost: parseFloat(b.unit_cost)||0,
+      received_date: transfer.transfer_date,
+      is_depleted: false,
+      reference: transfer.transfer_number,
+      batch_number: b.batch_number,        /* preserve batch # for traceability */
+      expiry_date: b.expiry_date,
+      manufacture_date: b.manufacture_date,
+      supplier_id: b.supplier_id,
+      notes: 'Transferred from ' + transfer.transfer_number
+    }).select().single();
+    if(destErr) throw destErr;
+
+    /* Drain source batch */
+    await sb.from('inventory_batches').update({
+      qty_remaining: newSrcRem,
+      is_depleted: newSrcRem <= 0.0001
+    }).eq('id', b.id);
+
+    /* Record traceability */
+    transferBatchRows.push({
+      transfer_id: transfer.id,
+      transfer_item_id: transferItem.id,
+      source_batch_id: b.id,
+      destination_batch_id: destBatch.id,
+      qty: takeQty,
+      unit_cost: parseFloat(b.unit_cost)||0
+    });
+
+    qtyLeft -= takeQty;
+  }
+
+  if(qtyLeft > 0.0001){
+    throw new Error((ar?'كمية غير كافية في الدفعات: ':'Insufficient batch qty for ') + lineInput.item_id);
+  }
+
+  /* Save batch traceability rows */
+  if(transferBatchRows.length > 0){
+    await sb.from('stock_transfer_batches').insert(transferBatchRows);
+  }
+
+  /* Record movements for audit trail (current_qty business-wide is unchanged) */
+  const {data: itemRow} = await sb.from('inventory_items').select('current_qty').eq('id', lineInput.item_id).maybeSingle();
+  const currentQty = parseFloat(itemRow?.current_qty)||0;
+  await sb.from('inventory_movements').insert([
+    {
+      user_id: currentUser.id, business_id: currentBiz.id, item_id: lineInput.item_id,
+      location_id: fromId, from_location_id: fromId, to_location_id: toId,
+      movement_type: 'transfer_out', quantity: lineInput.qty, balance_after: currentQty,
+      reference: transfer.transfer_number, reference_type: 'transfer', reference_id: transfer.id,
+      note: (ar?'تحويل صادر · ':'Transfer out · ') + transfer.transfer_number,
+      movement_date: transfer.transfer_date
+    },
+    {
+      user_id: currentUser.id, business_id: currentBiz.id, item_id: lineInput.item_id,
+      location_id: toId, from_location_id: fromId, to_location_id: toId,
+      movement_type: 'transfer_in', quantity: lineInput.qty, balance_after: currentQty,
+      reference: transfer.transfer_number, reference_type: 'transfer', reference_id: transfer.id,
+      note: (ar?'تحويل وارد · ':'Transfer in · ') + transfer.transfer_number,
+      movement_date: transfer.transfer_date
+    }
+  ]);
+}
+
+async function openTransferDetail(id){
+  /* Quick read-only popup. For now, alert with summary; future: detail page. */
+  const t = allTransfers.find(x => x.id === id);
+  if(!t) return;
+  const ar = currentLang === 'ar';
+  const {data: items} = await sb.from('stock_transfer_items')
+    .select('*, item:item_id(name, name_ar, name_en)')
+    .eq('transfer_id', id)
+    .order('display_order');
+  const lines = (items||[]).map(it => {
+    const nm = it.item?.name_ar || it.item?.name || it.item?.name_en || '—';
+    return `• ${nm} × ${it.qty}`;
+  }).join('\n');
+  const summary = (ar?'تحويل':'Transfer') + ' ' + t.transfer_number + '\n' +
+    (ar?'من: ':'From: ') + (t.from_loc?.name_ar||t.from_loc?.name||'—') + '\n' +
+    (ar?'إلى: ':'To: ') + (t.to_loc?.name_ar||t.to_loc?.name||'—') + '\n' +
+    (ar?'الحالة: ':'Status: ') + t.status + '\n\n' + lines;
+
+  if(t.status === 'draft' || t.status === 'in_transit'){
+    if(confirm(summary + '\n\n' + (ar?'إكمال هذا التحويل الآن؟':'Complete this transfer now?'))){
+      await completeTransferLater(t.id);
+    }
+  } else {
+    alert(summary);
+  }
+}
+
+/* Complete a transfer that was saved as draft/in_transit earlier. */
+async function completeTransferLater(transferId){
+  const ar = currentLang === 'ar';
+  try {
+    const {data: t} = await sb.from('stock_transfers').select('*').eq('id', transferId).single();
+    if(!t || t.status === 'completed' || t.status === 'voided'){
+      notify(ar?'لا يمكن إكمال هذا التحويل':'Cannot complete this transfer','error');
+      return;
+    }
+    const {data: items} = await sb.from('stock_transfer_items').select('*').eq('transfer_id', transferId).order('display_order');
+    if(!items || items.length === 0){ notify(ar?'لا توجد أصناف':'No items','error'); return; }
+
+    /* Re-validate availability NOW (not when saved draft) */
+    await loadStockByLocation();
+    for(const it of items){
+      const availRow = stockByLocation.find(s => s.item_id === it.item_id && s.location_id === t.from_location_id);
+      const avail = availRow ? parseFloat(availRow.qty)||0 : 0;
+      if(it.qty > avail){
+        const itm = allItems.find(x => x.id === it.item_id);
+        notify((ar?'⚠ كمية غير كافية: ':'⚠ Insufficient: ') + (itm?displayName(itm):'') + ' (avail ' + avail + ')','error');
+        return;
+      }
+    }
+
+    /* Execute FIFO for each line */
+    for(const it of items){
+      await executeTransferLineFIFO(t, it, {item_id: it.item_id, qty: it.qty}, t.from_location_id, t.to_location_id);
+    }
+
+    /* Update header status */
+    await sb.from('stock_transfers').update({
+      status: 'completed',
+      completed_at: new Date().toISOString(),
+      updated_at: new Date().toISOString()
+    }).eq('id', transferId);
+
+    notify('✅ ' + (ar?'تم إكمال التحويل':'Transfer completed'),'success');
+    await Promise.all([loadTransfers(), loadStockByLocation(), loadItems()]);
+    renderTransfers();
+    renderItems();
+  } catch(e){
+    console.error('[GL] completeTransferLater', e);
+    notify((ar?'فشل: ':'Failed: ') + (e.message||''),'error');
+  }
+}
 
 init();
 </script>
