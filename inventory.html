@@ -830,7 +830,14 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         <span class="search-icon">🔍</span>
         <input type="text" class="search-input" id="search-items" placeholder="البحث بالاسم أو SKU..." oninput="renderItems()">
       </div>
+      <!-- Round 4m: location filter -->
+      <select id="loc-filter" onchange="renderItems()" style="padding:8px 12px;border:1px solid var(--border);border-radius:7px;font-family:inherit;font-size:13px;background:#fff;min-width:160px;">
+        <option value="">📍 كل المواقع · All Locations</option>
+      </select>
       <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <a class="btn btn-secondary" href="locations.html" title="${currentLang==='ar'?'إدارة المواقع':'Manage Locations'}">
+          📍 <span data-ar="المواقع" data-en="Locations">المواقع</span>
+        </a>
         <button class="btn btn-secondary" onclick="loadAll()" data-ar="↻ تحديث" data-en="↻ Refresh">↻ تحديث</button>
         <a class="btn btn-secondary" href="purchasing.html?tab=products" title="${currentLang==='ar'?'إدارة المنتجات في المشتريات':'Manage products in Purchasing'}">
           📦 <span data-ar="إدارة المنتجات" data-en="Manage Products">إدارة المنتجات</span>
@@ -1613,6 +1620,9 @@ let currentUser = null;
 let currentBiz = null;
 let allItems = [];
 let allSuppliers = [];
+/* Round 4m: locations state */
+let allLocations = [];
+let stockByLocation = [];   /* rows: business_id, item_id, location_id, qty, ... */
 let allReceipts = [];
 
 let currentItemId = null;     /* item being edited or shown in detail */
@@ -1804,12 +1814,48 @@ async function init(){
 }
 
 async function loadAll(){
-  await Promise.all([loadItems(), loadSuppliers(), loadReceipts()]);
+  await Promise.all([loadItems(), loadSuppliers(), loadReceipts(), loadLocations(), loadStockByLocation()]);
+  populateLocationFilter();
   renderItems();
   renderSuppliers();
   renderReceipts();
   computeStats();
 }
+
+/* Round 4m: locations + per-location stock */
+async function loadLocations(){
+  const {data, error} = await sb.from('locations')
+    .select('*')
+    .eq('business_id', currentBiz?.id || '')
+    .eq('is_active', true)
+    .order('is_default', {ascending: false})
+    .order('name');
+  if(error){ console.error('Locations load:', error); allLocations = []; return; }
+  allLocations = data || [];
+}
+
+async function loadStockByLocation(){
+  /* Pulls per-(item, location) qty from the stock_by_location view created by the migration.
+     Used to display location-specific qty when a location filter is active, and to roll up
+     "stock at default location vs others" warnings. */
+  const {data, error} = await sb.from('stock_by_location')
+    .select('*')
+    .eq('business_id', currentBiz?.id || '');
+  if(error){ console.error('stock_by_location load:', error); stockByLocation = []; return; }
+  stockByLocation = data || [];
+}
+
+function populateLocationFilter(){
+  const sel = document.getElementById('loc-filter');
+  if(!sel) return;
+  const ar = currentLang === 'ar';
+  /* Preserve current selection if still valid */
+  const prev = sel.value;
+  sel.innerHTML = `<option value="">📍 ${ar?'كل المواقع':'All Locations'}</option>` +
+    allLocations.map(l => `<option value="${l.id}">${escAttr(l.name_ar||l.name)}${l.is_default?' ⭐':''}</option>`).join('');
+  if(prev && allLocations.find(l => l.id === prev)) sel.value = prev;
+}
+function escAttr(s){return String(s||'').replace(/"/g,'&quot;');}
 
 async function loadItems(){
   const {data, error} = await sb.from('inventory_items')
@@ -2682,6 +2728,8 @@ function computeStats(){
 function renderItems(){
   const wrap = document.getElementById('items-table-wrap');
   const search = v('search-items').toLowerCase();
+  /* Round 4m: location filter — when set, qty per row is the qty AT that location only */
+  const locFilter = document.getElementById('loc-filter')?.value || '';
 
   let items = allItems;
   if(search){
@@ -2692,6 +2740,23 @@ function renderItems(){
       (it.sku||'').toLowerCase().includes(search) ||
       (it.barcode||'').toLowerCase().includes(search)
     );
+  }
+
+  /* If location filter active, only show items that have qty AT that location */
+  if(locFilter){
+    const itemsAtLoc = new Set(stockByLocation
+      .filter(s => s.location_id === locFilter)
+      .map(s => s.item_id));
+    items = items.filter(it => itemsAtLoc.has(it.id));
+  }
+
+  /* Helper: get qty for an item, optionally at a specific location */
+  function qtyForItem(it){
+    if(locFilter){
+      const row = stockByLocation.find(s => s.item_id === it.id && s.location_id === locFilter);
+      return parseFloat(row?.qty || 0);
+    }
+    return parseFloat(it.current_qty) || 0;
   }
 
   if(items.length === 0){
@@ -2733,7 +2798,7 @@ function renderItems(){
       </thead>
       <tbody>
         ${items.map(it => {
-          const qty = parseFloat(it.current_qty) || 0;
+          const qty = qtyForItem(it);
           const cost = parseFloat(it.cost_price) || 0;
           const stockValue = qty * cost;
           const reorder = parseFloat(it.reorder_point) || 0;
