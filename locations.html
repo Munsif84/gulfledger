@@ -1,0 +1,574 @@
+<!DOCTYPE html>
+<!--
+  GulfLedger — locations.html
+  Round 4m: locations management page.
+  Lists all locations, create/edit/deactivate, set default.
+-->
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>المواقع · Locations · GulfLedger</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#F5F7F5;--ink:#0F1F18;--navy:#0F1F18;--brand:#0E5C3F;--blue:#1D7A4D;--green:#1D9E75;--tint:#E6F2EC;--light:#C4DFD0;--muted:#6B7770;--border:#DCE5DD;--red:#B8492A;--amber:#C68B0E;--white:#fff;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;font-size:14px;line-height:1.5;}
+.mono{font-family:'DM Mono',monospace;}
+a{color:var(--blue);text-decoration:none;}
+.topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:300;}
+.topnav-brand{color:#fff;font-weight:800;font-size:16px;}
+.topnav-back{color:rgba(255,255,255,0.85);font-size:13px;}
+.page{max-width:1100px;margin:0 auto;padding:20px;}
+
+/* Toolbar — matches inventory/finance pattern */
+.toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;flex-wrap:wrap;}
+.toolbar-left{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;}
+.search-wrap{position:relative;flex:1;min-width:200px;max-width:320px;}
+.search-icon{position:absolute;top:50%;transform:translateY(-50%);font-size:14px;pointer-events:none;color:var(--muted);}
+[dir="rtl"] .search-icon{right:10px;}
+[dir="ltr"] .search-icon{left:10px;}
+.search-input{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:7px;font-family:inherit;font-size:13px;color:var(--ink);background:var(--white);}
+[dir="rtl"] .search-input{padding:8px 32px 8px 12px;}
+[dir="ltr"] .search-input{padding:8px 12px 8px 32px;}
+.search-input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(61,170,101,0.15);}
+
+/* Buttons */
+.btn{padding:8px 16px;border-radius:8px;font-family:inherit;font-weight:600;font-size:13px;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .15s;}
+.btn-sm{padding:6px 12px;font-size:12px;}
+.btn-ghost{background:transparent;color:var(--ink);border:1px solid var(--border);}
+.btn-ghost:hover{background:var(--tint);}
+.btn-primary{background:var(--blue);color:#fff;}
+.btn-primary:hover{background:var(--brand);}
+.btn-secondary{background:var(--tint);color:var(--ink);border:1px solid var(--border);}
+.btn-secondary:hover{background:var(--light);}
+.btn-danger{background:#fef2f2;color:var(--red);border:1px solid #fecaca;}
+
+/* Table */
+.tbl{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--border);border-radius:12px;overflow:visible;}
+.tbl th{padding:10px 14px;background:var(--tint);font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:700;text-align:start;border-bottom:1px solid var(--border);}
+.tbl td{padding:11px 14px;border-bottom:1px solid var(--tint);font-size:13px;}
+.tbl tr:last-child td{border-bottom:none;}
+.tbl tr.clickable{cursor:pointer;}
+.tbl tr.clickable:hover td{background:#fafbfa;}
+.tbl .num,.tbl th.num{text-align:end;font-family:'DM Mono',monospace;}
+.tbl .center,.tbl th.center{text-align:center;}
+.tbl tr.inactive td{opacity:0.5;}
+
+/* Badges */
+.badge{padding:3px 10px;border-radius:8px;font-size:11px;font-weight:700;display:inline-block;}
+.badge-default{background:#dcfce7;color:#166534;}
+.badge-warehouse{background:#dbeafe;color:#1e40af;}
+.badge-store{background:#fef3c7;color:#78350f;}
+.badge-mobile{background:#fce7f3;color:#9d174d;}
+.badge-virtual{background:#e5e7eb;color:#374151;}
+.badge-inactive{background:#e5e7eb;color:#6b7280;}
+
+/* Row actions */
+.row-actions{position:relative;display:inline-block;}
+.row-actions-btn{background:transparent;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;color:var(--muted);font-size:16px;line-height:1;}
+.row-actions-btn:hover{background:var(--tint);color:var(--ink);}
+.row-actions-menu{display:none;position:fixed;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.18);min-width:200px;z-index:9000;padding:4px;}
+.row-actions-menu.open{display:block;}
+.row-action-item{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:13px;color:var(--ink);cursor:pointer;border-radius:6px;background:transparent;border:none;width:100%;text-align:start;font-family:inherit;}
+.row-action-item:hover{background:var(--tint);}
+.row-action-item.danger{color:var(--red);}
+.row-action-item.danger:hover{background:#fef2f2;}
+
+/* Empty state */
+.empty-state{text-align:center;padding:40px 20px;color:var(--muted);}
+.empty-state .icon{font-size:42px;margin-bottom:10px;opacity:0.5;}
+.empty-state .title{font-weight:700;color:var(--ink);font-size:15px;margin-bottom:4px;}
+.empty-state .text{font-size:13px;line-height:1.6;max-width:400px;margin:0 auto 12px;}
+
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:10000;padding:20px;overflow-y:auto;}
+.modal-overlay.open{display:flex;}
+.modal{background:#fff;border-radius:12px;width:100%;max-width:560px;max-height:92vh;overflow:auto;display:flex;flex-direction:column;}
+.modal-head{padding:16px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+.modal-title{font-size:16px;font-weight:800;color:var(--ink);}
+.modal-close{background:transparent;border:none;font-size:24px;cursor:pointer;color:var(--muted);}
+.modal-body{padding:18px 22px;flex:1;}
+.modal-foot{padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;}
+
+.field{margin-bottom:14px;}
+.field-label{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700;margin-bottom:5px;}
+.field-input{width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;}
+.field-input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(61,170,101,0.15);}
+.field-select{width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;background:#fff;}
+.field-row{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+
+.toggle-row{display:flex;align-items:center;gap:10px;padding:10px 12px;background:var(--bg);border-radius:8px;font-size:13px;}
+.toggle-row input{width:18px;height:18px;}
+
+.notify{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;z-index:11000;opacity:0;transition:opacity .2s;}
+.notify.show{opacity:1;}
+.notify.g{background:var(--green);}
+.notify.r{background:var(--red);}
+.notify.amber{background:var(--amber);}
+
+/* Page header */
+.page-h1{font-size:22px;font-weight:800;color:var(--navy);margin-bottom:4px;}
+.page-sub{font-size:13px;color:var(--muted);margin-bottom:18px;}
+
+.loading{text-align:center;padding:60px 20px;color:var(--muted);}
+
+@media (max-width:640px){
+  .field-row{grid-template-columns:1fr;}
+}
+</style>
+</head>
+<body>
+
+<div class="topnav">
+  <div class="topnav-brand">GulfLedger</div>
+  <a href="inventory.html" class="topnav-back">← العودة للمخزون · Back to Inventory</a>
+</div>
+
+<div class="page">
+  <div class="page-h1" data-ar="المواقع" data-en="Locations">المواقع · Locations</div>
+  <div class="page-sub">إدارة المستودعات والفروع · Manage warehouses, stores, and other inventory locations</div>
+
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" class="search-input" id="loc-search" placeholder="بحث بالاسم، الكود..." oninput="renderList()">
+      </div>
+      <button class="btn btn-secondary btn-sm" onclick="toggleShowInactive()" id="btn-toggle-inactive">
+        👁 <span id="btn-toggle-inactive-label">إظهار غير النشطة</span>
+      </button>
+    </div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-secondary btn-sm" onclick="loadLocations()" title="تحديث">↻</button>
+      <button class="btn btn-primary btn-sm" onclick="openCreateModal()">+ موقع جديد · New Location</button>
+    </div>
+  </div>
+
+  <div id="locations-list">
+    <div class="loading">جارٍ التحميل... · Loading...</div>
+  </div>
+</div>
+
+<!-- Create/Edit Modal -->
+<div class="modal-overlay" id="loc-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" id="loc-modal-title">+ موقع جديد · New Location</div>
+      <button class="modal-close" onclick="closeModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="loc-id">
+      <div class="field-row">
+        <div class="field">
+          <label class="field-label">الاسم بالعربي · Name (Arabic) *</label>
+          <input type="text" class="field-input" id="loc-name-ar" placeholder="مثلاً: فرع الرياض">
+        </div>
+        <div class="field">
+          <label class="field-label">الاسم بالإنجليزي · Name (English)</label>
+          <input type="text" class="field-input" id="loc-name-en" placeholder="e.g. Riyadh Branch">
+        </div>
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label class="field-label">الكود · Code</label>
+          <input type="text" class="field-input mono" id="loc-code" placeholder="e.g. RIY-01">
+        </div>
+        <div class="field">
+          <label class="field-label">النوع · Type</label>
+          <select class="field-select" id="loc-type">
+            <option value="warehouse">مستودع · Warehouse</option>
+            <option value="store">متجر / فرع · Store</option>
+            <option value="mobile">متنقل · Mobile</option>
+            <option value="virtual">افتراضي · Virtual</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field-label">العنوان · Address</label>
+        <input type="text" class="field-input" id="loc-address" placeholder="عنوان الموقع">
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <label class="field-label">المدينة · City</label>
+          <input type="text" class="field-input" id="loc-city" placeholder="الرياض">
+        </div>
+        <div class="field">
+          <label class="field-label">ملاحظات · Notes</label>
+          <input type="text" class="field-input" id="loc-notes">
+        </div>
+      </div>
+
+      <div class="toggle-row">
+        <input type="checkbox" id="loc-is-default">
+        <label for="loc-is-default">⭐ تعيين كموقع افتراضي · Set as default location</label>
+      </div>
+
+      <div class="toggle-row" style="margin-top:8px;">
+        <input type="checkbox" id="loc-is-active" checked>
+        <label for="loc-is-active">✅ نشط · Active</label>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeModal()">إلغاء · Cancel</button>
+      <button class="btn btn-danger btn-sm" id="btn-delete-loc" onclick="deleteLocation()" style="display:none;margin-inline-end:auto;">🗑 حذف</button>
+      <button class="btn btn-primary" id="btn-save-loc" onclick="saveLocation()">💾 حفظ · Save</button>
+    </div>
+  </div>
+</div>
+
+<div class="notify" id="notify"></div>
+
+<script>
+const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let currentUser = null, currentBiz = null;
+let allLocations = [];
+let showInactive = false;
+
+function fmt(n){return Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function escHTML(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
+
+function notify(msg, kind){
+  const el = document.getElementById('notify');
+  el.textContent = msg;
+  el.className = 'notify show ' + (kind||'');
+  setTimeout(() => el.classList.remove('show'), 2400);
+}
+
+async function init(){
+  const {data:{session}} = await sb.auth.getSession();
+  if(!session){ window.location.href = 'login.html'; return; }
+  currentUser = session.user;
+
+  const {data: membership} = await sb.from('business_users')
+    .select('business_id, role').eq('user_id', currentUser.id).eq('status','active').limit(5);
+  if(!membership || membership.length === 0){
+    document.getElementById('locations-list').innerHTML = '<div class="empty-state"><div class="title">لا يوجد منشأة نشطة</div></div>';
+    return;
+  }
+  const chosen = membership.find(m => m.role === 'owner') || membership[0];
+  const {data: biz} = await sb.from('businesses').select('*').eq('id', chosen.business_id).maybeSingle();
+  if(!biz){ notify('فشل تحميل المنشأة','r'); return; }
+  currentBiz = biz;
+
+  await loadLocations();
+}
+
+async function loadLocations(){
+  const {data, error} = await sb.from('locations')
+    .select('*')
+    .eq('business_id', currentBiz.id)
+    .order('is_default', {ascending: false})
+    .order('name');
+  if(error){ console.error(error); notify('فشل التحميل: ' + error.message, 'r'); return; }
+  allLocations = data || [];
+  renderList();
+}
+
+function renderList(){
+  const wrap = document.getElementById('locations-list');
+  const search = (document.getElementById('loc-search')?.value || '').toLowerCase().trim();
+  let list = showInactive ? allLocations : allLocations.filter(l => l.is_active);
+  if(search){
+    list = list.filter(l =>
+      (l.name||'').toLowerCase().includes(search) ||
+      (l.name_en||'').toLowerCase().includes(search) ||
+      (l.location_code||'').toLowerCase().includes(search) ||
+      (l.city||'').toLowerCase().includes(search)
+    );
+  }
+
+  if(list.length === 0){
+    wrap.innerHTML = `<div class="empty-state">
+      <div class="icon">📍</div>
+      <div class="title">لا توجد مواقع</div>
+      <div class="text">اضغط "موقع جديد" لإضافة مستودع أو فرع</div>
+    </div>`;
+    return;
+  }
+
+  wrap.innerHTML = `
+    <div style="background:#fff;border:1px solid var(--border);border-radius:12px;overflow:visible;">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>الاسم · Name</th>
+            <th>الكود · Code</th>
+            <th>النوع · Type</th>
+            <th>المدينة · City</th>
+            <th>الحالة · Status</th>
+            <th class="center"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map(l => {
+            const typeBadgeClass = 'badge-' + (l.type || 'warehouse');
+            const typeLabel = ({warehouse:'مستودع',store:'متجر',mobile:'متنقل',virtual:'افتراضي'}[l.type] || l.type);
+            return `<tr class="clickable${!l.is_active?' inactive':''}" onclick="openEditModal('${l.id}')">
+              <td>
+                <strong>${escHTML(l.name_ar || l.name || '—')}</strong>
+                ${l.name_en && l.name_en !== l.name_ar ? `<div style="font-size:11px;color:var(--muted);">${escHTML(l.name_en)}</div>` : ''}
+                ${l.is_default ? ' <span class="badge badge-default">⭐ افتراضي</span>' : ''}
+              </td>
+              <td class="num">${escHTML(l.location_code || '—')}</td>
+              <td><span class="badge ${typeBadgeClass}">${typeLabel}</span></td>
+              <td>${escHTML(l.city || '—')}</td>
+              <td>${l.is_active ? '<span class="badge badge-default">نشط</span>' : '<span class="badge badge-inactive">معطل</span>'}</td>
+              <td class="center">
+                <div class="row-actions">
+                  <button class="row-actions-btn" onclick="event.stopPropagation();toggleRowMenu(this)" title="إجراءات">⋮</button>
+                  <div class="row-actions-menu" onclick="event.stopPropagation()">
+                    <button class="row-action-item" onclick="closeAllMenus();openEditModal('${l.id}')">✏️ تعديل · Edit</button>
+                    ${!l.is_default ? `<button class="row-action-item" onclick="closeAllMenus();setAsDefault('${l.id}')">⭐ تعيين كافتراضي · Set default</button>` : ''}
+                    ${l.is_active ? `<button class="row-action-item" onclick="closeAllMenus();toggleActive('${l.id}', false)">🚫 تعطيل · Deactivate</button>` : `<button class="row-action-item" onclick="closeAllMenus();toggleActive('${l.id}', true)">✅ تفعيل · Activate</button>`}
+                  </div>
+                </div>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
+
+function toggleShowInactive(){
+  showInactive = !showInactive;
+  document.getElementById('btn-toggle-inactive-label').textContent = showInactive ? 'إخفاء غير النشطة' : 'إظهار غير النشطة';
+  renderList();
+}
+
+/* ════ Modal ════ */
+function openCreateModal(){
+  document.getElementById('loc-modal-title').textContent = '+ موقع جديد · New Location';
+  document.getElementById('loc-id').value = '';
+  document.getElementById('loc-name-ar').value = '';
+  document.getElementById('loc-name-en').value = '';
+  document.getElementById('loc-code').value = '';
+  document.getElementById('loc-type').value = 'warehouse';
+  document.getElementById('loc-address').value = '';
+  document.getElementById('loc-city').value = '';
+  document.getElementById('loc-notes').value = '';
+  document.getElementById('loc-is-default').checked = false;
+  document.getElementById('loc-is-active').checked = true;
+  document.getElementById('btn-delete-loc').style.display = 'none';
+  document.getElementById('loc-modal').classList.add('open');
+}
+
+function openEditModal(id){
+  const l = allLocations.find(x => x.id === id);
+  if(!l) return;
+  document.getElementById('loc-modal-title').textContent = '✏️ تعديل الموقع · Edit Location';
+  document.getElementById('loc-id').value = l.id;
+  document.getElementById('loc-name-ar').value = l.name_ar || l.name || '';
+  document.getElementById('loc-name-en').value = l.name_en || '';
+  document.getElementById('loc-code').value = l.location_code || '';
+  document.getElementById('loc-type').value = l.type || 'warehouse';
+  document.getElementById('loc-address').value = l.address || '';
+  document.getElementById('loc-city').value = l.city || '';
+  document.getElementById('loc-notes').value = l.notes || '';
+  document.getElementById('loc-is-default').checked = !!l.is_default;
+  document.getElementById('loc-is-active').checked = !!l.is_active;
+  /* Show delete only for non-default locations */
+  document.getElementById('btn-delete-loc').style.display = l.is_default ? 'none' : '';
+  document.getElementById('loc-modal').classList.add('open');
+}
+
+function closeModal(){
+  document.getElementById('loc-modal').classList.remove('open');
+}
+
+async function saveLocation(){
+  const id = document.getElementById('loc-id').value;
+  const nameAr = document.getElementById('loc-name-ar').value.trim();
+  const nameEn = document.getElementById('loc-name-en').value.trim();
+  const code = document.getElementById('loc-code').value.trim();
+  const type = document.getElementById('loc-type').value;
+  const address = document.getElementById('loc-address').value.trim();
+  const city = document.getElementById('loc-city').value.trim();
+  const notes = document.getElementById('loc-notes').value.trim();
+  const isDefault = document.getElementById('loc-is-default').checked;
+  const isActive = document.getElementById('loc-is-active').checked;
+
+  if(!nameAr){ notify('الاسم بالعربي مطلوب','r'); return; }
+
+  const btn = document.getElementById('btn-save-loc');
+  btn.disabled = true; btn.textContent = '⏳ جارٍ الحفظ...';
+
+  try {
+    const payload = {
+      business_id: currentBiz.id,
+      user_id: currentUser.id,
+      name: nameAr,            /* Arabic primary mirrors name */
+      name_ar: nameAr,
+      name_en: nameEn || null,
+      location_code: code || null,
+      type: type,
+      address: address || null,
+      city: city || null,
+      notes: notes || null,
+      is_active: isActive,
+      updated_at: new Date().toISOString()
+    };
+
+    if(id){
+      /* Update */
+      const {error} = await sb.from('locations').update(payload).eq('id', id);
+      if(error) throw error;
+      /* Handle default toggle */
+      if(isDefault){
+        await setAsDefault(id, true);
+      }
+      notify('✅ تم التحديث','g');
+    } else {
+      /* Insert */
+      payload.is_default = false;  /* set after insert via setAsDefault */
+      const {data: newRow, error} = await sb.from('locations').insert(payload).select().single();
+      if(error) throw error;
+      if(isDefault && newRow){
+        await setAsDefault(newRow.id, true);
+      }
+      notify('✅ تم الإنشاء','g');
+    }
+
+    closeModal();
+    await loadLocations();
+  } catch(e){
+    console.error('[GL] saveLocation', e);
+    if((e.message||'').includes('duplicate')){
+      notify('⚠ يوجد موقع بنفس الاسم','r');
+    } else {
+      notify('فشل: ' + (e.message||''), 'r');
+    }
+  } finally {
+    btn.disabled = false; btn.textContent = '💾 حفظ · Save';
+  }
+}
+
+/* Set a location as default — un-defaults all others first.
+   Called from row menu OR from the modal save flow. */
+async function setAsDefault(id, silent){
+  try {
+    /* Un-default existing */
+    await sb.from('locations')
+      .update({is_default: false, updated_at: new Date().toISOString()})
+      .eq('business_id', currentBiz.id)
+      .neq('id', id);
+    /* Default the chosen */
+    const {error} = await sb.from('locations')
+      .update({is_default: true, updated_at: new Date().toISOString()})
+      .eq('id', id);
+    if(error) throw error;
+    if(!silent){
+      notify('⭐ تم تعيين الموقع الافتراضي','g');
+      await loadLocations();
+    }
+  } catch(e){
+    console.error('[GL] setAsDefault', e);
+    notify('فشل: ' + (e.message||''), 'r');
+  }
+}
+
+async function toggleActive(id, makeActive){
+  try {
+    const loc = allLocations.find(x => x.id === id);
+    if(!loc) return;
+    if(loc.is_default && !makeActive){
+      notify('⚠ لا يمكن تعطيل الموقع الافتراضي','r');
+      return;
+    }
+    const {error} = await sb.from('locations')
+      .update({is_active: makeActive, updated_at: new Date().toISOString()})
+      .eq('id', id);
+    if(error) throw error;
+    notify(makeActive ? '✅ تم التفعيل' : '🚫 تم التعطيل', 'g');
+    await loadLocations();
+  } catch(e){
+    console.error('[GL] toggleActive', e);
+    notify('فشل: ' + (e.message||''), 'r');
+  }
+}
+
+async function deleteLocation(){
+  const id = document.getElementById('loc-id').value;
+  if(!id) return;
+  const loc = allLocations.find(x => x.id === id);
+  if(!loc){ notify('غير موجود','r'); return; }
+  if(loc.is_default){ notify('⚠ لا يمكن حذف الموقع الافتراضي','r'); return; }
+
+  if(!confirm(`هل أنت متأكد من حذف "${loc.name_ar || loc.name}"؟\n\nسيُرفض الحذف إذا كانت هناك بضاعة موجودة بهذا الموقع.\n\nDelete this location? Will be rejected if any inventory exists at this location.`)){
+    return;
+  }
+
+  /* Pre-check: any batches at this location? */
+  const {data: batches} = await sb.from('inventory_batches')
+    .select('id', {count: 'exact', head: false})
+    .eq('location_id', id)
+    .gt('qty_remaining', 0)
+    .limit(1);
+  if(batches && batches.length > 0){
+    notify('⚠ يوجد مخزون في هذا الموقع — انقله أولاً','r');
+    return;
+  }
+
+  try {
+    const {error} = await sb.from('locations').delete().eq('id', id);
+    if(error) throw error;
+    notify('✅ تم الحذف','g');
+    closeModal();
+    await loadLocations();
+  } catch(e){
+    console.error('[GL] deleteLocation', e);
+    if((e.message||'').includes('foreign key') || (e.message||'').includes('violates')){
+      notify('⚠ هذا الموقع مرتبط ببيانات أخرى — عطّله بدلاً من حذفه','r');
+    } else {
+      notify('فشل: ' + (e.message||''), 'r');
+    }
+  }
+}
+
+/* Row menu helpers (matches finance/invoices pattern) */
+function toggleRowMenu(btn){
+  const menu = btn.nextElementSibling;
+  if(!menu) return;
+  const isOpen = menu.classList.contains('open');
+  closeAllMenus();
+  if(isOpen) return;
+  menu.classList.add('open');
+  const btnRect = btn.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  const viewportH = window.innerHeight;
+  const viewportW = window.innerWidth;
+  let top = btnRect.bottom + 4;
+  if(top + menuRect.height > viewportH - 8) top = btnRect.top - menuRect.height - 4;
+  let left = btnRect.right - menuRect.width;
+  if(left < 8) left = 8;
+  if(left + menuRect.width > viewportW - 8) left = viewportW - menuRect.width - 8;
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
+}
+function closeAllMenus(){
+  document.querySelectorAll('.row-actions-menu.open').forEach(m => {
+    m.classList.remove('open');
+    m.style.top = ''; m.style.left = '';
+  });
+}
+document.addEventListener('click', e => {
+  if(!e.target.closest('.row-actions') && !e.target.closest('.row-actions-menu')) closeAllMenus();
+});
+window.addEventListener('scroll', closeAllMenus, true);
+window.addEventListener('resize', closeAllMenus);
+
+init();
+</script>
+</body>
+</html>
