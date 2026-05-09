@@ -1,0 +1,472 @@
+<!DOCTYPE html>
+<!--
+  GulfLedger — credit-note-view.html
+  Round 4l.7 Pass 1: standalone credit note viewer with refund recording.
+  URL param: ?id=<credit_note_uuid>
+-->
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>إشعار دائن · GulfLedger</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#F5F7F5;--ink:#0F1F18;--navy:#0F1F18;--brand:#0E5C3F;--blue:#1D7A4D;--green:#1D9E75;--tint:#E6F2EC;--light:#C4DFD0;--muted:#6B7770;--border:#DCE5DD;--red:#B8492A;--amber:#C68B0E;--white:#fff;}
+*{box-sizing:border-box;margin:0;padding:0;}
+body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;font-size:14px;line-height:1.5;}
+.mono{font-family:'DM Mono',monospace;}
+a{color:var(--blue);text-decoration:none;}
+.topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:300;}
+.topnav-brand{color:#fff;font-weight:800;font-size:16px;}
+.topnav-back{color:rgba(255,255,255,0.85);font-size:13px;}
+.page-wrap{max-width:900px;margin:0 auto;padding:24px;}
+.action-bar{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;flex-wrap:wrap;gap:10px;}
+.btn{padding:8px 16px;border-radius:8px;font-family:inherit;font-weight:600;font-size:13px;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .15s;}
+.btn-ghost{background:transparent;color:var(--ink);border:1px solid var(--border);}
+.btn-ghost:hover{background:var(--tint);}
+.btn-primary{background:var(--blue);color:#fff;}
+.btn-primary:hover{background:var(--brand);}
+.cn-doc{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden;box-shadow:0 4px 20px rgba(0,0,0,0.06);position:relative;}
+.cn-doc-header{background:#B8492A;color:#fff;padding:18px 24px;display:grid;grid-template-columns:1fr auto 1fr;gap:18px;align-items:center;}
+.cn-doc-logo{display:flex;align-items:center;gap:12px;min-width:0;}
+.cn-logo-circle{width:54px;height:54px;background:rgba(255,255,255,0.2);border-radius:10px;display:flex;align-items:center;justify-content:center;font-size:22px;font-weight:800;flex-shrink:0;overflow:hidden;padding:6px;box-sizing:border-box;}
+.cn-logo-circle img{max-width:100%;max-height:100%;width:auto;height:auto;object-fit:contain;display:block;}
+.cn-biz-name-ar{font-size:16px;font-weight:800;line-height:1.3;}
+.cn-biz-name-en{font-size:11px;font-weight:500;color:rgba(255,255,255,0.85);margin-top:1px;}
+.cn-type-center{text-align:center;}
+.cn-type-badge{font-size:11px;font-weight:800;background:rgba(255,255,255,0.18);padding:8px 16px;border-radius:8px;letter-spacing:.06em;display:inline-block;line-height:1.4;}
+.cn-type-badge .ar{display:block;font-size:13px;}
+.cn-type-badge .en{font-size:9px;opacity:0.85;}
+.cn-doc-meta{text-align:end;}
+.cn-meta-row{display:flex;justify-content:flex-end;align-items:baseline;gap:8px;font-size:11px;line-height:1.4;margin-top:2px;}
+.cn-meta-row:first-child{margin-top:0;}
+.cn-meta-row .lbl{color:rgba(255,255,255,0.7);font-weight:500;font-size:9px;letter-spacing:.02em;flex-shrink:0;text-align:end;text-transform:uppercase;}
+.cn-meta-row .lbl .lbl-en{display:inline;font-size:9px;font-weight:500;color:rgba(255,255,255,0.55);letter-spacing:.04em;}
+.cn-meta-row .lbl .lbl-en::before{content:" · ";color:rgba(255,255,255,0.4);}
+.cn-meta-row .val{color:#fff;font-weight:600;font-size:11px;font-family:'DM Mono',monospace;}
+.cn-meta-row.primary .val{font-size:14px;font-weight:800;}
+.cn-ref-banner{background:#fef3f0;border-bottom:1px solid #f4cab9;padding:12px 24px;font-size:13px;color:#7b3214;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;}
+.cn-ref-banner a{color:#9a4a26;font-weight:700;}
+.cn-refund-banner{padding:12px 24px;font-size:13px;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;border-bottom:1px solid var(--border);}
+.cn-refund-banner.recorded{background:#dcfce7;color:#14532d;}
+.cn-refund-banner.pending{background:#fef3c7;color:#78350f;}
+.cn-doc-body{padding:24px;}
+.cn-parties{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:18px;}
+.cn-parties-headers{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:6px;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;font-weight:700;}
+.cn-parties-headers > div{padding:0 4px;}
+.party-card{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px 16px;font-size:12px;line-height:1.7;}
+.party-name{font-size:14px;font-weight:700;color:var(--ink);margin-bottom:2px;}
+.party-name-en{font-size:11px;color:var(--muted);font-weight:500;margin-bottom:6px;}
+.party-trn{margin-top:6px;}
+.party-trn .lbl{color:var(--muted);font-weight:600;font-size:11px;}
+.party-trn .val{color:var(--green);font-weight:700;font-family:'DM Mono',monospace;font-size:13px;}
+.party-detail{color:var(--muted);font-size:11px;margin-top:1px;}
+.cn-reason{background:#fefcf3;border:1px solid #f0e6c0;border-radius:8px;padding:10px 14px;margin-bottom:18px;font-size:13px;}
+.cn-reason .lbl{font-size:10px;color:var(--amber);text-transform:uppercase;letter-spacing:.05em;font-weight:700;margin-bottom:3px;}
+.cn-items-tbl{width:100%;border-collapse:collapse;margin-bottom:18px;background:#fff;border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+.cn-items-tbl th{padding:10px 12px;background:var(--ink);color:#fff;font-size:10px;text-transform:uppercase;letter-spacing:.04em;font-weight:700;text-align:start;}
+.cn-items-tbl th .en{display:block;font-size:8px;opacity:0.75;font-weight:500;margin-top:1px;}
+.cn-items-tbl td{padding:11px 12px;border-bottom:1px solid #f0f4f0;vertical-align:top;line-height:1.45;font-size:13px;}
+.cn-items-tbl td.mono{font-family:'DM Mono',monospace;text-align:end;}
+.cn-items-tbl tr:last-child td{border-bottom:none;}
+.cn-totals{display:flex;justify-content:flex-end;margin-bottom:18px;}
+.cn-totals-box{min-width:280px;background:var(--bg);border:1px solid var(--border);border-radius:10px;overflow:hidden;}
+.cn-total-row{display:flex;justify-content:space-between;align-items:baseline;padding:10px 14px;font-size:13px;border-bottom:1px solid var(--border);}
+.cn-total-row:last-child{border-bottom:none;}
+.cn-total-row.grand{background:#B8492A;color:#fff;font-weight:800;font-size:15px;padding:14px;}
+.cn-total-row .lbl{color:var(--muted);font-weight:600;}
+.cn-total-row.grand .lbl{color:rgba(255,255,255,0.9);}
+.cn-total-row .val{font-family:'DM Mono',monospace;font-weight:700;color:var(--ink);}
+.cn-total-row.grand .val{color:#fff;}
+.cn-doc-footer{padding:18px 24px;border-top:1px solid var(--border);background:var(--bg);font-size:11px;color:var(--muted);text-align:center;line-height:1.6;}
+.loading{text-align:center;padding:60px 20px;color:var(--muted);}
+.error{text-align:center;padding:40px 20px;color:var(--red);background:#fff;border:1px solid var(--border);border-radius:12px;max-width:600px;margin:40px auto;}
+.cn-voided-stamp{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%) rotate(-15deg);font-size:80px;font-weight:900;color:rgba(184,73,42,0.2);pointer-events:none;letter-spacing:0.1em;z-index:10;}
+@media print{
+  body{background:#fff;}
+  .topnav,.action-bar,.cn-refund-banner{display:none;}
+  .cn-doc{box-shadow:none;border:none;border-radius:0;}
+  .page-wrap{padding:0;max-width:none;}
+}
+</style>
+</head>
+<body>
+
+<div class="topnav">
+  <div class="topnav-brand">GulfLedger</div>
+  <a href="invoices.html" class="topnav-back">← العودة · Back</a>
+</div>
+
+<div class="page-wrap">
+  <div id="loading-state" class="loading">جارٍ التحميل... · Loading...</div>
+  <div id="error-state" class="error" style="display:none;"></div>
+
+  <div id="content" style="display:none;">
+    <div class="action-bar">
+      <div style="font-size:13px;color:var(--muted);">
+        <a href="invoices.html?tab=credit-notes" style="color:var(--blue);">📋 الإشعارات الدائنة · Credit Notes</a>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost" onclick="window.print()">🖨 طباعة · Print</button>
+        <button class="btn btn-primary" onclick="goToOriginalInvoice()">📄 الفاتورة الأصلية · Original Invoice</button>
+      </div>
+    </div>
+
+    <div class="cn-doc" id="cn-doc">
+      <div class="cn-doc-header">
+        <div class="cn-doc-logo">
+          <div class="cn-logo-circle" id="biz-logo"><span id="biz-logo-letter">G</span></div>
+          <div>
+            <div class="cn-biz-name-ar" id="biz-name-ar">—</div>
+            <div class="cn-biz-name-en" id="biz-name-en"></div>
+          </div>
+        </div>
+        <div class="cn-type-center">
+          <div class="cn-type-badge">
+            <span class="ar">إشعار دائن</span>
+            <span class="en">CREDIT NOTE</span>
+          </div>
+        </div>
+        <div class="cn-doc-meta">
+          <div class="cn-meta-row primary">
+            <span class="lbl">رقم الإشعار<span class="lbl-en">CN No</span></span>
+            <span class="val" id="meta-cnnum">—</span>
+          </div>
+          <div class="cn-meta-row">
+            <span class="lbl">تاريخ الإصدار<span class="lbl-en">Issue Date</span></span>
+            <span class="val" id="meta-issuedate">—</span>
+          </div>
+          <div class="cn-meta-row">
+            <span class="lbl">فاتورة أصلية<span class="lbl-en">Original Inv</span></span>
+            <span class="val" id="meta-origninv">—</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="cn-ref-banner">
+        <div>
+          <strong>📄 يشير إلى الفاتورة:</strong>
+          <a href="#" id="ref-invoice-link"></a>
+          <span style="color:#9a4a26;margin-inline-start:4px;">· References original invoice</span>
+        </div>
+        <div id="cn-status-badge"></div>
+      </div>
+
+      <div class="cn-refund-banner" id="refund-banner" style="display:none;"></div>
+
+      <div class="cn-doc-body">
+        <div class="cn-parties-headers">
+          <div>المشتري · BUYER</div>
+          <div>البائع · SELLER</div>
+        </div>
+        <div class="cn-parties">
+          <div class="party-card" id="buyer-card"></div>
+          <div class="party-card" id="seller-card"></div>
+        </div>
+
+        <div class="cn-reason" id="reason-block" style="display:none;">
+          <div class="lbl">سبب الإصدار · Reason for Issuance</div>
+          <div id="reason-text">—</div>
+        </div>
+
+        <table class="cn-items-tbl">
+          <thead>
+            <tr>
+              <th>الوصف<span class="en">DESCRIPTION</span></th>
+              <th class="mono" style="text-align:end;">الكمية<span class="en">QTY</span></th>
+              <th class="mono" style="text-align:end;">السعر<span class="en">UNIT PRICE</span></th>
+              <th class="mono" style="text-align:end;">الإجمالي<span class="en">SUBTOTAL</span></th>
+              <th class="mono" style="text-align:end;">ضريبة 15%<span class="en">VAT</span></th>
+              <th class="mono" style="text-align:end;">المجموع<span class="en">TOTAL</span></th>
+            </tr>
+          </thead>
+          <tbody id="items-body"></tbody>
+        </table>
+
+        <div class="cn-totals">
+          <div class="cn-totals-box">
+            <div class="cn-total-row">
+              <span class="lbl">الإجمالي · Subtotal</span>
+              <span class="val" id="totals-subtotal">SAR 0.00</span>
+            </div>
+            <div class="cn-total-row">
+              <span class="lbl">ضريبة القيمة المضافة 15% · VAT</span>
+              <span class="val" id="totals-vat">SAR 0.00</span>
+            </div>
+            <div class="cn-total-row grand">
+              <span class="lbl">إجمالي الإشعار الدائن · Total Credited</span>
+              <span class="val" id="totals-total">SAR 0.00</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="cn-doc-footer">
+        أُنشِئ بواسطة <strong>GulfLedger</strong> · Generated by <strong>GulfLedger</strong><br>
+        إشعار دائن صادر بموجب أحكام نظام ضريبة القيمة المضافة في المملكة العربية السعودية ولوائحه التنفيذية ومتطلبات هيئة الزكاة والضريبة والجمارك.
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let currentUser=null, currentBiz=null, currentCN=null, currentItems=[], currentInvoice=null;
+let _bankAccountsCache = null;
+
+function fmt(n){return Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function escHTML(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
+
+async function init(){
+  const cnId = new URLSearchParams(window.location.search).get('id');
+  if(!cnId){ showError('لا يوجد رقم إشعار · No credit note ID'); return; }
+  const {data:{session}} = await sb.auth.getSession();
+  if(!session){ window.location.href='login.html'; return; }
+  currentUser = session.user;
+  const {data: membership} = await sb.from('business_users').select('business_id, role').eq('user_id', currentUser.id).eq('status','active').limit(5);
+  if(!membership || membership.length === 0){ showError('لا يوجد منشأة نشطة'); return; }
+  const chosen = membership.find(m=>m.role==='owner') || membership[0];
+  const {data: biz} = await sb.from('businesses').select('*').eq('id', chosen.business_id).maybeSingle();
+  if(!biz){ showError('فشل تحميل المنشأة'); return; }
+  currentBiz = biz;
+  try {
+    const {data: cn, error: cnErr} = await sb.from('credit_notes').select('*').eq('id', cnId).maybeSingle();
+    if(cnErr || !cn){ showError('الإشعار الدائن غير موجود · Credit note not found'); return; }
+    currentCN = cn;
+    const {data: items} = await sb.from('credit_note_items').select('*').eq('credit_note_id', cnId).order('display_order');
+    currentItems = items || [];
+    if(cn.original_invoice_id){
+      const {data: inv} = await sb.from('invoices').select('*').eq('id', cn.original_invoice_id).maybeSingle();
+      currentInvoice = inv;
+    }
+    render();
+    document.getElementById('loading-state').style.display='none';
+    document.getElementById('content').style.display='';
+  } catch(e){ console.error(e); showError('فشل التحميل · ' + (e.message||'')); }
+}
+
+function showError(msg){
+  document.getElementById('loading-state').style.display='none';
+  const err = document.getElementById('error-state');
+  err.textContent = msg; err.style.display='';
+}
+
+function render(){
+  const cn = currentCN, biz = currentBiz, inv = currentInvoice;
+  document.getElementById('biz-name-ar').textContent = biz.business_name_ar || biz.business_name || '—';
+  document.getElementById('biz-name-en').textContent = biz.business_name_en || '';
+  if(biz.logo_url){
+    document.getElementById('biz-logo').innerHTML = `<img src="${escHTML(biz.logo_url)}" alt="logo">`;
+  } else {
+    document.getElementById('biz-logo-letter').textContent = (biz.business_name_ar||biz.business_name||'G').charAt(0);
+  }
+  document.getElementById('meta-cnnum').textContent = cn.credit_note_number || '—';
+  document.getElementById('meta-issuedate').textContent = cn.issue_date || '—';
+  document.getElementById('meta-origninv').textContent = cn.original_invoice_number || '—';
+  const refLink = document.getElementById('ref-invoice-link');
+  refLink.textContent = cn.original_invoice_number || '—';
+  refLink.href = `invoice-view.html?id=${cn.original_invoice_id}`;
+  const statusEl = document.getElementById('cn-status-badge');
+  if(cn.status === 'voided'){
+    statusEl.innerHTML = '<span style="background:#e5e7eb;color:#6b7280;padding:3px 10px;border-radius:8px;font-size:11px;font-weight:700;">ملغي · VOIDED</span>';
+    document.getElementById('cn-doc').insertAdjacentHTML('afterbegin', '<div class="cn-voided-stamp">VOIDED</div>');
+  } else {
+    statusEl.innerHTML = '<span style="background:#dcfce7;color:#166534;padding:3px 10px;border-radius:8px;font-size:11px;font-weight:700;">صادر · ISSUED</span>';
+  }
+  /* Refund banner */
+  const banner = document.getElementById('refund-banner');
+  if(inv && parseFloat(inv.amount_paid || 0) > 0.01){
+    if(cn.refund_recorded){
+      banner.className = 'cn-refund-banner recorded';
+      banner.innerHTML = `<div>✅ <strong>تم تسجيل الاسترداد</strong> · Refund recorded</div><div style="font-family:'DM Mono',monospace;font-weight:700;">SAR ${fmt(cn.refund_amount)} · ${cn.refund_date || ''}</div>`;
+    } else {
+      banner.className = 'cn-refund-banner pending';
+      banner.innerHTML = `<div>⚠ <strong>الفاتورة الأصلية مدفوعة (SAR ${fmt(inv.amount_paid)})</strong> — لم يُسجل استرداد بعد</div><button class="btn btn-primary" onclick="openRefundModal()" style="font-size:12px;padding:6px 12px;">💵 تسجيل استرداد · Record Refund</button>`;
+    }
+    banner.style.display = '';
+  }
+  /* Buyer */
+  const buyerNameAr = cn.customer_name_ar || (inv && inv.buyer_name) || '—';
+  const buyerNameEn = cn.customer_name_en || (inv && inv.buyer_name_en) || '';
+  document.getElementById('buyer-card').innerHTML = `
+    <div class="party-name">${escHTML(buyerNameAr)}</div>
+    ${buyerNameEn && buyerNameEn !== buyerNameAr ? `<div class="party-name-en">${escHTML(buyerNameEn)}</div>` : ''}
+    ${cn.customer_trn ? `<div class="party-trn"><span class="lbl">TRN:</span> <span class="val">${escHTML(cn.customer_trn)}</span></div>` : ''}
+    ${inv && inv.buyer_address ? `<div class="party-detail">${escHTML(inv.buyer_address)}</div>` : ''}
+  `;
+  /* Seller */
+  document.getElementById('seller-card').innerHTML = `
+    <div class="party-name">${escHTML(biz.business_name_ar || biz.business_name || '—')}</div>
+    ${biz.business_name_en ? `<div class="party-name-en">${escHTML(biz.business_name_en)}</div>` : ''}
+    ${biz.tax_number ? `<div class="party-trn"><span class="lbl">TRN:</span> <span class="val">${escHTML(biz.tax_number)}</span></div>` : ''}
+    ${biz.cr_number ? `<div class="party-detail">CR: ${escHTML(biz.cr_number)}</div>` : ''}
+    ${biz.address ? `<div class="party-detail">${escHTML(biz.address)}</div>` : ''}
+  `;
+  if(cn.reason && cn.reason.trim()){
+    document.getElementById('reason-block').style.display = '';
+    document.getElementById('reason-text').textContent = cn.reason;
+  }
+  const tbody = document.getElementById('items-body');
+  if(currentItems.length === 0){
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px;">لا توجد أصناف · No items</td></tr>`;
+  } else {
+    tbody.innerHTML = currentItems.map(it => {
+      const desc = it.description_ar || it.description || '—';
+      const descEn = it.description_en || '';
+      return `<tr>
+        <td>
+          <div dir="rtl" style="text-align:start;">${escHTML(desc)}</div>
+          ${descEn ? `<div style="text-align:start;font-size:11px;color:var(--muted);" dir="ltr">${escHTML(descEn)}</div>` : ''}
+        </td>
+        <td class="mono">${parseFloat(it.quantity)||0}</td>
+        <td class="mono">SAR ${fmt(it.unit_price)}</td>
+        <td class="mono">SAR ${fmt(it.subtotal)}</td>
+        <td class="mono">SAR ${fmt(it.vat_amount)}</td>
+        <td class="mono" style="font-weight:700;">SAR ${fmt(it.total)}</td>
+      </tr>`;
+    }).join('');
+  }
+  document.getElementById('totals-subtotal').textContent = 'SAR ' + fmt(cn.subtotal);
+  document.getElementById('totals-vat').textContent = 'SAR ' + fmt(cn.vat_amount);
+  document.getElementById('totals-total').textContent = 'SAR ' + fmt(cn.total);
+}
+
+function goToOriginalInvoice(){
+  if(currentCN && currentCN.original_invoice_id){
+    window.location.href = `invoice-view.html?id=${currentCN.original_invoice_id}`;
+  }
+}
+
+async function openRefundModal(){
+  if(!_bankAccountsCache){
+    const {data} = await sb.from('bank_accounts')
+      .select('id, account_name, account_name_ar, currency, account_type, current_balance')
+      .eq('business_id', currentBiz.id).eq('is_active', true);
+    _bankAccountsCache = data || [];
+  }
+  const inv = currentInvoice;
+  const refundAmt = parseFloat(inv?.amount_paid || 0);
+  const origMethod = inv?.payment_method || 'cash';
+  const wantCash = (origMethod === 'cash');
+  const filtered = _bankAccountsCache.filter(a => wantCash ? a.account_type === 'cash' : a.account_type !== 'cash');
+
+  const overlay = document.createElement('div');
+  overlay.id = 'refund-modal-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000;padding:20px;';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:12px;width:100%;max-width:480px;max-height:90vh;overflow:auto;">
+      <div style="padding:18px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;">
+        <div style="font-size:16px;font-weight:800;color:var(--ink);">💵 تسجيل استرداد · Record Refund</div>
+        <button onclick="closeRefundModal()" style="background:transparent;border:none;font-size:24px;cursor:pointer;color:var(--muted);">×</button>
+      </div>
+      <div style="padding:20px 22px;">
+        <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:10px 12px;margin-bottom:16px;font-size:12px;color:#78350f;line-height:1.6;">
+          سيُسجل النظام عملية سحب من الحساب المختار وسيُربط بالإشعار الدائن.
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700;margin-bottom:5px;">المبلغ · Amount</label>
+          <input type="number" id="refund-amount" step="0.01" value="${refundAmt}" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;font-family:'DM Mono',monospace;">
+          <div style="font-size:11px;color:var(--muted);margin-top:3px;">مبلغ الفاتورة المدفوع: SAR ${fmt(refundAmt)}</div>
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700;margin-bottom:5px;">الطريقة · Method</label>
+          <select id="refund-method" onchange="onRefundMethodChange()" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;">
+            <option value="cash" ${origMethod==='cash'?'selected':''}>نقد · Cash</option>
+            <option value="bank" ${origMethod==='bank'?'selected':''}>تحويل بنكي · Bank</option>
+            <option value="card" ${origMethod==='card'?'selected':''}>بطاقة · Card</option>
+          </select>
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700;margin-bottom:5px;">الحساب · Account</label>
+          <select id="refund-account" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;">
+            <option value="">-- بدون حركة بنكية --</option>
+            ${filtered.map(a => `<option value="${a.id}">${escHTML((a.account_name_ar||a.account_name)+' · '+a.currency+' (Bal: '+fmt(a.current_balance)+')')}</option>`).join('')}
+          </select>
+        </div>
+        <div style="margin-bottom:14px;">
+          <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700;margin-bottom:5px;">التاريخ · Date</label>
+          <input type="date" id="refund-date" value="${new Date().toISOString().slice(0,10)}" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-size:14px;">
+        </div>
+      </div>
+      <div style="padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;">
+        <button class="btn btn-ghost" onclick="closeRefundModal()">إلغاء · Cancel</button>
+        <button class="btn btn-primary" id="refund-save-btn" onclick="saveRefund()">💵 تسجيل · Record</button>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+}
+
+function closeRefundModal(){ document.getElementById('refund-modal-overlay')?.remove(); }
+
+function onRefundMethodChange(){
+  const method = document.getElementById('refund-method').value;
+  const wantCash = (method === 'cash');
+  const filtered = (_bankAccountsCache || []).filter(a => wantCash ? a.account_type === 'cash' : a.account_type !== 'cash');
+  const sel = document.getElementById('refund-account');
+  sel.innerHTML = `<option value="">-- بدون حركة بنكية --</option>` +
+    filtered.map(a => `<option value="${a.id}">${escHTML((a.account_name_ar||a.account_name)+' · '+a.currency+' (Bal: '+fmt(a.current_balance)+')')}</option>`).join('');
+}
+
+async function saveRefund(){
+  const btn = document.getElementById('refund-save-btn');
+  btn.disabled = true; btn.textContent = '⏳ جارٍ الحفظ...';
+  const amount = parseFloat(document.getElementById('refund-amount').value) || 0;
+  const method = document.getElementById('refund-method').value;
+  const accountId = document.getElementById('refund-account').value;
+  const date = document.getElementById('refund-date').value;
+  if(amount <= 0){ alert('المبلغ يجب أن يكون أكبر من صفر'); btn.disabled = false; btn.textContent = '💵 تسجيل · Record'; return; }
+  try {
+    let bankTxId = null;
+    if(accountId){
+      const {data: acc} = await sb.from('bank_accounts').select('current_balance').eq('id', accountId).maybeSingle();
+      if(acc){
+        const newBalance = (parseFloat(acc.current_balance)||0) - amount;
+        const {data: tx, error: txErr} = await sb.from('bank_transactions').insert({
+          business_id: currentBiz.id,
+          user_id: currentUser.id,
+          account_id: accountId,
+          transaction_type: 'withdrawal',
+          transaction_date: date,
+          amount: amount,
+          balance_after: newBalance,
+          description: 'استرداد ' + (currentCN.original_invoice_number || '') + ' (CN ' + currentCN.credit_note_number + ')',
+          source_type: 'credit_note_refund',
+          source_id: currentCN.id
+        }).select().single();
+        if(txErr) throw txErr;
+        bankTxId = tx.id;
+        await sb.from('bank_accounts').update({
+          current_balance: newBalance,
+          updated_at: new Date().toISOString()
+        }).eq('id', accountId);
+      }
+    }
+    const {error: cnErr} = await sb.from('credit_notes').update({
+      refund_recorded: true,
+      refund_amount: amount,
+      refund_method: method,
+      refund_date: date,
+      refund_bank_tx_id: bankTxId,
+      updated_at: new Date().toISOString()
+    }).eq('id', currentCN.id);
+    if(cnErr) throw cnErr;
+    closeRefundModal();
+    location.reload();
+  } catch(e){
+    console.error('[GL] saveRefund', e);
+    alert('فشل: ' + (e.message || ''));
+    btn.disabled = false; btn.textContent = '💵 تسجيل · Record';
+  }
+}
+
+init();
+</script>
+</body>
+</html>

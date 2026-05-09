@@ -81,15 +81,17 @@ a:hover{text-decoration:underline;}
   <div class="tabs">
     <button class="tab active" id="tab-invoices" onclick="switchTab('invoices')">الفواتير · Invoices</button>
     <button class="tab" id="tab-payments" onclick="switchTab('payments')">المدفوعات · Payments</button>
+    <button class="tab" id="tab-credit-notes" onclick="switchTab('credit-notes')">إشعارات دائنة · Credit Notes</button>
   </div>
   <div id="pane-invoices"><div id="invoices-list"></div></div>
   <div id="pane-payments" style="display:none;"><div id="payments-list"></div></div>
+  <div id="pane-credit-notes" style="display:none;"><div id="credit-notes-list"></div></div>
 </div>
 <script>
 const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-let currentUser=null, currentBiz=null, currentCustomer=null, allInvoices=[];
+let currentUser=null, currentBiz=null, currentCustomer=null, allInvoices=[], allCreditNotes=[];
 function fmt(n){return Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function escHTML(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
 
@@ -114,6 +116,16 @@ async function init(){
       .select('id, invoice_number, issue_date, due_date, total, amount_paid, status, payment_status, invoice_type')
       .eq('customer_id', customerId).order('issue_date',{ascending:false});
     allInvoices = invs || [];
+
+    /* Round 4l.7: load credit notes for this customer (silent fail if table missing) */
+    try {
+      const {data: cns} = await sb.from('credit_notes')
+        .select('id, credit_note_number, issue_date, original_invoice_id, original_invoice_number, total, reason')
+        .eq('customer_id', customerId)
+        .order('issue_date', {ascending: false});
+      allCreditNotes = cns || [];
+    } catch(e){ allCreditNotes = []; }
+
     renderAll();
     document.getElementById('loading-state').style.display='none';
     document.getElementById('page').style.display='';
@@ -155,6 +167,7 @@ function renderAll(){
     : items.map(([l,v,m])=>`<div><div class="info-label">${escHTML(l)}</div><div class="info-value ${m?'mono':''}">${escHTML(v)}</div></div>`).join('');
   renderInvoicesList();
   renderPaymentsList();
+  renderCreditNotesList();
 }
 function renderInvoicesList(){
   const wrap = document.getElementById('invoices-list');
@@ -198,10 +211,33 @@ function renderPaymentsList(){
   }).join('')}</tbody></table>`;
 }
 function switchTab(name){
-  ['invoices','payments'].forEach(t=>{
+  ['invoices','payments','credit-notes'].forEach(t=>{
     document.getElementById('tab-'+t).classList.toggle('active', t===name);
     document.getElementById('pane-'+t).style.display = t===name?'':'none';
   });
+}
+
+function renderCreditNotesList(){
+  const wrap = document.getElementById('credit-notes-list');
+  if(allCreditNotes.length === 0){
+    wrap.innerHTML = '<div class="empty">لا توجد إشعارات دائنة · No credit notes</div>';
+    return;
+  }
+  wrap.innerHTML = `<table class="tbl"><thead><tr>
+    <th>رقم الإشعار · CN Number</th>
+    <th>التاريخ · Date</th>
+    <th>الفاتورة الأصلية · Original</th>
+    <th>السبب · Reason</th>
+    <th class="num">المبلغ · Amount</th>
+  </tr></thead><tbody>${allCreditNotes.map(cn => `
+    <tr onclick="window.location.href='credit-note-view.html?id=${cn.id}'">
+      <td><strong style="color:#7f1d1d;">${escHTML(cn.credit_note_number||'—')}</strong></td>
+      <td class="mono">${escHTML(cn.issue_date||'—')}</td>
+      <td class="mono"><a href="invoice-view.html?id=${cn.original_invoice_id}" onclick="event.stopPropagation()">${escHTML(cn.original_invoice_number||'—')}</a></td>
+      <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHTML(cn.reason||'')}">${escHTML(cn.reason||'—')}</td>
+      <td class="num" style="color:#7f1d1d;font-weight:700;">−SAR ${fmt(cn.total)}</td>
+    </tr>
+  `).join('')}</tbody></table>`;
 }
 init();
 </script>

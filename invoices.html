@@ -1292,6 +1292,10 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
       👥 <span data-ar="العملاء" data-en="Customers">العملاء</span>
       <span class="count-badge" id="tab-count-customers">0</span>
     </button>
+    <button class="tab-btn" id="tab-credit-notes" onclick="switchTab('credit-notes')">
+      ↩ <span data-ar="إشعارات دائنة" data-en="Credit Notes">إشعارات دائنة</span>
+      <span class="count-badge" id="tab-count-credit-notes">0</span>
+    </button>
   </div>
 
   <!-- Stats row -->
@@ -1372,6 +1376,26 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
         </div>
       </div>
       <div id="cust-list">
+        <div class="skel-row"><div class="skel-bar"></div></div>
+        <div class="skel-row"><div class="skel-bar"></div></div>
+        <div class="skel-row"><div class="skel-bar"></div></div>
+      </div>
+    </div>
+
+    <!-- CREDIT NOTES PANE — Round 4l.7 -->
+    <div id="pane-credit-notes" style="display:none;">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <div class="search-wrap">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="search-input" id="cn-search" placeholder="بحث برقم الإشعار، الفاتورة الأصلية..." oninput="renderCreditNotesList()">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-sm" onclick="loadCreditNotes()" title="تحديث">↻</button>
+        </div>
+      </div>
+      <div id="cn-list">
         <div class="skel-row"><div class="skel-bar"></div></div>
         <div class="skel-row"><div class="skel-bar"></div></div>
         <div class="skel-row"><div class="skel-bar"></div></div>
@@ -1912,6 +1936,8 @@ let currentUser = null;
 let currentBiz = null;
 let allInvoices = [];
 let allCustomers = [];
+let allCreditNotes = [];
+let _creditNotesLoaded = false;
 let currentInvFilter = 'all';
 let currentCustFilter = 'all';
 let currentTab = 'invoices';
@@ -2214,6 +2240,15 @@ async function init(){
   const payId = urlParams.get('pay');
   const reverseId = urlParams.get('reverse');
   const actionParam = urlParams.get('action');
+  const tabParam = urlParams.get('tab');
+
+  /* Round 4l.7: deep-link to a tab (?tab=credit-notes / ?tab=customers / ?tab=invoices) */
+  if(tabParam === 'credit-notes' || tabParam === 'customers' || tabParam === 'invoices'){
+    setTimeout(() => {
+      switchTab(tabParam);
+      history.replaceState(null, '', 'invoices.html');
+    }, 100);
+  }
 
   if(confirmId){
     /* Coming from preview "Confirm & Generate" — load draft, open modal, auto-trigger generate */
@@ -2678,11 +2713,19 @@ document.addEventListener('click', e => {
 ═══════════════════════════════════════════════════════ */
 function switchTab(tab){
   currentTab = tab;
-  const isInv = tab === 'invoices';
-  document.getElementById('pane-invoices').style.display = isInv ? 'block' : 'none';
-  document.getElementById('pane-customers').style.display = isInv ? 'none' : 'block';
-  document.getElementById('tab-invoices').classList.toggle('active', isInv);
-  document.getElementById('tab-customers').classList.toggle('active', !isInv);
+  /* 3-way: invoices | customers | credit-notes */
+  document.getElementById('pane-invoices').style.display = (tab === 'invoices') ? 'block' : 'none';
+  document.getElementById('pane-customers').style.display = (tab === 'customers') ? 'block' : 'none';
+  document.getElementById('pane-credit-notes').style.display = (tab === 'credit-notes') ? 'block' : 'none';
+  document.getElementById('tab-invoices').classList.toggle('active', tab === 'invoices');
+  document.getElementById('tab-customers').classList.toggle('active', tab === 'customers');
+  document.getElementById('tab-credit-notes').classList.toggle('active', tab === 'credit-notes');
+
+  /* Lazy-load credit notes the first time the tab is opened */
+  if(tab === 'credit-notes' && !_creditNotesLoaded){
+    _creditNotesLoaded = true;
+    loadCreditNotes();
+  }
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -2821,6 +2864,101 @@ function renderInvList(){
 
 /* Helper used in invoice list — escape for HTML and ensure safe text. */
 function escHTML(s){ return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m])); }
+
+/* ═══════════════════════════════════════════════════════
+   CREDIT NOTES — Round 4l.7
+═══════════════════════════════════════════════════════ */
+async function loadCreditNotes(){
+  if(!currentUser) return;
+  const {data, error} = await sb.from('credit_notes')
+    .select('*')
+    .eq('business_id', currentBiz?.id || '')
+    .order('issue_date', {ascending: false})
+    .order('created_at', {ascending: false});
+
+  if(error){
+    if((error.message||'').includes('does not exist') || error.code === '42P01'){
+      document.getElementById('cn-list').innerHTML = `<div class="empty-state">
+        <div class="icon">⚠</div>
+        <div class="title">${currentLang==='ar'?'الجدول غير منشأ':'Table not created'}</div>
+        <div class="text">${currentLang==='ar'?'يجب تشغيل ميغريشن الإشعارات الدائنة أولاً':'Run credit_notes_migration.sql in Supabase first'}</div>
+      </div>`;
+      console.error('credit_notes table missing — run credit_notes_migration.sql');
+      return;
+    }
+    console.error('[GL] loadCreditNotes', error);
+    return;
+  }
+  allCreditNotes = data || [];
+  document.getElementById('tab-count-credit-notes').textContent = allCreditNotes.length;
+  renderCreditNotesList();
+}
+
+function renderCreditNotesList(){
+  const search = (document.getElementById('cn-search')?.value || '').toLowerCase().trim();
+  const ar = currentLang === 'ar';
+
+  let list = allCreditNotes;
+  if(search){
+    list = list.filter(cn =>
+      (cn.credit_note_number||'').toLowerCase().includes(search) ||
+      (cn.original_invoice_number||'').toLowerCase().includes(search) ||
+      (cn.customer_name_ar||'').toLowerCase().includes(search) ||
+      (cn.customer_name_en||'').toLowerCase().includes(search) ||
+      (cn.reason||'').toLowerCase().includes(search)
+    );
+  }
+
+  const wrap = document.getElementById('cn-list');
+  if(!list.length){
+    wrap.innerHTML = `<div class="empty-state">
+      <div class="icon">↩</div>
+      <div class="title">${ar?'لا توجد إشعارات دائنة':'No credit notes'}</div>
+      <div class="text">${ar?'تُنشأ الإشعارات الدائنة عند إلغاء فاتورة. افتح أي فاتورة، ثم اختر "إلغاء (إشعار دائن)" من قائمة الإجراءات.':'Credit notes are created when an invoice is reversed. Open any invoice and choose "Reverse (Credit Note)" from the actions menu.'}</div>
+    </div>`;
+    return;
+  }
+
+  wrap.innerHTML = `
+    <div class="table-wrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>${ar?'رقم الإشعار':'CN Number'}</th>
+            <th>${ar?'التاريخ':'Date'}</th>
+            <th>${ar?'الفاتورة الأصلية':'Original Invoice'}</th>
+            <th>${ar?'العميل':'Customer'}</th>
+            <th>${ar?'السبب':'Reason'}</th>
+            <th class="num">${ar?'المبلغ':'Amount'}</th>
+            <th class="center"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map(cn => {
+            const customer = (currentLang === 'en' && cn.customer_name_en) ? cn.customer_name_en : (cn.customer_name_ar || cn.customer_name_en || '—');
+            return `<tr class="clickable" onclick="window.location.href='credit-note-view.html?id=${cn.id}'">
+              <td><strong style="color:#7f1d1d;">${escHTML(cn.credit_note_number||'—')}</strong></td>
+              <td class="num">${escHTML(cn.issue_date||'—')}</td>
+              <td class="num"><a href="invoice-view.html?id=${cn.original_invoice_id}" onclick="event.stopPropagation()" style="color:var(--blue);">${escHTML(cn.original_invoice_number||'—')}</a></td>
+              <td>${escHTML(customer)}</td>
+              <td style="font-size:12px;color:var(--muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHTML(cn.reason||'')}">${escHTML(cn.reason||'—')}</td>
+              <td class="num" style="color:#7f1d1d;font-weight:700;">−SAR ${fmt(cn.total)}</td>
+              <td class="center">
+                <div class="row-actions">
+                  <button class="row-actions-btn" onclick="event.stopPropagation();toggleRowMenu(this)" title="${ar?'إجراءات':'Actions'}">⋮</button>
+                  <div class="row-actions-menu" onclick="event.stopPropagation()">
+                    <button class="row-action-item" onclick="closeAllMenus();window.location.href='credit-note-view.html?id=${cn.id}'">👁 ${ar?'عرض الإشعار':'View credit note'}</button>
+                    <button class="row-action-item" onclick="closeAllMenus();window.location.href='invoice-view.html?id=${cn.original_invoice_id}'">📄 ${ar?'الفاتورة الأصلية':'Original invoice'}</button>
+                  </div>
+                </div>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+}
 
 function viewInvoice(id){
   /* Navigate to invoice-view.html for the rendered invoice */
