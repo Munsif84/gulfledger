@@ -1296,6 +1296,10 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
       ↩ <span data-ar="إشعارات دائنة" data-en="Credit Notes">إشعارات دائنة</span>
       <span class="count-badge" id="tab-count-credit-notes">0</span>
     </button>
+    <button class="tab-btn" id="tab-debit-notes" onclick="switchTab('debit-notes')">
+      ➕ <span data-ar="إشعارات مدينة" data-en="Debit Notes">إشعارات مدينة</span>
+      <span class="count-badge" id="tab-count-debit-notes">0</span>
+    </button>
   </div>
 
   <!-- Stats row -->
@@ -1402,6 +1406,29 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
         </div>
       </div>
       <div id="cn-list">
+        <div class="skel-row"><div class="skel-bar"></div></div>
+        <div class="skel-row"><div class="skel-bar"></div></div>
+        <div class="skel-row"><div class="skel-bar"></div></div>
+      </div>
+    </div>
+
+    <!-- DEBIT NOTES PANE -->
+    <div id="pane-debit-notes" style="display:none;">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <div class="search-wrap">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="search-input" id="dn-search" placeholder="بحث برقم الإشعار، الفاتورة الأصلية..." oninput="renderDebitNotesList()">
+          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button class="btn btn-secondary btn-sm" onclick="loadDebitNotes()" title="تحديث">↻</button>
+          <button class="btn btn-primary btn-sm" onclick="openManualNoteModal('debit')">
+            ➕ <span data-ar="إشعار مدين جديد" data-en="New Debit Note">إشعار مدين جديد</span>
+          </button>
+        </div>
+      </div>
+      <div id="dn-list">
         <div class="skel-row"><div class="skel-bar"></div></div>
         <div class="skel-row"><div class="skel-bar"></div></div>
         <div class="skel-row"><div class="skel-bar"></div></div>
@@ -1944,6 +1971,8 @@ let allInvoices = [];
 let allCustomers = [];
 let allCreditNotes = [];
 let _creditNotesLoaded = false;
+let allDebitNotes = [];
+let _debitNotesLoaded = false;
 let currentInvFilter = 'all';
 let currentCustFilter = 'all';
 let currentTab = 'invoices';
@@ -2248,8 +2277,8 @@ async function init(){
   const actionParam = urlParams.get('action');
   const tabParam = urlParams.get('tab');
 
-  /* Round 4l.7: deep-link to a tab (?tab=credit-notes / ?tab=customers / ?tab=invoices) */
-  if(tabParam === 'credit-notes' || tabParam === 'customers' || tabParam === 'invoices'){
+  /* Round 4l.7: deep-link to a tab (?tab=credit-notes / ?tab=customers / ?tab=invoices / ?tab=debit-notes) */
+  if(tabParam === 'credit-notes' || tabParam === 'customers' || tabParam === 'invoices' || tabParam === 'debit-notes'){
     setTimeout(() => {
       switchTab(tabParam);
       history.replaceState(null, '', 'invoices.html');
@@ -3065,11 +3094,17 @@ async function saveManualNote(){
       _creditNotesLoaded = false;
       await loadCreditNotes();
       _creditNotesLoaded = true;
+    } else {
+      _debitNotesLoaded = false;
+      await loadDebitNotes();
+      _debitNotesLoaded = true;
     }
     await loadInvoices();
-    /* Navigate to the new note */
+    /* Navigate to the new note viewer */
     setTimeout(() => {
-      window.location.href = isCredit ? `credit-note-view.html?id=${noteRow.id}` : `invoices.html?tab=credit-notes`;
+      window.location.href = isCredit
+        ? `credit-note-view.html?id=${noteRow.id}`
+        : `debit-note-view.html?id=${noteRow.id}`;
     }, 800);
   } catch(e){
     console.error('[GL] saveManualNote', e);
@@ -3162,18 +3197,24 @@ document.addEventListener('click', e => {
 ═══════════════════════════════════════════════════════ */
 function switchTab(tab){
   currentTab = tab;
-  /* 3-way: invoices | customers | credit-notes */
+  /* 4-way: invoices | customers | credit-notes | debit-notes */
   document.getElementById('pane-invoices').style.display = (tab === 'invoices') ? 'block' : 'none';
   document.getElementById('pane-customers').style.display = (tab === 'customers') ? 'block' : 'none';
   document.getElementById('pane-credit-notes').style.display = (tab === 'credit-notes') ? 'block' : 'none';
+  document.getElementById('pane-debit-notes').style.display = (tab === 'debit-notes') ? 'block' : 'none';
   document.getElementById('tab-invoices').classList.toggle('active', tab === 'invoices');
   document.getElementById('tab-customers').classList.toggle('active', tab === 'customers');
   document.getElementById('tab-credit-notes').classList.toggle('active', tab === 'credit-notes');
+  document.getElementById('tab-debit-notes').classList.toggle('active', tab === 'debit-notes');
 
-  /* Lazy-load credit notes the first time the tab is opened */
+  /* Lazy-load credit/debit notes the first time the tab is opened */
   if(tab === 'credit-notes' && !_creditNotesLoaded){
     _creditNotesLoaded = true;
     loadCreditNotes();
+  }
+  if(tab === 'debit-notes' && !_debitNotesLoaded){
+    _debitNotesLoaded = true;
+    loadDebitNotes();
   }
 }
 
@@ -3412,6 +3453,94 @@ function renderCreditNotesList(){
 function viewInvoice(id){
   /* Navigate to invoice-view.html for the rendered invoice */
   window.location.href = 'invoice-view.html?id=' + encodeURIComponent(id);
+}
+
+/* ═══════════════════════════════════════════════════════
+   Round 4l.8: Pass 2 — DEBIT NOTES list
+═══════════════════════════════════════════════════════ */
+async function loadDebitNotes(){
+  if(!currentUser || !currentBiz?.id) return;
+  const {data, error} = await sb.from('debit_notes')
+    .select('*')
+    .eq('business_id', currentBiz.id)
+    .order('created_at', {ascending: false})
+    .limit(500);
+  if(error){
+    if((error.message||'').includes('does not exist') || error.code === '42P01'){
+      console.warn('[GL] debit_notes table missing — run pass1 migration');
+      allDebitNotes = [];
+    } else {
+      console.error('[GL] loadDebitNotes', error);
+      allDebitNotes = [];
+    }
+  } else {
+    allDebitNotes = data || [];
+  }
+  /* Update tab count */
+  const cntEl = document.getElementById('tab-count-debit-notes');
+  if(cntEl) cntEl.textContent = allDebitNotes.length;
+  renderDebitNotesList();
+}
+
+function renderDebitNotesList(){
+  const wrap = document.getElementById('dn-list');
+  if(!wrap) return;
+  const ar = currentLang === 'ar';
+  const search = (document.getElementById('dn-search')?.value || '').toLowerCase().trim();
+
+  let list = allDebitNotes;
+  if(search){
+    list = list.filter(dn =>
+      (dn.debit_note_number||'').toLowerCase().includes(search) ||
+      (dn.original_invoice_number||'').toLowerCase().includes(search) ||
+      (dn.customer_name_ar||'').toLowerCase().includes(search) ||
+      (dn.customer_name_en||'').toLowerCase().includes(search) ||
+      (dn.reason||'').toLowerCase().includes(search)
+    );
+  }
+
+  if(list.length === 0){
+    wrap.innerHTML = `<div class="empty-state">
+      <div class="icon">➕</div>
+      <div class="title">${ar?'لا توجد إشعارات مدينة':'No debit notes'}</div>
+      <div class="text">${ar?'تظهر الإشعارات المدينة هنا عند إصدار رسوم إضافية على الفواتير':'Debit notes appear here when additional charges are issued against invoices'}</div>
+    </div>`;
+    return;
+  }
+
+  wrap.innerHTML = `
+    <div class="table-wrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>${ar?'رقم الإشعار':'DN Number'}</th>
+            <th>${ar?'التاريخ':'Date'}</th>
+            <th>${ar?'الفاتورة الأصلية':'Original Invoice'}</th>
+            <th>${ar?'العميل':'Customer'}</th>
+            <th class="num">${ar?'المبلغ':'Amount'}</th>
+            <th>${ar?'الحالة':'Status'}</th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map(dn => {
+            const isVoided = dn.status === 'voided';
+            const statusBadge = isVoided
+              ? '<span class="badge badge-voided">↩ ' + (ar?'ملغي':'Voided') + '</span>'
+              : '<span class="badge badge-paid">➕ ' + (ar?'صادر':'Issued') + '</span>';
+            const customerName = dn.customer_name_ar || dn.customer_name_en || '—';
+            return `<tr class="clickable${isVoided?' voided':''}" onclick="window.location.href='debit-note-view.html?id=${dn.id}'">
+              <td><strong>${escHTML(dn.debit_note_number||'—')}</strong></td>
+              <td class="num">${escHTML(dn.issue_date||'—')}</td>
+              <td><span style="font-family:'DM Mono',monospace;font-size:12px;">${escHTML(dn.original_invoice_number||'—')}</span></td>
+              <td>${escHTML(customerName)}</td>
+              <td class="num">SAR ${fmt(dn.total)}</td>
+              <td>${statusBadge}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
 /* ═══════════════════════════════════════════════════════

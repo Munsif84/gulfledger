@@ -82,16 +82,18 @@ a:hover{text-decoration:underline;}
     <button class="tab active" id="tab-invoices" onclick="switchTab('invoices')">الفواتير · Invoices</button>
     <button class="tab" id="tab-payments" onclick="switchTab('payments')">المدفوعات · Payments</button>
     <button class="tab" id="tab-credit-notes" onclick="switchTab('credit-notes')">إشعارات دائنة · Credit Notes</button>
+    <button class="tab" id="tab-debit-notes" onclick="switchTab('debit-notes')">إشعارات مدينة · Debit Notes</button>
   </div>
   <div id="pane-invoices"><div id="invoices-list"></div></div>
   <div id="pane-payments" style="display:none;"><div id="payments-list"></div></div>
   <div id="pane-credit-notes" style="display:none;"><div id="credit-notes-list"></div></div>
+  <div id="pane-debit-notes" style="display:none;"><div id="debit-notes-list"></div></div>
 </div>
 <script>
 const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-let currentUser=null, currentBiz=null, currentCustomer=null, allInvoices=[], allCreditNotes=[];
+let currentUser=null, currentBiz=null, currentCustomer=null, allInvoices=[], allCreditNotes=[], allDebitNotes=[];
 function fmt(n){return Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
 function escHTML(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
 
@@ -125,6 +127,15 @@ async function init(){
         .order('issue_date', {ascending: false});
       allCreditNotes = cns || [];
     } catch(e){ allCreditNotes = []; }
+
+    /* Round 4l.8: load debit notes for this customer (silent fail if table missing) */
+    try {
+      const {data: dns} = await sb.from('debit_notes')
+        .select('id, debit_note_number, issue_date, original_invoice_id, original_invoice_number, total, reason')
+        .eq('customer_id', customerId)
+        .order('issue_date', {ascending: false});
+      allDebitNotes = dns || [];
+    } catch(e){ allDebitNotes = []; }
 
     renderAll();
     document.getElementById('loading-state').style.display='none';
@@ -168,6 +179,7 @@ function renderAll(){
   renderInvoicesList();
   renderPaymentsList();
   renderCreditNotesList();
+  renderDebitNotesList();
 }
 function renderInvoicesList(){
   const wrap = document.getElementById('invoices-list');
@@ -211,7 +223,7 @@ function renderPaymentsList(){
   }).join('')}</tbody></table>`;
 }
 function switchTab(name){
-  ['invoices','payments','credit-notes'].forEach(t=>{
+  ['invoices','payments','credit-notes','debit-notes'].forEach(t=>{
     document.getElementById('tab-'+t).classList.toggle('active', t===name);
     document.getElementById('pane-'+t).style.display = t===name?'':'none';
   });
@@ -236,6 +248,29 @@ function renderCreditNotesList(){
       <td class="mono"><a href="invoice-view.html?id=${cn.original_invoice_id}" onclick="event.stopPropagation()">${escHTML(cn.original_invoice_number||'—')}</a></td>
       <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHTML(cn.reason||'')}">${escHTML(cn.reason||'—')}</td>
       <td class="num" style="color:#7f1d1d;font-weight:700;">−SAR ${fmt(cn.total)}</td>
+    </tr>
+  `).join('')}</tbody></table>`;
+}
+
+function renderDebitNotesList(){
+  const wrap = document.getElementById('debit-notes-list');
+  if(allDebitNotes.length === 0){
+    wrap.innerHTML = '<div class="empty">لا توجد إشعارات مدينة · No debit notes</div>';
+    return;
+  }
+  wrap.innerHTML = `<table class="tbl"><thead><tr>
+    <th>رقم الإشعار · DN Number</th>
+    <th>التاريخ · Date</th>
+    <th>الفاتورة الأصلية · Original</th>
+    <th>السبب · Reason</th>
+    <th class="num">المبلغ · Amount</th>
+  </tr></thead><tbody>${allDebitNotes.map(dn => `
+    <tr onclick="window.location.href='debit-note-view.html?id=${dn.id}'">
+      <td><strong style="color:#0E5C3F;">${escHTML(dn.debit_note_number||'—')}</strong></td>
+      <td class="mono">${escHTML(dn.issue_date||'—')}</td>
+      <td class="mono"><a href="invoice-view.html?id=${dn.original_invoice_id}" onclick="event.stopPropagation()">${escHTML(dn.original_invoice_number||'—')}</a></td>
+      <td style="font-size:12px;max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHTML(dn.reason||'')}">${escHTML(dn.reason||'—')}</td>
+      <td class="num" style="color:#0E5C3F;font-weight:700;">+SAR ${fmt(dn.total)}</td>
     </tr>
   `).join('')}</tbody></table>`;
 }
