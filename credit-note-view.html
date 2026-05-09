@@ -259,12 +259,15 @@ function showError(msg){
 
 function render(){
   const cn = currentCN, biz = currentBiz, inv = currentInvoice;
-  document.getElementById('biz-name-ar').textContent = biz.business_name_ar || biz.business_name || '—';
-  document.getElementById('biz-name-en').textContent = biz.business_name_en || '';
+  /* Real businesses columns: name (Arabic primary), name_ar, name_en, trn, cr_number, address */
+  const bizNameAr = biz.name_ar || biz.name || '—';
+  const bizNameEn = biz.name_en || '';
+  document.getElementById('biz-name-ar').textContent = bizNameAr;
+  document.getElementById('biz-name-en').textContent = bizNameEn;
   if(biz.logo_url){
     document.getElementById('biz-logo').innerHTML = `<img src="${escHTML(biz.logo_url)}" alt="logo">`;
   } else {
-    document.getElementById('biz-logo-letter').textContent = (biz.business_name_ar||biz.business_name||'G').charAt(0);
+    document.getElementById('biz-logo-letter').textContent = bizNameAr.charAt(0);
   }
   document.getElementById('meta-cnnum').textContent = cn.credit_note_number || '—';
   document.getElementById('meta-issuedate').textContent = cn.issue_date || '—';
@@ -300,13 +303,14 @@ function render(){
     ${cn.customer_trn ? `<div class="party-trn"><span class="lbl">TRN:</span> <span class="val">${escHTML(cn.customer_trn)}</span></div>` : ''}
     ${inv && inv.buyer_address ? `<div class="party-detail">${escHTML(inv.buyer_address)}</div>` : ''}
   `;
-  /* Seller */
+  /* Seller — actual column names: name, name_ar, name_en, trn, cr_number, address */
+  const sellerAddr = [biz.building_number, biz.street_name, biz.district, biz.city, biz.postal_code].filter(Boolean).join('، ');
   document.getElementById('seller-card').innerHTML = `
-    <div class="party-name">${escHTML(biz.business_name_ar || biz.business_name || '—')}</div>
-    ${biz.business_name_en ? `<div class="party-name-en">${escHTML(biz.business_name_en)}</div>` : ''}
-    ${biz.tax_number ? `<div class="party-trn"><span class="lbl">TRN:</span> <span class="val">${escHTML(biz.tax_number)}</span></div>` : ''}
+    <div class="party-name">${escHTML(bizNameAr)}</div>
+    ${bizNameEn && bizNameEn !== bizNameAr ? `<div class="party-name-en">${escHTML(bizNameEn)}</div>` : ''}
+    ${biz.trn ? `<div class="party-trn"><span class="lbl">TRN:</span> <span class="val">${escHTML(biz.trn)}</span></div>` : ''}
     ${biz.cr_number ? `<div class="party-detail">CR: ${escHTML(biz.cr_number)}</div>` : ''}
-    ${biz.address ? `<div class="party-detail">${escHTML(biz.address)}</div>` : ''}
+    ${sellerAddr ? `<div class="party-detail">${escHTML(sellerAddr)}</div>` : (biz.address ? `<div class="party-detail">${escHTML(biz.address)}</div>` : '')}
   `;
   if(cn.reason && cn.reason.trim()){
     document.getElementById('reason-block').style.display = '';
