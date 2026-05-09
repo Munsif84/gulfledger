@@ -1393,6 +1393,12 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-secondary btn-sm" onclick="loadCreditNotes()" title="تحديث">↻</button>
+          <button class="btn btn-secondary btn-sm" onclick="openManualNoteModal('debit')" title="إنشاء إشعار مدين">
+            ➕ <span data-ar="إشعار مدين" data-en="Debit Note">إشعار مدين</span>
+          </button>
+          <button class="btn btn-primary btn-sm" onclick="openManualNoteModal('credit')">
+            ↩ <span data-ar="إشعار دائن جديد" data-en="New Credit Note">إشعار دائن جديد</span>
+          </button>
         </div>
       </div>
       <div id="cn-list">
@@ -2631,6 +2637,450 @@ async function generateNextCreditNoteNumber(){
     }
   }
   return prefix + String(maxN + 1).padStart(3, '0');
+}
+
+/* Round 4l.8: Pass 2 — debit note number generator (DN-YYYY-NNN per business) */
+async function generateNextDebitNoteNumber(){
+  const year = new Date().getFullYear();
+  const prefix = `DN-${year}-`;
+  const {data} = await sb.from('debit_notes')
+    .select('debit_note_number')
+    .eq('business_id', currentBiz.id)
+    .like('debit_note_number', prefix + '%');
+  let maxN = 0;
+  for(const r of (data || [])){
+    const m = (r.debit_note_number || '').match(/(\d+)$/);
+    if(m){
+      const n = parseInt(m[1], 10);
+      if(n > maxN && n <= 99999) maxN = n;
+    }
+  }
+  return prefix + String(maxN + 1).padStart(3, '0');
+}
+
+/* ═══════════════════════════════════════════════════════
+   Round 4l.8: Pass 2 — MANUAL CREDIT/DEBIT NOTE CREATION
+   - Manual CN: partial returns, post-facto discounts (reduces invoice)
+   - Manual DN: additional charges, late fees (increases invoice)
+   - Line-level adjustments with validation against cumulative_credited
+   - Updates customer aggregates proportionally (not full void)
+═══════════════════════════════════════════════════════ */
+
+let _manualNoteState = {
+  type: 'credit',          /* 'credit' | 'debit' */
+  invoice: null,
+  invoiceItems: [],
+  existingCNs: [],         /* prior credit notes against this invoice */
+  lineAdjustments: []      /* per-item: {invoice_item_id, qty, unit_price, ...} */
+};
+
+async function openManualNoteModal(type){
+  /* type = 'credit' | 'debit' */
+  _manualNoteState = { type, invoice: null, invoiceItems: [], existingCNs: [], lineAdjustments: [] };
+  const ar = currentLang === 'ar';
+  const isCredit = type === 'credit';
+
+  const overlay = document.createElement('div');
+  overlay.id = 'manual-note-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.5);display:flex;align-items:center;justify-content:center;z-index:10000;padding:20px;overflow-y:auto;';
+  overlay.innerHTML = `
+    <div style="background:#fff;border-radius:12px;width:100%;max-width:780px;max-height:92vh;overflow:auto;display:flex;flex-direction:column;">
+      <div style="padding:16px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:${isCredit?'#fef3f0':'#fffbeb'};">
+        <div style="font-size:16px;font-weight:800;color:${isCredit?'#7b3214':'#78350f'};">
+          ${isCredit ? '↩ ' + (ar?'إنشاء إشعار دائن (إرجاع جزئي / خصم)':'Create Credit Note (partial return / discount)') : '➕ ' + (ar?'إنشاء إشعار مدين (رسوم إضافية)':'Create Debit Note (additional charges)')}
+        </div>
+        <button onclick="closeManualNoteModal()" style="background:transparent;border:none;font-size:24px;cursor:pointer;color:var(--muted);">×</button>
+      </div>
+      <div id="manual-note-body" style="padding:18px 22px;flex:1;">
+        <!-- Step 1: Pick invoice -->
+        <div id="step-pick-invoice">
+          <div style="margin-bottom:12px;font-size:13px;color:var(--muted);">${ar?'اختر الفاتورة الأصلية:':'Select original invoice:'}</div>
+          <input type="text" id="mn-invoice-search" placeholder="${ar?'بحث برقم الفاتورة، اسم العميل...':'Search by invoice #, customer name...'}" oninput="filterInvoiceList()" style="width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;margin-bottom:10px;">
+          <div id="mn-invoice-list" style="max-height:50vh;overflow-y:auto;border:1px solid var(--border);border-radius:8px;"></div>
+        </div>
+        <div id="step-adjust-lines" style="display:none;"></div>
+      </div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+  populateInvoiceList();
+}
+
+function closeManualNoteModal(){
+  document.getElementById('manual-note-overlay')?.remove();
+}
+
+function populateInvoiceList(){
+  const ar = currentLang === 'ar';
+  /* Show only non-voided invoices that have at least one item credit/debit-able */
+  const eligible = allInvoices.filter(i => i.status !== 'voided' && i.status !== 'draft' && i.invoice_number);
+  if(eligible.length === 0){
+    document.getElementById('mn-invoice-list').innerHTML = `<div style="text-align:center;padding:24px;color:var(--muted);font-size:13px;">${ar?'لا توجد فواتير مؤهلة':'No eligible invoices'}</div>`;
+    return;
+  }
+  renderInvoiceList(eligible);
+}
+
+function filterInvoiceList(){
+  const term = (document.getElementById('mn-invoice-search')?.value || '').toLowerCase().trim();
+  const eligible = allInvoices.filter(i => i.status !== 'voided' && i.status !== 'draft' && i.invoice_number);
+  const filtered = !term ? eligible : eligible.filter(i =>
+    (i.invoice_number||'').toLowerCase().includes(term) ||
+    (i.buyer_name||'').toLowerCase().includes(term) ||
+    (i.buyer_name_en||'').toLowerCase().includes(term)
+  );
+  renderInvoiceList(filtered);
+}
+
+function renderInvoiceList(list){
+  const ar = currentLang === 'ar';
+  const container = document.getElementById('mn-invoice-list');
+  if(list.length === 0){
+    container.innerHTML = `<div style="text-align:center;padding:24px;color:var(--muted);font-size:13px;">${ar?'لا توجد نتائج':'No results'}</div>`;
+    return;
+  }
+  container.innerHTML = list.map(inv => {
+    const cumulCredited = parseFloat(inv.cumulative_credited)||0;
+    const total = parseFloat(inv.total)||0;
+    const fullyCredited = cumulCredited >= total - 0.01;
+    return `<div onclick="${fullyCredited?'':`pickInvoiceForNote('${inv.id}')`}" style="padding:10px 12px;border-bottom:1px solid var(--tint);cursor:${fullyCredited?'not-allowed':'pointer'};display:flex;justify-content:space-between;align-items:center;gap:12px;${fullyCredited?'opacity:0.4;':''}" ${!fullyCredited?'onmouseover="this.style.background=\'#f5f7f5\'" onmouseout="this.style.background=\'\'"':''}>
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:700;font-family:'DM Mono',monospace;font-size:13px;">${escHTML(inv.invoice_number)}</div>
+        <div style="font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHTML(inv.buyer_name||'—')}</div>
+      </div>
+      <div style="text-align:end;">
+        <div style="font-family:'DM Mono',monospace;font-weight:700;font-size:13px;">SAR ${fmt(total)}</div>
+        ${cumulCredited > 0 ? `<div style="font-size:10px;color:var(--amber);">${ar?'مرصود':'credited'}: ${fmt(cumulCredited)}</div>` : ''}
+        ${fullyCredited ? `<div style="font-size:10px;color:var(--red);font-weight:700;">${ar?'⚠ مرصود بالكامل':'⚠ fully credited'}</div>` : ''}
+      </div>
+    </div>`;
+  }).join('');
+}
+
+async function pickInvoiceForNote(invoiceId){
+  const ar = currentLang === 'ar';
+  /* Load full invoice + items + prior credit notes for this invoice */
+  const {data: inv} = await sb.from('invoices').select('*').eq('id', invoiceId).single();
+  if(!inv){ alert(ar?'تعذّر تحميل الفاتورة':'Could not load invoice'); return; }
+  const {data: items} = await sb.from('invoice_items').select('*').eq('invoice_id', invoiceId).order('sort_order');
+  const {data: priorCNs} = await sb.from('credit_notes').select('id, credit_note_number, total, status').eq('original_invoice_id', invoiceId).neq('status', 'voided');
+
+  _manualNoteState.invoice = inv;
+  _manualNoteState.invoiceItems = items || [];
+  _manualNoteState.existingCNs = priorCNs || [];
+  /* Initialize line adjustments — start with all qtys at 0 (user fills what they're crediting/debiting) */
+  _manualNoteState.lineAdjustments = (items||[]).map(it => ({
+    source_item_id: it.id,
+    description: it.description,
+    description_ar: it.description_ar,
+    original_qty: parseFloat(it.quantity)||0,
+    unit_price: parseFloat(it.unit_price)||0,
+    discount_pct: parseFloat(it.discount_pct)||0,
+    qty: 0  /* user enters how many to credit/debit */
+  }));
+  renderAdjustLinesStep();
+}
+
+function renderAdjustLinesStep(){
+  const ar = currentLang === 'ar';
+  const isCredit = _manualNoteState.type === 'credit';
+  const inv = _manualNoteState.invoice;
+  const cumulCredited = parseFloat(inv.cumulative_credited)||0;
+  const remainingCreditable = (parseFloat(inv.total)||0) - cumulCredited;
+
+  document.getElementById('step-pick-invoice').style.display = 'none';
+  const stepEl = document.getElementById('step-adjust-lines');
+  stepEl.style.display = '';
+  stepEl.innerHTML = `
+    <div style="background:${isCredit?'#fef3f0':'#fffbeb'};border:1px solid ${isCredit?'#f4cab9':'#fcd34d'};border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;line-height:1.6;">
+      <div style="font-weight:700;color:${isCredit?'#7b3214':'#78350f'};margin-bottom:4px;">
+        ${ar?'الفاتورة:':'Invoice:'} <span style="font-family:'DM Mono',monospace;">${escHTML(inv.invoice_number)}</span> · ${escHTML(inv.buyer_name||'—')}
+      </div>
+      <div>${ar?'إجمالي الفاتورة:':'Invoice total:'} SAR ${fmt(inv.total)}
+        ${cumulCredited > 0 ? ` · ${ar?'مرصود سابقاً:':'previously credited:'} SAR ${fmt(cumulCredited)}` : ''}
+        · <strong>${ar?'الحد المتاح:':'remaining available:'} SAR ${fmt(remainingCreditable)}</strong></div>
+      ${_manualNoteState.existingCNs.length > 0 ? `<div style="font-size:11px;color:var(--muted);margin-top:4px;">${ar?'إشعارات سابقة:':'Prior CNs:'} ${_manualNoteState.existingCNs.map(c=>c.credit_note_number).join(', ')}</div>` : ''}
+    </div>
+
+    <div style="font-size:13px;color:var(--ink);font-weight:700;margin-bottom:8px;">${isCredit?(ar?'الكميات المراد إرجاعها / تخفيضها:':'Quantities to return / reduce:'):(ar?'الكميات / المبالغ المراد إضافتها:':'Quantities / amounts to add:')}</div>
+
+    <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;margin-bottom:14px;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead>
+          <tr style="background:var(--tint);">
+            <th style="padding:8px 10px;text-align:start;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">${ar?'الوصف':'Description'}</th>
+            <th style="padding:8px 10px;text-align:end;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">${ar?'الأصل':'Original'}</th>
+            <th style="padding:8px 10px;text-align:end;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">${ar?'السعر':'Unit Price'}</th>
+            <th style="padding:8px 10px;text-align:center;font-size:11px;text-transform:uppercase;letter-spacing:.04em;width:90px;">${ar?'الكمية':'Qty'}</th>
+            <th style="padding:8px 10px;text-align:end;font-size:11px;text-transform:uppercase;letter-spacing:.04em;">${ar?'المجموع':'Total'}</th>
+          </tr>
+        </thead>
+        <tbody id="mn-lines-body">
+          ${_manualNoteState.lineAdjustments.map((adj, idx) => `
+            <tr>
+              <td style="padding:8px 10px;">${escHTML(adj.description_ar || adj.description || '—')}</td>
+              <td style="padding:8px 10px;text-align:end;font-family:'DM Mono',monospace;">${adj.original_qty}</td>
+              <td style="padding:8px 10px;text-align:end;font-family:'DM Mono',monospace;">${fmt(adj.unit_price)}</td>
+              <td style="padding:8px 10px;text-align:center;">
+                <input type="number" min="0" max="${isCredit?adj.original_qty:9999}" step="any" value="${adj.qty}" oninput="updateLineQty(${idx}, this.value)" style="width:70px;padding:6px 8px;border:1px solid var(--border);border-radius:6px;font-family:'DM Mono',monospace;font-size:13px;text-align:center;">
+              </td>
+              <td style="padding:8px 10px;text-align:end;font-family:'DM Mono',monospace;font-weight:700;" id="mn-line-total-${idx}">SAR 0.00</td>
+            </tr>
+          `).join('')}
+        </tbody>
+      </table>
+    </div>
+
+    <div style="margin-bottom:12px;">
+      <label style="display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700;margin-bottom:5px;">${ar?'سبب الإصدار (إلزامي)':'Reason (required)'}</label>
+      <textarea id="mn-reason" rows="2" placeholder="${isCredit?(ar?'مثال: العميل أرجع 3 وحدات بسبب عيب':'e.g. Customer returned 3 units due to defect'):(ar?'مثال: رسوم تأخير في السداد':'e.g. Late payment penalty')}" style="width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;resize:vertical;"></textarea>
+    </div>
+
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:12px 14px;margin-bottom:14px;font-size:13px;">
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="color:var(--muted);">${ar?'الإجمالي قبل الضريبة':'Subtotal'}</span><span class="mono" id="mn-subtotal" style="font-weight:700;font-family:'DM Mono',monospace;">SAR 0.00</span></div>
+      <div style="display:flex;justify-content:space-between;margin-bottom:4px;"><span style="color:var(--muted);">${ar?'ضريبة 15%':'VAT 15%'}</span><span class="mono" id="mn-vat" style="font-weight:700;font-family:'DM Mono',monospace;">SAR 0.00</span></div>
+      <div style="display:flex;justify-content:space-between;border-top:1px solid var(--border);padding-top:6px;margin-top:6px;"><span style="font-weight:700;color:var(--ink);">${isCredit?(ar?'إجمالي الإشعار الدائن':'Credit Note Total'):(ar?'إجمالي الإشعار المدين':'Debit Note Total')}</span><span class="mono" id="mn-total" style="font-weight:800;font-family:'DM Mono',monospace;font-size:15px;">SAR 0.00</span></div>
+      <div id="mn-validation-msg" style="display:none;margin-top:8px;padding:6px 10px;background:#fee2e2;color:#991b1b;border-radius:6px;font-size:11px;"></div>
+    </div>
+
+    <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;">
+      <button class="btn btn-ghost" onclick="backToInvoicePick()">← ${ar?'رجوع':'Back'}</button>
+      <button class="btn btn-primary" id="mn-save-btn" onclick="saveManualNote()" disabled>
+        ${isCredit ? '↩ ' + (ar?'إصدار الإشعار الدائن':'Issue Credit Note') : '➕ ' + (ar?'إصدار الإشعار المدين':'Issue Debit Note')}
+      </button>
+    </div>
+  `;
+  recomputeManualTotals();
+}
+
+function backToInvoicePick(){
+  document.getElementById('step-pick-invoice').style.display = '';
+  document.getElementById('step-adjust-lines').style.display = 'none';
+}
+
+function updateLineQty(idx, val){
+  const adj = _manualNoteState.lineAdjustments[idx];
+  if(!adj) return;
+  const isCredit = _manualNoteState.type === 'credit';
+  let qty = parseFloat(val) || 0;
+  if(qty < 0) qty = 0;
+  if(isCredit && qty > adj.original_qty) qty = adj.original_qty;
+  adj.qty = qty;
+  recomputeManualTotals();
+}
+
+function recomputeManualTotals(){
+  const ar = currentLang === 'ar';
+  const isCredit = _manualNoteState.type === 'credit';
+  const VAT_RATE = 0.15;
+  let subtotal = 0;
+  _manualNoteState.lineAdjustments.forEach((adj, idx) => {
+    const lineNet = adj.qty * adj.unit_price * (1 - (adj.discount_pct||0)/100);
+    subtotal += lineNet;
+    const cell = document.getElementById('mn-line-total-' + idx);
+    if(cell) cell.textContent = 'SAR ' + fmt(lineNet);
+  });
+  const vat = subtotal * VAT_RATE;
+  const total = subtotal + vat;
+
+  const subEl = document.getElementById('mn-subtotal');
+  const vatEl = document.getElementById('mn-vat');
+  const totEl = document.getElementById('mn-total');
+  if(subEl) subEl.textContent = 'SAR ' + fmt(subtotal);
+  if(vatEl) vatEl.textContent = 'SAR ' + fmt(vat);
+  if(totEl) totEl.textContent = 'SAR ' + fmt(total);
+
+  /* Validation */
+  const inv = _manualNoteState.invoice;
+  const cumulCredited = parseFloat(inv.cumulative_credited)||0;
+  const remainingAvailable = (parseFloat(inv.total)||0) - cumulCredited;
+  const msgEl = document.getElementById('mn-validation-msg');
+  const btn = document.getElementById('mn-save-btn');
+  let validMsg = '';
+  let canSave = total > 0.01;
+  if(isCredit && total > remainingAvailable + 0.01){
+    validMsg = ar
+      ? `⚠ المبلغ يتجاوز الحد المتاح (SAR ${fmt(remainingAvailable)})`
+      : `⚠ Amount exceeds remaining available (SAR ${fmt(remainingAvailable)})`;
+    canSave = false;
+  }
+  if(msgEl){
+    if(validMsg){ msgEl.style.display = ''; msgEl.textContent = validMsg; }
+    else msgEl.style.display = 'none';
+  }
+  if(btn) btn.disabled = !canSave;
+}
+
+async function saveManualNote(){
+  const ar = currentLang === 'ar';
+  const isCredit = _manualNoteState.type === 'credit';
+  const reason = (document.getElementById('mn-reason')?.value || '').trim();
+  if(!reason){
+    alert(ar?'السبب مطلوب':'Reason is required');
+    return;
+  }
+
+  const btn = document.getElementById('mn-save-btn');
+  btn.disabled = true; btn.textContent = '⏳ ' + (ar?'جارٍ الحفظ...':'Saving...');
+
+  try {
+    const VAT_RATE = 0.15;
+    const inv = _manualNoteState.invoice;
+    /* Build line items from adjustments where qty > 0 */
+    const lines = _manualNoteState.lineAdjustments
+      .filter(adj => adj.qty > 0)
+      .map((adj, i) => {
+        const lineSubtotal = adj.qty * adj.unit_price * (1 - (adj.discount_pct||0)/100);
+        const lineVat = lineSubtotal * VAT_RATE;
+        return {
+          description: adj.description,
+          description_ar: adj.description_ar,
+          quantity: adj.qty,
+          unit_price: adj.unit_price,
+          discount_pct: adj.discount_pct||0,
+          subtotal: lineSubtotal,
+          vat_amount: lineVat,
+          total: lineSubtotal + lineVat,
+          display_order: i
+        };
+      });
+
+    if(lines.length === 0){
+      alert(ar?'يجب اختيار صنف واحد على الأقل':'At least one line item required');
+      btn.disabled = false;
+      btn.textContent = isCredit ? '↩ ' + (ar?'إصدار الإشعار الدائن':'Issue Credit Note') : '➕ ' + (ar?'إصدار الإشعار المدين':'Issue Debit Note');
+      return;
+    }
+
+    const subtotal = lines.reduce((s,l) => s+l.subtotal, 0);
+    const vatAmount = lines.reduce((s,l) => s+l.vat_amount, 0);
+    const total = subtotal + vatAmount;
+
+    const tableName = isCredit ? 'credit_notes' : 'debit_notes';
+    const itemsTable = isCredit ? 'credit_note_items' : 'debit_note_items';
+    const numberCol = isCredit ? 'credit_note_number' : 'debit_note_number';
+    const noteNumber = isCredit ? await generateNextCreditNoteNumber() : await generateNextDebitNoteNumber();
+
+    const headerPayload = {
+      business_id: currentBiz.id,
+      user_id: currentUser.id,
+      [numberCol]: noteNumber,
+      issue_date: todayISO(),
+      reason: reason,
+      original_invoice_id: inv.id,
+      original_invoice_number: inv.invoice_number,
+      customer_id: inv.customer_id,
+      customer_name_ar: inv.buyer_name,
+      customer_name_en: inv.buyer_name_en,
+      customer_trn: inv.buyer_trn,
+      subtotal: subtotal,
+      discount_amount: 0,
+      vat_amount: vatAmount,
+      total: total,
+      status: 'issued'
+    };
+    if(isCredit) headerPayload.is_partial = true;
+
+    const {data: noteRow, error: noteErr} = await sb.from(tableName).insert(headerPayload).select().single();
+    if(noteErr) throw noteErr;
+
+    /* Insert line items */
+    const noteItems = lines.map(l => ({
+      [isCredit ? 'credit_note_id' : 'debit_note_id']: noteRow.id,
+      ...l
+    }));
+    const {error: itemsErr} = await sb.from(itemsTable).insert(noteItems);
+    if(itemsErr) throw itemsErr;
+
+    /* For credit note: bump invoice.cumulative_credited and adjust customer aggregates */
+    if(isCredit){
+      const newCumul = (parseFloat(inv.cumulative_credited)||0) + total;
+      await sb.from('invoices').update({
+        cumulative_credited: newCumul,
+        updated_at: new Date().toISOString()
+      }).eq('id', inv.id);
+
+      /* Reduce customer outstanding (proportional, not full void) */
+      if(inv.customer_id){
+        const {data: cust} = await sb.from('customers').select('total_invoiced, total_outstanding').eq('id', inv.customer_id).maybeSingle();
+        if(cust){
+          await sb.from('customers').update({
+            total_invoiced: Math.max(0, (parseFloat(cust.total_invoiced)||0) - total),
+            total_outstanding: Math.max(0, (parseFloat(cust.total_outstanding)||0) - total),
+            updated_at: new Date().toISOString()
+          }).eq('id', inv.customer_id);
+        }
+      }
+    } else {
+      /* Debit note: increase customer aggregates */
+      if(inv.customer_id){
+        const {data: cust} = await sb.from('customers').select('total_invoiced, total_outstanding').eq('id', inv.customer_id).maybeSingle();
+        if(cust){
+          await sb.from('customers').update({
+            total_invoiced: (parseFloat(cust.total_invoiced)||0) + total,
+            total_outstanding: (parseFloat(cust.total_outstanding)||0) + total,
+            updated_at: new Date().toISOString()
+          }).eq('id', inv.customer_id);
+        }
+      }
+    }
+
+    /* Post journal entry — proportional reversal/charge */
+    try {
+      const {data: entry} = await sb.from('journal_entries').insert({
+        user_id: currentUser.id, business_id: currentBiz.id,
+        entry_date: todayISO(),
+        reference: noteNumber,
+        description: isCredit ? (ar?'إشعار دائن جزئي':'Partial credit note') : (ar?'إشعار مدين':'Debit note'),
+        source: isCredit ? 'credit_note' : 'debit_note',
+        status: 'posted', is_balanced: true
+      }).select().single();
+      if(entry){
+        const lines = isCredit
+          ? [
+              {entry_id:entry.id, user_id:currentUser.id, account_code:'4000', account_name:ar?'المبيعات':'Sales',
+               debit:subtotal, credit:0, description:ar?'عكس مبيعات':'Reverse sales'},
+              {entry_id:entry.id, user_id:currentUser.id, account_code:'2210', account_name:ar?'ضريبة القيمة المضافة المستحقة':'VAT Output',
+               debit:vatAmount, credit:0, description:ar?'عكس ضريبة':'Reverse VAT'},
+              {entry_id:entry.id, user_id:currentUser.id, account_code:'1200', account_name:ar?'ذمم مدينة تجارية':'Trade Receivables',
+               debit:0, credit:total, description:ar?'إقفال ذمة جزئي':'Partial AR clear'}
+            ]
+          : [
+              {entry_id:entry.id, user_id:currentUser.id, account_code:'1200', account_name:ar?'ذمم مدينة تجارية':'Trade Receivables',
+               debit:total, credit:0, description:ar?'إضافة ذمة':'Add AR'},
+              {entry_id:entry.id, user_id:currentUser.id, account_code:'4000', account_name:ar?'المبيعات':'Sales',
+               debit:0, credit:subtotal, description:ar?'إيراد إضافي':'Additional revenue'},
+              {entry_id:entry.id, user_id:currentUser.id, account_code:'2210', account_name:ar?'ضريبة القيمة المضافة المستحقة':'VAT Output',
+               debit:0, credit:vatAmount, description:ar?'ضريبة إضافية':'Additional VAT'}
+            ];
+        await sb.from('journal_lines').insert(lines);
+      }
+    } catch(e){ console.warn('manual note journal skipped:', e.message); }
+
+    closeManualNoteModal();
+    notify(`✅ ${isCredit?(ar?'تم إصدار الإشعار الدائن':'Credit note issued'):(ar?'تم إصدار الإشعار المدين':'Debit note issued')} ${noteNumber}`, 'g');
+
+    /* Reload data */
+    if(isCredit){
+      _creditNotesLoaded = false;
+      await loadCreditNotes();
+      _creditNotesLoaded = true;
+    }
+    await loadInvoices();
+    /* Navigate to the new note */
+    setTimeout(() => {
+      window.location.href = isCredit ? `credit-note-view.html?id=${noteRow.id}` : `invoices.html?tab=credit-notes`;
+    }, 800);
+  } catch(e){
+    console.error('[GL] saveManualNote', e);
+    if((e.message||'').includes('does not exist') || e.code === '42P01'){
+      notify((isCredit?'⚠ '+(ar?'يجب تشغيل ميغريشن إشعارات الدائن':'Run credit_notes_migration.sql'):'⚠ '+(ar?'يجب تشغيل ميغريشن إشعارات المدينة':'Run debit_notes migration')), 'r');
+    } else {
+      notify((ar?'فشل: ':'Failed: ') + (e.message||''), 'r');
+    }
+    btn.disabled = false;
+    btn.textContent = isCredit ? '↩ ' + (ar?'إصدار الإشعار الدائن':'Issue Credit Note') : '➕ ' + (ar?'إصدار الإشعار المدين':'Issue Debit Note');
+  }
 }
 
 /* Load a draft invoice and immediately confirm-generate it (called from preview "Confirm" button) */
