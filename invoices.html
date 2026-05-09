@@ -2509,7 +2509,7 @@ async function reverseInvoiceById(invoiceId){
     const {data: items} = await sb.from('invoice_items')
       .select('*')
       .eq('invoice_id', invoiceId)
-      .order('display_order', {ascending: true});
+      .order('sort_order', {ascending: true});
 
     /* Generate next CN number for this business */
     const cnNumber = await generateNextCreditNoteNumber();
@@ -2524,7 +2524,7 @@ async function reverseInvoiceById(invoiceId){
       original_invoice_id: invoiceId,
       original_invoice_number: inv.invoice_number,
       customer_id: inv.customer_id,
-      customer_name_ar: inv.buyer_name_ar || inv.buyer_name,
+      customer_name_ar: inv.buyer_name,
       customer_name_en: inv.buyer_name_en,
       customer_trn: inv.buyer_trn,
       subtotal: inv.subtotal,
@@ -2543,20 +2543,19 @@ async function reverseInvoiceById(invoiceId){
       throw cnErr;
     }
 
-    /* Insert items snapshot */
+    /* Insert items snapshot. invoice_items uses sort_order; credit_note_items uses display_order. */
     if(items && items.length > 0){
       const cnItems = items.map((it, i) => ({
         credit_note_id: cn.id,
         description: it.description,
         description_ar: it.description_ar,
-        description_en: it.description_en,
         quantity: it.quantity,
         unit_price: it.unit_price,
         discount_pct: it.discount_pct || 0,
         subtotal: it.subtotal,
         vat_amount: it.vat_amount,
         total: it.total,
-        display_order: it.display_order != null ? it.display_order : i
+        display_order: it.sort_order != null ? it.sort_order : i
       }));
       await sb.from('credit_note_items').insert(cnItems);
     }
@@ -4750,23 +4749,97 @@ async function voidInvoice(id, num, total, buyerName){
 
     await sb.from('invoices').update({status:'voided', updated_at:new Date().toISOString()}).eq('id', id);
 
+    /* Round 4l.7: ALSO create the formal credit_notes record (was missing — caused
+       Credit Notes tab to be empty even after reversals). This is a separate insert
+       from the journal reversal above; both are needed for a complete ZATCA audit trail. */
+    let createdCnId = null;
+    let createdCnNumber = null;
+    try {
+      const reasonAr = prompt(currentLang==='ar'?'سبب الإلغاء (اختياري):':'Reason for credit (optional):', '');
+
+      /* Get the full invoice + items for the snapshot */
+      const {data: fullInv} = await sb.from('invoices').select('*').eq('id', id).single();
+      const {data: items} = await sb.from('invoice_items')
+        .select('*').eq('invoice_id', id).order('sort_order', {ascending: true});
+
+      const cnNumber = await generateNextCreditNoteNumber();
+
+      const {data: cn, error: cnErr} = await sb.from('credit_notes').insert({
+        business_id: currentBiz.id,
+        user_id: currentUser.id,
+        credit_note_number: cnNumber,
+        issue_date: todayISO(),
+        reason: reasonAr || (currentLang==='ar'?'إلغاء الفاتورة':'Invoice reversal'),
+        original_invoice_id: id,
+        original_invoice_number: num,
+        customer_id: fullInv?.customer_id || null,
+        customer_name_ar: fullInv?.buyer_name || buyerName,
+        customer_name_en: fullInv?.buyer_name_en || null,
+        customer_trn: fullInv?.buyer_trn || null,
+        subtotal: fullInv?.subtotal || 0,
+        discount_amount: fullInv?.discount_amount || 0,
+        vat_amount: fullInv?.vat_amount || 0,
+        total: fullInv?.total || total,
+        status: 'issued',
+        is_partial: false
+      }).select().single();
+
+      if(cnErr){
+        if((cnErr.message||'').includes('does not exist') || cnErr.code === '42P01'){
+          console.error('[GL] credit_notes table missing — run credit_notes_migration.sql');
+          notify('⚠ ' + (currentLang==='ar'?'يجب تشغيل ميغريشن إشعارات الدائن':'Run credit_notes_migration.sql'),'r');
+        } else {
+          console.error('[GL] credit_notes insert failed:', cnErr);
+          notify((currentLang==='ar'?'تحذير: تم الإلغاء لكن الإشعار الدائن لم يُسجل: ':'Warning: voided but credit note row not saved: ') + cnErr.message, 'r');
+        }
+      } else if(cn){
+        createdCnId = cn.id;
+        createdCnNumber = cn.credit_note_number;
+        /* Insert items snapshot. invoice_items uses sort_order; credit_note_items uses display_order. */
+        if(items && items.length > 0){
+          const cnItems = items.map((it, i) => ({
+            credit_note_id: cn.id,
+            description: it.description,
+            description_ar: it.description_ar,
+            quantity: it.quantity,
+            unit_price: it.unit_price,
+            discount_pct: it.discount_pct || 0,
+            subtotal: it.subtotal,
+            vat_amount: it.vat_amount,
+            total: it.total,
+            display_order: it.sort_order != null ? it.sort_order : i
+          }));
+          await sb.from('credit_note_items').insert(cnItems);
+        }
+        /* Link invoice → CN */
+        await sb.from('invoices').update({
+          credited_at: new Date().toISOString(),
+          credit_note_id: cn.id,
+          updated_at: new Date().toISOString()
+        }).eq('id', id);
+      }
+    } catch(cnErr){
+      console.error('[GL] credit note creation skipped:', cnErr);
+    }
+
     /* Tailor success message based on whether inventory was actually restored */
     let successMsg;
+    const cnSuffix = createdCnNumber ? (currentLang==='ar' ? ` · إشعار دائن ${createdCnNumber}` : ` · CN ${createdCnNumber}`) : '';
     if(currentLang === 'ar'){
       if(restoreInfo && restoreInfo.restored_lines > 0){
-        successMsg = `✅ تم إلغاء الفاتورة ${num} - الكميات أُعيدت إلى المخزون`;
+        successMsg = `✅ تم إلغاء الفاتورة ${num}${cnSuffix} - الكميات أُعيدت إلى المخزون`;
       } else if(restoreInfo && restoreInfo.retroactive){
-        successMsg = `✅ تم إلغاء الفاتورة ${num} - (فاتورة قبل تتبع الاستهلاك، عدّل المخزون يدوياً إذا لزم الأمر)`;
+        successMsg = `✅ تم إلغاء الفاتورة ${num}${cnSuffix} - (فاتورة قبل تتبع الاستهلاك، عدّل المخزون يدوياً إذا لزم الأمر)`;
       } else {
-        successMsg = `✅ تم إلغاء الفاتورة ${num}`;
+        successMsg = `✅ تم إلغاء الفاتورة ${num}${cnSuffix}`;
       }
     } else {
       if(restoreInfo && restoreInfo.restored_lines > 0){
-        successMsg = `✅ Invoice ${num} reversed — stock returned to inventory`;
+        successMsg = `✅ Invoice ${num}${cnSuffix} reversed — stock returned to inventory`;
       } else if(restoreInfo && restoreInfo.retroactive){
-        successMsg = `✅ Invoice ${num} reversed — (pre-Round 13 invoice, adjust inventory manually if needed)`;
+        successMsg = `✅ Invoice ${num}${cnSuffix} reversed — (pre-Round 13 invoice, adjust inventory manually if needed)`;
       } else {
-        successMsg = `✅ Invoice ${num} reversed`;
+        successMsg = `✅ Invoice ${num}${cnSuffix} reversed`;
       }
     }
     /* Round 16 (M-6): audit log */
