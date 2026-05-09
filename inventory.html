@@ -1426,6 +1426,20 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         </div>
       </div>
 
+      <!-- Round 4m: location picker — which location receives this stock -->
+      <div class="field-row" style="grid-template-columns:1fr;">
+        <div class="field">
+          <div class="field-label">
+            📍 <span data-ar="موقع الاستلام" data-en="Receive Into Location">موقع الاستلام</span>
+            <span class="req">*</span>
+          </div>
+          <select id="rcp-location" class="field-input" style="width:100%;">
+            <option value="">-- اختر الموقع · Select location --</option>
+          </select>
+          <div style="font-size:11px;color:var(--muted);margin-top:3px;" data-ar="سيتم إنشاء دفعة جديدة في هذا الموقع." data-en="A new batch will be created at this location.">سيتم إنشاء دفعة جديدة في هذا الموقع.</div>
+        </div>
+      </div>
+
       <div class="section-title-sm" data-ar="الأصناف المستلمة" data-en="Items Received">الأصناف المستلمة</div>
 
       <table class="receipt-items-table">
@@ -3544,12 +3558,24 @@ async function openReceiveModal(){
   setVal('rcp-number', nextNum);
 
   populateSupplierDropdown();
+  populateReceiveLocationDropdown();
 
   /* Reset items: 1 empty row */
   receiptItems = [{ item_id:'', quantity:1, unit_cost:0, vat_pct:15 }];
   renderReceiptItems();
   onPaymentMethodChange();
   computeReceiptTotals();
+}
+
+/* Round 4m: populate the location picker in the Receive modal. Defaults to the
+   business's default location ("Main Warehouse") so simple users don't have
+   to think about it — but they can change it if they have multiple locations. */
+function populateReceiveLocationDropdown(){
+  const sel = document.getElementById('rcp-location');
+  if(!sel) return;
+  const ar = currentLang === 'ar';
+  sel.innerHTML = `<option value="">-- ${ar?'اختر الموقع':'Select location'} --</option>` +
+    allLocations.map(l => `<option value="${l.id}"${l.is_default?' selected':''}>${escAttr(l.name_ar||l.name)}${l.is_default?' ⭐':''}</option>`).join('');
 }
 
 async function fetchNextReceiptNumber(){
@@ -3983,6 +4009,12 @@ async function saveReceipt(){
     notify(currentLang==='ar'?'يجب اختيار مورد':'Select a supplier','error');
     return;
   }
+  /* Round 4m: location is required */
+  const locationId = v('rcp-location');
+  if(!locationId){
+    notify(currentLang==='ar'?'يجب اختيار موقع الاستلام':'Select a receive location','error');
+    return;
+  }
   const validItems = receiptItems.filter(r => r.item_id && r.quantity > 0 && r.unit_cost >= 0);
   if(validItems.length === 0){
     notify(currentLang==='ar'?'أضف صنفاً واحداً على الأقل':'Add at least one item','error');
@@ -4021,6 +4053,7 @@ async function saveReceipt(){
     supplier_invoice_number: v('rcp-supplier-invoice') || null,
     po_number: v('rcp-po-number') || null,
     receipt_date: v('rcp-date') || todayISO(),
+    location_id: locationId,        /* Round 4m */
     subtotal,
     vat_amount: vatAmount,
     total,
@@ -4068,6 +4101,7 @@ async function saveReceipt(){
       user_id: currentUser.id,
       business_id: currentBiz.id,
       item_id: r.item_id,
+      location_id: locationId,     /* Round 4m */
       qty_received: r.quantity,    /* legacy schema column */
       qty_remaining: r.quantity,
       original_qty: r.quantity,    /* newer schema column (idempotent) */
@@ -4112,6 +4146,8 @@ async function saveReceipt(){
       user_id: currentUser.id,
       business_id: currentBiz.id,
       item_id: r.item_id,
+      location_id: locationId,         /* Round 4m: where the stock landed */
+      to_location_id: locationId,      /* Round 4m */
       movement_type: 'in',
       quantity: r.quantity,
       balance_after: newQty,
@@ -4317,10 +4353,14 @@ async function saveAdjustment(){
         - Incoming (recount_up, opening): create new batch
         - Outgoing (write_off, recount_down): consume FIFO */
   if(isIncoming){
+    /* Round 4m: adjustments default to the default location.
+       (Future: add a location picker to the adjustment modal.) */
+    const defaultLoc = (allLocations || []).find(l => l.is_default);
     await sb.from('inventory_batches').insert({
       user_id: currentUser.id,
       business_id: currentBiz.id,
       item_id: currentAdjItem.id,
+      location_id: defaultLoc?.id || null,
       qty_received: qty,         /* legacy schema column */
       qty_remaining: qty,
       original_qty: qty,         /* newer schema column */
