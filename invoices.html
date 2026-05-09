@@ -382,11 +382,49 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .stat.s-red .stat-val{color:var(--red);}
 
 /* ─── TABS + FILTERS ─── */
-.section-card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+.section-card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:visible;}
 
-/* Round 4l.5: Page-level tab-toggle matching finance.html convention.
-   Used INSTEAD of the older section-tabs (which lived inside the section-card).
-   Result: sales page tabs look identical to finance, inventory, etc. */
+/* Round 4l.6: UNIFIED table + toolbar + row-action patterns matching finance/purchasing */
+.toolbar{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-bottom:14px;flex-wrap:wrap;padding:14px 14px 0;}
+.toolbar-left{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;}
+.toolbar .search-wrap{position:relative;flex:1;min-width:200px;max-width:320px;}
+.toolbar .search-icon{position:absolute;top:50%;transform:translateY(-50%);font-size:14px;pointer-events:none;color:var(--muted);}
+[dir="rtl"] .toolbar .search-icon{right:10px;}
+[dir="ltr"] .toolbar .search-icon{left:10px;}
+.toolbar .search-input{width:100%;padding:8px 12px;border:1px solid var(--border);border-radius:7px;font-family:inherit;font-size:13px;color:var(--ink);background:var(--white);transition:all .15s;}
+[dir="rtl"] .toolbar .search-input{padding:8px 32px 8px 12px;}
+[dir="ltr"] .toolbar .search-input{padding:8px 12px 8px 32px;}
+.toolbar .search-input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(61,170,101,0.15);}
+
+.table-wrap{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:visible;margin:0 14px 14px;}
+.tbl{width:100%;border-collapse:collapse;font-size:14px;}
+.tbl th,.tbl td{text-align:start;}
+.tbl th{padding:10px 14px;background:var(--tint);color:var(--ink);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-bottom:1px solid var(--border);white-space:nowrap;}
+.tbl td{padding:11px 14px;border-bottom:1px solid var(--tint);vertical-align:middle;}
+.tbl tr:last-child td{border-bottom:none;}
+.tbl tr.clickable{cursor:pointer;}
+.tbl tr.clickable:hover td{background:#fafbfa;}
+.tbl .num,.tbl th.num{text-align:end;font-family:'DM Mono',monospace;}
+.tbl .center,.tbl th.center{text-align:center;}
+.tbl tr.voided td{opacity:0.55;text-decoration:line-through;}
+.tbl tr.voided td .pay-badge,.tbl tr.voided td .badge{text-decoration:none;}
+
+.row-actions{position:relative;display:inline-block;}
+.row-actions-btn{background:transparent;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;color:var(--muted);font-size:16px;line-height:1;}
+.row-actions-btn:hover{background:var(--tint);color:var(--ink);}
+.row-actions-menu{display:none;position:fixed;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.18);min-width:200px;z-index:9000;padding:4px;}
+.row-actions-menu.open{display:block;}
+.row-action-item{display:flex;align-items:center;gap:8px;padding:8px 12px;font-size:13px;color:var(--ink);cursor:pointer;border-radius:6px;background:transparent;border:none;width:100%;text-align:start;font-family:inherit;}
+.row-action-item:hover{background:var(--tint);}
+.row-action-item.danger{color:var(--red);}
+.row-action-item.danger:hover{background:#fef2f2;}
+
+.empty-state{text-align:center;padding:40px 20px;color:var(--muted);}
+.empty-state .icon{font-size:42px;margin-bottom:10px;opacity:0.5;}
+.empty-state .title{font-weight:700;color:var(--ink);font-size:15px;margin-bottom:4px;}
+.empty-state .text{font-size:13px;line-height:1.6;max-width:400px;margin:0 auto 12px;}
+
+/* Round 4l.5: Page-level tab-toggle matching finance.html convention. */
 .tab-toggle{display:inline-flex;background:#fff;border:1.5px solid var(--border);border-radius:14px;padding:4px;margin-bottom:16px;gap:4px;}
 .tab-btn{padding:8px 18px;font-family:inherit;font-size:14px;font-weight:600;border:none;background:transparent;color:var(--muted);border-radius:10px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .15s;white-space:nowrap;}
 .tab-btn:hover{background:var(--tint);color:var(--blue);}
@@ -1285,18 +1323,20 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
 
     <!-- INVOICES PANE -->
     <div id="pane-invoices">
-      <div class="list-toolbar">
-        <div class="search-wrap">
-          <span class="search-icon">🔍</span>
-          <input type="text" class="search-input" id="inv-search" placeholder="بحث برقم الفاتورة، اسم العميل..." oninput="renderInvList()">
-        </div>
-        <div class="list-actions">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <div class="search-wrap">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="search-input" id="inv-search" placeholder="بحث برقم الفاتورة، اسم العميل..." oninput="renderInvList()">
+          </div>
           <div class="filter-group">
             <button class="filter-btn active" data-filter="all" onclick="setInvFilter('all')" data-ar="الكل" data-en="All">الكل</button>
             <button class="filter-btn" data-filter="unpaid" onclick="setInvFilter('unpaid')" data-ar="غير مدفوع" data-en="Unpaid">غير مدفوع</button>
             <button class="filter-btn" data-filter="partial" onclick="setInvFilter('partial')" data-ar="جزئي" data-en="Partial">جزئي</button>
             <button class="filter-btn" data-filter="paid" onclick="setInvFilter('paid')" data-ar="مدفوع" data-en="Paid">مدفوع</button>
           </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-secondary btn-sm" onclick="loadInvoices()" title="تحديث">↻</button>
           <button class="btn btn-primary btn-sm" onclick="openInvoiceModal()">
             + <span data-ar="فاتورة جديدة" data-en="New Invoice">فاتورة جديدة</span>
@@ -1312,17 +1352,19 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
 
     <!-- CUSTOMERS PANE -->
     <div id="pane-customers" style="display:none;">
-      <div class="list-toolbar">
-        <div class="search-wrap">
-          <span class="search-icon">🔍</span>
-          <input type="text" class="search-input" id="cust-search" placeholder="بحث بالاسم، الجوال، الرقم الضريبي..." oninput="renderCustList()">
-        </div>
-        <div class="list-actions">
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <div class="search-wrap">
+            <span class="search-icon">🔍</span>
+            <input type="text" class="search-input" id="cust-search" placeholder="بحث بالاسم، الجوال، الرقم الضريبي..." oninput="renderCustList()">
+          </div>
           <div class="filter-group">
             <button class="filter-btn active" data-cfilter="all" onclick="setCustFilter('all')" data-ar="الكل" data-en="All">الكل</button>
             <button class="filter-btn" data-cfilter="b2b" onclick="setCustFilter('b2b')">B2B</button>
             <button class="filter-btn" data-cfilter="b2c" onclick="setCustFilter('b2c')">B2C</button>
           </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-secondary btn-sm" onclick="loadCustomers()" title="تحديث">↻</button>
           <button class="btn btn-primary btn-sm" onclick="openAddCustomerModal()">
             + <span data-ar="عميل جديد" data-en="New Customer">عميل جديد</span>
@@ -2695,86 +2737,90 @@ function renderInvList(){
   }
 
   const c = document.getElementById('inv-list');
+  const ar = currentLang === 'ar';
   if(!list.length){
     c.innerHTML = `<div class="empty-state">
-      <div class="empty-state-icon">📄</div>
-      <div class="empty-state-title">${currentLang==='ar'?'لا توجد فواتير':'No invoices'}</div>
-      <div class="empty-state-text">${currentLang==='ar'?'اضغط + فاتورة جديدة لإنشاء أول فاتورة':'Click + New Invoice to create your first one'}</div>
+      <div class="icon">📄</div>
+      <div class="title">${ar?'لا توجد فواتير':'No invoices'}</div>
+      <div class="text">${ar?'اضغط + فاتورة جديدة لإنشاء أول فاتورة':'Click + New Invoice to create your first one'}</div>
     </div>`;
     return;
   }
 
-  c.innerHTML = '<div class="list-header invoices-header">' +
-    `<span>${currentLang==='ar'?'رقم الفاتورة':'Invoice #'}</span>` +
-    `<span>${currentLang==='ar'?'التاريخ':'Date'}</span>` +
-    `<span>${currentLang==='ar'?'العميل':'Customer'}</span>` +
-    `<span>${currentLang==='ar'?'النوع':'Type'}</span>` +
-    `<span class="h-amount">${currentLang==='ar'?'المبلغ':'Amount'}</span>` +
-    `<span>${currentLang==='ar'?'الحالة':'Status'}</span>` +
-    `<span>${currentLang==='ar'?'زاتكا':'ZATCA'}</span>` +
-    `<span class="h-actions">${currentLang==='ar'?'إجراءات':'Actions'}</span>` +
-    '</div>' +
-    '<div class="list-rows">' + list.map(inv => {
-    const isVoided = inv.status === 'voided';
-    const paid = inv.payment_status === 'paid';
-    const partial = inv.payment_status === 'partial';
-    const amtPaid = parseFloat(inv.amount_paid)||0;
-    const remaining = Math.max(0, (inv.total||0) - amtPaid);
+  c.innerHTML = `
+    <div class="table-wrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>${ar?'رقم الفاتورة':'Invoice #'}</th>
+            <th>${ar?'التاريخ':'Date'}</th>
+            <th>${ar?'العميل':'Customer'}</th>
+            <th>${ar?'النوع':'Type'}</th>
+            <th class="num">${ar?'المبلغ':'Amount'}</th>
+            <th>${ar?'الحالة':'Status'}</th>
+            <th>${ar?'زاتكا':'ZATCA'}</th>
+            <th class="center"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map(inv => {
+            const isVoided = inv.status === 'voided';
+            const paid = inv.payment_status === 'paid';
+            const partial = inv.payment_status === 'partial';
+            const amtPaid = parseFloat(inv.amount_paid)||0;
+            const remaining = Math.max(0, (inv.total||0) - amtPaid);
 
-    let badge;
-    if(isVoided) badge = `<span class="badge badge-voided">↩ ${currentLang==='ar'?'ملغية':'Reversed'}</span>`;
-    else if(paid) badge = `<span class="badge badge-paid">✅ ${currentLang==='ar'?'مدفوع':'Paid'}</span>`;
-    else if(partial) badge = `<span class="badge badge-partial">⚡ ${currentLang==='ar'?'جزئي':'Partial'}</span>`;
-    else badge = `<span class="badge badge-unpaid">⏳ ${currentLang==='ar'?'غير مدفوع':'Unpaid'}</span>`;
+            let badge;
+            if(isVoided) badge = `<span class="badge badge-voided">↩ ${ar?'ملغية':'Reversed'}</span>`;
+            else if(paid) badge = `<span class="badge badge-paid">✅ ${ar?'مدفوع':'Paid'}</span>`;
+            else if(partial) badge = `<span class="badge badge-partial">⚡ ${ar?'جزئي':'Partial'}</span>`;
+            else badge = `<span class="badge badge-unpaid">⏳ ${ar?'غير مدفوع':'Unpaid'}</span>`;
 
-    /* Action buttons: primary = Pay (if unpaid), then ⋯ More menu for everything else */
-    let primaryBtn = '';
-    let menuItems = [];
+            const buyerDisplay = (currentLang === 'en' && inv.buyer_name_en) ? inv.buyer_name_en : (inv.buyer_name || '');
+            const typeBadgeRow = inv.invoice_type === 'b2b' ? '<span class="badge badge-b2b">B2B</span>' : '<span class="badge badge-b2c">B2C</span>';
+            const zatcaCell = zatcaBadge(inv.zatca_status);
 
-    if(!isVoided){
-      if(!paid){
-        primaryBtn = `<button class="row-action-btn primary" onclick="event.stopPropagation();openPaymentModal('${inv.id}','${safeAttr(inv.invoice_number||'')}',${inv.total||0},'${safeAttr(inv.buyer_name||'')}',${amtPaid})">💰 ${currentLang==='ar'?'دفعة':'Pay'}</button>`;
-        if(inv.buyer_mobile){
-          menuItems.push({label: '📩 ' + (currentLang==='ar'?'تذكير العميل (واتساب)':'Send WhatsApp reminder'), fn: `sendReminder('${inv.buyer_mobile}','${safeAttr(inv.invoice_number||'')}',${remaining},'${safeAttr(inv.buyer_name||'')}','${inv.id}')`});
-        }
-      }
-      menuItems.push({label: '🖨 ' + (currentLang==='ar'?'عرض / طباعة':'View / Print'), fn: `viewInvoice('${inv.id}')`});
-      menuItems.push({divider: true});
-      menuItems.push({label: '↩ ' + (currentLang==='ar'?'إلغاء (إشعار دائن)':'Reverse (Credit Note)'), fn: `voidInvoice('${inv.id}','${safeAttr(inv.invoice_number||'')}',${inv.total||0},'${safeAttr(inv.buyer_name||'')}')`, danger: true});
-    } else {
-      menuItems.push({label: '🖨 ' + (currentLang==='ar'?'عرض / طباعة':'View / Print'), fn: `viewInvoice('${inv.id}')`});
-    }
+            /* Build menu items (now using shared .row-action-item / .row-actions-menu pattern) */
+            const items = [];
+            if(!isVoided){
+              if(!paid){
+                items.push(`<button class="row-action-item" onclick="closeAllMenus();openPaymentModal('${inv.id}','${safeAttr(inv.invoice_number||'')}',${inv.total||0},'${safeAttr(inv.buyer_name||'')}',${amtPaid})">💰 ${ar?'تسجيل دفعة':'Record payment'}</button>`);
+                if(inv.buyer_mobile){
+                  items.push(`<button class="row-action-item" onclick="closeAllMenus();sendReminder('${inv.buyer_mobile}','${safeAttr(inv.invoice_number||'')}',${remaining},'${safeAttr(inv.buyer_name||'')}','${inv.id}')">📩 ${ar?'تذكير (واتساب)':'WhatsApp reminder'}</button>`);
+                }
+              }
+              items.push(`<button class="row-action-item" onclick="closeAllMenus();viewInvoice('${inv.id}')">🖨 ${ar?'عرض / طباعة':'View / Print'}</button>`);
+              items.push(`<button class="row-action-item danger" onclick="closeAllMenus();voidInvoice('${inv.id}','${safeAttr(inv.invoice_number||'')}',${inv.total||0},'${safeAttr(inv.buyer_name||'')}')">↩ ${ar?'إلغاء (إشعار دائن)':'Reverse (Credit Note)'}</button>`);
+            } else {
+              items.push(`<button class="row-action-item" onclick="closeAllMenus();viewInvoice('${inv.id}')">🖨 ${ar?'عرض / طباعة':'View / Print'}</button>`);
+            }
 
-    let menuHtml = '';
-    if(menuItems.length){
-      const menuId = 'menu-' + inv.id;
-      menuHtml = `<div class="row-action-menu-wrap">
-        <button class="row-action-more" onclick="event.stopPropagation();toggleRowMenu('${menuId}')" aria-label="More actions">⋯</button>
-        <div class="row-action-menu" id="${menuId}">
-          ${menuItems.map(mi => mi.divider ? '<div class="row-action-menu-divider"></div>' : `<button class="row-action-menu-item${mi.danger?' danger':''}" onclick="event.stopPropagation();closeAllRowMenus();${mi.fn}">${mi.label}</button>`).join('')}
-        </div>
-      </div>`;
-    }
-
-    /* Pick display name based on UI language: Arabic UI shows Arabic name; English UI prefers English (falls back to Arabic) */
-    const buyerDisplay = (currentLang === 'en' && inv.buyer_name_en) ? inv.buyer_name_en : (inv.buyer_name || '');
-    const typeBadgeRow = inv.invoice_type === 'b2b' 
-      ? '<span class="badge badge-b2b">B2B</span>'
-      : '<span class="badge badge-b2c">B2C</span>';
-    const zatcaCell = zatcaBadge(inv.zatca_status);
-    const rowClick = `viewInvoice('${inv.id}')`;
-    return `<div class="list-row${isVoided?' voided':''}" onclick="${rowClick}">
-      <div class="row-num">${inv.invoice_number||'—'}</div>
-      <div class="row-date">${formatDateDDMMYYYY(inv.issue_date)||'—'}</div>
-      <div class="row-buyer">${buyerDisplay || (currentLang==='ar'?'عميل غير محدد':'No customer')}</div>
-      <div>${typeBadgeRow}</div>
-      <div class="row-amount">SAR ${fmt(inv.total)}</div>
-      <div>${badge}</div>
-      <div>${zatcaCell}</div>
-      <div class="row-actions">${primaryBtn}${menuHtml}</div>
-    </div>`;
-  }).join('') + '</div>';
+            return `<tr class="clickable${isVoided?' voided':''}" onclick="viewInvoice('${inv.id}')">
+              <td><strong>${escHTML(inv.invoice_number||'—')}</strong></td>
+              <td class="num">${formatDateDDMMYYYY(inv.issue_date)||'—'}</td>
+              <td>${escHTML(buyerDisplay || (ar?'عميل غير محدد':'No customer'))}</td>
+              <td>${typeBadgeRow}</td>
+              <td class="num">SAR ${fmt(inv.total)}</td>
+              <td>${badge}</td>
+              <td>${zatcaCell}</td>
+              <td class="center">
+                <div class="row-actions">
+                  <button class="row-actions-btn" onclick="event.stopPropagation();toggleRowMenu(this)" title="${ar?'إجراءات':'Actions'}">⋮</button>
+                  <div class="row-actions-menu" onclick="event.stopPropagation()">
+                    ${items.join('')}
+                  </div>
+                </div>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
+
+/* Helper used in invoice list — escape for HTML and ensure safe text. */
+function escHTML(s){ return String(s||'').replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m])); }
 
 function viewInvoice(id){
   /* Navigate to invoice-view.html for the rendered invoice */
@@ -2826,21 +2872,44 @@ function toggleDraftsBanner(){
 /* ═══════════════════════════════════════════════════════
    ROW ACTION DROPDOWN MENU
 ═══════════════════════════════════════════════════════ */
-function toggleRowMenu(menuId){
-  closeAllRowMenus(menuId);
-  const m = document.getElementById(menuId);
-  if(m) m.classList.toggle('open');
-}
+/* Round 4l.6: shared row-action menu helpers (matches finance/purchasing).
+   - toggleRowMenu(btn) — pass the ⋮ button element, menu is its nextElementSibling
+   - closeAllMenus() — closes any open menus
+   - Auto-positions the menu so it stays in viewport */
+function toggleRowMenu(btn){
+  const menu = btn.nextElementSibling;
+  if(!menu) return;
+  const isOpen = menu.classList.contains('open');
+  closeAllMenus();
+  if(isOpen) return;
 
-function closeAllRowMenus(except){
-  document.querySelectorAll('.row-action-menu.open').forEach(m => {
-    if(m.id !== except) m.classList.remove('open');
+  menu.classList.add('open');
+  const btnRect = btn.getBoundingClientRect();
+  const menuRect = menu.getBoundingClientRect();
+  const viewportH = window.innerHeight;
+  const viewportW = window.innerWidth;
+
+  let top = btnRect.bottom + 4;
+  if(top + menuRect.height > viewportH - 8) top = btnRect.top - menuRect.height - 4;
+  let left = btnRect.right - menuRect.width;
+  if(left < 8) left = 8;
+  if(left + menuRect.width > viewportW - 8) left = viewportW - menuRect.width - 8;
+
+  menu.style.top = top + 'px';
+  menu.style.left = left + 'px';
+}
+function closeAllMenus(){
+  document.querySelectorAll('.row-actions-menu.open').forEach(m => {
+    m.classList.remove('open');
+    m.style.top = '';
+    m.style.left = '';
   });
 }
-
 document.addEventListener('click', e => {
-  if(!e.target.closest('.row-action-menu-wrap')) closeAllRowMenus();
+  if(!e.target.closest('.row-actions') && !e.target.closest('.row-actions-menu')) closeAllMenus();
 });
+window.addEventListener('scroll', closeAllMenus, true);
+window.addEventListener('resize', closeAllMenus);
 
 /* ═══════════════════════════════════════════════════════
    STATS
@@ -2926,72 +2995,70 @@ function renderCustList(){
   }
 
   const c = document.getElementById('cust-list');
+  const ar = currentLang === 'ar';
   if(!list.length){
     c.innerHTML = `<div class="empty-state">
-      <div class="empty-state-icon">👥</div>
-      <div class="empty-state-title">${currentLang==='ar'?'لا يوجد عملاء':'No customers'}</div>
-      <div class="empty-state-text">${currentLang==='ar'?'اضغط + عميل لإضافة أول عميل':'Click + Customer to add your first one'}</div>
+      <div class="icon">👥</div>
+      <div class="title">${ar?'لا يوجد عملاء':'No customers'}</div>
+      <div class="text">${ar?'اضغط + عميل لإضافة أول عميل':'Click + Customer to add your first one'}</div>
     </div>`;
     return;
   }
 
-  c.innerHTML = '<div class="list-header customers-header">' +
-    `<span></span>` +
-    `<span>${currentLang==='ar'?'الكود':'Code'}</span>` +
-    `<span>${currentLang==='ar'?'الاسم':'Name'}</span>` +
-    `<span>${currentLang==='ar'?'النوع':'Type'}</span>` +
-    `<span>${currentLang==='ar'?'آخر فاتورة':'Last Invoice'}</span>` +
-    `<span class="h-amount">${currentLang==='ar'?'مستحق':'Outstanding'}</span>` +
-    `<span class="h-amount">${currentLang==='ar'?'إجمالي المبيعات':'Total Sales'}</span>` +
-    `<span class="h-actions">${currentLang==='ar'?'إجراءات':'Actions'}</span>` +
-    '</div>' +
-    '<div class="list-rows">' + list.map(cust => {
-    const nameAr = custNameAr(cust);
-    const nameEn = custNameEn(cust);
-    const initial = ((nameEn || nameAr || '?')[0]||'?').toUpperCase();
-    const isB2B = cust.customer_type === 'b2b';
-    const typeBadge = isB2B
-      ? '<span class="badge badge-b2b">B2B</span>'
-      : '<span class="badge badge-b2c">B2C</span>';
-    const lastInvoiceDate = cust.last_invoice_date ? formatDateDDMMYYYY(cust.last_invoice_date) : '—';
-    const outstanding = parseFloat(cust.total_outstanding) || 0;
-    const totalSales = parseFloat(cust.total_invoiced) || 0;
-    const outstandingClass = outstanding > 0 ? 'color:var(--red);' : 'color:var(--muted);';
-    return `<div class="cust-row" style="cursor:pointer;" onclick="window.location.href='customer-detail.html?id=${cust.id}'">
-      <div class="cust-avatar">${initial}</div>
-      <div class="cust-code">${cust.customer_code || '—'}</div>
-      <div class="row-buyer">
-        <div style="font-weight:600;">${nameAr || nameEn || '—'}</div>
-        ${(nameEn && nameAr && nameEn !== nameAr) ? '<div style="font-size:11px;color:var(--muted);">'+nameEn+'</div>' : ''}
-      </div>
-      <div class="cust-type">${typeBadge}</div>
-      <div style="font-size:12px;color:var(--muted);font-family:'DM Mono',monospace;">${lastInvoiceDate}</div>
-      <div class="row-amount" style="${outstandingClass}font-weight:${outstanding > 0 ? '700' : '500'};">SAR ${fmt(outstanding)}</div>
-      <div class="row-amount" style="font-weight:600;">SAR ${fmt(totalSales)}</div>
-      <div class="row-actions" style="position:relative;" onclick="event.stopPropagation()">
-        <button class="row-actions-btn" onclick="event.stopPropagation();toggleCustRowMenu(this)" title="${currentLang==='ar'?'إجراءات':'Actions'}" style="background:transparent;border:none;padding:4px 8px;border-radius:6px;cursor:pointer;color:var(--muted);font-size:18px;line-height:1;">⋮</button>
-        <div class="cust-row-menu" style="display:none;position:absolute;top:100%;${currentLang==='ar'?'left:0':'right:0'};background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.18);z-index:9000;min-width:180px;padding:4px;margin-top:4px;">
-          <button onclick="closeAllCustMenus();editCustomer('${cust.id}')" style="display:block;width:100%;text-align:start;padding:8px 12px;border:none;background:transparent;font-family:inherit;font-size:13px;cursor:pointer;border-radius:6px;">✏️ ${currentLang==='ar'?'تعديل':'Edit'}</button>
-          <button onclick="closeAllCustMenus();newInvoiceForCust('${cust.id}')" style="display:block;width:100%;text-align:start;padding:8px 12px;border:none;background:transparent;font-family:inherit;font-size:13px;cursor:pointer;border-radius:6px;">🧾 ${currentLang==='ar'?'فاتورة جديدة':'New Invoice'}</button>
-        </div>
-      </div>
-    </div>`;
-  }).join('') + '</div>';
+  c.innerHTML = `
+    <div class="table-wrap">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>${ar?'الكود':'Code'}</th>
+            <th>${ar?'الاسم':'Name'}</th>
+            <th>${ar?'النوع':'Type'}</th>
+            <th>${ar?'آخر فاتورة':'Last Invoice'}</th>
+            <th class="num">${ar?'مستحق':'Outstanding'}</th>
+            <th class="num">${ar?'إجمالي المبيعات':'Total Sales'}</th>
+            <th class="center"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${list.map(cust => {
+            const nameAr = custNameAr(cust);
+            const nameEn = custNameEn(cust);
+            const isB2B = cust.customer_type === 'b2b';
+            const typeBadge = isB2B
+              ? '<span class="badge badge-b2b">B2B</span>'
+              : '<span class="badge badge-b2c">B2C</span>';
+            const lastInvoiceDate = cust.last_invoice_date ? formatDateDDMMYYYY(cust.last_invoice_date) : '—';
+            const outstanding = parseFloat(cust.total_outstanding) || 0;
+            const totalSales = parseFloat(cust.total_invoiced) || 0;
+            return `<tr class="clickable" onclick="window.location.href='customer-detail.html?id=${cust.id}'">
+              <td class="num">${escHTML(cust.customer_code || '—')}</td>
+              <td>
+                <strong>${escHTML(nameAr || nameEn || '—')}</strong>
+                ${(nameEn && nameAr && nameEn !== nameAr) ? `<div style="font-size:11px;color:var(--muted);">${escHTML(nameEn)}</div>` : ''}
+              </td>
+              <td>${typeBadge}</td>
+              <td class="num">${lastInvoiceDate}</td>
+              <td class="num" style="color:${outstanding > 0 ? 'var(--red)' : 'var(--muted)'};font-weight:${outstanding > 0 ? '700' : '500'};">SAR ${fmt(outstanding)}</td>
+              <td class="num" style="font-weight:600;">SAR ${fmt(totalSales)}</td>
+              <td class="center">
+                <div class="row-actions">
+                  <button class="row-actions-btn" onclick="event.stopPropagation();toggleRowMenu(this)" title="${ar?'إجراءات':'Actions'}">⋮</button>
+                  <div class="row-actions-menu" onclick="event.stopPropagation()">
+                    <button class="row-action-item" onclick="closeAllMenus();window.location.href='customer-detail.html?id=${cust.id}'">👁 ${ar?'عرض التفاصيل':'View details'}</button>
+                    <button class="row-action-item" onclick="closeAllMenus();editCustomer('${cust.id}')">✏️ ${ar?'تعديل':'Edit'}</button>
+                    <button class="row-action-item" onclick="closeAllMenus();newInvoiceForCust('${cust.id}')">🧾 ${ar?'فاتورة جديدة':'New Invoice'}</button>
+                  </div>
+                </div>
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
 }
 
-/* Round 4l.5: customer row dropdown menu helpers */
-function toggleCustRowMenu(btn){
-  closeAllCustMenus();
-  const menu = btn.parentElement.querySelector('.cust-row-menu');
-  if(menu) menu.style.display = 'block';
-  /* Click anywhere else closes the menu */
-  setTimeout(() => {
-    document.addEventListener('click', closeAllCustMenus, {once: true});
-  }, 0);
-}
-function closeAllCustMenus(){
-  document.querySelectorAll('.cust-row-menu').forEach(m => m.style.display = 'none');
-}
+/* Round 4l.6: cust-row-menu helpers REMOVED — using shared toggleRowMenu/closeAllMenus */
 
 function newInvoiceForCust(id){
   const c = allCustomers.find(x => x.id === id);
