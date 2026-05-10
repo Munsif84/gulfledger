@@ -1473,6 +1473,13 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
           <span class="meta-label" data-ar="التاريخ · Issue Date" data-en="Issue Date · التاريخ">التاريخ · Issue Date</span>
           <input type="date" class="meta-input" id="f-date" lang="en" oninput="autoFillDueDate()">
         </div>
+        <!-- Round 4m: location picker — defaults to default warehouse, hidden if only one location -->
+        <div class="meta-cell" id="loc-cell" style="display:none;">
+          <span class="meta-label" data-ar="📍 الموقع · Location" data-en="📍 Location · الموقع">📍 الموقع · Location</span>
+          <select class="meta-input" id="f-location">
+            <option value="">--</option>
+          </select>
+        </div>
         <div class="meta-cell" id="duedate-cell" style="display:none;">
           <span class="meta-label" data-ar="تاريخ الاستحقاق · Due Date" data-en="Due Date · تاريخ الاستحقاق">تاريخ الاستحقاق · Due Date</span>
           <input type="date" class="meta-input" id="f-duedate" lang="en">
@@ -3808,6 +3815,10 @@ async function openInvoiceModal(){
   document.getElementById('notes-body').style.display = 'none';
   document.getElementById('notes-arrow')?.classList.remove('open');
 
+  /* Round 4m: populate location dropdown. Hidden when only 1 location exists
+     (keeps simple users free of clutter). */
+  await populateInvoiceLocationPicker();
+
   setInvType('quick');
   await fetchNextInvoiceNumber();
   renderItems();
@@ -3816,6 +3827,36 @@ async function openInvoiceModal(){
   document.getElementById('invoice-modal').classList.add('show');
   document.body.style.overflow = 'hidden';
 }
+
+async function populateInvoiceLocationPicker(){
+  /* Lazy-load locations once per session */
+  if(!window._invLocations){
+    const {data} = await sb.from('locations')
+      .select('*')
+      .eq('business_id', currentBiz?.id || '')
+      .eq('is_active', true)
+      .order('is_default', {ascending: false})
+      .order('name');
+    window._invLocations = data || [];
+  }
+  const locs = window._invLocations;
+  const cell = document.getElementById('loc-cell');
+  const sel = document.getElementById('f-location');
+  if(!sel) return;
+
+  /* If only one (or zero) active locations, hide the picker entirely.
+     The default location is still passed to the RPC silently. */
+  if(locs.length <= 1){
+    if(cell) cell.style.display = 'none';
+    sel.innerHTML = locs[0] ? `<option value="${locs[0].id}" selected>${escAttr(locs[0].name_ar||locs[0].name)}</option>` : '<option value="">--</option>';
+    return;
+  }
+
+  if(cell) cell.style.display = '';
+  sel.innerHTML = locs.map(l => `<option value="${l.id}"${l.is_default?' selected':''}>${escAttr(l.name_ar||l.name)}${l.is_default?' ⭐':''}</option>`).join('');
+}
+
+function escAttr(s){return String(s||'').replace(/"/g,'&quot;');}
 
 function closeInvoiceModal(){
   document.getElementById('invoice-modal').classList.remove('show');
@@ -4423,6 +4464,7 @@ async function saveDraft(){
     buyer_mobile: selectedCustomer?.mobile || '',
     customer_id: selectedCustomer?.id || null,
     po_number: v('f-po-num') || null,
+    location_id: v('f-location') || null,    /* Round 4m */
     subtotal: totals.sub,
     discount_pct: totals.discPct,
     discount_amount: totals.discAmt,
@@ -4543,6 +4585,7 @@ async function previewInvoice(){
     buyer_mobile: selectedCustomer?.mobile || '',
     customer_id: selectedCustomer?.id || null,
     po_number: v('f-po-num') || null,
+    location_id: v('f-location') || null,    /* Round 4m */
     subtotal: totals.sub,
     discount_pct: totals.discPct,
     discount_amount: totals.discAmt,
@@ -4688,6 +4731,7 @@ async function generateInvoice(){
     buyer_mobile: selectedCustomer?.mobile || '',
     customer_id: selectedCustomer?.id || null,
     po_number: v('f-po-num') || null,
+    location_id: v('f-location') || null,    /* Round 4m */
     subtotal: totals.sub,
     discount_pct: totals.discPct,
     discount_amount: totals.discAmt,
@@ -4753,6 +4797,7 @@ async function generateInvoice(){
      silently allowed negative stock under WAC. */
   if(currentBiz?.id){
     const useFIFO = (currentBiz.costing_method || 'wac') === 'fifo';
+    const locId = v('f-location') || null;       /* Round 4m */
     const reqByItem = {};
     for(const it of validItems){
       if(!it.itemId || !it.qty) continue;
@@ -4762,12 +4807,21 @@ async function generateInvoice(){
     for(const itemId of Object.keys(reqByItem)){
       let avail = 0;
       if(useFIFO){
-        const {data: batches} = await sb.from('inventory_batches')
+        let q = sb.from('inventory_batches')
           .select('qty_remaining')
           .eq('item_id', itemId)
           .eq('business_id', currentBiz.id)
           .eq('is_depleted', false);
+        if(locId) q = q.eq('location_id', locId);    /* Round 4m */
+        const {data: batches} = await q;
         avail = (batches || []).reduce((s, b) => s + (parseFloat(b.qty_remaining) || 0), 0);
+      } else if(locId){
+        /* WAC + location: aggregate from stock_by_location view */
+        const {data: rows} = await sb.from('stock_by_location')
+          .select('qty')
+          .eq('item_id', itemId)
+          .eq('location_id', locId);
+        avail = (rows || []).reduce((s, r) => s + (parseFloat(r.qty) || 0), 0);
       } else {
         const {data: itemRow} = await sb.from('inventory_items')
           .select('current_qty').eq('id', itemId).single();
@@ -4848,8 +4902,8 @@ async function generateInvoice(){
 
         let itemCOGS;
         if(useFIFO){
-          /* Round 13: pass invoice + invoice_item IDs so RPC records consumption rows */
-          itemCOGS = await consumeFIFOBatches(it.itemId, it.qty, currentBiz.id, invoiceId, itemIdBySort[idx]);
+          /* Round 4m: pass selected invoice location to drain only batches there */
+          itemCOGS = await consumeFIFOBatches(it.itemId, it.qty, currentBiz.id, invoiceId, itemIdBySort[idx], payload.location_id);
           if(!itemCOGS) itemCOGS = (invItem.cost_price||0) * it.qty;
         } else {
           itemCOGS = (invItem.cost_price||0) * it.qty;
@@ -4865,6 +4919,8 @@ async function generateInvoice(){
         await sb.from('inventory_movements').insert({
           business_id: currentBiz.id,
           item_id: it.itemId,
+          location_id: payload.location_id || null,         /* Round 4m */
+          from_location_id: payload.location_id || null,    /* Round 4m: stock leaves this location */
           movement_type: 'out',
           quantity: it.qty,
           balance_after: newQty,
@@ -5076,13 +5132,14 @@ async function autoPostInvoice(invoice){
    - Records stock_consumption rows so voidInvoice can restore qty later
    - Returns total cost + consumed batches breakdown
 */
-async function consumeFIFOBatches(itemId, qtyNeeded, businessId, invoiceId, invoiceItemId){
+async function consumeFIFOBatches(itemId, qtyNeeded, businessId, invoiceId, invoiceItemId, locationId){
   const {data, error} = await sb.rpc('consume_inventory_fifo', {
     p_business_id:     businessId,
     p_invoice_id:      invoiceId,
     p_invoice_item_id: invoiceItemId,
     p_item_id:         itemId,
-    p_qty_needed:      qtyNeeded
+    p_qty_needed:      qtyNeeded,
+    p_location_id:     locationId || null   /* Round 4m: optional location filter */
   });
   if(error){
     /* Re-throw so caller can show negative-stock error and roll back the invoice */
