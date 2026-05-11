@@ -132,6 +132,10 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .tab-btn.active{background:var(--blue);color:#fff;}
 .tab-btn .count-badge{background:rgba(255,255,255,0.25);padding:1px 7px;border-radius:8px;font-size:11px;font-weight:700;font-family:'DM Mono',monospace;}
 .tab-btn:not(.active) .count-badge{background:var(--tint);color:var(--muted);}
+/* Round 4o: valuation filter pills */
+.val-filter-pill .count-badge{display:inline-block;background:var(--tint);color:var(--muted);padding:1px 7px;border-radius:8px;font-size:11px;font-weight:700;font-family:'DM Mono',monospace;margin-inline-start:4px;}
+.val-filter-pill.active{background:var(--blue);color:#fff;border-color:var(--blue);}
+.val-filter-pill.active .count-badge{background:rgba(255,255,255,0.25);color:#fff;}
 
 /* Stats row */
 .stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
@@ -1114,31 +1118,76 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
        Includes: total value, per-category breakdown, slow-moving alerts.
   ════════════════════════════════════════════════ -->
   <div id="pane-valuation" style="display:none;">
+    <!-- Round 4o: enriched valuation with real FIFO, locations, slow-moving, days-of-stock, aging -->
     <div class="stats-row">
       <div class="stat-card green">
         <div class="label" data-ar="القيمة الإجمالية للمخزون" data-en="Total Stock Value">القيمة الإجمالية للمخزون</div>
         <div class="value" id="stat-val-total">SAR 0</div>
-        <div class="sub" data-ar="بطريقة المتوسط المرجح (WAC)" data-en="Weighted Average Cost (WAC)">بطريقة المتوسط المرجح (WAC)</div>
+        <div class="sub" id="stat-val-method" data-ar="حسب طريقة التقييم" data-en="per costing method">حسب طريقة التقييم</div>
       </div>
       <div class="stat-card">
         <div class="label" data-ar="عدد الأصناف بمخزون" data-en="Items in Stock">عدد الأصناف بمخزون</div>
         <div class="value" id="stat-val-items">0</div>
       </div>
       <div class="stat-card amber">
-        <div class="label" data-ar="عدد الفئات" data-en="Categories">عدد الفئات</div>
-        <div class="value" id="stat-val-cats">0</div>
+        <div class="label" data-ar="متحرك ببطء" data-en="Slow-moving">متحرك ببطء</div>
+        <div class="value" id="stat-val-slow">0</div>
+        <div class="sub" id="stat-val-slow-sub">—</div>
       </div>
       <div class="stat-card red">
-        <div class="label" data-ar="مخزون راكد" data-en="Slow-moving">مخزون راكد</div>
-        <div class="value" id="stat-val-slow">0</div>
-        <div class="sub" data-ar="بدون حركة 90 يوم" data-en="no movement 90d">بدون حركة 90 يوم</div>
+        <div class="label" data-ar="راكد" data-en="Dead stock">راكد</div>
+        <div class="value" id="stat-val-dead">0</div>
+        <div class="sub" id="stat-val-dead-sub">—</div>
       </div>
     </div>
 
+    <!-- Filter pills + thresholds info -->
+    <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+      <div style="display:flex;gap:6px;flex-wrap:wrap;" id="val-filter-pills">
+        <button class="btn btn-secondary btn-sm val-filter-pill active" data-filter="all" onclick="setValuationFilter('all')">
+          <span data-ar="الكل" data-en="All">الكل</span>
+          <span class="count-badge" id="val-count-all">0</span>
+        </button>
+        <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="active" onclick="setValuationFilter('active')">
+          <span data-ar="نشطة" data-en="Active">نشطة</span>
+          <span class="count-badge" id="val-count-active">0</span>
+        </button>
+        <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="slow" onclick="setValuationFilter('slow')">
+          ⏳ <span data-ar="متحرك ببطء" data-en="Slow-moving">متحرك ببطء</span>
+          <span class="count-badge" id="val-count-slow">0</span>
+        </button>
+        <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="dead" onclick="setValuationFilter('dead')">
+          💀 <span data-ar="راكد" data-en="Dead">راكد</span>
+          <span class="count-badge" id="val-count-dead">0</span>
+        </button>
+        <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="overstock" onclick="setValuationFilter('overstock')">
+          📦 <span data-ar="فائض" data-en="Overstock">فائض</span>
+          <span class="count-badge" id="val-count-overstock">0</span>
+        </button>
+        <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="reorder" onclick="setValuationFilter('reorder')">
+          ⚠️ <span data-ar="إعادة طلب" data-en="Reorder">إعادة طلب</span>
+          <span class="count-badge" id="val-count-reorder">0</span>
+        </button>
+      </div>
+      <div style="display:flex;gap:6px;align-items:center;">
+        <a class="btn btn-ghost btn-sm" href="settings.html#inventory-analytics" title="${currentLang==='ar'?'تعديل الحدود':'Adjust thresholds'}">⚙️</a>
+        <button class="btn btn-secondary btn-sm" onclick="exportValuationCSV()">📥 <span data-ar="تصدير" data-en="Export">تصدير</span></button>
+      </div>
+    </div>
+
+    <!-- Two-column secondary cards: by category, by location, top items, aging -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;" id="val-grid">
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
+        <h3 style="margin:0 0 10px;font-size:14px;font-weight:700;color:var(--navy);" data-ar="القيمة حسب الموقع" data-en="Value by Location">القيمة حسب الموقع</h3>
+        <div id="val-by-location">—</div>
+      </div>
       <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
         <h3 style="margin:0 0 10px;font-size:14px;font-weight:700;color:var(--navy);" data-ar="القيمة حسب الفئة" data-en="Value by Category">القيمة حسب الفئة</h3>
         <div id="val-by-category">—</div>
+      </div>
+      <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
+        <h3 style="margin:0 0 10px;font-size:14px;font-weight:700;color:var(--navy);" data-ar="أعمار الدفعات" data-en="Batch Aging">أعمار الدفعات</h3>
+        <div id="val-batch-aging">—</div>
       </div>
       <div style="background:var(--card);border:1px solid var(--border);border-radius:10px;padding:14px;">
         <h3 style="margin:0 0 10px;font-size:14px;font-weight:700;color:var(--navy);" data-ar="أعلى 10 أصناف بالقيمة" data-en="Top 10 Items by Value">أعلى 10 أصناف بالقيمة</h3>
@@ -1147,9 +1196,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
     </div>
 
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
-      <div style="font-size:13px;color:var(--muted);" data-ar="تقرير تفصيلي لكل صنف"
-           data-en="Detailed per-item valuation">تقرير تفصيلي لكل صنف</div>
-      <button class="btn btn-secondary btn-sm" onclick="exportValuationCSV()" data-ar="📥 تصدير CSV" data-en="📥 Export CSV">📥 تصدير CSV</button>
+      <div style="font-size:13px;color:var(--muted);" id="val-table-caption" data-ar="تقرير تفصيلي لكل صنف" data-en="Detailed per-item valuation">تقرير تفصيلي لكل صنف</div>
     </div>
     <div class="table-wrap" id="valuation-table-wrap">
       <div class="loading-state">
@@ -1699,7 +1746,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         </div>
       </div>
 
-      <div class="field-row double">
+      <div class="field-row triple">
         <div class="field">
           <div class="field-label">
             <span data-ar="نوع التعديل" data-en="Adjustment Type">نوع التعديل</span>
@@ -1718,6 +1765,15 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
             <span data-ar="التاريخ" data-en="Date">التاريخ</span>
           </div>
           <input type="date" id="adj-date" class="mono">
+        </div>
+        <div class="field">
+          <div class="field-label">
+            📍 <span data-ar="الموقع" data-en="Location">الموقع</span>
+            <span class="req">*</span>
+          </div>
+          <select id="adj-location" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;background:#fff;">
+            <option value="">--</option>
+          </select>
         </div>
       </div>
 
@@ -2296,9 +2352,62 @@ async function startNewStockTake(){
     notify(ar?'لا توجد أصناف بالمخزون':'No items to count', 'error');
     return;
   }
+
+  /* Round 4m: stock takes are PER LOCATION.
+     If multiple active locations exist, prompt user to pick one.
+     If only the default Main Warehouse, use it silently. */
+  let locationId = null;
+  let locationName = '';
+  if(!allLocations || allLocations.length === 0){
+    /* Locations not loaded yet — load now */
+    await loadLocations();
+  }
+  const activeLocs = (allLocations || []).filter(l => l.is_active);
+  if(activeLocs.length === 0){
+    notify(ar?'⚠ لا يوجد موقع نشط — أنشئ موقعاً أولاً':'⚠ No active location — create one first','error');
+    return;
+  } else if(activeLocs.length === 1){
+    locationId = activeLocs[0].id;
+    locationName = activeLocs[0].name_ar || activeLocs[0].name;
+  } else {
+    /* Build a quick prompt — show numbered list, accept entered number */
+    const opts = activeLocs.map((l,i) => `${i+1}. ${l.name_ar||l.name}${l.is_default?' ⭐':''}`).join('\n');
+    const pick = prompt((ar
+      ? 'اختر الموقع لإجراء الجرد به:\n\n'
+      : 'Choose the location for this stock take:\n\n') + opts + '\n\n' +
+      (ar?'أدخل الرقم:':'Enter number:'), '1');
+    if(!pick) return;
+    const idx = parseInt(pick,10) - 1;
+    if(isNaN(idx) || idx < 0 || idx >= activeLocs.length){
+      notify(ar?'⚠ اختيار غير صحيح':'⚠ Invalid choice','error');
+      return;
+    }
+    locationId = activeLocs[idx].id;
+    locationName = activeLocs[idx].name_ar || activeLocs[idx].name;
+  }
+
+  /* Compute per-location item count and expected qtys from stock_by_location view */
+  if(!stockByLocation || stockByLocation.length === 0){
+    await loadStockByLocation();
+  }
+  const expectedByItem = {};
+  for(const r of stockByLocation){
+    if(r.location_id === locationId){
+      expectedByItem[r.item_id] = parseFloat(r.qty)||0;
+    }
+  }
+  /* Items eligible for this location: those with qty > 0 OR all items (so user can record items they expected here but found 0). 
+     Default: include items that have a stock_by_location row for this loc OR have any current_qty > 0 globally (in case admin wants to count everything). */
+  const itemsForTake = allItems.filter(it => expectedByItem[it.id] !== undefined);
+
+  if(itemsForTake.length === 0){
+    notify((ar?'لا توجد أصناف بالموقع المختار: ':'No items at selected location: ') + locationName,'error');
+    return;
+  }
+
   if(!confirm(ar
-    ? `سيتم إنشاء جرد جديد لـ ${allItems.length} صنف. سيتم تسجيل الكميات الحالية كرصيد متوقع. هل تريد المتابعة؟`
-    : `This will create a new stock take for ${allItems.length} items. Current quantities will be saved as expected. Continue?`)) return;
+    ? `جرد لموقع "${locationName}" — ${itemsForTake.length} صنف. سيتم تسجيل الكميات الحالية بالموقع كرصيد متوقع. متابعة؟`
+    : `Stock take for "${locationName}" — ${itemsForTake.length} items. Current per-location qty will be saved as expected. Continue?`)) return;
 
   /* Generate next take number: ST-{year}-{seq} */
   const year = new Date().getFullYear();
@@ -2315,15 +2424,16 @@ async function startNewStockTake(){
   });
   const takeNumber = prefix + String(maxN + 1).padStart(3, '0');
 
-  /* Create header */
+  /* Create header (now with location_id) */
   const today = new Date().toISOString().slice(0,10);
   const {data: header, error: hErr} = await sb.from('stock_takes').insert({
     business_id: currentBiz.id,
     user_id: currentUser.id,
     take_number: takeNumber,
     take_date: today,
+    location_id: locationId,        /* Round 4m */
     status: 'open',
-    item_count: allItems.length
+    item_count: itemsForTake.length
   }).select().single();
 
   if(hErr){
@@ -2339,12 +2449,12 @@ async function startNewStockTake(){
     return;
   }
 
-  /* Snapshot all current quantities as expected_qty */
-  const lines = allItems.map(it => ({
+  /* Snapshot per-location qty as expected_qty */
+  const lines = itemsForTake.map(it => ({
     stock_take_id: header.id,
     item_id: it.id,
-    expected_qty: parseFloat(it.current_qty) || 0,
-    actual_qty: null, /* user fills in */
+    expected_qty: expectedByItem[it.id] || 0,
+    actual_qty: null,
     cost_at_take: parseFloat(it.cost_price) || 0
   }));
   const {error: lErr} = await sb.from('stock_take_lines').insert(lines);
@@ -2356,7 +2466,7 @@ async function startNewStockTake(){
     return;
   }
 
-  notify(ar?'✅ تم إنشاء الجرد':'✅ Stock take created', 'success');
+  notify(ar?`✅ تم إنشاء الجرد لـ ${locationName}`:`✅ Stock take created for ${locationName}`, 'success');
   await loadStockTakes();
   renderStockTakes();
   /* Open the new take so user can start entering counts */
@@ -2638,128 +2748,362 @@ async function cancelStockTake(takeId){
    Point-in-time stock value (WAC). FIFO breakdown deferred to Round 4f.
    Reads from allItems (already loaded). No separate fetch needed.
 ═══════════════════════════════════════════════════════ */
+/* ═══════════════════════════════════════════════════════
+   ROUND 4O — VALUATION TAB (real FIFO, locations, slow-moving, days-of-stock, aging)
+═══════════════════════════════════════════════════════ */
+
+/* Cached batch + movement data for valuation. Refreshed each time the tab is opened. */
+let _valBatches = [];           /* all non-depleted batches with location */
+let _valLastSold = {};          /* itemId → { last_out_date, qty_last30 } */
+let _valFilter = 'all';         /* current filter pill */
+let _valItems = [];             /* enriched items with all computed fields */
+
+function setValuationFilter(f){
+  _valFilter = f;
+  document.querySelectorAll('.val-filter-pill').forEach(el => {
+    el.classList.toggle('active', el.dataset.filter === f);
+  });
+  renderValuationTable();
+}
+
+async function loadValuationData(){
+  if(!currentBiz?.id) return;
+  /* Pull all live batches with location info */
+  const {data: batches} = await sb.from('inventory_batches')
+    .select('id, item_id, location_id, qty_remaining, unit_cost, received_date')
+    .eq('business_id', currentBiz.id)
+    .eq('is_depleted', false)
+    .gt('qty_remaining', 0);
+  _valBatches = batches || [];
+
+  /* Last 'out' movement per item + last 30-day consumption.
+     Two queries: one for last_out_date (any time), one for last-30 outs. */
+  const since30 = new Date(Date.now() - 30*24*60*60*1000).toISOString().slice(0,10);
+  const {data: lastOuts} = await sb.from('inventory_movements')
+    .select('item_id, quantity, movement_date')
+    .eq('business_id', currentBiz.id)
+    .in('movement_type', ['out','transfer_out'])
+    .order('movement_date', {ascending: false})
+    .limit(5000);
+
+  _valLastSold = {};
+  for(const m of (lastOuts||[])){
+    if(!_valLastSold[m.item_id]) _valLastSold[m.item_id] = { last_out_date: null, qty_last30: 0 };
+    if(!_valLastSold[m.item_id].last_out_date || m.movement_date > _valLastSold[m.item_id].last_out_date){
+      _valLastSold[m.item_id].last_out_date = m.movement_date;
+    }
+    if(m.movement_date >= since30){
+      _valLastSold[m.item_id].qty_last30 += parseFloat(m.quantity)||0;
+    }
+  }
+}
+
 function renderValuation(){
   const ar = currentLang === 'ar';
 
-  /* Stats */
-  let totalValue = 0;
-  let itemsWithStock = 0;
-  const categoryMap = {};
-  const top10 = [];
+  loadValuationData().then(() => {
+    /* Thresholds (from currentBiz, with sensible defaults) */
+    const slowDays = parseInt(currentBiz?.slow_moving_days)  || 60;
+    const deadDays = parseInt(currentBiz?.dead_stock_days)   || 90;
+    const overstockDays = parseInt(currentBiz?.overstock_days) || 180;
+    const reorderDays = parseInt(currentBiz?.reorder_urgency_days) || 7;
+    const today = new Date(); today.setHours(0,0,0,0);
 
-  for(const it of allItems){
-    const qty = parseFloat(it.current_qty) || 0;
-    const cost = parseFloat(it.cost_price) || 0;
-    const value = qty * cost;
-    if(qty > 0){
-      itemsWithStock++;
-      totalValue += value;
-      const cat = it.category || 'uncategorized';
-      categoryMap[cat] = (categoryMap[cat] || 0) + value;
-      top10.push({ ...it, _value: value, _qty: qty, _cost: cost });
+    /* Build per-item enriched record */
+    _valItems = allItems.map(it => {
+      /* Sum qty_remaining and value from this item's live batches */
+      const itemBatches = _valBatches.filter(b => b.item_id === it.id);
+      const qty = itemBatches.reduce((s,b) => s + parseFloat(b.qty_remaining||0), 0);
+      const value = itemBatches.reduce((s,b) => s + parseFloat(b.qty_remaining||0) * parseFloat(b.unit_cost||0), 0);
+      const avgCost = qty > 0 ? value/qty : parseFloat(it.cost_price)||0;
+
+      /* Last sold + days since */
+      const ls = _valLastSold[it.id] || {};
+      const daysSinceSold = ls.last_out_date
+        ? Math.floor((today - new Date(ls.last_out_date)) / (24*60*60*1000))
+        : 99999;   /* never sold */
+      const qtyLast30 = parseFloat(ls.qty_last30)||0;
+      const dailyConsumption = qtyLast30 / 30;
+      const daysOfStock = dailyConsumption > 0 ? qty/dailyConsumption : (qty > 0 ? 99999 : 0);
+
+      /* Classify status */
+      let status;
+      if(qty <= 0) status = 'empty';
+      else if(daysSinceSold >= deadDays) status = 'dead';
+      else if(daysSinceSold >= slowDays) status = 'slow';
+      else status = 'active';
+
+      /* Other flags */
+      const isOverstock = daysOfStock > overstockDays && qty > 0;
+      const needsReorder = daysOfStock < reorderDays && dailyConsumption > 0;
+
+      return {
+        ...it,
+        _qty: qty, _avgCost: avgCost, _value: value,
+        _batchCount: itemBatches.length,
+        _daysSinceSold: daysSinceSold,
+        _qtyLast30: qtyLast30,
+        _dailyConsumption: dailyConsumption,
+        _daysOfStock: daysOfStock,
+        _status: status,
+        _isOverstock: isOverstock,
+        _needsReorder: needsReorder
+      };
+    });
+
+    /* Stats */
+    let totalValue = 0;
+    let itemsWithStock = 0;
+    for(const it of _valItems){
+      if(it._qty > 0){
+        itemsWithStock++;
+        totalValue += it._value;
+      }
     }
+    const countAll = _valItems.filter(x => x._qty > 0).length;
+    const countActive = _valItems.filter(x => x._status === 'active').length;
+    const countSlow = _valItems.filter(x => x._status === 'slow').length;
+    const countDead = _valItems.filter(x => x._status === 'dead').length;
+    const countOverstock = _valItems.filter(x => x._isOverstock).length;
+    const countReorder = _valItems.filter(x => x._needsReorder).length;
+
+    const valueSlow = _valItems.filter(x => x._status === 'slow').reduce((s,x) => s + x._value, 0);
+    const valueDead = _valItems.filter(x => x._status === 'dead').reduce((s,x) => s + x._value, 0);
+
+    setText('stat-val-total', 'SAR ' + fmt(totalValue));
+    setText('stat-val-method', (ar?'بطريقة ':'using ') + ((currentBiz?.costing_method||'wac') === 'fifo' ? 'FIFO' : 'WAC'));
+    setText('stat-val-items', itemsWithStock);
+    setText('stat-val-slow', countSlow);
+    setText('stat-val-slow-sub', valueSlow > 0 ? ('SAR ' + fmt(valueSlow)) : '—');
+    setText('stat-val-dead', countDead);
+    setText('stat-val-dead-sub', valueDead > 0 ? ('SAR ' + fmt(valueDead)) : '—');
+
+    setText('val-count-all', countAll);
+    setText('val-count-active', countActive);
+    setText('val-count-slow', countSlow);
+    setText('val-count-dead', countDead);
+    setText('val-count-overstock', countOverstock);
+    setText('val-count-reorder', countReorder);
+
+    /* By Location card */
+    renderValuationByLocation(totalValue);
+    /* By Category card */
+    renderValuationByCategory(totalValue);
+    /* Batch aging card */
+    renderValuationBatchAging();
+    /* Top 10 items card */
+    renderValuationTop10();
+    /* Detail table */
+    renderValuationTable();
+  });
+}
+
+function renderValuationByLocation(totalValue){
+  const ar = currentLang === 'ar';
+  const wrap = document.getElementById('val-by-location');
+  if(!wrap) return;
+  /* Aggregate value by location_id from _valBatches */
+  const byLoc = {};
+  for(const b of _valBatches){
+    const v = parseFloat(b.qty_remaining||0) * parseFloat(b.unit_cost||0);
+    byLoc[b.location_id||'__none__'] = (byLoc[b.location_id||'__none__']||0) + v;
   }
-  top10.sort((a, b) => b._value - a._value);
-  const top = top10.slice(0, 10);
-  const slowCount = 0; /* TODO Round 4f: requires last-movement-date join */
-
-  setText('stat-val-total', 'SAR ' + fmt(totalValue));
-  setText('stat-val-items', itemsWithStock);
-  setText('stat-val-cats', Object.keys(categoryMap).length);
-  setText('stat-val-slow', slowCount);
-
-  /* By category card */
-  const catWrap = document.getElementById('val-by-category');
-  if(catWrap){
-    if(Object.keys(categoryMap).length === 0){
-      catWrap.innerHTML = `<div style="color:var(--muted);text-align:center;padding:20px;">${ar?'لا توجد بيانات':'No data'}</div>`;
-    } else {
-      const cats = Object.entries(categoryMap).sort((a,b) => b[1] - a[1]);
-      catWrap.innerHTML = cats.map(([cat, val]) => {
-        const pct = totalValue > 0 ? (val / totalValue * 100) : 0;
-        const label = (typeof categoryLabel === 'function' ? categoryLabel(cat) : cat);
-        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
-          <div style="flex:1;">
-            <div>${escHTML(label)}</div>
-            <div style="background:var(--tint);height:4px;border-radius:2px;margin-top:3px;overflow:hidden;">
-              <div style="background:var(--blue);height:100%;width:${pct.toFixed(1)}%;"></div>
-            </div>
-          </div>
-          <div style="text-align:end;margin-inline-start:10px;font-family:'DM Mono',monospace;font-size:12px;">
-            <div style="font-weight:700;">SAR ${fmt(val)}</div>
-            <div style="color:var(--muted);font-size:10px;">${pct.toFixed(1)}%</div>
-          </div>
-        </div>`;
-      }).join('');
-    }
+  const entries = Object.entries(byLoc).sort((a,b) => b[1]-a[1]);
+  if(entries.length === 0){
+    wrap.innerHTML = `<div style="color:var(--muted);text-align:center;padding:20px;">${ar?'لا توجد بيانات':'No data'}</div>`;
+    return;
   }
+  wrap.innerHTML = entries.map(([locId, val]) => {
+    const loc = (allLocations||[]).find(l => l.id === locId);
+    const name = loc ? (loc.name_ar || loc.name || '—') : (ar?'بدون موقع':'No location');
+    const pct = totalValue > 0 ? (val/totalValue*100) : 0;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+      <div style="flex:1;min-width:0;">
+        <div>📍 ${escHTML(name)}${loc?.is_default?' ⭐':''}</div>
+        <div style="background:var(--tint);height:4px;border-radius:2px;margin-top:3px;overflow:hidden;">
+          <div style="background:var(--blue);height:100%;width:${pct.toFixed(1)}%;"></div>
+        </div>
+      </div>
+      <div style="text-align:end;margin-inline-start:10px;font-family:'DM Mono',monospace;font-size:12px;">
+        <div style="font-weight:700;">SAR ${fmt(val)}</div>
+        <div style="color:var(--muted);font-size:10px;">${pct.toFixed(1)}%</div>
+      </div>
+    </div>`;
+  }).join('');
+}
 
-  /* Top 10 items card */
-  const topWrap = document.getElementById('val-top-items');
-  if(topWrap){
-    if(top.length === 0){
-      topWrap.innerHTML = `<div style="color:var(--muted);text-align:center;padding:20px;">${ar?'لا توجد بيانات':'No data'}</div>`;
-    } else {
-      topWrap.innerHTML = top.map((it, idx) => {
-        return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;cursor:pointer;" onclick="openItemDrawer('${it.id}')">
-          <div style="flex:1;min-width:0;">
-            <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${idx+1}. ${escHTML(displayName(it))}</div>
-            <div style="font-size:11px;color:var(--muted);">${fmt(it._qty)} × SAR ${fmt(it._cost)}</div>
-          </div>
-          <div style="font-family:'DM Mono',monospace;font-weight:700;font-size:12px;">SAR ${fmt(it._value)}</div>
-        </div>`;
-      }).join('');
-    }
+function renderValuationByCategory(totalValue){
+  const ar = currentLang === 'ar';
+  const wrap = document.getElementById('val-by-category');
+  if(!wrap) return;
+  const byCat = {};
+  for(const it of _valItems){
+    if(it._qty <= 0) continue;
+    const cat = it.category || 'uncategorized';
+    byCat[cat] = (byCat[cat]||0) + it._value;
   }
+  const entries = Object.entries(byCat).sort((a,b) => b[1]-a[1]);
+  if(entries.length === 0){
+    wrap.innerHTML = `<div style="color:var(--muted);text-align:center;padding:20px;">${ar?'لا توجد بيانات':'No data'}</div>`;
+    return;
+  }
+  wrap.innerHTML = entries.map(([cat, val]) => {
+    const pct = totalValue > 0 ? (val/totalValue*100) : 0;
+    const label = (typeof categoryLabel === 'function' ? categoryLabel(cat) : cat);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+      <div style="flex:1;min-width:0;">
+        <div>${escHTML(label)}</div>
+        <div style="background:var(--tint);height:4px;border-radius:2px;margin-top:3px;overflow:hidden;">
+          <div style="background:var(--blue);height:100%;width:${pct.toFixed(1)}%;"></div>
+        </div>
+      </div>
+      <div style="text-align:end;margin-inline-start:10px;font-family:'DM Mono',monospace;font-size:12px;">
+        <div style="font-weight:700;">SAR ${fmt(val)}</div>
+        <div style="color:var(--muted);font-size:10px;">${pct.toFixed(1)}%</div>
+      </div>
+    </div>`;
+  }).join('');
+}
 
-  /* Detailed table */
+function renderValuationBatchAging(){
+  const ar = currentLang === 'ar';
+  const wrap = document.getElementById('val-batch-aging');
+  if(!wrap) return;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const buckets = [
+    { key:'0-30',   ar:'0-30 يوم',   en:'0-30 days',   min:0,   max:30,   value:0, batches:0, color:'var(--green)' },
+    { key:'31-60',  ar:'31-60 يوم',  en:'31-60 days',  min:31,  max:60,   value:0, batches:0, color:'var(--blue)' },
+    { key:'61-90',  ar:'61-90 يوم',  en:'61-90 days',  min:61,  max:90,   value:0, batches:0, color:'var(--amber)' },
+    { key:'91-180', ar:'91-180 يوم', en:'91-180 days', min:91,  max:180,  value:0, batches:0, color:'#d97706' },
+    { key:'180+',   ar:'+180 يوم',   en:'180+ days',   min:181, max:99999, value:0, batches:0, color:'var(--red)' }
+  ];
+  let totalAged = 0;
+  for(const b of _valBatches){
+    if(!b.received_date) continue;
+    const age = Math.floor((today - new Date(b.received_date))/(24*60*60*1000));
+    const v = parseFloat(b.qty_remaining||0)*parseFloat(b.unit_cost||0);
+    const bucket = buckets.find(x => age >= x.min && age <= x.max);
+    if(bucket){ bucket.value += v; bucket.batches += 1; totalAged += v; }
+  }
+  if(totalAged === 0){
+    wrap.innerHTML = `<div style="color:var(--muted);text-align:center;padding:20px;">${ar?'لا توجد دفعات':'No batches'}</div>`;
+    return;
+  }
+  wrap.innerHTML = buckets.map(bk => {
+    const pct = totalAged > 0 ? (bk.value/totalAged*100) : 0;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+      <div style="flex:1;min-width:0;">
+        <div>${ar?bk.ar:bk.en} <span style="color:var(--muted);font-size:11px;">(${bk.batches})</span></div>
+        <div style="background:var(--tint);height:4px;border-radius:2px;margin-top:3px;overflow:hidden;">
+          <div style="background:${bk.color};height:100%;width:${pct.toFixed(1)}%;"></div>
+        </div>
+      </div>
+      <div style="text-align:end;margin-inline-start:10px;font-family:'DM Mono',monospace;font-size:12px;">
+        <div style="font-weight:700;">SAR ${fmt(bk.value)}</div>
+        <div style="color:var(--muted);font-size:10px;">${pct.toFixed(1)}%</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderValuationTop10(){
+  const ar = currentLang === 'ar';
+  const wrap = document.getElementById('val-top-items');
+  if(!wrap) return;
+  const top = _valItems.filter(x => x._qty > 0).sort((a,b) => b._value-a._value).slice(0,10);
+  if(top.length === 0){
+    wrap.innerHTML = `<div style="color:var(--muted);text-align:center;padding:20px;">${ar?'لا توجد بيانات':'No data'}</div>`;
+    return;
+  }
+  wrap.innerHTML = top.map((it, idx) => {
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;cursor:pointer;" onclick="openItemDrawer('${it.id}')">
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${idx+1}. ${escHTML(displayName(it))}</div>
+        <div style="font-size:11px;color:var(--muted);">${fmt(it._qty)} × SAR ${fmt(it._avgCost)}</div>
+      </div>
+      <div style="font-family:'DM Mono',monospace;font-weight:700;font-size:12px;">SAR ${fmt(it._value)}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderValuationTable(){
+  const ar = currentLang === 'ar';
   const wrap = document.getElementById('valuation-table-wrap');
   if(!wrap) return;
 
-  const itemsWithVal = allItems
-    .map(it => {
-      const qty = parseFloat(it.current_qty) || 0;
-      const cost = parseFloat(it.cost_price) || 0;
-      return { ...it, _qty: qty, _cost: cost, _value: qty * cost };
-    })
-    .sort((a, b) => b._value - a._value);
+  /* Filter by active pill */
+  let list = _valItems.filter(x => x._qty > 0);
+  if(_valFilter === 'active')    list = list.filter(x => x._status === 'active');
+  else if(_valFilter === 'slow') list = list.filter(x => x._status === 'slow');
+  else if(_valFilter === 'dead') list = list.filter(x => x._status === 'dead');
+  else if(_valFilter === 'overstock') list = list.filter(x => x._isOverstock);
+  else if(_valFilter === 'reorder')   list = list.filter(x => x._needsReorder);
 
-  if(itemsWithVal.length === 0){
-    wrap.innerHTML = `
-      <div class="empty-state">
-        <div class="icon">💰</div>
-        <div class="title">${ar?'لا توجد أصناف للتقييم':'No items to value'}</div>
-        <div class="text">${ar?'أضف أصناف وسجل استلامات لرؤية قيمة المخزون.':'Add items and record receipts to see stock value.'}</div>
-      </div>`;
+  list.sort((a,b) => b._value - a._value);
+
+  const totalValueShown = list.reduce((s,x) => s + x._value, 0);
+
+  if(list.length === 0){
+    wrap.innerHTML = `<div class="empty-state">
+      <div class="icon">💰</div>
+      <div class="title">${ar?'لا توجد أصناف لهذا التصنيف':'No items in this category'}</div>
+      <div class="text">${ar?'جرّب تصنيفاً آخر من الفلاتر أعلاه.':'Try another filter pill above.'}</div>
+    </div>`;
     return;
   }
 
+  const statusBadge = (it) => {
+    const badges = [];
+    if(it._status === 'dead') badges.push(`<span class="badge" style="background:#fee2e2;color:#991b1b;font-size:10px;padding:2px 6px;border-radius:5px;font-weight:700;">💀 ${ar?'راكد':'Dead'}</span>`);
+    else if(it._status === 'slow') badges.push(`<span class="badge" style="background:#fef3c7;color:#78350f;font-size:10px;padding:2px 6px;border-radius:5px;font-weight:700;">⏳ ${ar?'بطيء':'Slow'}</span>`);
+    if(it._needsReorder) badges.push(`<span class="badge" style="background:#fee2e2;color:#991b1b;font-size:10px;padding:2px 6px;border-radius:5px;font-weight:700;">⚠️ ${ar?'إعادة طلب':'Reorder'}</span>`);
+    if(it._isOverstock) badges.push(`<span class="badge" style="background:#e0e7ff;color:#3730a3;font-size:10px;padding:2px 6px;border-radius:5px;font-weight:700;">📦 ${ar?'فائض':'Overstock'}</span>`);
+    return badges.join(' ');
+  };
+
+  const daysOfStockDisplay = (d) => {
+    if(d <= 0 || !isFinite(d)) return '—';
+    if(d >= 9999) return '∞';
+    if(d >= 365) return Math.round(d/30) + ' ' + (ar?'شهر':'mo');
+    return Math.round(d) + ' ' + (ar?'يوم':'d');
+  };
+
+  const lastSoldDisplay = (d) => {
+    if(!d || d >= 99999) return ar?'لم يُبع':'Never';
+    if(d === 0) return ar?'اليوم':'Today';
+    return d + ' ' + (ar?'يوم':'d');
+  };
+
   wrap.innerHTML = `
-    <table class="tbl">
+    <div style="padding:8px 14px;color:var(--muted);font-size:12px;background:var(--tint);border:1px solid var(--border);border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <span>${list.length} ${ar?'صنف':'items'}</span>
+      <span style="font-family:'DM Mono',monospace;font-weight:700;color:var(--ink);">SAR ${fmt(totalValueShown)}</span>
+    </div>
+    <table class="tbl" style="border-radius:0 0 8px 8px;">
       <thead>
         <tr>
           <th>${ar?'الصنف':'Item'}</th>
-          <th>${ar?'الفئة':'Category'}</th>
           <th class="num">${ar?'الكمية':'Qty'}</th>
           <th class="num">${ar?'متوسط التكلفة':'Avg Cost'}</th>
           <th class="num">${ar?'القيمة':'Value'}</th>
-          <th class="num">${ar?'%':'%'}</th>
+          <th class="num">${ar?'آخر بيع':'Last Sold'}</th>
+          <th class="num">${ar?'أيام مخزون':'Days Stock'}</th>
+          <th>${ar?'الحالة':'Status'}</th>
         </tr>
       </thead>
       <tbody>
-        ${itemsWithVal.map(it => {
-          const pct = totalValue > 0 ? (it._value / totalValue * 100) : 0;
-          const isOutOfStock = it._qty <= 0;
-          return `<tr class="clickable" onclick="openItemDrawer('${it.id}')" ${isOutOfStock?'style="opacity:0.5;"':''}>
+        ${list.map(it => {
+          return `<tr class="clickable" onclick="openItemDrawer('${it.id}')">
             <td>
               <div><strong>${escHTML(displayName(it))}</strong></div>
               ${it.sku ? `<div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;">${escHTML(it.sku)}</div>` : ''}
             </td>
-            <td>${escHTML(it.category ? (typeof categoryLabel === 'function' ? categoryLabel(it.category) : it.category) : '—')}</td>
             <td class="num">${fmt(it._qty)}</td>
-            <td class="num" style="color:var(--muted);">SAR ${fmt(it._cost)}</td>
+            <td class="num" style="color:var(--muted);">SAR ${fmt(it._avgCost)}</td>
             <td class="num" style="font-weight:700;">SAR ${fmt(it._value)}</td>
-            <td class="num" style="color:var(--muted);">${pct.toFixed(1)}%</td>
+            <td class="num" style="color:var(--muted);font-size:12px;">${lastSoldDisplay(it._daysSinceSold)}</td>
+            <td class="num" style="color:var(--muted);font-size:12px;">${daysOfStockDisplay(it._daysOfStock)}</td>
+            <td>${statusBadge(it)}</td>
           </tr>`;
         }).join('')}
       </tbody>
@@ -2768,26 +3112,39 @@ function renderValuation(){
 
 function exportValuationCSV(){
   const ar = currentLang === 'ar';
-  const lines = ['SKU,Name (AR),Name (EN),Category,Quantity,Avg Cost (SAR),Value (SAR)'];
-  for(const it of allItems){
-    const qty = parseFloat(it.current_qty) || 0;
-    const cost = parseFloat(it.cost_price) || 0;
-    const value = qty * cost;
-    if(qty <= 0) continue;
-    /* CSV-escape: wrap in quotes, double internal quotes */
-    const csvEsc = (s) => '"' + String(s||'').replace(/"/g,'""') + '"';
+  if(!_valItems || _valItems.length === 0){
+    notify(ar?'افتح تبويب التقييم أولاً':'Open Valuation tab first','error');
+    return;
+  }
+  const csvEsc = (s) => '"' + String(s||'').replace(/"/g,'""') + '"';
+  /* Header row */
+  const lines = [[
+    'SKU','Name (AR)','Name (EN)','Category','Qty','Avg Cost (SAR)','Value (SAR)',
+    'Last Sold (days ago)','Qty Last 30 days','Daily Consumption','Days of Stock',
+    'Status','Reorder','Overstock'
+  ].join(',')];
+
+  for(const it of _valItems){
+    if(it._qty <= 0) continue;
     lines.push([
       csvEsc(it.sku || ''),
       csvEsc(it.name_ar || ''),
       csvEsc(it.name_en || it.name || ''),
       csvEsc(it.category || ''),
-      qty,
-      cost,
-      value
+      it._qty,
+      it._avgCost.toFixed(4),
+      it._value.toFixed(2),
+      it._daysSinceSold >= 99999 ? 'never' : it._daysSinceSold,
+      it._qtyLast30.toFixed(2),
+      it._dailyConsumption.toFixed(2),
+      it._daysOfStock >= 9999 ? 'infinity' : it._daysOfStock.toFixed(1),
+      it._status,
+      it._needsReorder ? 'yes' : 'no',
+      it._isOverstock ? 'yes' : 'no'
     ].join(','));
   }
   const csv = lines.join('\n');
-  const blob = new Blob(['\uFEFF' + csv], {type:'text/csv;charset=utf-8;'}); /* BOM for Excel Arabic */
+  const blob = new Blob(['\uFEFF' + csv], {type:'text/csv;charset=utf-8;'});
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
   a.href = url;
@@ -4421,6 +4778,15 @@ function openAdjustModal(itemId){
   setVal('adj-reason','');
   setVal('adj-notes','');
   setText('adj-qty-hint', '—');
+
+  /* Round 4m: populate location dropdown — defaults to default warehouse */
+  const sel = document.getElementById('adj-location');
+  if(sel){
+    const ar = currentLang === 'ar';
+    const locs = (allLocations||[]).filter(l => l.is_active);
+    sel.innerHTML = '<option value="">' + (ar?'-- اختر --':'-- Select --') + '</option>' +
+      locs.map(l => `<option value="${l.id}"${l.is_default?' selected':''}>${escAttr(l.name_ar||l.name)}${l.is_default?' ⭐':''}</option>`).join('');
+  }
 }
 
 function closeAdjustModal(){
@@ -4465,13 +4831,23 @@ async function saveAdjustment(){
   const totalCost = roundCurrency(qty * unitCost);
   const adjDate = v('adj-date') || todayISO();
 
+  /* Round 4m: location is required for adjustments */
+  const locationId = v('adj-location');
+  if(!locationId){
+    notify(currentLang==='ar'?'يجب اختيار الموقع':'Location is required','error');
+    return;
+  }
+
   /* Determine direction */
   const isIncoming = (type === 'recount_up' || type === 'opening');
   const qtyChange = isIncoming ? qty : -qty;
 
+  /* For outgoing adjustments, validate against per-location qty (not business-wide) */
+  const locRow = (stockByLocation || []).find(s => s.item_id === currentAdjItem.id && s.location_id === locationId);
+  const qtyAtLocation = locRow ? parseFloat(locRow.qty)||0 : 0;
   const currentQty = parseFloat(currentAdjItem.current_qty) || 0;
-  if(!isIncoming && qty > currentQty){
-    notify(currentLang==='ar'?'الكمية أكبر من المخزون الحالي':'Quantity exceeds current stock','error');
+  if(!isIncoming && qty > qtyAtLocation){
+    notify(currentLang==='ar'?'الكمية أكبر من المتاح بالموقع المختار':'Quantity exceeds available at selected location','error');
     return;
   }
   const newQty = Math.round((currentQty + qtyChange) * 1000) / 1000;
@@ -4481,6 +4857,7 @@ async function saveAdjustment(){
     user_id: currentUser.id,
     business_id: currentBiz.id,
     item_id: currentAdjItem.id,
+    location_id: locationId,                /* Round 4m */
     adjustment_date: adjDate,
     adjustment_type: type,
     quantity_change: qtyChange,
@@ -4496,17 +4873,14 @@ async function saveAdjustment(){
   }
 
   /* 2. Handle batches:
-        - Incoming (recount_up, opening): create new batch
-        - Outgoing (write_off, recount_down): consume FIFO */
+        - Incoming (recount_up, opening): create new batch at chosen location
+        - Outgoing (write_off, recount_down): consume FIFO from that location */
   if(isIncoming){
-    /* Round 4m: adjustments default to the default location.
-       (Future: add a location picker to the adjustment modal.) */
-    const defaultLoc = (allLocations || []).find(l => l.is_default);
     await sb.from('inventory_batches').insert({
       user_id: currentUser.id,
       business_id: currentBiz.id,
       item_id: currentAdjItem.id,
-      location_id: defaultLoc?.id || null,
+      location_id: locationId,             /* Round 4m: respect picker */
       qty_received: qty,         /* legacy schema column */
       qty_remaining: qty,
       original_qty: qty,         /* newer schema column */
@@ -4517,12 +4891,13 @@ async function saveAdjustment(){
       notes: `${type} · ${reason}`
     });
   } else {
-    /* Consume FIFO from oldest batches */
+    /* Round 4m: drain FIFO from batches AT the chosen location only */
     const {data:batches} = await sb.from('inventory_batches')
       .select('*')
       .eq('item_id', currentAdjItem.id)
       .eq('business_id', currentBiz.id)
       .eq('is_depleted', false)
+      .eq('location_id', locationId)
       .order('received_date', {ascending:true})
       .order('created_at', {ascending:true});
 
@@ -4545,11 +4920,14 @@ async function saveAdjustment(){
     updated_at: new Date().toISOString()
   }).eq('id', currentAdjItem.id);
 
-  /* 4. Insert movement */
+  /* 4. Insert movement (tagged with location) */
   await sb.from('inventory_movements').insert({
     user_id: currentUser.id,
     business_id: currentBiz.id,
     item_id: currentAdjItem.id,
+    location_id: locationId,                          /* Round 4m */
+    from_location_id: !isIncoming ? locationId : null,
+    to_location_id: isIncoming ? locationId : null,
     movement_type: isIncoming ? 'adjust_in' : 'adjust_out',
     adjustment_type: type,
     quantity: qty,
