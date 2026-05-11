@@ -6336,7 +6336,9 @@ function stmtSplitCSVLine(line){
 }
 
 function stmtConsumeAOA(aoa){
-  /* Find header row — usually first non-empty row with > 2 cells */
+  if(!aoa || aoa.length === 0) throw new Error('Empty file');
+
+  /* Find header row — usually first non-empty row with >= 3 cells */
   let headerIdx = 0;
   for(let i = 0; i < Math.min(aoa.length, 10); i++){
     const nonEmpty = aoa[i].filter(c => String(c||'').trim()).length;
@@ -6345,7 +6347,11 @@ function stmtConsumeAOA(aoa){
   _stmtRawHeaders = aoa[headerIdx].map(h => String(h||'').trim());
   _stmtRawRows = aoa.slice(headerIdx + 1).filter(row => row.some(c => String(c||'').trim()));
 
-  /* Auto-map columns based on selected format preset */
+  if(_stmtRawRows.length === 0) throw new Error('No data rows found below header');
+
+  /* Auto-map columns based on selected format preset.
+     Round 4q fix: SOFT-fail. If we can't auto-detect, leave columns empty and
+     let the user pick them in Step 2's mapping UI. */
   const preset = STMT_BANK_PRESETS[_stmtFormat] || STMT_BANK_PRESETS.generic_csv;
   _stmtColMap = {};
   const headersLower = _stmtRawHeaders.map(h => h.toLowerCase());
@@ -6355,11 +6361,8 @@ function stmtConsumeAOA(aoa){
       if(idx >= 0){ _stmtColMap[field] = _stmtRawHeaders[idx]; break; }
     }
   });
-  /* Sanity: at least date + (amount or debit/credit) + description required */
-  if(!_stmtColMap.date){ throw new Error('Could not detect date column'); }
-  if(!_stmtColMap.amount && !_stmtColMap.debit && !_stmtColMap.credit){
-    throw new Error('Could not detect amount column');
-  }
+
+  console.log('[GL stmt] Parsed', _stmtRawHeaders.length, 'columns,', _stmtRawRows.length, 'rows. Auto-mapped:', _stmtColMap);
 }
 
 /* ──────────────────────────────────────────
@@ -6395,6 +6398,11 @@ function renderStmtStep2Preview(){
   `).join('');
 
   body.innerHTML = `
+    ${(!_stmtColMap.date || (!_stmtColMap.amount && !_stmtColMap.debit && !_stmtColMap.credit)) ? `
+      <div style="background:#fef3c7;border:1px solid #fde047;border-radius:10px;padding:12px 14px;margin-bottom:14px;font-size:13px;color:#78350f;">
+        ⚠️ <strong>${ar?'لم نتمكن من اكتشاف الأعمدة تلقائياً':'Could not auto-detect columns'}</strong>
+        <div style="margin-top:4px;font-size:12px;">${ar?'يرجى اختيار عمودي "التاريخ" و"المبلغ" (أو "مدين"+"دائن") يدوياً من القوائم أدناه.':'Please manually pick "Date" and "Amount" (or "Debit"+"Credit") columns from the dropdowns below.'}</div>
+      </div>` : ''}
     <div style="display:grid;grid-template-columns:300px 1fr;gap:20px;">
       <div>
         <h4 style="font-size:13px;font-weight:700;margin:0 0 10px;color:var(--navy);">🔧 <span data-ar="ربط الأعمدة" data-en="Column Mapping">ربط الأعمدة</span></h4>
