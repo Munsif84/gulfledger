@@ -3169,26 +3169,28 @@ function exportValuationCSV(){
 
 /* Round 4p: bridge from Valuation → Purchasing.
    Stores reorder items in sessionStorage, then navigates to purchasing.html which
-   reads the key on init and pre-populates a draft PO. Each preferred_supplier_id
-   becomes one PO (since suppliers are different). */
+   reads the key on init and pre-populates a draft PO. */
 function createPOFromReorderList(){
+  console.log('[GL Round 4p] createPOFromReorderList invoked');
   const ar = currentLang === 'ar';
-  const reorderItems = _valItems.filter(x => x._needsReorder);
+  const reorderItems = (_valItems || []).filter(x => x._needsReorder);
+  console.log('[GL] reorder items found:', reorderItems.length);
+
   if(reorderItems.length === 0){
     notify(ar?'لا توجد أصناف تحتاج إعادة طلب':'No items need reorder', 'error');
     return;
   }
 
-  /* Group by preferred_supplier_id. If multiple suppliers, we'll create one PO per supplier
-     and let the user pick which one to open (or just open the largest group). */
+  /* Group by preferred_supplier_id (fall back to supplier_id, then 'unknown'). */
   const bySupplier = {};
   for(const it of reorderItems){
     const sup = it.preferred_supplier_id || it.supplier_id || '_no_supplier_';
     if(!bySupplier[sup]) bySupplier[sup] = [];
     /* Suggested qty: cover (overstock_days/2) days of consumption, minimum reorder_point */
     const targetDays = Math.max(30, (parseInt(currentBiz?.overstock_days)||180) / 2);
+    const dailyCons = parseFloat(it._dailyConsumption)||0;
     const suggestedQty = Math.max(
-      Math.ceil(it._dailyConsumption * targetDays),
+      Math.ceil(dailyCons * targetDays),
       parseFloat(it.reorder_point)||0,
       1
     );
@@ -3203,28 +3205,44 @@ function createPOFromReorderList(){
   }
 
   const supplierIds = Object.keys(bySupplier);
+  console.log('[GL] suppliers:', supplierIds.length, supplierIds);
+
+  /* If multiple suppliers, ask user to confirm — but don't block if they say yes */
+  let chosenSupplier = supplierIds[0];
   if(supplierIds.length > 1){
     if(!confirm(ar
       ? `هناك ${supplierIds.length} موردين مختلفين. سيتم إنشاء أمر شراء واحد للمجموعة الأكبر فقط. للأخرى أنشئها يدوياً. متابعة؟`
       : `${supplierIds.length} different suppliers found. We'll create a PO for the largest group only — others must be created manually. Continue?`)){
       return;
     }
+    /* Pick the supplier with most items */
+    chosenSupplier = supplierIds.sort((a,b) => bySupplier[b].length - bySupplier[a].length)[0];
   }
 
-  /* Pick the supplier with most items */
-  const chosenSupplier = supplierIds.sort((a,b) => bySupplier[b].length - bySupplier[a].length)[0];
   const itemsForPO = bySupplier[chosenSupplier];
-
-  sessionStorage.setItem('gl_po_prefill', JSON.stringify({
+  const payload = {
     supplier_id: chosenSupplier === '_no_supplier_' ? null : chosenSupplier,
     items: itemsForPO,
     source: 'reorder',
     note: ar?'تم الإنشاء من قائمة إعادة الطلب':'Generated from reorder list'
-  }));
+  };
+  console.log('[GL] PO prefill payload:', payload);
+
+  try {
+    sessionStorage.setItem('gl_po_prefill', JSON.stringify(payload));
+  } catch(e){
+    console.error('[GL] sessionStorage failed:', e);
+    notify(ar?'فشل التخزين المؤقت':'sessionStorage failed','error');
+    return;
+  }
 
   /* Navigate to purchasing with hint to open new PO modal */
   window.location.href = 'purchasing.html?tab=orders&action=new_po';
 }
+
+/* Expose to window so inline onclick handlers can find it
+   (defensive — should already be global since not in IIFE). */
+window.createPOFromReorderList = createPOFromReorderList;
 
 
 /* ═══════════════════════════════════════════════════════
