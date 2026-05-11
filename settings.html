@@ -1,2735 +1,824 @@
 <!DOCTYPE html>
 <!--
-═══════════════════════════════════════════════════════════════════════════════
   GulfLedger — settings.html
-  Business profile, branding, invoice defaults, localization, integrations.
-
-  ARCHITECTURE: Section-based, modular.
-  Each section is self-contained (header + body + save button).
-  Adding a new section = one HTML block. No layout shuffling needed.
-
-  Sections (active in v1):
-    - business    : Business Profile (name, TRN, CR, address, contact)
-    - branding    : Logo + brand color + stamp
-    - invoice     : Invoice numbering, defaults, footer text, bank details
-    - localization: Default language, currency, date format
-
-  Sections (placeholder for future):
-    - layout        : A4 / Thermal toggle (when thermal renderer is built)
-    - zatca         : ZATCA Phase 2 onboarding (when Edge Function is built)
-    - notifications : Email reminders (when notification system is built)
-    - team          : Multi-user roles (when team feature is built)
-    - integrations  : Payment gateway, Salla, Zid (when integrations are built)
-    - affiliate     : Affiliate program (when payment gateway is live)
-    - account       : Login email, password change, danger zone
-
-  REQUIRED SQL: Run settings-sql-migration.sql in Supabase first.
-═══════════════════════════════════════════════════════════════════════════════
+  Round 4n: Settings page with three tabs:
+    1. Profile — business name, CR, TRN, address, logo, contact
+    2. Invoicing — VAT registered toggle, VAT rate, costing method, numbering, footer
+    3. Users — list members, invite, change role, remove
 -->
 <html lang="ar" dir="rtl">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>الإعدادات · GulfLedger</title>
-<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;600;700;800&family=Playfair+Display:wght@600&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>الإعدادات · Settings · GulfLedger</title>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>
-(function(){
-  var lang = localStorage.getItem('gl_lang') || 'ar';
-  document.documentElement.setAttribute('lang', lang);
-  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
-})();
-</script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
 <style>
-:root{
-  --navy:#1A3C2A;--blue:#006C35;--sky:#3DAA65;--light:#A8D9BC;--tint:#E6F4EC;
-  --green:#1D9E75;--red:#C62828;--amber:#C9920A;--ink:#0D2618;--muted:#4A7A5E;
-  --border:#C3DECE;--bg:#F4F9F6;--white:#ffffff;
-}
+:root{--bg:#F5F7F5;--ink:#0F1F18;--navy:#0F1F18;--brand:#0E5C3F;--blue:#1D7A4D;--green:#1D9E75;--tint:#E6F2EC;--light:#C4DFD0;--muted:#6B7770;--border:#DCE5DD;--red:#B8492A;--amber:#C68B0E;--white:#fff;}
 *{box-sizing:border-box;margin:0;padding:0;}
-html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;}
+body{font-family:'Tajawal',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;font-size:14px;line-height:1.5;}
+.mono{font-family:'DM Mono',monospace;}
 
-/* ─── TOP NAV (matches invoices.html) ─── */
-.topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:300;box-shadow:0 2px 8px rgba(0,0,0,0.15);}
-.nav-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
-.nav-bars{display:flex;gap:5px;height:36px;}
-.nav-bar{width:5px;border-radius:2px;}
-.nav-name{font-family:'Playfair Display',serif;font-size:23px;color:#fff;}
-.nav-right{display:flex;align-items:center;gap:8px;}
-.nav-divider{width:1px;height:20px;background:rgba(255,255,255,0.2);}
-.nav-biz{font-size:14px;color:var(--light);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 10px;background:rgba(255,255,255,0.08);border-radius:6px;border:1px solid rgba(255,255,255,0.15);}
-.btn-logout{padding:5px 14px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:6px;font-family:inherit;font-size:14px;cursor:pointer;transition:background .15s;}
-.btn-logout:hover{background:rgba(255,255,255,0.2);}
-.nav-settings-btn{display:flex;align-items:center;justify-content:center;width:32px;height:32px;background:rgba(255,255,255,0.18);border:1px solid rgba(255,255,255,0.3);border-radius:6px;color:#fff;text-decoration:none;font-size:15px;flex-shrink:0;}
-.lang-switch{display:flex;border:1px solid rgba(255,255,255,0.2);border-radius:6px;overflow:hidden;}
-.lang-btn{padding:4px 10px;font-size:13px;cursor:pointer;border:none;background:transparent;color:rgba(255,255,255,0.6);font-family:inherit;font-weight:500;transition:all .15s;}
-.lang-btn.on{background:var(--sky);color:#fff;}
+.topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:300;}
+.topnav-brand{color:#fff;font-weight:800;font-size:16px;}
+.topnav-back{color:rgba(255,255,255,0.85);font-size:13px;}
 
-/* ─── APP NAV (matches invoices.html) ─── */
-.app-nav{background:var(--blue);padding:8px 20px;display:flex;gap:4px;align-items:center;overflow-x:auto;position:sticky;top:44px;z-index:299;box-shadow:0 2px 6px rgba(0,0,0,0.1);-webkit-overflow-scrolling:touch;}
-.app-nav::-webkit-scrollbar{height:0;}
-.app-nav-link{padding:5px 14px;font-size:14px;font-weight:500;color:rgba(255,255,255,0.7);text-decoration:none;border-radius:6px;white-space:nowrap;transition:all .15s;}
-.app-nav-link:hover{background:rgba(255,255,255,0.12);color:#fff;}
-.app-nav-link.active{background:rgba(255,255,255,0.18);color:#fff;}
+.page{max-width:1000px;margin:0 auto;padding:20px;}
+.page-h1{font-size:22px;font-weight:800;color:var(--navy);margin-bottom:4px;}
+.page-sub{font-size:13px;color:var(--muted);margin-bottom:18px;}
 
-/* ═══ ROUND D1 — Canonical nav additions (profile dropdown + dashboard icon) ═══ */
-.nav-settings-btn, .btn-logout { display: none !important; }
-.profile-menu { position: relative; }
-.profile-trigger { display: inline-flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 13px; transition: background .15s; font-family: inherit; }
-.profile-trigger:hover { background: rgba(255,255,255,0.15); }
-.profile-avatar { font-size: 16px; }
-.profile-caret { font-size: 10px; opacity: 0.7; }
-.profile-dropdown { position: absolute; top: calc(100% + 6px); inset-inline-end: 0; min-width: 180px; background: #fff; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); padding: 4px; z-index: 400; display: none; }
-.profile-dropdown.open { display: block; }
-.profile-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 6px; color: var(--ink); text-decoration: none; font-size: 13px; cursor: pointer; transition: background .12s; width: 100%; text-align: inherit; background: none; border: none; font-family: inherit; }
-.profile-item:hover { background: rgba(0,108,53,0.06); }
-.profile-icon { font-size: 16px; flex-shrink: 0; }
-.profile-divider { height: 1px; background: var(--border); margin: 4px 0; }
-.app-nav-link.app-nav-icon { padding: 6px 12px; line-height: 1; display: inline-flex; align-items: center; }
-.app-nav-link.app-nav-icon svg { color: rgba(255,255,255,0.7); transition: color .15s; }
-.app-nav-link.app-nav-icon:hover svg { color: #fff; }
-.app-nav-link.app-nav-icon.active { background: rgba(255,255,255,0.18); }
-.app-nav-link.app-nav-icon.active svg { color: #fff; }
-@media (max-width: 560px) {
-  .profile-trigger { padding: 4px 8px; }
-  .nav-biz { max-width: 100px; font-size: 12px; }
-  .nav-divider { display: none; }
-  .profile-caret { display: none; }
-}
-/* ═══ Quick Action Menu (canonical D1+) ═══ */
-.gl-qa-wrap{position:relative;}
-.gl-qa-btn{display:inline-flex;align-items:center;gap:6px;padding:5px 13px;background:var(--sky);color:#fff;border:none;border-radius:6px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;transition:background .15s;}
-.gl-qa-btn:hover{background:var(--light);color:var(--navy);}
-.gl-qa-btn .qa-plus{font-size:16px;font-weight:300;line-height:1;}
-.gl-qa-menu{display:none;position:absolute;top:calc(100% + 6px);min-width:240px;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,0.18);padding:6px;z-index:401;inset-inline-end:0;}
-.gl-qa-menu.open{display:block;}
-.gl-qa-cat{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;padding:8px 12px 4px;}
-.gl-qa-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:6px;font-size:13px;font-weight:500;color:var(--ink);text-decoration:none;transition:background .12s;}
-.gl-qa-item:hover{background:rgba(0,108,53,0.06);}
-.gl-qa-icon{font-size:16px;flex-shrink:0;}
-.gl-qa-div{height:1px;background:var(--border);margin:4px 0;}
-@media (max-width:560px){.gl-qa-btn{padding:5px 10px;font-size:12px;}.gl-qa-btn span:not(.qa-plus){display:none;}.gl-qa-menu{min-width:220px;}}
-
-/* Quick Add menu (Round D1+) */
-.qa-wrap { position: relative; }
-.qa-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 13px; background: var(--sky); color: #fff; border: none; border-radius: 6px; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: background .15s; }
-.qa-btn:hover { background: var(--light); color: var(--navy); }
-.qa-plus { font-size: 16px; font-weight: 300; line-height: 1; }
-.qa-menu { display: none; position: absolute; top: calc(100% + 6px); inset-inline-end: 0; min-width: 220px; max-height: calc(100vh - 80px); overflow-y: auto; background: #fff; border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,108,53,0.18); padding: 6px; z-index: 401; }
-.qa-menu.open { display: block; }
-.qa-cat { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; padding: 8px 10px 4px; }
-.qa-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; font-size: 13px; font-weight: 500; color: var(--ink); text-decoration: none; transition: background .12s; }
-.qa-item:hover { background: rgba(0,108,53,0.08); color: var(--navy); }
-.qa-icon { font-size: 16px; flex-shrink: 0; }
-.qa-div { height: 1px; background: var(--border); margin: 4px 0; }
-@media (max-width: 560px) { .qa-label { display: none; } .qa-btn { padding: 5px 10px; } }
-
-/* ─── SETTINGS PAGE LAYOUT ─── */
-.settings-shell{max-width:1200px;margin:0 auto;padding:18px;display:grid;grid-template-columns:240px 1fr;gap:18px;}
-
-/* Sidebar */
-.settings-sidebar{background:#fff;border:1px solid var(--border);border-radius:12px;padding:10px 0;height:fit-content;position:sticky;top:90px;}
-.sidebar-header{padding:10px 16px 12px;border-bottom:1px solid var(--tint);}
-.sidebar-title{font-size:16px;font-weight:800;color:var(--ink);}
-.sidebar-sub{font-size:11px;color:var(--muted);margin-top:2px;}
-.sidebar-group{padding:8px 0;}
-.sidebar-group-label{padding:6px 16px;font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);}
-.sidebar-link{display:flex;align-items:center;gap:10px;padding:9px 16px;font-size:14px;color:var(--ink);text-decoration:none;cursor:pointer;border:none;background:transparent;width:100%;font-family:inherit;text-align:start;border-inline-start:3px solid transparent;transition:all .12s;}
-.sidebar-link:hover{background:var(--tint);color:var(--blue);}
-.sidebar-link.active{background:var(--tint);color:var(--blue);font-weight:700;border-inline-start-color:var(--blue);}
-.sidebar-link .icon{font-size:15px;flex-shrink:0;}
-.sidebar-link .badge-soon{margin-inline-start:auto;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:#fef3c7;color:#92400e;text-transform:uppercase;letter-spacing:.04em;}
-
-/* Content area */
-.settings-content{display:flex;flex-direction:column;gap:14px;}
+/* Tab toggle — matches finance/inventory pattern */
+.tab-toggle{display:inline-flex;background:#fff;border:1.5px solid var(--border);border-radius:14px;padding:4px;margin-bottom:16px;gap:4px;}
+.tab-btn{padding:8px 18px;font-family:inherit;font-size:14px;font-weight:600;border:none;background:transparent;color:var(--muted);border-radius:10px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .15s;white-space:nowrap;}
+.tab-btn:hover{background:var(--tint);color:var(--blue);}
+.tab-btn.active{background:var(--blue);color:#fff;}
 
 /* Section card */
-.section-card{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden;}
-.section-card.disabled{opacity:0.6;}
-.section-header{padding:16px 20px;border-bottom:1px solid var(--tint);display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
-.section-title-wrap{flex:1;min-width:0;}
-.section-title{font-size:16px;font-weight:800;color:var(--ink);display:flex;align-items:center;gap:8px;}
-.section-title .icon{font-size:18px;}
-.section-sub{font-size:12px;color:var(--muted);margin-top:3px;line-height:1.5;}
-.section-coming-soon{display:inline-block;font-size:10px;font-weight:700;padding:3px 9px;border-radius:5px;background:#fef3c7;color:#92400e;text-transform:uppercase;letter-spacing:.04em;margin-inline-start:6px;}
-.section-body{padding:18px 20px;}
-.section-body.compact{padding:14px 20px;}
-.section-foot{padding:12px 20px;border-top:1px solid var(--tint);background:#fafbfa;display:flex;justify-content:flex-end;gap:8px;}
+.section-card{background:#fff;border:1px solid var(--border);border-radius:12px;padding:20px;margin-bottom:14px;}
+.section-title{font-size:15px;font-weight:700;color:var(--ink);margin-bottom:4px;}
+.section-sub{font-size:12px;color:var(--muted);margin-bottom:14px;}
 
-/* Form fields */
-.field-row{display:grid;gap:12px;margin-bottom:14px;}
+/* Fields */
+.field{margin-bottom:14px;}
+.field-label{display:block;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;font-weight:700;margin-bottom:5px;}
+.field-input,.field-select,.field-textarea{width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;background:#fff;}
+.field-input:focus,.field-select:focus,.field-textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(61,170,101,0.15);}
+.field-input.mono{font-family:'DM Mono',monospace;}
+.field-hint{font-size:11px;color:var(--muted);margin-top:3px;}
+
+.field-row{display:grid;gap:12px;}
 .field-row.double{grid-template-columns:1fr 1fr;}
 .field-row.triple{grid-template-columns:1fr 1fr 1fr;}
-.field-row:last-child{margin-bottom:0;}
-.field{min-width:0;}
-.field-label{display:flex;align-items:center;gap:6px;font-size:11px;font-weight:700;color:var(--ink);margin-bottom:5px;text-transform:uppercase;letter-spacing:.04em;}
-.field-label .req{color:var(--red);}
-.field-label .opt{color:var(--muted);font-weight:500;text-transform:none;letter-spacing:0;font-size:10px;}
-.field input,.field select,.field textarea{width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:7px;background:#fff;font-family:inherit;font-size:14px;color:var(--ink);transition:border .15s, box-shadow .15s;}
-.field input.mono{font-family:'DM Mono',monospace;}
-.field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,108,53,0.12);}
-.field textarea{resize:vertical;min-height:60px;}
-.field-hint{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.5;}
+.field-row.address{grid-template-columns:80px 1fr 1fr 100px;}
 
-/* Toggle switch */
-.toggle-wrap{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:11px 0;border-bottom:1px solid var(--tint);}
-.toggle-wrap:last-child{border-bottom:none;}
-.toggle-info{flex:1;min-width:0;}
-.toggle-label{font-size:13px;font-weight:600;color:var(--ink);}
-.toggle-desc{font-size:11px;color:var(--muted);margin-top:2px;line-height:1.5;}
-.toggle{position:relative;width:42px;height:24px;background:#cbd5e1;border:none;border-radius:12px;cursor:pointer;flex-shrink:0;transition:background .2s;}
-.toggle::after{content:'';position:absolute;top:2px;width:20px;height:20px;background:#fff;border-radius:50%;transition:all .2s;box-shadow:0 1px 3px rgba(0,0,0,0.2);}
-[dir="ltr"] .toggle::after{left:2px;}
-[dir="rtl"] .toggle::after{right:2px;}
-.toggle.on{background:var(--blue);}
-[dir="ltr"] .toggle.on::after{left:20px;}
-[dir="rtl"] .toggle.on::after{right:20px;}
+/* Toggle row */
+.toggle-row{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:14px 16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;margin-bottom:10px;}
+.toggle-row-info{flex:1;min-width:0;}
+.toggle-row-title{font-weight:700;font-size:14px;color:var(--ink);}
+.toggle-row-sub{font-size:12px;color:var(--muted);margin-top:2px;line-height:1.5;}
+.toggle-switch{position:relative;display:inline-block;width:48px;height:26px;flex-shrink:0;}
+.toggle-switch input{display:none;}
+.toggle-slider{position:absolute;inset:0;background:#cbd5e1;border-radius:24px;cursor:pointer;transition:.2s;}
+.toggle-slider::before{content:"";position:absolute;height:20px;width:20px;left:3px;top:3px;background:#fff;border-radius:50%;transition:.2s;box-shadow:0 1px 3px rgba(0,0,0,0.2);}
+.toggle-switch input:checked + .toggle-slider{background:var(--blue);}
+.toggle-switch input:checked + .toggle-slider::before{transform:translateX(22px);}
+
+/* Logo preview */
+.logo-preview{width:80px;height:80px;border:1px dashed var(--border);border-radius:10px;display:flex;align-items:center;justify-content:center;background:var(--bg);overflow:hidden;}
+.logo-preview img{max-width:100%;max-height:100%;}
+.logo-preview-empty{font-size:11px;color:var(--muted);text-align:center;}
 
 /* Buttons */
-.btn{padding:9px 18px;border-radius:8px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;border:none;white-space:nowrap;transition:all .15s;}
+.btn{padding:8px 16px;border-radius:8px;font-family:inherit;font-weight:600;font-size:13px;border:none;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .15s;}
+.btn-sm{padding:6px 12px;font-size:12px;}
+.btn-ghost{background:transparent;color:var(--ink);border:1px solid var(--border);}
+.btn-ghost:hover{background:var(--tint);}
 .btn-primary{background:var(--blue);color:#fff;}
-.btn-primary:hover{background:var(--navy);}
+.btn-primary:hover{background:var(--brand);}
 .btn-primary:disabled{opacity:0.5;cursor:not-allowed;}
-.btn-secondary{background:#fff;color:var(--blue);border:1.5px solid var(--light);}
-.btn-secondary:hover{background:var(--tint);}
-.btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border);}
-.btn-ghost:hover{background:var(--bg);color:var(--ink);}
-.btn-danger{background:var(--red);color:#fff;}
-.btn-danger:hover{background:#991b1b;}
+.btn-secondary{background:var(--tint);color:var(--ink);border:1px solid var(--border);}
+.btn-danger{background:#fef2f2;color:var(--red);border:1px solid #fecaca;}
 
-/* Logo upload */
-.logo-upload-wrap{display:flex;align-items:center;gap:18px;}
-.logo-preview{width:90px;height:90px;border:1.5px dashed var(--border);border-radius:10px;display:flex;align-items:center;justify-content:center;background:#fafbfa;overflow:hidden;flex-shrink:0;}
-.logo-preview img{max-width:100%;max-height:100%;object-fit:contain;}
-.logo-preview-empty{font-size:24px;color:var(--muted);}
-.logo-upload-info{flex:1;min-width:0;}
-.logo-upload-info .name{font-size:13px;font-weight:600;color:var(--ink);margin-bottom:2px;}
-.logo-upload-info .meta{font-size:11px;color:var(--muted);margin-bottom:8px;}
-.logo-upload-info .actions{display:flex;gap:6px;}
-.logo-upload-info .btn{padding:6px 12px;font-size:11px;}
+/* Action bar — sticky save */
+.action-bar{display:flex;justify-content:flex-end;gap:8px;padding:14px;background:#fff;border:1px solid var(--border);border-radius:10px;margin-top:16px;position:sticky;bottom:14px;box-shadow:0 -2px 8px rgba(0,0,0,0.04);}
+.action-bar.dirty{border-color:var(--amber);background:#fffbeb;}
 
-/* Color picker */
-.color-picker-wrap{display:flex;align-items:center;gap:10px;flex-wrap:wrap;}
-.color-swatch{width:36px;height:36px;border-radius:8px;border:2px solid var(--border);cursor:pointer;transition:all .15s;}
-.color-swatch:hover{border-color:var(--blue);transform:scale(1.05);}
-.color-swatch.active{border-color:var(--ink);box-shadow:0 0 0 2px var(--blue);}
-.color-input{width:60px;height:36px;padding:2px;border:1px solid var(--border);border-radius:8px;cursor:pointer;background:#fff;}
-.color-text-input{width:120px;font-family:'DM Mono',monospace;font-size:13px;text-transform:uppercase;}
+/* Users tab */
+.tbl{width:100%;border-collapse:collapse;background:#fff;border:1px solid var(--border);border-radius:12px;overflow:visible;}
+.tbl th{padding:10px 14px;background:var(--tint);font-size:11px;text-transform:uppercase;letter-spacing:.04em;font-weight:700;text-align:start;border-bottom:1px solid var(--border);}
+.tbl td{padding:11px 14px;border-bottom:1px solid var(--tint);font-size:13px;}
+.tbl tr:last-child td{border-bottom:none;}
+.tbl .num,.tbl th.num{text-align:end;font-family:'DM Mono',monospace;}
+.tbl .center,.tbl th.center{text-align:center;}
 
-/* Coming soon placeholder */
-.coming-soon-card{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:30px 20px;text-align:center;color:var(--muted);}
-.coming-soon-icon{font-size:36px;opacity:0.4;margin-bottom:10px;}
-.coming-soon-title{font-size:14px;font-weight:700;color:var(--ink);margin-bottom:4px;}
-.coming-soon-text{font-size:12px;line-height:1.6;max-width:380px;}
+.badge{padding:3px 10px;border-radius:8px;font-size:11px;font-weight:700;display:inline-block;}
+.badge-owner{background:#dcfce7;color:#166534;}
+.badge-admin{background:#dbeafe;color:#1e40af;}
+.badge-staff{background:#fef3c7;color:#78350f;}
+.badge-viewer{background:#e5e7eb;color:#374151;}
+.badge-active{background:#dcfce7;color:#166534;}
+.badge-pending{background:#fef3c7;color:#78350f;}
+.badge-revoked{background:#fee2e2;color:#991b1b;}
 
-/* ─── PARTNERS LIST (Tax Profile) ─── */
-.partner-row{display:grid;grid-template-columns:1fr 200px 90px 36px;gap:8px;align-items:start;padding:10px 12px;background:#fafbfa;border:1px solid var(--border);border-radius:8px;margin-bottom:8px;transition:all .15s;}
-.partner-row:hover{background:#fff;border-color:var(--light);}
-.partner-row .partner-name-input,.partner-row .partner-nationality,.partner-row .partner-pct{padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:13px;background:#fff;}
-.partner-row .partner-pct{font-family:'DM Mono',monospace;text-align:end;}
-.partner-row .partner-pct.invalid{border-color:var(--red);background:#fef2f2;}
-.partner-flag{display:inline-block;font-size:13px;padding:2px 6px;border-radius:4px;font-weight:600;margin-top:3px;}
-.partner-flag.gcc{background:#dcfce7;color:#166534;}
-.partner-flag.foreign{background:#fef3c7;color:#92400e;}
-.partner-row .partner-name-wrap{display:flex;flex-direction:column;gap:3px;}
-.partner-row .partner-remove{padding:7px;background:transparent;border:1px solid var(--border);border-radius:6px;color:var(--muted);cursor:pointer;font-size:14px;line-height:1;transition:all .12s;}
-.partner-row .partner-remove:hover{background:#fef2f2;border-color:var(--red);color:var(--red);}
-@media(max-width:700px){
-  .partner-row{grid-template-columns:1fr;gap:6px;}
-}
+.notify{position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;z-index:11000;opacity:0;transition:opacity .2s;}
+.notify.show{opacity:1;}
+.notify.g{background:var(--green);}
+.notify.r{background:var(--red);}
+.notify.amber{background:var(--amber);}
 
-/* Tax badges (kept for ownership summary) */
-.tax-badge{display:inline-block;font-size:11px;font-weight:700;padding:3px 9px;border-radius:5px;}
-.tax-badge.zakat{background:#dcfce7;color:#166534;}
-.tax-badge.cit{background:#fef3c7;color:#92400e;}
+.loading{text-align:center;padding:60px 20px;color:var(--muted);}
+.empty-state{text-align:center;padding:30px 20px;color:var(--muted);font-size:13px;}
 
-/* Save indicator */
-.save-status{font-size:12px;color:var(--green);font-weight:600;display:none;align-items:center;gap:4px;}
-.save-status.show{display:inline-flex;animation:fadeIn .25s ease;}
-@keyframes fadeIn{from{opacity:0;}to{opacity:1;}}
+/* Modal */
+.modal-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.5);display:none;align-items:center;justify-content:center;z-index:10000;padding:20px;overflow-y:auto;}
+.modal-overlay.open{display:flex;}
+.modal{background:#fff;border-radius:12px;width:100%;max-width:500px;max-height:92vh;overflow:auto;}
+.modal-head{padding:16px 22px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;}
+.modal-title{font-size:16px;font-weight:800;color:var(--ink);}
+.modal-close{background:transparent;border:none;font-size:24px;cursor:pointer;color:var(--muted);}
+.modal-body{padding:18px 22px;}
+.modal-foot{padding:14px 22px;border-top:1px solid var(--border);display:flex;justify-content:flex-end;gap:8px;}
 
-/* Notification */
-.notify{position:fixed;top:96px;left:50%;transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 18px;border-radius:8px;font-size:13px;font-weight:600;z-index:9999;display:none;max-width:calc(100vw - 40px);text-align:center;}
-.notify.show{display:block;animation:notifyIn .2s ease;}
-.notify.success{background:var(--green);}
-.notify.error{background:var(--red);}
-@keyframes notifyIn{from{transform:translate(-50%,-10px);opacity:0;}to{transform:translate(-50%,0);opacity:1;}}
-
-/* Loading */
-.loading-state{text-align:center;padding:60px 20px;color:var(--muted);}
-.loading-spinner{font-size:36px;margin-bottom:12px;animation:pulse 1.5s ease-in-out infinite;}
-@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
-
-/* ═══ SETUP MODAL CSS (Round 2a — also used for Add Member) ═══ */
-.setup-modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:600;align-items:center;justify-content:center;padding:20px;}
-.setup-modal-overlay.open{display:flex;}
-.setup-modal{background:#fff;border-radius:14px;width:100%;max-width:520px;max-height:calc(100vh - 40px);overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.25);}
-.setup-modal-head{padding:24px 28px 0;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
-.setup-modal-title{font-size:22px;font-weight:800;color:var(--navy);margin:0 0 4px;}
-.setup-modal-sub{font-size:14px;color:var(--muted);margin:0;line-height:1.5;}
-.setup-modal-close{background:none;border:none;font-size:22px;color:var(--muted);cursor:pointer;padding:4px 8px;line-height:1;border-radius:6px;}
-.setup-modal-close:hover{background:rgba(0,0,0,0.05);color:var(--ink);}
-.setup-modal-body{padding:18px 28px 8px;}
-.setup-field{margin-bottom:14px;}
-.setup-field-label{display:block;font-size:13px;font-weight:600;color:var(--ink);margin-bottom:6px;}
-.setup-field-label .req{color:#c43e3e;font-weight:700;}
-.setup-field-hint{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4;}
-.setup-field-error{font-size:12px;color:#c43e3e;margin-top:4px;display:none;}
-.setup-field.error .setup-field-error{display:block;}
-.setup-field.error input,.setup-field.error select{border-color:#c43e3e;}
-.setup-input{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;color:var(--ink);background:#fff;transition:border-color .15s;}
-.setup-input:focus{outline:none;border-color:var(--green);}
-.setup-modal-foot{padding:14px 28px 24px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;border-top:1px solid var(--border);margin-top:8px;}
-.setup-btn-skip{padding:10px 18px;background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;}
-.setup-btn-skip:hover{background:rgba(0,0,0,0.04);color:var(--ink);}
-.setup-btn-save{padding:10px 22px;background:var(--green);color:#fff;border:none;border-radius:8px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;transition:background .15s;}
-.setup-btn-save:hover{background:#005028;}
-.setup-btn-save:disabled{opacity:0.6;cursor:not-allowed;}
-
-/* ═══ TEAM TABLE ═══ */
-.team-table{width:100%;border-collapse:collapse;font-size:13px;}
-.team-table th{text-align:start;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;padding:8px 10px;border-bottom:1px solid var(--border);}
-.team-table td{padding:12px 10px;border-bottom:1px solid var(--border);vertical-align:middle;}
-.team-table tr:last-child td{border-bottom:none;}
-.team-name-cell{font-weight:600;color:var(--ink);}
-.team-email-cell{color:var(--muted);font-size:12px;}
-.team-role-pill{display:inline-block;padding:3px 9px;border-radius:5px;font-size:11px;font-weight:700;letter-spacing:.03em;}
-.role-owner{background:rgba(0,108,53,0.1);color:var(--green);}
-.role-admin{background:#fee2e2;color:#991b1b;}
-.role-accountant{background:#e0f2fe;color:#075985;}
-.role-sales{background:#fef3c7;color:#92400e;}
-.role-warehouse{background:#f3e8ff;color:#6b21a8;}
-.role-viewer{background:#f3f4f6;color:#4b5563;}
-.team-status-pill{display:inline-block;padding:2px 8px;border-radius:5px;font-size:11px;font-weight:600;}
-.status-active{background:rgba(0,108,53,0.08);color:var(--green);}
-.status-inactive{background:#fee2e2;color:#991b1b;}
-.team-actions{display:flex;gap:6px;justify-content:flex-end;}
-.team-action-btn{padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:#fff;color:var(--muted);font-size:12px;cursor:pointer;font-family:inherit;}
-.team-action-btn:hover{border-color:var(--ink);color:var(--ink);}
-.team-action-btn.danger:hover{border-color:#c43e3e;color:#c43e3e;background:#fef2f2;}
 @media (max-width:640px){
-  .team-table th,.team-table td{padding:8px 6px;font-size:12px;}
-  .team-email-cell{display:none;} /* Hide email on small screens to fit */
-}
-
-/* Mobile */
-@media (max-width:850px){
-  .settings-shell{grid-template-columns:1fr;padding:12px;gap:12px;}
-  .settings-sidebar{position:static;}
-  .field-row.double,.field-row.triple{grid-template-columns:1fr;}
-  .topnav{padding:8px 12px;}
-  .nav-biz{max-width:90px;font-size:12px;}
-  .lang-switch .lang-btn{padding:3px 8px;font-size:11px;}
-  .btn-logout{padding:4px 10px;font-size:12px;}
-  .app-nav-link{padding:5px 9px;font-size:12px;}
-  .nav-name span{display:none;}
+  .field-row.double,.field-row.triple,.field-row.address{grid-template-columns:1fr;}
+  .tab-btn{padding:7px 12px;font-size:13px;}
 }
 </style>
 </head>
 <body>
 
-<!-- Notification -->
+<div class="topnav">
+  <div class="topnav-brand">GulfLedger</div>
+  <a href="dashboard.html" class="topnav-back">← الرئيسية · Home</a>
+</div>
+
+<div class="page">
+  <div class="page-h1">⚙️ الإعدادات · Settings</div>
+  <div class="page-sub">إعدادات المنشأة، الفوترة، المستخدمين · Business profile, invoicing, users</div>
+
+  <div class="tab-toggle" id="tab-toggle">
+    <button class="tab-btn active" id="tab-profile" onclick="switchTab('profile')">
+      🏢 <span>المنشأة · Profile</span>
+    </button>
+    <button class="tab-btn" id="tab-invoicing" onclick="switchTab('invoicing')">
+      🧾 <span>الفوترة · Invoicing</span>
+    </button>
+    <button class="tab-btn" id="tab-users" onclick="switchTab('users')">
+      👥 <span>المستخدمون · Users</span>
+    </button>
+  </div>
+
+  <div id="loading-state" class="loading">جارٍ التحميل... · Loading...</div>
+
+  <!-- PROFILE TAB -->
+  <div id="pane-profile" style="display:none;">
+    <div class="section-card">
+      <div class="section-title">معلومات أساسية · Basic Info</div>
+      <div class="section-sub">اسم المنشأة، التسجيل، الشعار · Business name, registration, logo</div>
+
+      <div style="display:flex;gap:16px;align-items:flex-start;margin-bottom:14px;">
+        <div class="logo-preview" id="logo-preview">
+          <div class="logo-preview-empty">لا يوجد شعار<br>No logo</div>
+        </div>
+        <div style="flex:1;">
+          <div class="field" style="margin-bottom:8px;">
+            <label class="field-label">رفع شعار · Upload Logo</label>
+            <input type="file" id="logo-file" accept="image/*" onchange="onLogoFileChange()" style="font-size:13px;">
+            <div class="field-hint">PNG / JPG, max 500 KB. سيتم تخزينه كـ base64.</div>
+          </div>
+          <button class="btn btn-ghost btn-sm" onclick="removeLogo()" id="btn-remove-logo" style="display:none;">🗑 إزالة الشعار · Remove</button>
+        </div>
+      </div>
+
+      <div class="field-row double">
+        <div class="field">
+          <label class="field-label">الاسم بالعربي · Name (Arabic) <span style="color:var(--red);">*</span></label>
+          <input type="text" id="f-name-ar" class="field-input" onchange="markDirty()">
+        </div>
+        <div class="field">
+          <label class="field-label">الاسم بالإنجليزي · Name (English)</label>
+          <input type="text" id="f-name-en" class="field-input" onchange="markDirty()">
+        </div>
+      </div>
+
+      <div class="field-row double">
+        <div class="field">
+          <label class="field-label">الرقم الضريبي · TRN</label>
+          <input type="text" id="f-trn" class="field-input mono" placeholder="3XXXXXXXXXXXX03" onchange="markDirty()">
+          <div class="field-hint">15 رقماً، يبدأ بـ 3 وينتهي بـ 03</div>
+        </div>
+        <div class="field">
+          <label class="field-label">السجل التجاري · CR Number</label>
+          <input type="text" id="f-cr" class="field-input mono" placeholder="1010000000" onchange="markDirty()">
+        </div>
+      </div>
+
+      <div class="field-row double">
+        <div class="field">
+          <label class="field-label">البريد الإلكتروني · Email</label>
+          <input type="email" id="f-email" class="field-input" onchange="markDirty()">
+        </div>
+        <div class="field">
+          <label class="field-label">الجوال · Phone</label>
+          <input type="text" id="f-phone" class="field-input mono" placeholder="+966 5X XXX XXXX" onchange="markDirty()">
+        </div>
+      </div>
+
+      <div class="field">
+        <label class="field-label">الموقع الإلكتروني · Website</label>
+        <input type="text" id="f-website" class="field-input" placeholder="https://" onchange="markDirty()">
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-title">العنوان · Address</div>
+      <div class="section-sub">عنوان وطني · Saudi national address format</div>
+
+      <div class="field-row address">
+        <div class="field">
+          <label class="field-label">المبنى · Bldg</label>
+          <input type="text" id="f-bldg" class="field-input mono" maxlength="4" onchange="markDirty()">
+        </div>
+        <div class="field">
+          <label class="field-label">الشارع · Street</label>
+          <input type="text" id="f-street" class="field-input" onchange="markDirty()">
+        </div>
+        <div class="field">
+          <label class="field-label">الحي · District</label>
+          <input type="text" id="f-district" class="field-input" onchange="markDirty()">
+        </div>
+        <div class="field">
+          <label class="field-label">الرقم الإضافي · Add'l #</label>
+          <input type="text" id="f-addl" class="field-input mono" maxlength="4" onchange="markDirty()">
+        </div>
+      </div>
+
+      <div class="field-row triple">
+        <div class="field">
+          <label class="field-label">المدينة · City</label>
+          <input type="text" id="f-city" class="field-input" onchange="markDirty()">
+        </div>
+        <div class="field">
+          <label class="field-label">الرمز البريدي · Postal Code</label>
+          <input type="text" id="f-postal" class="field-input mono" maxlength="5" onchange="markDirty()">
+        </div>
+        <div class="field">
+          <label class="field-label">الدولة · Country</label>
+          <input type="text" id="f-country" class="field-input" value="SA" onchange="markDirty()">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- INVOICING TAB -->
+  <div id="pane-invoicing" style="display:none;">
+    <div class="section-card">
+      <div class="section-title">ضريبة القيمة المضافة · VAT</div>
+      <div class="section-sub">تفعيل ضريبة القيمة المضافة وضبط معدلها · Enable VAT and configure rate</div>
+
+      <div class="toggle-row">
+        <div class="toggle-row-info">
+          <div class="toggle-row-title">المنشأة مسجلة في ضريبة القيمة المضافة · VAT Registered</div>
+          <div class="toggle-row-sub">عند التفعيل، تتم إضافة ضريبة القيمة المضافة على جميع الفواتير وستظهر في القائمة الضريبية.<br>When enabled, VAT is added to all invoices and shown on tax returns.</div>
+        </div>
+        <label class="toggle-switch">
+          <input type="checkbox" id="f-vat-registered" onchange="markDirty()">
+          <span class="toggle-slider"></span>
+        </label>
+      </div>
+
+      <div class="field-row double" id="vat-detail-row">
+        <div class="field">
+          <label class="field-label">معدل الضريبة الافتراضي · Default VAT Rate (%)</label>
+          <input type="number" id="f-vat-rate" class="field-input mono" step="0.01" min="0" max="100" value="15" onchange="markDirty()">
+        </div>
+        <div class="field">
+          <label class="field-label">تكرار تقديم الإقرارات · VAT Filing Frequency</label>
+          <select id="f-vat-freq" class="field-select" onchange="markDirty()">
+            <option value="monthly">شهري · Monthly</option>
+            <option value="quarterly">ربع سنوي · Quarterly</option>
+            <option value="annually">سنوي · Annually</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-title">طريقة تقييم المخزون · Inventory Costing Method</div>
+      <div class="section-sub">أساس حساب تكلفة البضاعة المباعة · How COGS is calculated for invoices</div>
+
+      <div class="field">
+        <select id="f-costing" class="field-select" onchange="markDirty()">
+          <option value="wac">المتوسط المرجح · Weighted Average Cost (WAC)</option>
+          <option value="fifo">الوارد أولاً صادر أولاً · First-In First-Out (FIFO)</option>
+        </select>
+        <div class="field-hint">⚠️ تغيير هذا الإعداد يؤثر على الفواتير المستقبلية فقط. الفواتير السابقة تحتفظ بطريقتها.<br>Changing this affects future invoices only. Past invoices keep their method.</div>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-title">ترقيم الفواتير · Invoice Numbering</div>
+      <div class="section-sub">تنسيق أرقام الفواتير الجديدة · Format for newly issued invoices</div>
+
+      <div class="field-row double">
+        <div class="field">
+          <label class="field-label">البادئة · Prefix</label>
+          <input type="text" id="f-inv-prefix" class="field-input mono" placeholder="INV" maxlength="10" onchange="markDirty()">
+          <div class="field-hint">e.g. INV-2026-001</div>
+        </div>
+        <div class="field">
+          <label class="field-label">مدة السداد الافتراضية (يوم) · Default Payment Terms (days)</label>
+          <input type="number" id="f-payment-terms" class="field-input mono" min="0" max="365" placeholder="30" onchange="markDirty()">
+        </div>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-title">تذييل الفاتورة · Invoice Footer</div>
+      <div class="section-sub">نص يظهر أسفل كل فاتورة (شروط الدفع، الضمانات، ...) · Shown at the bottom of every invoice</div>
+
+      <div class="field-row double">
+        <div class="field">
+          <label class="field-label">بالعربي · Arabic</label>
+          <textarea id="f-footer-ar" class="field-textarea" rows="3" onchange="markDirty()"></textarea>
+        </div>
+        <div class="field">
+          <label class="field-label">بالإنجليزي · English</label>
+          <textarea id="f-footer-en" class="field-textarea" rows="3" onchange="markDirty()"></textarea>
+        </div>
+      </div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-title">معلومات بنكية · Bank Details (for invoices)</div>
+      <div class="section-sub">تظهر على الفاتورة لتسهيل التحويلات · Shown on invoices to facilitate bank transfers</div>
+
+      <div class="field-row triple">
+        <div class="field">
+          <label class="field-label">اسم البنك · Bank Name</label>
+          <input type="text" id="f-bank-name" class="field-input" onchange="markDirty()">
+        </div>
+        <div class="field">
+          <label class="field-label">رقم الحساب IBAN</label>
+          <input type="text" id="f-bank-iban" class="field-input mono" placeholder="SA00 0000 0000 0000 0000 0000" onchange="markDirty()">
+        </div>
+        <div class="field">
+          <label class="field-label">اسم صاحب الحساب · Account Name</label>
+          <input type="text" id="f-bank-account-name" class="field-input" onchange="markDirty()">
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- USERS TAB -->
+  <div id="pane-users" style="display:none;">
+    <div class="section-card">
+      <div class="section-title">المستخدمون · Users with Access</div>
+      <div class="section-sub">إدارة من يمكنه الوصول لهذه المنشأة · Manage who can access this business</div>
+
+      <div style="display:flex;justify-content:flex-end;margin-bottom:12px;">
+        <button class="btn btn-primary btn-sm" onclick="openInviteModal()">+ إضافة مستخدم · Add User</button>
+      </div>
+
+      <div id="users-list"></div>
+    </div>
+
+    <div class="section-card">
+      <div class="section-title">الأدوار · Roles</div>
+      <div class="section-sub">شرح صلاحيات كل دور · What each role can do</div>
+      <ul style="list-style:none;padding:0;font-size:13px;line-height:1.8;">
+        <li>👑 <strong>المالك · Owner</strong> — صلاحية كاملة، يمكنه حذف المنشأة. Full access, can delete business.</li>
+        <li>🛡️ <strong>المدير · Admin</strong> — صلاحية كاملة عدا حذف المنشأة. Full access except delete.</li>
+        <li>👤 <strong>موظف · Staff</strong> — إنشاء فواتير ومدفوعات، لا يمكنه تعديل الإعدادات. Create invoices/payments, can't change settings.</li>
+        <li>👁 <strong>متفرج · Viewer</strong> — قراءة فقط. Read-only.</li>
+      </ul>
+    </div>
+  </div>
+
+  <!-- Sticky save bar — only shown on Profile + Invoicing -->
+  <div class="action-bar" id="action-bar" style="display:none;">
+    <button class="btn btn-ghost" onclick="discardChanges()" id="btn-discard">↺ تراجع · Discard</button>
+    <button class="btn btn-primary" onclick="saveSettings()" id="btn-save">💾 حفظ التغييرات · Save Changes</button>
+  </div>
+</div>
+
+<!-- Invite User Modal -->
+<div class="modal-overlay" id="invite-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title">+ إضافة مستخدم · Add User</div>
+      <button class="modal-close" onclick="closeInviteModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field">
+        <label class="field-label">البريد الإلكتروني · Email <span style="color:var(--red);">*</span></label>
+        <input type="email" id="inv-email" class="field-input" placeholder="user@example.com">
+      </div>
+      <div class="field">
+        <label class="field-label">الاسم الكامل · Full Name</label>
+        <input type="text" id="inv-name" class="field-input">
+      </div>
+      <div class="field">
+        <label class="field-label">الدور · Role <span style="color:var(--red);">*</span></label>
+        <select id="inv-role" class="field-select">
+          <option value="staff">👤 موظف · Staff</option>
+          <option value="admin">🛡️ مدير · Admin</option>
+          <option value="viewer">👁 متفرج · Viewer</option>
+        </select>
+      </div>
+      <div style="background:#fef3c7;border:1px solid #fcd34d;border-radius:8px;padding:10px 12px;font-size:12px;color:#78350f;line-height:1.5;">
+        ℹ️ سيتم إنشاء سجل بحالة "في الانتظار". على المستخدم تسجيل الدخول بنفس البريد الإلكتروني لتفعيل الوصول.<br>
+        A "pending" record is created. User must sign up with the same email to activate access.
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeInviteModal()">إلغاء · Cancel</button>
+      <button class="btn btn-primary" id="btn-invite-save" onclick="saveInvite()">📨 إضافة · Invite</button>
+    </div>
+  </div>
+</div>
+
 <div class="notify" id="notify"></div>
 
-<!-- ═══ TOP NAV ═══ -->
-<!-- ═══ CANONICAL TOP NAV (Round D1) ═══
-     Identical on every page. Active state set by JS at runtime. -->
-<div class="topnav">
-  <a href="dashboard.html" class="nav-logo" aria-label="GulfLedger home">
-    <div class="nav-bars">
-      <div class="nav-bar" style="background:#fff;"></div>
-      <div class="nav-bar" style="background:rgba(255,255,255,0.45);"></div>
-    </div>
-    <span class="nav-name">Gulf<span style="color:var(--light);">Ledger</span></span>
-  </a>
-  <div class="nav-right">
-    <div class="gl-qa-wrap" id="gl-qa-wrap">
-      <button class="gl-qa-btn" onclick="glQAToggle(event)" aria-haspopup="true" aria-expanded="false" aria-label="إضافة سريعة / Quick Add">
-        <span class="qa-plus">+</span>
-        <span data-ar="إضافة" data-en="Add">إضافة</span>
-      </button>
-      <div class="gl-qa-menu" id="gl-qa-menu" role="menu">
-        <div class="gl-qa-cat" data-ar="مبيعات" data-en="Sales">مبيعات</div>
-        <a href="invoices.html?action=new_invoice" class="gl-qa-item" role="menuitem">
-          <span class="gl-qa-icon">🧾</span>
-          <span data-ar="فاتورة جديدة" data-en="New Invoice">فاتورة جديدة</span>
-        </a>
-        <a href="invoices.html?action=new_customer" class="gl-qa-item" role="menuitem">
-          <span class="gl-qa-icon">👤</span>
-          <span data-ar="عميل جديد" data-en="New Customer">عميل جديد</span>
-        </a>
-
-        <div class="gl-qa-div"></div>
-        <div class="gl-qa-cat" data-ar="المشتريات" data-en="Purchasing">المشتريات</div>
-        <a href="purchasing.html?tab=suppliers&action=new_supplier" class="gl-qa-item" role="menuitem">
-          <span class="gl-qa-icon">🏭</span>
-          <span data-ar="مورد جديد" data-en="New Supplier">مورد جديد</span>
-        </a>
-        <a href="purchasing.html?tab=products&action=new_product" class="gl-qa-item" role="menuitem">
-          <span class="gl-qa-icon">📦</span>
-          <span data-ar="منتج جديد" data-en="New Product">منتج جديد</span>
-        </a>
-
-        <div class="gl-qa-div"></div>
-        <div class="gl-qa-cat" data-ar="المخزون" data-en="Inventory">المخزون</div>
-        <a href="inventory.html?tab=receive&action=new_receipt" class="gl-qa-item" role="menuitem">
-          <span class="gl-qa-icon">📥</span>
-          <span data-ar="استلام بضاعة" data-en="Receive Stock">استلام بضاعة</span>
-        </a>
-
-        <div class="gl-qa-div"></div>
-        <div class="gl-qa-cat" data-ar="المالية" data-en="Finance">المالية</div>
-        <a href="finance.html?tab=expenses&action=new_expense" class="gl-qa-item" role="menuitem">
-          <span class="gl-qa-icon">💸</span>
-          <span data-ar="مصروف جديد" data-en="New Expense">مصروف جديد</span>
-        </a>
-        <a href="finance.html?tab=vendors&action=new_vendor" class="gl-qa-item" role="menuitem">
-          <span class="gl-qa-icon">🏢</span>
-          <span data-ar="مورد مصروفات" data-en="New Expense Vendor">مورد مصروفات</span>
-        </a>
-
-        <div class="gl-qa-div"></div>
-        <div class="gl-qa-cat" data-ar="محاسبة" data-en="Accounting">محاسبة</div>
-        <a href="accounting.html?sub=ledger&action=new_journal" class="gl-qa-item" role="menuitem">
-          <span class="gl-qa-icon">📒</span>
-          <span data-ar="قيد محاسبي" data-en="New Journal Entry">قيد محاسبي</span>
-        </a>
-      </div>
-    </div>
-    <div class="lang-switch">
-      <button class="lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button>
-      <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
-    </div>
-    <div class="nav-divider"></div>
-    <span class="nav-biz" id="biz-name" title="">...</span>
-    <div class="profile-menu" id="profile-menu">
-      <button class="profile-trigger" onclick="toggleProfileMenu(event)" aria-haspopup="true" aria-expanded="false" aria-label="Profile menu">
-        <span class="profile-avatar" id="profile-avatar">👤</span>
-        <span class="profile-caret">▾</span>
-      </button>
-      <div class="profile-dropdown" id="profile-dropdown" role="menu">
-        <a href="settings.html" class="profile-item" role="menuitem">
-          <span class="profile-icon">⚙️</span>
-          <span data-ar="الإعدادات" data-en="Settings">الإعدادات</span>
-        </a>
-        <div class="profile-divider"></div>
-        <button class="profile-item profile-item-button" onclick="logout()" role="menuitem">
-          <span class="profile-icon">🚪</span>
-          <span data-ar="تسجيل الخروج" data-en="Sign out">تسجيل الخروج</span>
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
-
-<!-- ═══ MAIN APP NAVIGATION ═══ -->
-<div class="app-nav" id="app-nav">
-  <a href="dashboard.html" class="app-nav-link app-nav-icon" title="Dashboard" aria-label="Dashboard"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></a>
-  <a href="purchasing.html" class="app-nav-link" data-ar="المشتريات" data-en="Purchasing">المشتريات</a>
-  <a href="invoices.html" class="app-nav-link" data-ar="المبيعات" data-en="Sales">المبيعات</a>
-  <a href="inventory.html" class="app-nav-link" data-ar="المخزون" data-en="Inventory">المخزون</a>
-  <a href="finance.html" class="app-nav-link" data-ar="المالية" data-en="Finance">المالية</a>
-  <a href="accounting.html" class="app-nav-link" data-ar="المحاسبة" data-en="Accounting">المحاسبة</a>
-  <a href="reports.html" class="app-nav-link" data-ar="التقارير" data-en="Reports">التقارير</a>
-</div>
-
-<!-- ═══ SETTINGS SHELL ═══ -->
-<div class="settings-shell" id="settings-shell" style="display:none;">
-
-  <!-- ─── SIDEBAR ─── -->
-  <aside class="settings-sidebar">
-    <div class="sidebar-header">
-      <div class="sidebar-title" data-ar="الإعدادات" data-en="Settings">الإعدادات</div>
-      <div class="sidebar-sub" data-ar="إدارة منشأتك وتفضيلاتها" data-en="Manage your business and preferences">إدارة منشأتك وتفضيلاتها</div>
-    </div>
-
-    <div class="sidebar-group">
-      <div class="sidebar-group-label" data-ar="عام" data-en="General">عام</div>
-      <button class="sidebar-link active" onclick="showSection('business', this)">
-        <span class="icon">🏢</span>
-        <span data-ar="بيانات المنشأة" data-en="Business Profile">بيانات المنشأة</span>
-      </button>
-      <button class="sidebar-link" onclick="showSection('tax-profile', this)">
-        <span class="icon">🏛</span>
-        <span data-ar="الكيان والملكية" data-en="Tax Profile">الكيان والملكية</span>
-      </button>
-      <button class="sidebar-link" onclick="showSection('branding', this)">
-        <span class="icon">🎨</span>
-        <span data-ar="الهوية والشعار" data-en="Branding">الهوية والشعار</span>
-      </button>
-      <button class="sidebar-link" onclick="showSection('localization', this)">
-        <span class="icon">🌍</span>
-        <span data-ar="اللغة والعملة" data-en="Localization">اللغة والعملة</span>
-      </button>
-    </div>
-
-    <div class="sidebar-group">
-      <div class="sidebar-group-label" data-ar="الفواتير" data-en="Invoicing">الفواتير</div>
-      <button class="sidebar-link" onclick="showSection('invoice', this)">
-        <span class="icon">🧾</span>
-        <span data-ar="إعدادات الفواتير" data-en="Invoice Defaults">إعدادات الفواتير</span>
-      </button>
-      <button class="sidebar-link" onclick="showSection('layout', this)">
-        <span class="icon">📐</span>
-        <span data-ar="شكل الفاتورة" data-en="Invoice Layout">شكل الفاتورة</span>
-        <span class="badge-soon">قريباً</span>
-      </button>
-      <button class="sidebar-link" onclick="showSection('zatca', this)">
-        <span class="icon">🇸🇦</span>
-        <span data-ar="زاتكا" data-en="ZATCA">زاتكا</span>
-        <span class="badge-soon">قريباً</span>
-      </button>
-    </div>
-
-    <div class="sidebar-group">
-      <div class="sidebar-group-label" data-ar="متقدم" data-en="Advanced">متقدم</div>
-      <button class="sidebar-link" onclick="showSection('notifications', this)">
-        <span class="icon">🔔</span>
-        <span data-ar="التنبيهات" data-en="Notifications">التنبيهات</span>
-        <span class="badge-soon">قريباً</span>
-      </button>
-      <button class="sidebar-link" onclick="showSection('team', this)">
-        <span class="icon">👥</span>
-        <span data-ar="الفريق والصلاحيات" data-en="Team & Roles">الفريق والصلاحيات</span>
-      </button>
-      <button class="sidebar-link" onclick="showSection('integrations', this)">
-        <span class="icon">🔌</span>
-        <span data-ar="التكاملات" data-en="Integrations">التكاملات</span>
-        <span class="badge-soon">قريباً</span>
-      </button>
-      <button class="sidebar-link" onclick="showSection('affiliate', this)">
-        <span class="icon">🤝</span>
-        <span data-ar="برنامج الشركاء" data-en="Affiliate Program">برنامج الشركاء</span>
-        <span class="badge-soon">قريباً</span>
-      </button>
-    </div>
-
-    <div class="sidebar-group">
-      <div class="sidebar-group-label" data-ar="حسابك" data-en="Account">حسابك</div>
-      <button class="sidebar-link" onclick="showSection('account', this)">
-        <span class="icon">🔐</span>
-        <span data-ar="الحساب والأمان" data-en="Account & Security">الحساب والأمان</span>
-      </button>
-    </div>
-  </aside>
-
-  <!-- ─── CONTENT AREA ─── -->
-  <main class="settings-content" id="settings-content">
-
-    <!-- ═════════ BUSINESS PROFILE ═════════ -->
-    <div class="section-card" id="sec-business">
-      <div class="section-header">
-        <div class="section-title-wrap">
-          <div class="section-title">
-            <span class="icon">🏢</span>
-            <span data-ar="بيانات المنشأة" data-en="Business Profile">بيانات المنشأة</span>
-          </div>
-          <div class="section-sub" data-ar="هذه البيانات تظهر على فواتيرك وتقاريرك. متطلب أساسي لزاتكا." data-en="This information appears on your invoices and reports. Required for ZATCA compliance.">هذه البيانات تظهر على فواتيرك وتقاريرك. متطلب أساسي لزاتكا.</div>
-        </div>
-      </div>
-      <div class="section-body">
-        <div class="field-row double">
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="الاسم بالعربي" data-en="Name (Arabic)">الاسم بالعربي</span>
-              <span class="req">*</span>
-            </div>
-            <input type="text" id="biz-name-ar" placeholder="شركة الخليج للتجارة" dir="rtl">
-            <div class="field-hint" data-ar="مطلوب لزاتكا" data-en="Required for ZATCA">مطلوب لزاتكا</div>
-          </div>
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="الاسم بالإنجليزي" data-en="Name (English)">الاسم بالإنجليزي</span>
-              <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
-            </div>
-            <input type="text" id="biz-name-en" placeholder="Gulf Trading Co." dir="ltr">
-          </div>
-        </div>
-
-        <div class="field-row double">
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="الرقم الضريبي · TRN" data-en="VAT Number (TRN)">الرقم الضريبي · TRN</span>
-              <span class="req">*</span>
-            </div>
-            <input type="text" id="biz-trn" class="mono" placeholder="300000000000003" maxlength="15" dir="ltr">
-            <div class="field-hint" data-ar="15 رقم — يبدأ بـ 3" data-en="15 digits — starts with 3">15 رقم — يبدأ بـ 3</div>
-          </div>
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="السجل التجاري · CR" data-en="Commercial Reg. (CR)">السجل التجاري · CR</span>
-              <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
-            </div>
-            <input type="text" id="biz-cr" class="mono" placeholder="1010234567" dir="ltr">
-          </div>
-        </div>
-
-        <div class="field-row triple">
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="الجوال" data-en="Mobile">الجوال</span>
-            </div>
-            <input type="tel" id="biz-phone" class="mono" placeholder="0501234567" dir="ltr">
-          </div>
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="البريد الإلكتروني" data-en="Email">البريد الإلكتروني</span>
-            </div>
-            <input type="email" id="biz-email" placeholder="info@example.com" dir="ltr">
-          </div>
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="الموقع" data-en="Website">الموقع</span>
-              <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
-            </div>
-            <input type="url" id="biz-website" placeholder="https://" dir="ltr">
-          </div>
-        </div>
-
-        <!-- ZATCA National Address (REQUIRED for B2B Tax Invoices) -->
-        <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--tint);">
-          <div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:4px;">
-            <span data-ar="العنوان الوطني" data-en="National Address">العنوان الوطني</span>
-          </div>
-          <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">
-            <span data-ar="مطلوب من زاتكا للفواتير الضريبية. سجّل عنوانك من العنوان الوطني السعودي." data-en="Required by ZATCA for tax invoices. Register from Saudi National Address.">مطلوب من زاتكا للفواتير الضريبية. سجّل عنوانك من العنوان الوطني السعودي.</span>
-          </div>
-
-          <div class="field-row double">
-            <div class="field">
-              <div class="field-label">
-                <span data-ar="رقم المبنى" data-en="Building No.">رقم المبنى</span>
-              </div>
-              <input type="text" id="biz-building" class="mono" placeholder="4521" maxlength="4" dir="ltr">
-            </div>
-            <div class="field">
-              <div class="field-label">
-                <span data-ar="الرقم الإضافي" data-en="Additional No.">الرقم الإضافي</span>
-              </div>
-              <input type="text" id="biz-additional" class="mono" placeholder="8765" maxlength="4" dir="ltr">
-            </div>
-          </div>
-
-          <div class="field-row">
-            <div class="field">
-              <div class="field-label">
-                <span data-ar="اسم الشارع" data-en="Street Name">اسم الشارع</span>
-              </div>
-              <input type="text" id="biz-street" placeholder="طريق الملك فهد">
-            </div>
-          </div>
-
-          <div class="field-row triple">
-            <div class="field">
-              <div class="field-label">
-                <span data-ar="الحي" data-en="District">الحي</span>
-              </div>
-              <input type="text" id="biz-district" placeholder="حي العليا">
-            </div>
-            <div class="field">
-              <div class="field-label">
-                <span data-ar="المدينة" data-en="City">المدينة</span>
-              </div>
-              <input type="text" id="biz-city" placeholder="الرياض">
-            </div>
-            <div class="field">
-              <div class="field-label">
-                <span data-ar="الرمز البريدي" data-en="Postal Code">الرمز البريدي</span>
-              </div>
-              <input type="text" id="biz-postal" class="mono" placeholder="12211" maxlength="5" dir="ltr">
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="section-foot">
-        <span class="save-status" id="save-status-business">✓ <span data-ar="تم الحفظ" data-en="Saved">تم الحفظ</span></span>
-        <button class="btn btn-primary" onclick="saveBusiness()">
-          <span data-ar="حفظ التغييرات" data-en="Save Changes">حفظ التغييرات</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- ═════════ TAX PROFILE (Zakat / CIT determination) ═════════ -->
-    <div class="section-card" id="sec-tax-profile" style="display:none;">
-      <div class="section-header">
-        <div class="section-title-wrap">
-          <div class="section-title">
-            <span class="icon">🏛</span>
-            <span data-ar="الكيان والملكية الضريبية" data-en="Tax Profile">الكيان والملكية الضريبية</span>
-          </div>
-          <div class="section-sub" data-ar="نوع المنشأة وهيكل الملكية يحدّدان نوع الالتزام الضريبي (زكاة 2.5% للسعودي/الخليجي · ضريبة دخل 20% للأجنبي)." data-en="Entity type and ownership structure determine your tax obligation (Zakat 2.5% for Saudi/GCC · CIT 20% for foreign).">نوع المنشأة وهيكل الملكية يحدّدان نوع الالتزام الضريبي (زكاة 2.5% للسعودي/الخليجي · ضريبة دخل 20% للأجنبي).</div>
-        </div>
-      </div>
-      <div class="section-body">
-
-        <!-- Entity type + Industry -->
-        <div class="field-row double">
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="نوع المنشأة القانوني" data-en="Legal Entity Type">نوع المنشأة القانوني</span>
-              <span class="req">*</span>
-            </div>
-            <select id="legal-entity-type" onchange="onTaxProfileChange()">
-              <option value="">— <span data-ar="اختر" data-en="Choose">اختر</span> —</option>
-              <option value="llc">شركة ذات مسؤولية محدودة · LLC</option>
-              <option value="joint_stock">شركة مساهمة · Joint Stock Co.</option>
-              <option value="sole_proprietorship">مؤسسة فردية · Sole Proprietorship</option>
-              <option value="partnership">شركة تضامن · Partnership</option>
-              <option value="foreign_branch">فرع شركة أجنبية · Foreign Branch</option>
-              <option value="establishment">مؤسسة · Establishment</option>
-              <option value="other">أخرى · Other</option>
-            </select>
-          </div>
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="القطاع · Industry" data-en="Industry · القطاع">القطاع · Industry</span>
-            </div>
-            <select id="industry" onchange="onTaxProfileChange()">
-              <option value="general" selected>عام · General Business</option>
-              <option value="retail">تجزئة · Retail</option>
-              <option value="services">خدمات · Services</option>
-              <option value="manufacturing">تصنيع · Manufacturing</option>
-              <option value="construction">مقاولات · Construction</option>
-              <option value="hospitality">ضيافة ومطاعم · Hospitality</option>
-              <option value="healthcare">صحة · Healthcare</option>
-              <option value="education">تعليم · Education</option>
-              <option value="real_estate">عقارات · Real Estate</option>
-              <option value="technology">تقنية · Technology</option>
-              <option value="banking">⚠️ بنوك · Banking</option>
-              <option value="insurance">⚠️ تأمين · Insurance</option>
-              <option value="telecom">⚠️ اتصالات · Telecom</option>
-              <option value="natural_gas">⚠️ غاز طبيعي · Natural Gas</option>
-              <option value="oil_gas_upstream">⚠️ نفط وغاز (استخراج) · Oil & Hydrocarbons</option>
-              <option value="other">أخرى · Other</option>
-            </select>
-            <div class="field-hint" id="industry-warning" style="display:none;color:var(--amber);font-weight:600;">
-              ⚠️ <span data-ar="هذا القطاع له معدّلات ضريبية خاصة" data-en="This industry has special tax rates">هذا القطاع له معدّلات ضريبية خاصة</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- VAT filing frequency -->
-        <div class="field-row" style="margin-top:14px;" id="field-vat-frequency">
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="دورة تقديم إقرار VAT" data-en="VAT Filing Frequency">دورة تقديم إقرار VAT</span>
-              <span class="req">*</span>
-            </div>
-            <select id="vat-filing-frequency">
-              <option value="quarterly" data-ar="ربع سنوي (الأكثر شيوعاً)" data-en="Quarterly (most common)">ربع سنوي (الأكثر شيوعاً)</option>
-              <option value="monthly" data-ar="شهري (للإيرادات > 40 مليون ريال)" data-en="Monthly (for revenue > SAR 40M)">شهري (للإيرادات > 40 مليون ريال)</option>
-            </select>
-            <div class="field-hint" data-ar="الإيرادات السنوية أقل من 40 مليون = ربع سنوي. أكثر من ذلك = شهري." data-en="Annual revenue under SAR 40M = quarterly. Above that = monthly.">الإيرادات السنوية أقل من 40 مليون = ربع سنوي. أكثر من ذلك = شهري.</div>
-          </div>
-        </div>
-
-        <!-- Partners — individual ownership entry -->
-        <div id="partners-anchor" style="margin-top:18px;padding-top:14px;border-top:1px solid var(--tint);">
-          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;flex-wrap:wrap;gap:10px;">
-            <div style="font-size:13px;font-weight:700;color:var(--ink);">
-              <span data-ar="الشركاء (هيكل الملكية)" data-en="Partners (Ownership Structure)">الشركاء (هيكل الملكية)</span>
-            </div>
-            <button class="btn btn-secondary" onclick="addPartner()" style="padding:6px 12px;font-size:12px;">
-              + <span data-ar="إضافة شريك" data-en="Add Partner">إضافة شريك</span>
-            </button>
-          </div>
-          <div style="font-size:11px;color:var(--muted);margin-bottom:14px;line-height:1.6;">
-            <span data-ar="أضف الشركاء كما هم في السجل التجاري. سيتم احتساب الضرائب تلقائياً حسب الجنسية:" data-en="Add partners as listed in your CR. Taxes are calculated automatically by nationality:">أضف الشركاء كما هم في السجل التجاري. سيتم احتساب الضرائب تلقائياً حسب الجنسية:</span>
-            <br>
-            🇸🇦 <span data-ar="السعودي والخليجي → زكاة 2.5% · 🌍 الأجنبي (غير خليجي) → ضريبة دخل 20%" data-en="Saudi/GCC → Zakat 2.5% · 🌍 Foreign (non-GCC) → CIT 20%">السعودي والخليجي → زكاة 2.5% · 🌍 الأجنبي (غير خليجي) → ضريبة دخل 20%</span>
-          </div>
-
-          <!-- Dynamic partner list (populated by JS) -->
-          <div id="partners-list"></div>
-
-          <!-- Empty state -->
-          <div id="partners-empty" style="display:none;text-align:center;padding:24px;color:var(--muted);font-size:13px;border:2px dashed var(--border);border-radius:10px;">
-            <div style="font-size:28px;margin-bottom:8px;opacity:0.4;">👥</div>
-            <span data-ar="لا يوجد شركاء بعد. اضغط (إضافة شريك) للبدء." data-en="No partners yet. Click (Add Partner) to start.">لا يوجد شركاء بعد. اضغط (إضافة شريك) للبدء.</span>
-          </div>
-
-          <!-- Aggregated summary (live-updated) -->
-          <div id="partners-summary" style="display:none;margin-top:12px;padding:12px 14px;background:var(--tint);border:1px solid var(--light);border-radius:10px;">
-            <div style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;margin-bottom:6px;">
-              <div style="font-size:12px;font-weight:700;color:var(--ink);">
-                📊 <span data-ar="ملخص الملكية" data-en="Ownership Summary">ملخص الملكية</span>
-              </div>
-              <div style="font-size:11px;color:var(--muted);">
-                <span data-ar="إجمالي:" data-en="Total:">إجمالي:</span>
-                <strong id="partners-total" style="color:var(--ink);font-family:'DM Mono',monospace;">0%</strong>
-              </div>
-            </div>
-            <div id="partners-aggregate" style="font-size:13px;color:var(--ink);line-height:1.6;"></div>
-          </div>
-
-          <!-- Validation warnings -->
-          <div id="partners-warning" style="display:none;color:var(--red);font-size:12px;font-weight:600;margin-top:8px;padding:8px 12px;background:#fef2f2;border:1px solid #fecaca;border-radius:6px;"></div>
-
-          <!-- Computed tax obligation summary -->
-          <div id="tax-obligation-summary" style="margin-top:14px;padding:14px 16px;background:#FFFBEB;border:1px solid #FEF3C7;border-radius:10px;border-inline-start:4px solid var(--amber);display:none;">
-            <div style="font-size:12px;font-weight:700;color:var(--ink);margin-bottom:8px;">
-              📋 <span data-ar="التزامك الضريبي" data-en="Your Tax Obligation">التزامك الضريبي</span>
-            </div>
-            <div id="tax-obligation-text" style="font-size:13px;color:#78350f;line-height:1.7;"></div>
-            <div style="font-size:11px;color:var(--muted);margin-top:8px;font-style:italic;">
-              <span data-ar="ملاحظة: هذا تقدير عام. الالتزامات الفعلية تعتمد على القاعدة الزكوية وصافي الأرباح المعدّلة." data-en="Note: This is a general estimate. Actual obligations depend on Zakat base and adjusted net profit calculations.">ملاحظة: هذا تقدير عام. الالتزامات الفعلية تعتمد على القاعدة الزكوية وصافي الأرباح المعدّلة.</span>
-            </div>
-          </div>
-        </div>
-
-      </div>
-      <div class="section-foot">
-        <span class="save-status" id="save-status-tax-profile">✓ <span data-ar="تم الحفظ" data-en="Saved">تم الحفظ</span></span>
-        <button class="btn btn-primary" onclick="saveTaxProfile()">
-          <span data-ar="حفظ التغييرات" data-en="Save Changes">حفظ التغييرات</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- ═════════ BRANDING ═════════ -->
-    <div class="section-card" id="sec-branding" style="display:none;">
-      <div class="section-header">
-        <div class="section-title-wrap">
-          <div class="section-title">
-            <span class="icon">🎨</span>
-            <span data-ar="الهوية والشعار" data-en="Branding">الهوية والشعار</span>
-          </div>
-          <div class="section-sub" data-ar="الشعار واللون يظهرون على الفواتير ولوحات العميل." data-en="Logo and color appear on invoices and customer-facing pages.">الشعار واللون يظهرون على الفواتير ولوحات العميل.</div>
-        </div>
-      </div>
-      <div class="section-body">
-        <!-- Logo upload -->
-        <div class="field" style="margin-bottom:18px;">
-          <div class="field-label">
-            <span data-ar="الشعار" data-en="Logo">الشعار</span>
-          </div>
-          <div class="logo-upload-wrap">
-            <div class="logo-preview" id="logo-preview">
-              <span class="logo-preview-empty">🏢</span>
-            </div>
-            <div class="logo-upload-info">
-              <div class="name" id="logo-status" data-ar="لم يُرفع شعار بعد" data-en="No logo uploaded yet">لم يُرفع شعار بعد</div>
-              <div class="meta" data-ar="PNG / JPG / SVG · بحد أقصى 500KB" data-en="PNG / JPG / SVG · Max 500KB">PNG / JPG / SVG · بحد أقصى 500KB</div>
-              <div class="actions">
-                <button class="btn btn-secondary" onclick="document.getElementById('logo-input').click()">
-                  📤 <span data-ar="رفع شعار" data-en="Upload Logo">رفع شعار</span>
-                </button>
-                <button class="btn btn-ghost" onclick="removeLogo()" id="btn-remove-logo" style="display:none;">
-                  🗑 <span data-ar="إزالة" data-en="Remove">إزالة</span>
-                </button>
-              </div>
-              <input type="file" id="logo-input" accept="image/*" style="display:none;" onchange="handleLogoUpload(event)">
-            </div>
-          </div>
-        </div>
-
-        <!-- Brand color -->
-        <div class="field">
-          <div class="field-label">
-            <span data-ar="اللون الأساسي" data-en="Brand Color">اللون الأساسي</span>
-          </div>
-          <div class="color-picker-wrap">
-            <div class="color-swatch active" style="background:#006C35;" onclick="setBrandColor('#006C35')" title="Saudi Green"></div>
-            <div class="color-swatch" style="background:#1E3A8A;" onclick="setBrandColor('#1E3A8A')" title="Royal Blue"></div>
-            <div class="color-swatch" style="background:#7C3AED;" onclick="setBrandColor('#7C3AED')" title="Purple"></div>
-            <div class="color-swatch" style="background:#DC2626;" onclick="setBrandColor('#DC2626')" title="Red"></div>
-            <div class="color-swatch" style="background:#0891B2;" onclick="setBrandColor('#0891B2')" title="Teal"></div>
-            <div class="color-swatch" style="background:#0D2618;" onclick="setBrandColor('#0D2618')" title="Dark Green"></div>
-            <div style="margin-inline-start:12px;display:flex;gap:6px;align-items:center;">
-              <input type="color" id="brand-color-input" class="color-input" value="#006C35" oninput="syncColorInputs()">
-              <input type="text" id="brand-color-text" class="color-text-input mono" value="#006C35" oninput="onColorTextInput()">
-            </div>
-          </div>
-          <div class="field-hint" data-ar="هذا اللون يظهر في رأس الفاتورة وأزرار الإجراءات." data-en="This color appears on invoice header and action buttons.">هذا اللون يظهر في رأس الفاتورة وأزرار الإجراءات.</div>
-        </div>
-      </div>
-      <div class="section-foot">
-        <span class="save-status" id="save-status-branding">✓ <span data-ar="تم الحفظ" data-en="Saved">تم الحفظ</span></span>
-        <button class="btn btn-primary" onclick="saveBranding()">
-          <span data-ar="حفظ التغييرات" data-en="Save Changes">حفظ التغييرات</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- ═════════ INVOICE DEFAULTS ═════════ -->
-    <div class="section-card" id="sec-invoice" style="display:none;">
-      <div class="section-header">
-        <div class="section-title-wrap">
-          <div class="section-title">
-            <span class="icon">🧾</span>
-            <span data-ar="إعدادات الفواتير" data-en="Invoice Defaults">إعدادات الفواتير</span>
-          </div>
-          <div class="section-sub" data-ar="تخصيص الترقيم، الافتراضات، والملاحظات الثابتة." data-en="Customize numbering, defaults, and standing notes.">تخصيص الترقيم، الافتراضات، والملاحظات الثابتة.</div>
-        </div>
-      </div>
-      <div class="section-body">
-        <div class="field-row double">
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="بادئة رقم الفاتورة" data-en="Invoice Number Prefix">بادئة رقم الفاتورة</span>
-            </div>
-            <input type="text" id="inv-prefix" class="mono" placeholder="INV" maxlength="6" dir="ltr">
-            <div class="field-hint">
-              <span data-ar="مثال:" data-en="Example:">مثال:</span>
-              <span id="inv-num-example" class="mono">INV-2026-001</span>
-            </div>
-          </div>
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="مدة السداد الافتراضية" data-en="Default Payment Terms">مدة السداد الافتراضية</span>
-            </div>
-            <select id="inv-payment-terms">
-              <option value="0">فوري · Immediate (Net 0)</option>
-              <option value="7">7 أيام · Net 7</option>
-              <option value="15">15 يوم · Net 15</option>
-              <option value="30" selected>30 يوم · Net 30</option>
-              <option value="45">45 يوم · Net 45</option>
-              <option value="60">60 يوم · Net 60</option>
-              <option value="90">90 يوم · Net 90</option>
-            </select>
-            <div class="field-hint" data-ar="يطبّق على عملاء جدد بدون إعدادات خاصة" data-en="Applied to new customers without custom terms">يطبّق على عملاء جدد بدون إعدادات خاصة</div>
-          </div>
-        </div>
-
-        <div class="field-row double">
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="نسبة ضريبة القيمة المضافة" data-en="VAT Rate">نسبة ضريبة القيمة المضافة</span>
-            </div>
-            <select id="inv-vat-rate">
-              <option value="15" selected>15%</option>
-              <option value="0">0% (مُعفى)</option>
-              <option value="5">5%</option>
-            </select>
-          </div>
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="العملة" data-en="Currency">العملة</span>
-            </div>
-            <select id="inv-currency">
-              <option value="SAR" selected>SAR · ريال سعودي</option>
-              <option value="USD">USD · دولار أمريكي</option>
-              <option value="AED">AED · درهم إماراتي</option>
-              <option value="EUR">EUR · يورو</option>
-            </select>
-          </div>
-        </div>
-
-        <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--tint);">
-          <div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:10px;">
-            <span data-ar="ملاحظات ثابتة" data-en="Standing Notes">ملاحظات ثابتة</span>
-          </div>
-
-          <div class="field-row double">
-            <div class="field">
-              <div class="field-label">
-                <span data-ar="الملاحظات الافتراضية (عربي)" data-en="Default Notes (Arabic)">الملاحظات الافتراضية (عربي)</span>
-              </div>
-              <textarea id="inv-notes-ar" placeholder="مثال: الدفع خلال 30 يوماً من تاريخ الفاتورة..." dir="rtl"></textarea>
-            </div>
-            <div class="field">
-              <div class="field-label">
-                <span data-ar="الملاحظات الافتراضية (English)" data-en="Default Notes (English)">الملاحظات الافتراضية (English)</span>
-              </div>
-              <textarea id="inv-notes-en" placeholder="Example: Payment due within 30 days..." dir="ltr"></textarea>
-            </div>
-          </div>
-        </div>
-
-        <div style="margin-top:18px;padding-top:14px;border-top:1px solid var(--tint);">
-          <div style="font-size:13px;font-weight:700;color:var(--ink);margin-bottom:10px;">
-            <span data-ar="بيانات الحساب البنكي" data-en="Bank Account Details">بيانات الحساب البنكي</span>
-          </div>
-
-          <div class="toggle-wrap">
-            <div class="toggle-info">
-              <div class="toggle-label" data-ar="إظهار بيانات البنك في الفواتير" data-en="Show bank details on invoices">إظهار بيانات البنك في الفواتير</div>
-              <div class="toggle-desc" data-ar="مفيد للعملاء الذين يدفعون بالتحويل البنكي" data-en="Useful for customers paying via bank transfer">مفيد للعملاء الذين يدفعون بالتحويل البنكي</div>
-            </div>
-            <button class="toggle" id="toggle-show-bank" onclick="toggleSwitch(this);toggleBankFields()" aria-pressed="false"></button>
-          </div>
-
-          <div id="bank-fields" style="display:none;margin-top:12px;">
-            <div class="field-row double">
-              <div class="field">
-                <div class="field-label">
-                  <span data-ar="اسم البنك" data-en="Bank Name">اسم البنك</span>
-                </div>
-                <input type="text" id="bank-name" placeholder="مصرف الراجحي · Al Rajhi Bank">
-              </div>
-              <div class="field">
-                <div class="field-label">
-                  <span data-ar="اسم صاحب الحساب" data-en="Account Holder Name">اسم صاحب الحساب</span>
-                </div>
-                <input type="text" id="bank-account-name" placeholder="شركة الخليج للتجارة">
-              </div>
-            </div>
-            <div class="field">
-              <div class="field-label">
-                <span data-ar="رقم الآيبان · IBAN" data-en="IBAN">رقم الآيبان · IBAN</span>
-              </div>
-              <input type="text" id="bank-iban" class="mono" placeholder="SA00 0000 0000 0000 0000 0000" dir="ltr">
-            </div>
-          </div>
-        </div>
-      </div>
-      <div class="section-foot">
-        <span class="save-status" id="save-status-invoice">✓ <span data-ar="تم الحفظ" data-en="Saved">تم الحفظ</span></span>
-        <button class="btn btn-primary" onclick="saveInvoiceDefaults()">
-          <span data-ar="حفظ التغييرات" data-en="Save Changes">حفظ التغييرات</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- ═════════ LOCALIZATION ═════════ -->
-    <div class="section-card" id="sec-localization" style="display:none;">
-      <div class="section-header">
-        <div class="section-title-wrap">
-          <div class="section-title">
-            <span class="icon">🌍</span>
-            <span data-ar="اللغة والعملة" data-en="Localization">اللغة والعملة</span>
-          </div>
-          <div class="section-sub" data-ar="إعدادات اللغة والمنطقة الزمنية وتنسيق التاريخ." data-en="Language, timezone, and date format preferences.">إعدادات اللغة والمنطقة الزمنية وتنسيق التاريخ.</div>
-        </div>
-      </div>
-      <div class="section-body">
-        <div class="field-row triple">
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="اللغة الافتراضية" data-en="Default Language">اللغة الافتراضية</span>
-            </div>
-            <select id="loc-language">
-              <option value="ar" selected>العربية · Arabic</option>
-              <option value="en">English · إنجليزي</option>
-            </select>
-            <div class="field-hint" data-ar="ملاحظة: المستند المطبوع سيظل بالعربية (متطلب زاتكا)" data-en="Note: Printed document stays Arabic-native (ZATCA requirement)">ملاحظة: المستند المطبوع سيظل بالعربية (متطلب زاتكا)</div>
-          </div>
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="تنسيق التاريخ" data-en="Date Format">تنسيق التاريخ</span>
-            </div>
-            <select id="loc-date-format">
-              <option value="DD/MM/YYYY" selected>DD/MM/YYYY (26/04/2026)</option>
-              <option value="MM/DD/YYYY">MM/DD/YYYY (04/26/2026)</option>
-              <option value="YYYY-MM-DD">YYYY-MM-DD (2026-04-26)</option>
-            </select>
-          </div>
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="بداية السنة المالية" data-en="Fiscal Year Start">بداية السنة المالية</span>
-            </div>
-            <select id="loc-fiscal-year">
-              <option value="01-01" selected>1 يناير · Jan 1</option>
-              <option value="04-01">1 أبريل · Apr 1</option>
-              <option value="07-01">1 يوليو · Jul 1</option>
-              <option value="10-01">1 أكتوبر · Oct 1</option>
-            </select>
-          </div>
-        </div>
-      </div>
-      <div class="section-foot">
-        <span class="save-status" id="save-status-localization">✓ <span data-ar="تم الحفظ" data-en="Saved">تم الحفظ</span></span>
-        <button class="btn btn-primary" onclick="saveLocalization()">
-          <span data-ar="حفظ التغييرات" data-en="Save Changes">حفظ التغييرات</span>
-        </button>
-      </div>
-    </div>
-
-    <!-- ═════════ INVOICE LAYOUT (Coming Soon placeholder) ═════════ -->
-    <div class="section-card" id="sec-layout" style="display:none;">
-      <div class="section-header">
-        <div class="section-title-wrap">
-          <div class="section-title">
-            <span class="icon">📐</span>
-            <span data-ar="شكل الفاتورة" data-en="Invoice Layout">شكل الفاتورة</span>
-            <span class="section-coming-soon" data-ar="قريباً" data-en="Coming Soon">قريباً</span>
-          </div>
-          <div class="section-sub" data-ar="حالياً نوفر شكل A4 للفواتير الضريبية. قريباً: طباعة حرارية للمتاجر." data-en="Currently A4 only for tax invoices. Coming: thermal printing for retail.">حالياً نوفر شكل A4 للفواتير الضريبية. قريباً: طباعة حرارية للمتاجر.</div>
-        </div>
-      </div>
-      <div class="section-body">
-        <div class="coming-soon-card">
-          <div class="coming-soon-icon">🖨️</div>
-          <div class="coming-soon-title" data-ar="الطباعة الحرارية للبيع بالتجزئة" data-en="Thermal Printing for Retail">الطباعة الحرارية للبيع بالتجزئة</div>
-          <div class="coming-soon-text" data-ar="قريباً ستقدر تطبع الفواتير المبسطة على ورق حراري 80mm — مثالي للمتاجر، المطاعم، والصيدليات. سيتم دعم الباركود والطباعة التلقائية." data-en="Soon you'll be able to print simplified invoices on 80mm thermal paper — perfect for retail shops, restaurants, and pharmacies. Barcode and auto-print will be supported.">قريباً ستقدر تطبع الفواتير المبسطة على ورق حراري 80mm — مثالي للمتاجر، المطاعم، والصيدليات. سيتم دعم الباركود والطباعة التلقائية.</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ═════════ ZATCA (Coming Soon placeholder) ═════════ -->
-    <div class="section-card" id="sec-zatca" style="display:none;">
-      <div class="section-header">
-        <div class="section-title-wrap">
-          <div class="section-title">
-            <span class="icon">🇸🇦</span>
-            <span data-ar="إعدادات زاتكا" data-en="ZATCA Settings">إعدادات زاتكا</span>
-            <span class="section-coming-soon" data-ar="قريباً" data-en="Coming Soon">قريباً</span>
-          </div>
-          <div class="section-sub" data-ar="ربط مع منصة فاتورة وإصدار الفواتير الإلكترونية المرحلة الثانية." data-en="Connect to Fatoora portal and issue Phase 2 e-invoices.">ربط مع منصة فاتورة وإصدار الفواتير الإلكترونية المرحلة الثانية.</div>
-        </div>
-      </div>
-      <div class="section-body">
-        <div class="coming-soon-card">
-          <div class="coming-soon-icon">⚡</div>
-          <div class="coming-soon-title" data-ar="تكامل المرحلة الثانية" data-en="Phase 2 Integration">تكامل المرحلة الثانية</div>
-          <div class="coming-soon-text" data-ar="حالياً فواتيرك تتضمن رمز QR للمرحلة الأولى (الإلزامي). قريباً سيتم إطلاق التكامل الكامل مع منصة فاتورة لإصدار وأرشفة الفواتير المعتمدة من زاتكا." data-en="Currently your invoices include the Phase 1 QR code (mandatory). Coming soon: full integration with Fatoora portal for ZATCA-cleared invoice issuance and archiving.">حالياً فواتيرك تتضمن رمز QR للمرحلة الأولى (الإلزامي). قريباً سيتم إطلاق التكامل الكامل مع منصة فاتورة لإصدار وأرشفة الفواتير المعتمدة من زاتكا.</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ═════════ NOTIFICATIONS (Coming Soon placeholder) ═════════ -->
-    <div class="section-card" id="sec-notifications" style="display:none;">
-      <div class="section-header">
-        <div class="section-title-wrap">
-          <div class="section-title">
-            <span class="icon">🔔</span>
-            <span data-ar="التنبيهات" data-en="Notifications">التنبيهات</span>
-            <span class="section-coming-soon" data-ar="قريباً" data-en="Coming Soon">قريباً</span>
-          </div>
-          <div class="section-sub" data-ar="إعدادات تذكيرات الفواتير المتأخرة والإشعارات." data-en="Overdue invoice reminders and email notifications.">إعدادات تذكيرات الفواتير المتأخرة والإشعارات.</div>
-        </div>
-      </div>
-      <div class="section-body">
-        <div class="coming-soon-card">
-          <div class="coming-soon-icon">📧</div>
-          <div class="coming-soon-title" data-ar="تذكيرات تلقائية" data-en="Automatic Reminders">تذكيرات تلقائية</div>
-          <div class="coming-soon-text" data-ar="قريباً ستقدر تفعّل تذكيرات تلقائية بالبريد الإلكتروني وواتساب للعملاء قبل وبعد تاريخ الاستحقاق." data-en="Soon you'll be able to enable automated email and WhatsApp reminders to customers before and after due date.">قريباً ستقدر تفعّل تذكيرات تلقائية بالبريد الإلكتروني وواتساب للعملاء قبل وبعد تاريخ الاستحقاق.</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ═════════ TEAM & ROLES (Coming Soon placeholder) ═════════ -->
-    <div class="section-card" id="sec-team" style="display:none;">
-      <div class="section-header">
-        <div class="section-title-wrap">
-          <div class="section-title">
-            <span class="icon">👥</span>
-            <span data-ar="الفريق والصلاحيات" data-en="Team & Roles">الفريق والصلاحيات</span>
-          </div>
-          <div class="section-sub" data-ar="إضافة وإدارة أعضاء فريقك. يمكن لمالك المنشأة فقط إجراء التغييرات." data-en="Add and manage your team members. Only the business owner can make changes.">إضافة وإدارة أعضاء فريقك. يمكن لمالك المنشأة فقط إجراء التغييرات.</div>
-        </div>
-      </div>
-
-      <div class="section-body">
-        <!-- Owner-only gate (shown if non-owner opens this section) -->
-        <div id="team-owner-only" style="display:none;" class="coming-soon-card">
-          <div class="coming-soon-icon">🔒</div>
-          <div class="coming-soon-title" data-ar="مخصص للمالك" data-en="Owner-only">مخصص للمالك</div>
-          <div class="coming-soon-text" data-ar="تواصل مع مالك المنشأة لإجراء تغييرات على الفريق." data-en="Contact your business owner to make changes to the team.">تواصل مع مالك المنشأة لإجراء تغييرات على الفريق.</div>
-        </div>
-
-        <!-- Owner-visible content -->
-        <div id="team-owner-content" style="display:none;">
-          <!-- Add member button row -->
-          <div style="display:flex;justify-content:flex-end;margin-bottom:16px;">
-            <button class="btn btn-primary" onclick="openAddMemberModal()" id="add-member-btn">
-              <span style="font-size:16px;line-height:1;">+</span>
-              <span data-ar="إضافة عضو" data-en="Add Member">إضافة عضو</span>
-            </button>
-          </div>
-
-          <!-- Team list -->
-          <div id="team-list-loading" class="loading-state" style="padding:30px 0;">
-            <div class="loading-spinner">👥</div>
-            <div data-ar="جارٍ تحميل الفريق..." data-en="Loading team...">جارٍ تحميل الفريق...</div>
-          </div>
-
-          <table class="team-table" id="team-list-table" style="display:none;">
-            <thead>
-              <tr>
-                <th data-ar="الاسم" data-en="Name">الاسم</th>
-                <th data-ar="البريد الإلكتروني" data-en="Email">البريد الإلكتروني</th>
-                <th data-ar="الدور" data-en="Role">الدور</th>
-                <th data-ar="الحالة" data-en="Status">الحالة</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="team-list-body"></tbody>
-          </table>
-
-          <div id="team-list-empty" class="coming-soon-card" style="display:none;">
-            <div class="coming-soon-icon">👤</div>
-            <div class="coming-soon-title" data-ar="لا يوجد أعضاء بعد" data-en="No team members yet">لا يوجد أعضاء بعد</div>
-            <div class="coming-soon-text" data-ar="اضغط على «إضافة عضو» لإضافة أول عضو لفريقك." data-en="Click 'Add Member' to add your first team member.">اضغط على «إضافة عضو» لإضافة أول عضو لفريقك.</div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ═════════ INTEGRATIONS (Coming Soon placeholder) ═════════ -->
-    <div class="section-card" id="sec-integrations" style="display:none;">
-      <div class="section-header">
-        <div class="section-title-wrap">
-          <div class="section-title">
-            <span class="icon">🔌</span>
-            <span data-ar="التكاملات" data-en="Integrations">التكاملات</span>
-            <span class="section-coming-soon" data-ar="قريباً" data-en="Coming Soon">قريباً</span>
-          </div>
-          <div class="section-sub" data-ar="ربط مع بوابات الدفع والمتاجر الإلكترونية." data-en="Connect to payment gateways and e-commerce platforms.">ربط مع بوابات الدفع والمتاجر الإلكترونية.</div>
-        </div>
-      </div>
-      <div class="section-body">
-        <div class="coming-soon-card">
-          <div class="coming-soon-icon">⚡</div>
-          <div class="coming-soon-title" data-ar="تكاملات قادمة" data-en="Upcoming Integrations">تكاملات قادمة</div>
-          <div class="coming-soon-text" data-ar="قريباً: ميسر · تاب · هايبر باي للدفع الإلكتروني. سلة · زد للمتاجر الإلكترونية." data-en="Coming: Moyasar · Tap · HyperPay for online payments. Salla · Zid for e-commerce stores.">قريباً: ميسر · تاب · هايبر باي للدفع الإلكتروني. سلة · زد للمتاجر الإلكترونية.</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ═════════ AFFILIATE PROGRAM (Coming Soon placeholder) ═════════ -->
-    <div class="section-card" id="sec-affiliate" style="display:none;">
-      <div class="section-header">
-        <div class="section-title-wrap">
-          <div class="section-title">
-            <span class="icon">🤝</span>
-            <span data-ar="برنامج الشركاء" data-en="Affiliate Program">برنامج الشركاء</span>
-            <span class="section-coming-soon" data-ar="قريباً" data-en="Coming Soon">قريباً</span>
-          </div>
-          <div class="section-sub" data-ar="اربح عمولة لكل عميل تجلبه إلى GulfLedger." data-en="Earn commission for every customer you refer to GulfLedger.">اربح عمولة لكل عميل تجلبه إلى GulfLedger.</div>
-        </div>
-      </div>
-      <div class="section-body">
-        <div class="coming-soon-card">
-          <div class="coming-soon-icon">💰</div>
-          <div class="coming-soon-title" data-ar="اربح مع الشركاء" data-en="Earn with Partners">اربح مع الشركاء</div>
-          <div class="coming-soon-text" data-ar="قريباً سيتم إطلاق برنامج الشركاء — احصل على رابط تسويقي مخصص، تتبع التسجيلات، واحصل على عمولات شهرية." data-en="Coming soon: Affiliate Program — get a custom referral link, track signups, and earn monthly commissions.">قريباً سيتم إطلاق برنامج الشركاء — احصل على رابط تسويقي مخصص، تتبع التسجيلات، واحصل على عمولات شهرية.</div>
-        </div>
-      </div>
-    </div>
-
-    <!-- ═════════ ACCOUNT & SECURITY ═════════ -->
-    <div class="section-card" id="sec-account" style="display:none;">
-      <div class="section-header">
-        <div class="section-title-wrap">
-          <div class="section-title">
-            <span class="icon">🔐</span>
-            <span data-ar="الحساب والأمان" data-en="Account & Security">الحساب والأمان</span>
-          </div>
-          <div class="section-sub" data-ar="بريدك الإلكتروني وكلمة المرور وإعدادات الأمان." data-en="Your email, password, and security settings.">بريدك الإلكتروني وكلمة المرور وإعدادات الأمان.</div>
-        </div>
-      </div>
-      <div class="section-body">
-        <div class="field-row double">
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="بريد تسجيل الدخول" data-en="Login Email">بريد تسجيل الدخول</span>
-            </div>
-            <input type="email" id="account-email" readonly style="background:#f5f5f5;cursor:not-allowed;" dir="ltr">
-            <div class="field-hint" data-ar="لا يمكن تغيير البريد حالياً — تواصل مع الدعم" data-en="Email cannot be changed currently — contact support">لا يمكن تغيير البريد حالياً — تواصل مع الدعم</div>
-          </div>
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="كلمة المرور" data-en="Password">كلمة المرور</span>
-            </div>
-            <button class="btn btn-secondary" onclick="changePassword()" style="width:100%;justify-content:center;">
-              🔑 <span data-ar="تغيير كلمة المرور" data-en="Change Password">تغيير كلمة المرور</span>
-            </button>
-          </div>
-        </div>
-
-        <!-- Danger zone -->
-        <div style="margin-top:24px;padding-top:18px;border-top:1px solid var(--tint);">
-          <div style="font-size:13px;font-weight:700;color:var(--red);margin-bottom:4px;">
-            ⚠ <span data-ar="منطقة خطرة" data-en="Danger Zone">منطقة خطرة</span>
-          </div>
-          <div style="font-size:11px;color:var(--muted);margin-bottom:14px;">
-            <span data-ar="هذه الإجراءات لا يمكن التراجع عنها." data-en="These actions cannot be undone.">هذه الإجراءات لا يمكن التراجع عنها.</span>
-          </div>
-
-          <div style="border:1px solid #fee2e2;border-radius:8px;padding:14px;background:#fef2f2;">
-            <div style="display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;">
-              <div>
-                <div style="font-size:13px;font-weight:700;color:var(--ink);" data-ar="حذف الحساب" data-en="Delete Account">حذف الحساب</div>
-                <div style="font-size:11px;color:var(--muted);margin-top:2px;" data-ar="سيتم حذف جميع البيانات نهائياً" data-en="All data will be permanently deleted">سيتم حذف جميع البيانات نهائياً</div>
-              </div>
-              <button class="btn btn-danger" onclick="deleteAccount()">
-                🗑 <span data-ar="حذف حسابي" data-en="Delete My Account">حذف حسابي</span>
-              </button>
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-
-  </main>
-</div>
-
-<!-- Loading state -->
-<div class="loading-state" id="loading-state">
-  <div class="loading-spinner">⚙️</div>
-  <div data-ar="جارٍ تحميل الإعدادات..." data-en="Loading settings...">جارٍ تحميل الإعدادات...</div>
-</div>
-
-<!-- ═══ ADD MEMBER MODAL (Round 2a) ═══ -->
-<div class="setup-modal-overlay" id="member-modal-overlay" role="dialog" aria-modal="true">
-  <div class="setup-modal" onclick="event.stopPropagation();">
-    <div class="setup-modal-head">
-      <div>
-        <h2 class="setup-modal-title" id="member-modal-title" data-ar="إضافة عضو جديد" data-en="Add team member">إضافة عضو جديد</h2>
-        <p class="setup-modal-sub" data-ar="ستُنشئ المنصة حساباً جديداً بكلمة المرور التي تُحددها. شارك هذه البيانات مع العضو ليسجل دخوله." data-en="The platform will create a new account with the password you set. Share these credentials with the team member so they can sign in.">ستُنشئ المنصة حساباً جديداً بكلمة المرور التي تُحددها. شارك هذه البيانات مع العضو ليسجل دخوله.</p>
-      </div>
-      <button class="setup-modal-close" onclick="closeAddMemberModal()" aria-label="Close">×</button>
-    </div>
-    <div class="setup-modal-body">
-      <!-- Name -->
-      <div class="setup-field" id="mm-field-name">
-        <label class="setup-field-label" for="mm-name">
-          <span data-ar="الاسم الكامل" data-en="Full name">الاسم الكامل</span>
-          <span class="req">*</span>
-        </label>
-        <input type="text" id="mm-name" class="setup-input" maxlength="100" placeholder="—">
-        <div class="setup-field-error">—</div>
-      </div>
-
-      <!-- Email -->
-      <div class="setup-field" id="mm-field-email">
-        <label class="setup-field-label" for="mm-email">
-          <span data-ar="البريد الإلكتروني" data-en="Email">البريد الإلكتروني</span>
-          <span class="req">*</span>
-        </label>
-        <input type="email" id="mm-email" class="setup-input" maxlength="120" placeholder="user@example.com" autocomplete="off">
-        <div class="setup-field-error">—</div>
-      </div>
-
-      <!-- Password -->
-      <div class="setup-field" id="mm-field-password">
-        <label class="setup-field-label" for="mm-password">
-          <span data-ar="كلمة المرور" data-en="Password">كلمة المرور</span>
-          <span class="req">*</span>
-        </label>
-        <input type="text" id="mm-password" class="setup-input" minlength="8" maxlength="80" placeholder="—" autocomplete="off">
-        <div class="setup-field-hint" data-ar="8 أحرف على الأقل. شارك كلمة المرور مع العضو بأمان." data-en="At least 8 characters. Share with the team member securely.">8 أحرف على الأقل. شارك كلمة المرور مع العضو بأمان.</div>
-        <div class="setup-field-error">—</div>
-      </div>
-
-      <!-- Role -->
-      <div class="setup-field" id="mm-field-role">
-        <label class="setup-field-label" for="mm-role">
-          <span data-ar="الدور" data-en="Role">الدور</span>
-          <span class="req">*</span>
-        </label>
-        <select id="mm-role" class="setup-input">
-          <option value="admin" data-ar="مسؤول (وصول كامل)" data-en="Admin (full access)">مسؤول (وصول كامل)</option>
-          <option value="accountant" data-ar="محاسب" data-en="Accountant">محاسب</option>
-          <option value="sales" data-ar="مبيعات" data-en="Sales">مبيعات</option>
-          <option value="warehouse" data-ar="مخزون" data-en="Warehouse">مخزون</option>
-          <option value="viewer" data-ar="مشاهد فقط" data-en="Viewer (read-only)">مشاهد فقط</option>
-        </select>
-        <div class="setup-field-hint" data-ar="ملاحظة: تطبيق الصلاحيات حسب الدور سيكون في تحديث قادم — حالياً الدور يُحفظ كمعلومة فقط." data-en="Note: Role-based access enforcement is coming in the next update — for now, the role is stored as metadata only.">ملاحظة: تطبيق الصلاحيات حسب الدور سيكون في تحديث قادم — حالياً الدور يُحفظ كمعلومة فقط.</div>
-      </div>
-    </div>
-    <div class="setup-modal-foot">
-      <button type="button" class="setup-btn-skip" onclick="closeAddMemberModal()">
-        <span data-ar="إلغاء" data-en="Cancel">إلغاء</span>
-      </button>
-      <button type="button" class="setup-btn-save" id="mm-save-btn" onclick="saveNewMember()">
-        <span data-ar="إنشاء العضو" data-en="Create member">إنشاء العضو</span>
-      </button>
-    </div>
-  </div>
-</div>
-
 <script>
-/* ═══════════════════════════════════════════════════════
-   GulfLedger — settings.html JavaScript
-═══════════════════════════════════════════════════════ */
 const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
-let currentLang = localStorage.getItem('gl_lang') || 'ar';
 let currentUser = null;
 let currentBiz = null;
+let currentRole = 'staff';     /* current user's role in this business */
+let isDirty = false;
+let allMembers = [];
 
-const v = id => (document.getElementById(id)?.value || '').trim();
-const setVal = (id, val) => { const e = document.getElementById(id); if(e) e.value = val ?? ''; };
-const setText = (id, val) => { const e = document.getElementById(id); if(e) e.textContent = val ?? ''; };
-
-function notify(msg, type='info'){
-  const n = document.getElementById('notify');
-  n.textContent = msg;
-  n.className = 'notify show ' + (type === 'error' ? 'error' : type === 'success' ? 'success' : '');
-  setTimeout(() => n.classList.remove('show'), 3000);
-}
-/* Round D1: Language fallback for data fields.
-   Returns the field in the current language; falls back to the other language;
-   shows '—' if both are empty.
-   Usage: pickLang(customer, 'name') → reads name_ar / name_en based on currentLang */
-function pickLang(obj, baseField) {
-  if (!obj) return '—';
-  const ar = obj[baseField + '_ar'];
-  const en = obj[baseField + '_en'];
-  const fallback = obj[baseField] || null;
-  if (currentLang === 'en') return en || ar || fallback || '—';
-  return ar || en || fallback || '—';
-}
-
-
-function showSaveStatus(sectionId){
-  const el = document.getElementById('save-status-' + sectionId);
-  if(!el) return;
-  el.classList.add('show');
-  setTimeout(() => el.classList.remove('show'), 2500);
-}
-
-/* ═══════════════════════════════════════════════════════
-   INIT
-═══════════════════════════════════════════════════════ */
-/* ═══════════════════════════════════════════════════════════════
-   Round 2-MultiTenant-C: loadCurrentBusiness(sb, user)
-   Looks up business via business_users membership (works for owners
-   AND team members). Auto-creates for brand-new users. */
-async function loadCurrentBusiness(sb, user){
-  /* 1. Active membership */
-  const {data: activeMembership} = await sb.from('business_users')
-    .select('business_id, role')
-    .eq('user_id', user.id)
-    .eq('status', 'active')
-    .limit(5);
-  if(activeMembership && activeMembership.length > 0){
-    const ownerRow = activeMembership.find(m => m.role === 'owner');
-    const adminRow = activeMembership.find(m => m.role === 'admin');
-    const chosen = ownerRow || adminRow || activeMembership[0];
-    const {data: biz} = await sb.from('businesses').select('*').eq('id', chosen.business_id).maybeSingle();
-    if(biz) return {biz, role: chosen.role, reason: null};
-    /* Active membership exists but business lookup failed — RLS or data error.
-       Don't fall through to "revoked". */
-    console.error('[GL] Active membership found but businesses lookup returned null for business_id:', chosen.business_id);
-    return {biz: null, role: chosen.role, reason: 'biz_lookup_failed'};
-  }
-  /* 2. Inactive-only membership: revoked */
-  const {data: anyMembership} = await sb.from('business_users')
-    .select('id, status').eq('user_id', user.id).limit(5);
-  if(anyMembership && anyMembership.length > 0){
-    return {biz: null, role: null, reason: 'revoked'};
-  }
-  /* 3. Brand new user — auto-create business */
-  const bizName = user.user_metadata?.business_name || 'My Business';
-  const {data: newBiz} = await sb.from('businesses').insert({
-    user_id: user.id, name: bizName, plan: 'starter', plan_status: 'active'
-  }).select().single();
-  if(!newBiz) return {biz: null, role: null, reason: 'create_failed'};
-  await sb.from('business_users').insert({
-    business_id: newBiz.id, user_id: user.id,
-    email: user.email || 'unknown@example.com', role: 'owner', status: 'active'
-  });
-  return {biz: newBiz, role: 'owner', reason: null};
+function escHTML(s){return String(s||'').replace(/[&<>"']/g,m=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[m]));}
+function notify(msg, kind){
+  const el = document.getElementById('notify');
+  el.textContent = msg;
+  el.className = 'notify show ' + (kind||'');
+  setTimeout(() => el.classList.remove('show'), 2400);
 }
 
 async function init(){
-  try {
-    const {data:{session}} = await sb.auth.getSession();
-    if(!session){window.location.href='login.html';return;}
-    currentUser = session.user;
+  const {data:{session}} = await sb.auth.getSession();
+  if(!session){ window.location.href = 'login.html'; return; }
+  currentUser = session.user;
 
-    /* Load business via membership lookup (works for owners + team members) */
-    const {biz, role, reason} = await loadCurrentBusiness(sb, currentUser);
-    if(!biz){
-      if(reason === 'revoked'){
-        document.body.innerHTML = '<div style="max-width:480px;margin:80px auto;padding:32px;background:#fff;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.1);text-align:center;font-family:Tajawal,Cairo,sans-serif;"><h1 style="color:#c43e3e;font-size:22px;margin-bottom:12px;">' + (currentLang==='ar'?'تم إلغاء الوصول':'Access revoked') + '</h1><p style="color:#666;margin-bottom:20px;">' + (currentLang==='ar'?'تم إزالة وصولك إلى هذه المنشأة. تواصل مع مالك المنشأة.':'Your access to this business has been removed. Contact the business owner.') + '</p><button onclick="logout()" style="padding:10px 22px;background:#006C35;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">' + (currentLang==='ar'?'تسجيل الخروج':'Sign out') + '</button></div>';
-        return;
-      }
-      console.error('[GL settings] Could not load business, reason:', reason);
-      notify(currentLang==='ar'?'تعذر تحميل بيانات المنشأة':'Could not load business', 'error');
-      return;
-    }
-    currentBiz = biz;
-    currentBiz._myRole = role;
-
-    /* Show topnav business name */
-    setText('biz-name', biz?.name_ar || biz?.name || '...');
-
-    /* Populate forms */
-    populateAllForms();
-
-    /* Apply language */
-    applyLang();
-
-    /* Show shell, hide loading */
-    document.getElementById('loading-state').style.display = 'none';
-    document.getElementById('settings-shell').style.display = 'grid';
-
-    /* URL params: ?section=X&focus=Y for direct deep links */
-    const sectionParam = (window.location.search.match(/section=([a-z-]+)/)?.[1]) || '';
-    const focusParam = (window.location.search.match(/focus=([a-z_-]+)/)?.[1]) || '';
-
-    /* Map focus → {section, elementId, label} so links land on the exact field */
-    const focusTargets = {
-      'trn':                 { section: 'business',     id: 'biz-trn' },
-      'cr':                  { section: 'business',     id: 'biz-cr' },
-      'name':                { section: 'business',     id: 'biz-name-ar' },
-      'address':             { section: 'business',     id: 'biz-street' },
-      'partners':            { section: 'tax-profile',  id: 'partners-anchor' },
-      'filing-frequency':    { section: 'tax-profile',  id: 'field-vat-frequency' },
-      'vat-filing-frequency':{ section: 'tax-profile',  id: 'field-vat-frequency' },
-      'entity-type':         { section: 'tax-profile',  id: 'legal-entity-type' },
-      'industry':            { section: 'tax-profile',  id: 'industry' },
-      'fiscal-year':         { section: 'localization', id: 'loc-fiscal-year' }
-    };
-
-    /* Decide which section to show */
-    let targetSection = sectionParam;
-    if(focusParam && focusTargets[focusParam]){
-      targetSection = focusTargets[focusParam].section;
-    }
-    if(targetSection){
-      const sectionBtn = document.querySelector(`.sidebar-link[onclick*="'${targetSection}'"]`);
-      if(sectionBtn) showSection(targetSection, sectionBtn);
-    } else if(window.location.hash){
-      const sec = window.location.hash.slice(1);
-      const btn = document.querySelector(`.sidebar-link[onclick*="'${sec}'"]`);
-      if(btn) showSection(sec, btn);
-    }
-
-    /* Scroll to and highlight the focused element */
-    if(focusParam && focusTargets[focusParam]){
-      const targetId = focusTargets[focusParam].id;
-      setTimeout(() => {
-        const el = document.getElementById(targetId);
-        if(el){
-          el.scrollIntoView({behavior: 'smooth', block: 'center'});
-          /* Focus if it's an input */
-          if(el.tagName === 'INPUT' || el.tagName === 'SELECT' || el.tagName === 'TEXTAREA'){
-            el.focus();
-          }
-          /* Visual highlight regardless of element type */
-          const orig_outline = el.style.outline;
-          const orig_offset = el.style.outlineOffset;
-          el.style.outline = '3px solid #3b82f6';
-          el.style.outlineOffset = '4px';
-          el.style.borderRadius = '8px';
-          el.style.transition = 'outline 0.3s';
-          setTimeout(() => {
-            el.style.outline = orig_outline;
-            el.style.outlineOffset = orig_offset;
-          }, 3000);
-        }
-      }, 350);
-    }
-  } catch(e){
-    console.error('[GL settings] Init error:', e);
-    notify((currentLang==='ar'?'خطأ في التحميل: ':'Loading error: ') + e.message, 'error');
+  const {data: membership} = await sb.from('business_users')
+    .select('business_id, role').eq('user_id', currentUser.id).eq('status','active').limit(5);
+  if(!membership || membership.length === 0){
+    document.getElementById('loading-state').innerHTML = '<div style="color:var(--red);">لا يوجد منشأة نشطة · No active business</div>';
+    return;
   }
+  const chosen = membership.find(m => m.role === 'owner') || membership[0];
+  currentRole = chosen.role;
+  const {data: biz} = await sb.from('businesses').select('*').eq('id', chosen.business_id).maybeSingle();
+  if(!biz){ notify('فشل تحميل المنشأة','r'); return; }
+  currentBiz = biz;
+
+  fillProfileTab();
+  fillInvoicingTab();
+  await loadUsers();
+
+  document.getElementById('loading-state').style.display = 'none';
+  document.getElementById('pane-profile').style.display = '';
+  document.getElementById('action-bar').style.display = '';
 }
 
-/* ═══════════════════════════════════════════════════════
-   POPULATE FORMS FROM DB
-═══════════════════════════════════════════════════════ */
-function populateAllForms(){
-  const b = currentBiz || {};
+function switchTab(tab){
+  ['profile','invoicing','users'].forEach(t => {
+    document.getElementById('tab-' + t)?.classList.toggle('active', t === tab);
+    const pane = document.getElementById('pane-' + t);
+    if(pane) pane.style.display = (t === tab) ? '' : 'none';
+  });
+  /* Save bar hides on Users tab (no editable form there) */
+  document.getElementById('action-bar').style.display = (tab === 'users') ? 'none' : '';
+}
 
-  /* Business Profile */
-  setVal('biz-name-ar', b.name_ar || b.name || '');
-  setVal('biz-name-en', b.name_en || '');
-  setVal('biz-trn', b.trn || '');
-  setVal('biz-cr', b.cr_number || '');
-  setVal('biz-phone', b.phone || '');
-  setVal('biz-email', b.email || '');
-  setVal('biz-website', b.website || '');
-  setVal('biz-building', b.building_number || '');
-  setVal('biz-additional', b.additional_number || '');
-  setVal('biz-street', b.street_name || b.address || '');
-  setVal('biz-district', b.district || '');
-  setVal('biz-city', b.city || '');
-  setVal('biz-postal', b.postal_code || '');
+/* ═════════ PROFILE ═════════ */
+function fillProfileTab(){
+  const b = currentBiz;
+  document.getElementById('f-name-ar').value = b.name_ar || b.name || '';
+  document.getElementById('f-name-en').value = b.name_en || '';
+  document.getElementById('f-trn').value = b.trn || '';
+  document.getElementById('f-cr').value = b.cr_number || '';
+  document.getElementById('f-email').value = b.email || '';
+  document.getElementById('f-phone').value = b.phone || '';
+  document.getElementById('f-website').value = b.website || '';
+  document.getElementById('f-bldg').value = b.building_number || '';
+  document.getElementById('f-street').value = b.street_name || '';
+  document.getElementById('f-district').value = b.district || '';
+  document.getElementById('f-addl').value = b.additional_number || '';
+  document.getElementById('f-city').value = b.city || '';
+  document.getElementById('f-postal').value = b.postal_code || '';
+  document.getElementById('f-country').value = b.country || 'SA';
 
-  /* Branding */
-  if(b.logo_base64){
-    document.getElementById('logo-preview').innerHTML = `<img src="${b.logo_base64}" alt="logo">`;
-    setText('logo-status', currentLang==='ar' ? 'تم رفع الشعار' : 'Logo uploaded');
+  const logoSrc = b.logo_url || b.logo_base64;
+  const preview = document.getElementById('logo-preview');
+  if(logoSrc){
+    preview.innerHTML = `<img src="${escHTML(logoSrc)}" alt="logo">`;
     document.getElementById('btn-remove-logo').style.display = '';
+  } else {
+    preview.innerHTML = '<div class="logo-preview-empty">لا يوجد شعار<br>No logo</div>';
+    document.getElementById('btn-remove-logo').style.display = 'none';
   }
-  const color = b.brand_color || '#006C35';
-  setBrandColor(color);
-
-  /* Tax Profile */
-  setVal('legal-entity-type', b.legal_entity_type || '');
-  setVal('industry', b.industry || 'general');
-  setVal('vat-filing-frequency', b.vat_filing_frequency || 'quarterly');
-  onTaxProfileChange();
-  /* Partners are loaded asynchronously */
-  loadPartners();
-
-  /* Invoice Defaults */
-  setVal('inv-prefix', b.invoice_number_prefix || 'INV');
-  updateInvoiceNumberExample();
-  setVal('inv-payment-terms', String(b.default_payment_terms_days != null ? b.default_payment_terms_days : 30));
-  setVal('inv-vat-rate', String(b.default_vat_rate != null ? b.default_vat_rate : 15));
-  setVal('inv-currency', b.default_currency || 'SAR');
-  setVal('inv-notes-ar', b.invoice_default_notes_ar || '');
-  setVal('inv-notes-en', b.invoice_default_notes || '');
-
-  /* Bank details */
-  if(b.invoice_show_bank_details){
-    document.getElementById('toggle-show-bank').classList.add('on');
-    document.getElementById('toggle-show-bank').setAttribute('aria-pressed', 'true');
-    document.getElementById('bank-fields').style.display = '';
-  }
-  setVal('bank-name', b.bank_name || '');
-  setVal('bank-account-name', b.bank_account_name || '');
-  setVal('bank-iban', b.bank_iban || '');
-
-  /* Localization */
-  setVal('loc-language', b.default_language || 'ar');
-  setVal('loc-date-format', b.date_format || 'DD/MM/YYYY');
-  setVal('loc-fiscal-year', b.fiscal_year_start || '01-01');
-
-  /* Account */
-  setVal('account-email', currentUser?.email || '');
-
-  /* Listen for prefix changes */
-  document.getElementById('inv-prefix')?.addEventListener('input', updateInvoiceNumberExample);
 }
 
-/* ═══════════════════════════════════════════════════════
-   SECTION SWITCHING
-═══════════════════════════════════════════════════════ */
-function showSection(name, btn){
-  document.querySelectorAll('.section-card').forEach(c => c.style.display = 'none');
-  document.querySelectorAll('.sidebar-link').forEach(l => l.classList.remove('active'));
+let _pendingLogo = null;   /* base64 string when user picked a new file */
+let _logoToRemove = false; /* flag to clear logo on save */
 
-  const card = document.getElementById('sec-' + name);
-  if(card) card.style.display = '';
-  if(btn) btn.classList.add('active');
-
-  /* Update URL hash */
-  history.replaceState(null, '', '#' + name);
-}
-
-/* ═══════════════════════════════════════════════════════
-   BUSINESS PROFILE SAVE
-═══════════════════════════════════════════════════════ */
-async function saveBusiness(){
-  if(!v('biz-name-ar')){
-    notify(currentLang==='ar'?'الاسم بالعربي مطلوب':'Arabic name is required', 'error');
+function onLogoFileChange(){
+  const f = document.getElementById('logo-file').files[0];
+  if(!f) return;
+  if(f.size > 500 * 1024){
+    notify('⚠ الحجم يتجاوز 500 كيلوبايت','r');
+    document.getElementById('logo-file').value = '';
     return;
   }
-  if(!v('biz-trn') || v('biz-trn').length !== 15){
-    notify(currentLang==='ar'?'الرقم الضريبي يجب أن يكون 15 رقماً':'VAT number must be 15 digits', 'error');
-    return;
-  }
-
-  const payload = {
-    name: v('biz-name-ar'), /* legacy column kept in sync */
-    name_ar: v('biz-name-ar'),
-    name_en: v('biz-name-en') || null,
-    trn: v('biz-trn'),
-    cr_number: v('biz-cr') || null,
-    phone: v('biz-phone') || null,
-    email: v('biz-email') || null,
-    website: v('biz-website') || null,
-    building_number: v('biz-building') || null,
-    additional_number: v('biz-additional') || null,
-    street_name: v('biz-street') || null,
-    address: v('biz-street') || null, /* legacy column kept in sync */
-    district: v('biz-district') || null,
-    city: v('biz-city') || null,
-    postal_code: v('biz-postal') || null,
-    country: 'SA',
-    updated_at: new Date().toISOString()
-  };
-
-  const {error} = await sb.from('businesses').update(payload).eq('id', currentBiz.id);
-  if(error){
-    notify(error.message, 'error');
-    return;
-  }
-  Object.assign(currentBiz, payload);
-  setText('biz-name', payload.name_ar);
-  showSaveStatus('business');
-  notify(currentLang==='ar'?'✅ تم حفظ بيانات المنشأة':'✅ Business profile saved', 'success');
-}
-
-/* ═══════════════════════════════════════════════════════
-   BRANDING SAVE + LOGO HANDLING
-═══════════════════════════════════════════════════════ */
-async function handleLogoUpload(event){
-  const file = event.target.files?.[0];
-  if(!file) return;
-
-  if(file.size > 500 * 1024){
-    notify(currentLang==='ar'?'الحجم أكبر من 500KB':'File exceeds 500KB', 'error');
-    return;
-  }
-
   const reader = new FileReader();
-  reader.onload = e => {
-    const dataUrl = e.target.result;
-    document.getElementById('logo-preview').innerHTML = `<img src="${dataUrl}" alt="logo">`;
-    setText('logo-status', file.name);
+  reader.onload = function(e){
+    _pendingLogo = e.target.result;
+    _logoToRemove = false;
+    document.getElementById('logo-preview').innerHTML = `<img src="${_pendingLogo}" alt="logo">`;
     document.getElementById('btn-remove-logo').style.display = '';
-    /* Stash for save */
-    currentBiz._pendingLogo = dataUrl;
-    notify(currentLang==='ar'?'الشعار جاهز للحفظ':'Logo ready to save', 'success');
+    markDirty();
   };
-  reader.readAsDataURL(file);
+  reader.readAsDataURL(f);
 }
 
 function removeLogo(){
-  if(!confirm(currentLang==='ar'?'إزالة الشعار؟':'Remove logo?')) return;
-  document.getElementById('logo-preview').innerHTML = '<span class="logo-preview-empty">🏢</span>';
-  setText('logo-status', currentLang==='ar' ? 'لم يُرفع شعار' : 'No logo');
+  if(!confirm('إزالة الشعار؟ · Remove logo?')) return;
+  _pendingLogo = null;
+  _logoToRemove = true;
+  document.getElementById('logo-preview').innerHTML = '<div class="logo-preview-empty">لا يوجد شعار<br>No logo</div>';
   document.getElementById('btn-remove-logo').style.display = 'none';
-  document.getElementById('logo-input').value = '';
-  currentBiz._pendingLogo = null;
-  currentBiz._removeLogo = true;
+  document.getElementById('logo-file').value = '';
+  markDirty();
 }
 
-function setBrandColor(hex){
-  document.getElementById('brand-color-input').value = hex;
-  document.getElementById('brand-color-text').value = hex.toUpperCase();
-  document.querySelectorAll('.color-swatch').forEach(s => {
-    s.classList.toggle('active', s.style.backgroundColor && rgbToHex(s.style.backgroundColor).toLowerCase() === hex.toLowerCase());
-  });
+/* ═════════ INVOICING ═════════ */
+function fillInvoicingTab(){
+  const b = currentBiz;
+  document.getElementById('f-vat-registered').checked = !!b.vat_registered;
+  document.getElementById('f-vat-rate').value = b.default_vat_rate != null ? b.default_vat_rate : 15;
+  document.getElementById('f-vat-freq').value = b.vat_filing_frequency || 'monthly';
+  document.getElementById('f-costing').value = b.costing_method || 'wac';
+  document.getElementById('f-inv-prefix').value = b.invoice_number_prefix || b.inv_prefix || 'INV';
+  document.getElementById('f-payment-terms').value = b.default_payment_terms_days != null ? b.default_payment_terms_days : 30;
+  document.getElementById('f-footer-ar').value = b.invoice_footer_text_ar || '';
+  document.getElementById('f-footer-en').value = b.invoice_footer_text || '';
+  document.getElementById('f-bank-name').value = b.bank_name || '';
+  document.getElementById('f-bank-iban').value = b.bank_iban || '';
+  document.getElementById('f-bank-account-name').value = b.bank_account_name || '';
 }
 
-function rgbToHex(rgb){
-  const m = rgb.match(/\d+/g);
-  if(!m || m.length < 3) return rgb;
-  return '#' + m.slice(0,3).map(n => parseInt(n).toString(16).padStart(2,'0')).join('').toUpperCase();
+/* ═════════ SAVE ═════════ */
+function markDirty(){
+  isDirty = true;
+  document.getElementById('action-bar').classList.add('dirty');
+  document.getElementById('btn-discard').disabled = false;
 }
 
-function syncColorInputs(){
-  const hex = document.getElementById('brand-color-input').value;
-  setBrandColor(hex);
+function discardChanges(){
+  if(!confirm('تجاهل التغييرات؟ · Discard changes?')) return;
+  _pendingLogo = null;
+  _logoToRemove = false;
+  fillProfileTab();
+  fillInvoicingTab();
+  isDirty = false;
+  document.getElementById('action-bar').classList.remove('dirty');
 }
 
-function onColorTextInput(){
-  const hex = document.getElementById('brand-color-text').value.trim();
-  if(/^#[0-9A-Fa-f]{6}$/.test(hex)){
-    setBrandColor(hex);
+async function saveSettings(){
+  if(!isDirty){ notify('لا توجد تغييرات','amber'); return; }
+  const btn = document.getElementById('btn-save');
+  btn.disabled = true; btn.textContent = '⏳ جارٍ الحفظ...';
+
+  const v = id => (document.getElementById(id)?.value || '').trim();
+  const payload = {
+    name: v('f-name-ar') || currentBiz.name,
+    name_ar: v('f-name-ar'),
+    name_en: v('f-name-en') || null,
+    trn: v('f-trn') || null,
+    cr_number: v('f-cr') || null,
+    email: v('f-email') || null,
+    phone: v('f-phone') || null,
+    website: v('f-website') || null,
+    building_number: v('f-bldg') || null,
+    street_name: v('f-street') || null,
+    district: v('f-district') || null,
+    additional_number: v('f-addl') || null,
+    city: v('f-city') || null,
+    postal_code: v('f-postal') || null,
+    country: v('f-country') || 'SA',
+    vat_registered: document.getElementById('f-vat-registered').checked,
+    default_vat_rate: parseFloat(v('f-vat-rate')) || 15,
+    vat_filing_frequency: v('f-vat-freq') || 'monthly',
+    costing_method: v('f-costing') || 'wac',
+    invoice_number_prefix: v('f-inv-prefix') || 'INV',
+    default_payment_terms_days: parseInt(v('f-payment-terms'), 10) || 30,
+    invoice_footer_text_ar: v('f-footer-ar') || null,
+    invoice_footer_text: v('f-footer-en') || null,
+    bank_name: v('f-bank-name') || null,
+    bank_iban: v('f-bank-iban') || null,
+    bank_account_name: v('f-bank-account-name') || null,
+    updated_at: new Date().toISOString()
+  };
+
+  /* Logo handling */
+  if(_logoToRemove){
+    payload.logo_base64 = null;
+    payload.logo_url = null;
+  } else if(_pendingLogo){
+    payload.logo_base64 = _pendingLogo;
+    /* Keep logo_url as-is — base64 is what invoice-view reads first */
   }
-}
 
-/* ═══════════════════════════════════════════════════════
-   TAX PROFILE — Zakat/CIT determination
-   Logic:
-     - Saudi/GCC owners → Zakat 2.5% (on Zakat base, not profit)
-     - Foreign owners → CIT 20% (on net adjusted profits)
-     - Mixed → both apply pro-rata to ownership %
-═══════════════════════════════════════════════════════ */
-const SPECIAL_INDUSTRIES = ['oil_gas_upstream', 'natural_gas', 'banking', 'insurance', 'telecom'];
-const INDUSTRY_NOTES = {
-  oil_gas_upstream: { ar: 'استخراج النفط والهيدروكربونات: معدّل ضريبي خاص (50% – 85%)', en: 'Oil & hydrocarbon production: special rate (50% – 85%)' },
-  natural_gas: { ar: 'الغاز الطبيعي: ضريبة 20% على الدخل (نظام عام منذ 2018)', en: 'Natural gas: 20% income tax (general regime since 2018)' },
-  banking: { ar: 'البنوك: قد تخضع لقواعد خاصة', en: 'Banking: may be subject to special rules' },
-  insurance: { ar: 'التأمين: قد يخضع لقواعد خاصة', en: 'Insurance: may be subject to special rules' },
-  telecom: { ar: 'الاتصالات: قد يخضع لقواعد خاصة', en: 'Telecom: may be subject to special rules' }
-};
-
-function setOwnershipType(type){
-  /* Legacy stub — kept for backward compat. Ownership is now derived from partners. */
-}
-
-function onOwnershipPctChange(field){
-  /* Legacy stub — see partner-based UI below */
-}
-
-function onTaxProfileChange(){
-  /* Industry warning for special-rate sectors */
-  const industry = v('industry');
-  const warning = document.getElementById('industry-warning');
-  if(SPECIAL_INDUSTRIES.includes(industry)){
-    const note = INDUSTRY_NOTES[industry];
-    warning.style.display = '';
-    warning.innerHTML = '⚠️ ' + (note ? note[currentLang] : '');
-  } else {
-    warning.style.display = 'none';
-  }
-  recomputeTaxObligation();
-}
-
-/* ═══════════════════════════════════════════════════════
-   PARTNERS — per-partner ownership entry
-   GCC nationalities (Zakat-applicable): SA, BH, KW, OM, QA, AE
-   All others = Foreign (CIT-applicable)
-═══════════════════════════════════════════════════════ */
-const GCC_COUNTRIES = ['SA', 'BH', 'KW', 'OM', 'QA', 'AE'];
-
-/* Country list — GCC first (with flag), then alphabetical for others.
-   Only the most common nationalities listed; covers ~95% of cases. */
-const NATIONALITIES = [
-  /* GCC — Zakat-applicable */
-  { code: 'SA', ar: '🇸🇦 السعودية', en: '🇸🇦 Saudi Arabia', gcc: true },
-  { code: 'BH', ar: '🇧🇭 البحرين',  en: '🇧🇭 Bahrain',      gcc: true },
-  { code: 'KW', ar: '🇰🇼 الكويت',   en: '🇰🇼 Kuwait',       gcc: true },
-  { code: 'OM', ar: '🇴🇲 عُمان',    en: '🇴🇲 Oman',         gcc: true },
-  { code: 'QA', ar: '🇶🇦 قطر',      en: '🇶🇦 Qatar',        gcc: true },
-  { code: 'AE', ar: '🇦🇪 الإمارات', en: '🇦🇪 United Arab Emirates', gcc: true },
-  /* Others — alphabetical, CIT-applicable */
-  { code: 'EG', ar: '🇪🇬 مصر',         en: '🇪🇬 Egypt',         gcc: false },
-  { code: 'JO', ar: '🇯🇴 الأردن',     en: '🇯🇴 Jordan',        gcc: false },
-  { code: 'LB', ar: '🇱🇧 لبنان',      en: '🇱🇧 Lebanon',       gcc: false },
-  { code: 'PK', ar: '🇵🇰 باكستان',    en: '🇵🇰 Pakistan',      gcc: false },
-  { code: 'IN', ar: '🇮🇳 الهند',      en: '🇮🇳 India',         gcc: false },
-  { code: 'PH', ar: '🇵🇭 الفلبين',    en: '🇵🇭 Philippines',   gcc: false },
-  { code: 'TR', ar: '🇹🇷 تركيا',      en: '🇹🇷 Turkey',        gcc: false },
-  { code: 'GB', ar: '🇬🇧 المملكة المتحدة', en: '🇬🇧 United Kingdom', gcc: false },
-  { code: 'US', ar: '🇺🇸 الولايات المتحدة', en: '🇺🇸 United States',  gcc: false },
-  { code: 'DE', ar: '🇩🇪 ألمانيا',    en: '🇩🇪 Germany',       gcc: false },
-  { code: 'FR', ar: '🇫🇷 فرنسا',      en: '🇫🇷 France',        gcc: false },
-  { code: 'CN', ar: '🇨🇳 الصين',      en: '🇨🇳 China',         gcc: false },
-  { code: 'JP', ar: '🇯🇵 اليابان',    en: '🇯🇵 Japan',         gcc: false },
-  { code: 'OTHER', ar: '🌍 أخرى (غير خليجي)', en: '🌍 Other (Non-GCC)', gcc: false }
-];
-
-let partners = []; /* in-memory list: [{id, name, nationality, ownership_pct}] */
-
-function isGCC(nationality){ return GCC_COUNTRIES.includes(nationality); }
-
-function nationalityLabel(code){
-  const n = NATIONALITIES.find(x => x.code === code);
-  if(!n) return code;
-  return currentLang === 'ar' ? n.ar : n.en;
-}
-
-function nationalityOptionsHTML(selected){
-  /* Group: GCC first, then others */
-  const gcc = NATIONALITIES.filter(n => n.gcc);
-  const other = NATIONALITIES.filter(n => !n.gcc);
-  const labelGCC = currentLang === 'ar' ? 'دول الخليج (زكاة)' : 'GCC Countries (Zakat)';
-  const labelOther = currentLang === 'ar' ? 'دول أخرى (ضريبة دخل)' : 'Other Countries (CIT)';
-  const opt = n => `<option value="${n.code}"${n.code===selected?' selected':''}>${currentLang==='ar'?n.ar:n.en}</option>`;
-  return `<optgroup label="${labelGCC}">${gcc.map(opt).join('')}</optgroup>` +
-         `<optgroup label="${labelOther}">${other.map(opt).join('')}</optgroup>`;
-}
-
-/* Generate a unique ID for a new partner row */
-function newPartnerId(){
-  return 'p_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8);
-}
-
-function addPartner(name='', nationality='SA', pct=''){
-  partners.push({
-    id: newPartnerId(),
-    name,
-    nationality,
-    ownership_pct: pct
-  });
-  renderPartners();
-}
-
-function removePartner(id){
-  partners = partners.filter(p => p.id !== id);
-  renderPartners();
-}
-
-function updatePartner(id, field, value){
-  const p = partners.find(x => x.id === id);
-  if(!p) return;
-  p[field] = value;
-  /* For nationality changes, re-render to update flag indicator.
-     For other changes, just recompute the summary (avoid re-render to keep cursor position) */
-  if(field === 'nationality'){
-    renderPartners();
-  } else {
-    recomputeTaxObligation();
-  }
-}
-
-function renderPartners(){
-  const list = document.getElementById('partners-list');
-  const empty = document.getElementById('partners-empty');
-
-  if(partners.length === 0){
-    list.innerHTML = '';
-    empty.style.display = '';
-    document.getElementById('partners-summary').style.display = 'none';
-    document.getElementById('tax-obligation-summary').style.display = 'none';
+  /* Validation */
+  if(!payload.name_ar){
+    notify('الاسم بالعربي مطلوب','r');
+    btn.disabled = false; btn.textContent = '💾 حفظ التغييرات · Save Changes';
     return;
   }
+  if(payload.trn && !/^\d{15}$/.test(payload.trn)){
+    if(!confirm('الرقم الضريبي يجب أن يكون 15 رقماً. هل تريد المتابعة على أي حال؟\nTRN should be 15 digits. Continue anyway?')){
+      btn.disabled = false; btn.textContent = '💾 حفظ التغييرات · Save Changes';
+      return;
+    }
+  }
 
-  empty.style.display = 'none';
-  list.innerHTML = partners.map((p, idx) => {
-    const gcc = isGCC(p.nationality);
-    const flagClass = gcc ? 'gcc' : 'foreign';
-    const flagIcon = gcc ? '🇸🇦' : '🌍';
-    const flagText = gcc
-      ? (currentLang==='ar' ? 'زكاة' : 'Zakat')
-      : (currentLang==='ar' ? 'ضريبة دخل' : 'CIT');
-    const placeholderName = currentLang==='ar' ? 'اسم الشريك' : 'Partner name';
-    const removeTitle = currentLang==='ar' ? 'إزالة الشريك' : 'Remove partner';
-    return `
-      <div class="partner-row" data-partner-id="${p.id}">
-        <div class="partner-name-wrap">
-          <input type="text" class="partner-name-input" placeholder="${placeholderName}"
-                 value="${escapeHTML(p.name)}"
-                 oninput="updatePartner('${p.id}', 'name', this.value)">
-          <span class="partner-flag ${flagClass}">${flagIcon} ${flagText}</span>
-        </div>
-        <select class="partner-nationality"
-                onchange="updatePartner('${p.id}', 'nationality', this.value)">
-          ${nationalityOptionsHTML(p.nationality)}
-        </select>
-        <input type="number" class="partner-pct mono" placeholder="0" min="0" max="100" step="0.01"
-               value="${p.ownership_pct === '' ? '' : p.ownership_pct}"
-               oninput="updatePartner('${p.id}', 'ownership_pct', this.value)">
-        <button class="partner-remove" onclick="removePartner('${p.id}')" title="${removeTitle}" aria-label="${removeTitle}">×</button>
-      </div>
-    `;
-  }).join('');
+  try {
+    const {error} = await sb.from('businesses').update(payload).eq('id', currentBiz.id);
+    if(error) throw error;
 
-  recomputeTaxObligation();
+    /* Reload */
+    const {data: biz} = await sb.from('businesses').select('*').eq('id', currentBiz.id).maybeSingle();
+    currentBiz = biz;
+    _pendingLogo = null;
+    _logoToRemove = false;
+    isDirty = false;
+    document.getElementById('action-bar').classList.remove('dirty');
+    fillProfileTab();
+    fillInvoicingTab();
+    notify('✅ تم حفظ التغييرات','g');
+  } catch(e){
+    console.error('[GL] saveSettings', e);
+    notify('فشل: ' + (e.message||''),'r');
+  } finally {
+    btn.disabled = false; btn.textContent = '💾 حفظ التغييرات · Save Changes';
+  }
 }
 
-function escapeHTML(s){
-  return String(s||'').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'})[c]);
-}
-
-/* Aggregate partner percentages by GCC vs non-GCC, then update summary + tax obligation */
-function recomputeTaxObligation(){
-  const summaryBox = document.getElementById('partners-summary');
-  const aggregateText = document.getElementById('partners-aggregate');
-  const totalText = document.getElementById('partners-total');
-  const warning = document.getElementById('partners-warning');
-  const taxBox = document.getElementById('tax-obligation-summary');
-  const taxText = document.getElementById('tax-obligation-text');
-
-  if(partners.length === 0){
-    summaryBox.style.display = 'none';
-    taxBox.style.display = 'none';
-    warning.style.display = 'none';
-    return;
-  }
-
-  let saudiPct = 0;
-  let foreignPct = 0;
-  let total = 0;
-
-  partners.forEach(p => {
-    const pct = parseFloat(p.ownership_pct) || 0;
-    total += pct;
-    if(isGCC(p.nationality)) saudiPct += pct;
-    else foreignPct += pct;
-  });
-
-  /* Show summary */
-  summaryBox.style.display = '';
-  totalText.textContent = total.toFixed(total % 1 === 0 ? 0 : 2) + '%';
-  totalText.style.color = Math.abs(total - 100) < 0.01 ? 'var(--green)' : 'var(--red)';
-
-  /* Aggregate breakdown */
-  aggregateText.innerHTML =
-    `<span class="tax-badge zakat">🇸🇦 ${saudiPct.toFixed(saudiPct % 1 === 0 ? 0 : 2)}% ${currentLang==='ar'?'سعودي/خليجي':'Saudi/GCC'}</span> ` +
-    `<span class="tax-badge cit">🌍 ${foreignPct.toFixed(foreignPct % 1 === 0 ? 0 : 2)}% ${currentLang==='ar'?'أجنبي':'Foreign'}</span>`;
-
-  /* Validation warnings */
-  const warnings = [];
-  if(Math.abs(total - 100) > 0.01){
-    warnings.push(currentLang==='ar'
-      ? `⚠️ مجموع نسب الشركاء يجب أن يساوي 100% (الحالي: ${total.toFixed(2)}%)`
-      : `⚠️ Partner percentages must sum to 100% (currently: ${total.toFixed(2)}%)`);
-  }
-  const emptyNames = partners.filter(p => !p.name || !p.name.trim()).length;
-  if(emptyNames > 0){
-    warnings.push(currentLang==='ar'
-      ? `⚠️ ${emptyNames} شريك بدون اسم`
-      : `⚠️ ${emptyNames} partner(s) missing name`);
-  }
-  const zeroPct = partners.filter(p => !parseFloat(p.ownership_pct) || parseFloat(p.ownership_pct) <= 0).length;
-  if(zeroPct > 0){
-    warnings.push(currentLang==='ar'
-      ? `⚠️ ${zeroPct} شريك بنسبة 0%`
-      : `⚠️ ${zeroPct} partner(s) with 0% ownership`);
-  }
-
-  if(warnings.length > 0){
-    warning.style.display = '';
-    warning.innerHTML = warnings.join('<br>');
-  } else {
-    warning.style.display = 'none';
-  }
-
-  /* Determine ownership type */
-  let ownershipType;
-  if(saudiPct >= 99.99) ownershipType = 'saudi_gcc';
-  else if(foreignPct >= 99.99) ownershipType = 'foreign';
-  else ownershipType = 'mixed';
-
-  /* Tax obligation message */
-  const industry = v('industry');
-  const isOilGas = industry === 'oil_gas_upstream';
-
-  let html = '';
-  if(ownershipType === 'saudi_gcc'){
-    if(currentLang === 'ar'){
-      html = '✅ <strong>زكاة فقط (2.5%)</strong> على القاعدة الزكوية (صافي الثروة)<br>';
-      html += '📅 موعد التقديم: خلال <strong>120 يوماً</strong> من نهاية السنة المالية';
-    } else {
-      html = '✅ <strong>Zakat only (2.5%)</strong> on the Zakat base (net wealth)<br>';
-      html += '📅 Filing deadline: within <strong>120 days</strong> of fiscal year-end';
-    }
-  } else if(ownershipType === 'foreign'){
-    if(currentLang === 'ar'){
-      html = '✅ <strong>ضريبة دخل الشركات (20%)</strong> على صافي الأرباح المعدّلة<br>';
-      html += '📅 موعد التقديم: خلال <strong>120 يوماً</strong> من نهاية السنة المالية';
-    } else {
-      html = '✅ <strong>Corporate Income Tax (20%)</strong> on net adjusted profits<br>';
-      html += '📅 Filing deadline: within <strong>120 days</strong> of fiscal year-end';
-    }
-  } else {
-    /* Mixed */
-    if(currentLang === 'ar'){
-      html = `✅ <strong>زكاة (2.5%)</strong> على ${saudiPct.toFixed(2)}% من القاعدة الزكوية (الحصة السعودية/الخليجية)<br>`;
-      html += `✅ <strong>ضريبة دخل (20%)</strong> على ${foreignPct.toFixed(2)}% من صافي الأرباح (الحصة الأجنبية)<br>`;
-      html += '📅 موعد التقديم: خلال <strong>120 يوماً</strong> من نهاية السنة المالية';
-    } else {
-      html = `✅ <strong>Zakat (2.5%)</strong> on ${saudiPct.toFixed(2)}% of the Zakat base (Saudi/GCC share)<br>`;
-      html += `✅ <strong>CIT (20%)</strong> on ${foreignPct.toFixed(2)}% of net profits (Foreign share)<br>`;
-      html += '📅 Filing deadline: within <strong>120 days</strong> of fiscal year-end';
-    }
-  }
-
-  if(isOilGas){
-    if(currentLang === 'ar'){
-      html += '<br><br>⚠️ <strong>تنبيه:</strong> قطاع استخراج النفط والهيدروكربونات يخضع لمعدّلات أعلى (50% – 85%) بدلاً من 20%';
-    } else {
-      html += '<br><br>⚠️ <strong>Note:</strong> Oil & hydrocarbon production sector is subject to elevated rates (50% – 85%) instead of 20%';
-    }
-  }
-
-  taxText.innerHTML = html;
-  taxBox.style.display = '';
-}
-
-/* Load partners from DB on page init */
-async function loadPartners(){
-  const {data, error} = await sb.from('business_partners')
+/* ═════════ USERS ═════════ */
+async function loadUsers(){
+  const {data, error} = await sb.from('business_users')
     .select('*')
     .eq('business_id', currentBiz.id)
-    .order('sort_order', {ascending: true});
-  if(error){
-    console.warn('[GL settings] Could not load partners:', error.message);
-    partners = [];
-  } else {
-    partners = (data || []).map(p => ({
-      id: p.id,
-      name: p.name || '',
-      nationality: p.nationality || 'SA',
-      ownership_pct: p.ownership_pct
-    }));
-  }
-  /* Backward-compat: if no partners exist yet but business has legacy ownership %s, seed them */
-  if(partners.length === 0 && currentBiz){
-    const oldSaudi = parseFloat(currentBiz.saudi_ownership_pct) || 0;
-    const oldForeign = parseFloat(currentBiz.foreign_ownership_pct) || 0;
-    if(oldSaudi > 0 || oldForeign > 0){
-      const seedName = currentLang === 'ar' ? 'شريك' : 'Partner';
-      if(oldSaudi > 0) partners.push({id: newPartnerId(), name: `${seedName} 1`, nationality: 'SA', ownership_pct: oldSaudi});
-      if(oldForeign > 0) partners.push({id: newPartnerId(), name: `${seedName} 2`, nationality: 'OTHER', ownership_pct: oldForeign});
-    }
-  }
-  renderPartners();
+    .order('joined_at', {ascending: false, nullsFirst: false})
+    .order('created_at', {ascending: false});
+  if(error){ console.error('[GL] loadUsers', error); allMembers = []; return; }
+  allMembers = data || [];
+  renderUsers();
 }
 
-async function saveTaxProfile(){
-  const entityType = v('legal-entity-type');
-  if(!entityType){
-    notify(currentLang==='ar'?'يجب اختيار نوع المنشأة':'Please select an entity type', 'error');
+function renderUsers(){
+  const wrap = document.getElementById('users-list');
+  if(allMembers.length === 0){
+    wrap.innerHTML = '<div class="empty-state">لا يوجد مستخدمون آخرون · No other users</div>';
     return;
   }
+  const ar = true;
+  wrap.innerHTML = `<table class="tbl">
+    <thead><tr>
+      <th>الاسم · Name</th>
+      <th>البريد · Email</th>
+      <th>الدور · Role</th>
+      <th>الحالة · Status</th>
+      <th>تاريخ الانضمام · Joined</th>
+      <th class="center"></th>
+    </tr></thead><tbody>
+      ${allMembers.map(m => {
+        const isMe = m.user_id === currentUser.id;
+        const roleBadge = `<span class="badge badge-${m.role}">${({owner:'👑 مالك',admin:'🛡️ مدير',staff:'👤 موظف',viewer:'👁 متفرج'})[m.role] || m.role}</span>`;
+        const statusBadge = `<span class="badge badge-${m.status}">${({active:'نشط',pending:'في الانتظار',revoked:'موقوف'})[m.status] || m.status}</span>`;
+        const canModify = (currentRole === 'owner' || (currentRole === 'admin' && m.role !== 'owner')) && !isMe;
+        return `<tr>
+          <td><strong>${escHTML(m.full_name || '—')}</strong>${isMe?' <span style="color:var(--muted);font-size:11px;">(أنت · you)</span>':''}</td>
+          <td style="font-family:'DM Mono',monospace;font-size:12px;">${escHTML(m.email||'—')}</td>
+          <td>${roleBadge}</td>
+          <td>${statusBadge}</td>
+          <td style="font-family:'DM Mono',monospace;font-size:12px;color:var(--muted);">${m.joined_at ? (m.joined_at.slice(0,10)) : '—'}</td>
+          <td class="center">
+            ${canModify ? `
+              <button class="btn btn-ghost btn-sm" onclick="openEditMember('${m.id}')">✏️</button>
+              <button class="btn btn-danger btn-sm" onclick="revokeMember('${m.id}')">🗑</button>
+            ` : '<span style="color:var(--muted);font-size:11px;">—</span>'}
+          </td>
+        </tr>`;
+      }).join('')}
+    </tbody></table>`;
+}
 
-  if(partners.length === 0){
-    notify(currentLang==='ar'?'يجب إضافة شريك واحد على الأقل':'Add at least one partner', 'error');
+function openInviteModal(){
+  if(currentRole !== 'owner' && currentRole !== 'admin'){
+    notify('⚠ صلاحياتك لا تسمح بإضافة مستخدمين','r');
     return;
   }
+  document.getElementById('inv-email').value = '';
+  document.getElementById('inv-name').value = '';
+  document.getElementById('inv-role').value = 'staff';
+  document.getElementById('invite-modal').classList.add('open');
+}
+function closeInviteModal(){
+  document.getElementById('invite-modal').classList.remove('open');
+}
 
-  /* Validate partners */
-  let total = 0;
-  for(const p of partners){
-    const pct = parseFloat(p.ownership_pct) || 0;
-    total += pct;
-    if(!p.name || !p.name.trim()){
-      notify(currentLang==='ar'?'يجب إدخال اسم لكل شريك':'Each partner needs a name', 'error');
-      return;
-    }
-    if(pct <= 0){
-      notify(currentLang==='ar'?'نسبة الشريك يجب أن تكون أكبر من 0':'Partner percentage must be > 0', 'error');
-      return;
-    }
-  }
-  if(Math.abs(total - 100) > 0.01){
-    notify(currentLang==='ar'?'مجموع نسب الشركاء يجب أن يساوي 100%':'Partner percentages must sum to 100%', 'error');
+async function saveInvite(){
+  const email = document.getElementById('inv-email').value.trim().toLowerCase();
+  const name = document.getElementById('inv-name').value.trim();
+  const role = document.getElementById('inv-role').value;
+  if(!email || !email.includes('@')){
+    notify('بريد إلكتروني غير صحيح','r');
     return;
   }
-
-  /* Compute aggregates from partners */
-  let saudiPct = 0, foreignPct = 0;
-  partners.forEach(p => {
-    const pct = parseFloat(p.ownership_pct) || 0;
-    if(isGCC(p.nationality)) saudiPct += pct;
-    else foreignPct += pct;
-  });
-
-  let ownershipType;
-  if(saudiPct >= 99.99) ownershipType = 'saudi_gcc';
-  else if(foreignPct >= 99.99) ownershipType = 'foreign';
-  else ownershipType = 'mixed';
-
-  /* Save business-level fields */
-  const bizPayload = {
-    legal_entity_type: entityType,
-    industry: v('industry') || 'general',
-    vat_filing_frequency: v('vat-filing-frequency') || 'quarterly',
-    ownership_type: ownershipType,
-    saudi_ownership_pct: Math.round(saudiPct * 100) / 100,
-    foreign_ownership_pct: Math.round(foreignPct * 100) / 100,
-    updated_at: new Date().toISOString()
-  };
-
-  const {error: bizError} = await sb.from('businesses').update(bizPayload).eq('id', currentBiz.id);
-  if(bizError){
-    notify(bizError.message, 'error');
+  /* Block duplicates */
+  if(allMembers.find(m => (m.email||'').toLowerCase() === email)){
+    notify('هذا البريد مسجل بالفعل','amber');
     return;
   }
+  const btn = document.getElementById('btn-invite-save');
+  btn.disabled = true; btn.textContent = '⏳';
+  try {
+    /* Create pending invitation row. user_id stays NULL until user signs up
+       with this email — the auth signup flow / a future RPC will link them. */
+    const {error} = await sb.from('business_users').insert({
+      business_id: currentBiz.id,
+      email: email,
+      full_name: name || null,
+      role: role,
+      status: 'pending',
+      invited_by: currentUser.id
+    });
+    if(error) throw error;
+    notify('✅ تم إرسال الدعوة','g');
+    closeInviteModal();
+    await loadUsers();
+  } catch(e){
+    console.error('[GL] saveInvite', e);
+    notify('فشل: ' + (e.message||''),'r');
+  } finally {
+    btn.disabled = false; btn.textContent = '📨 إضافة · Invite';
+  }
+}
 
-  /* Replace all partners (delete-then-insert is simplest and safe for small lists) */
-  const {error: delError} = await sb.from('business_partners').delete().eq('business_id', currentBiz.id);
-  if(delError){
-    notify(delError.message, 'error');
+async function openEditMember(id){
+  const m = allMembers.find(x => x.id === id);
+  if(!m) return;
+  const newRole = prompt(
+    'تعديل الدور لـ ' + (m.full_name || m.email) + '\n\n' +
+    'الأدوار المتاحة:\n' +
+    '  owner — مالك (لا يمكن إسقاطه إلا من قبل مالك آخر)\n' +
+    '  admin — مدير\n' +
+    '  staff — موظف\n' +
+    '  viewer — متفرج\n\n' +
+    'أدخل الدور:',
+    m.role
+  );
+  if(!newRole || newRole === m.role) return;
+  if(!['owner','admin','staff','viewer'].includes(newRole)){
+    notify('دور غير صحيح','r');
     return;
   }
-
-  const partnerRows = partners.map((p, idx) => ({
-    business_id: currentBiz.id,
-    user_id: currentUser.id,
-    name: p.name.trim(),
-    nationality: p.nationality,
-    ownership_pct: parseFloat(p.ownership_pct),
-    sort_order: idx
-  }));
-
-  const {error: insError} = await sb.from('business_partners').insert(partnerRows);
-  if(insError){
-    notify(insError.message, 'error');
+  if(newRole === 'owner' && currentRole !== 'owner'){
+    notify('⚠ فقط المالك يستطيع تعيين مالك آخر','r');
     return;
   }
-
-  Object.assign(currentBiz, bizPayload);
-  showSaveStatus('tax-profile');
-  notify(currentLang==='ar'?'✅ تم حفظ بيانات الشركاء والضرائب':'✅ Partners and tax profile saved', 'success');
+  try {
+    const {error} = await sb.from('business_users').update({
+      role: newRole,
+      updated_at: new Date().toISOString()
+    }).eq('id', id);
+    if(error) throw error;
+    notify('✅ تم تحديث الدور','g');
+    await loadUsers();
+  } catch(e){
+    notify('فشل: ' + (e.message||''),'r');
+  }
 }
 
-async function saveBranding(){
-  const payload = {
-    brand_color: v('brand-color-text') || '#006C35',
-    updated_at: new Date().toISOString()
-  };
-  if(currentBiz._pendingLogo){
-    payload.logo_base64 = currentBiz._pendingLogo;
-  } else if(currentBiz._removeLogo){
-    payload.logo_base64 = null;
-  }
-
-  const {error} = await sb.from('businesses').update(payload).eq('id', currentBiz.id);
-  if(error){
-    notify(error.message, 'error');
+async function revokeMember(id){
+  const m = allMembers.find(x => x.id === id);
+  if(!m) return;
+  if(m.role === 'owner' && currentRole !== 'owner'){
+    notify('⚠ فقط المالك يستطيع إزالة مالك آخر','r');
     return;
   }
-  Object.assign(currentBiz, payload);
-  delete currentBiz._pendingLogo;
-  delete currentBiz._removeLogo;
-  /* Sync to localStorage for other pages */
-  if(payload.brand_color) localStorage.setItem('gl_brand_color', payload.brand_color);
-  if('logo_base64' in payload){
-    if(payload.logo_base64) localStorage.setItem('gl_logo_base64', payload.logo_base64);
-    else localStorage.removeItem('gl_logo_base64');
-  }
-  showSaveStatus('branding');
-  notify(currentLang==='ar'?'✅ تم حفظ التصميم':'✅ Branding saved', 'success');
-}
-
-/* ═══════════════════════════════════════════════════════
-   INVOICE DEFAULTS SAVE
-═══════════════════════════════════════════════════════ */
-function toggleSwitch(btn){
-  const isOn = btn.classList.toggle('on');
-  btn.setAttribute('aria-pressed', String(isOn));
-}
-
-function toggleBankFields(){
-  const on = document.getElementById('toggle-show-bank').classList.contains('on');
-  document.getElementById('bank-fields').style.display = on ? '' : 'none';
-}
-
-function updateInvoiceNumberExample(){
-  const prefix = v('inv-prefix') || 'INV';
-  const yr = new Date().getFullYear();
-  setText('inv-num-example', `${prefix}-${yr}-001`);
-}
-
-async function saveInvoiceDefaults(){
-  const payload = {
-    invoice_number_prefix: v('inv-prefix') || 'INV',
-    default_payment_terms_days: parseInt(v('inv-payment-terms')) || 30,
-    default_vat_rate: parseFloat(v('inv-vat-rate')) || 15,
-    default_currency: v('inv-currency') || 'SAR',
-    invoice_default_notes_ar: v('inv-notes-ar') || null,
-    invoice_default_notes: v('inv-notes-en') || null,
-    invoice_show_bank_details: document.getElementById('toggle-show-bank').classList.contains('on'),
-    bank_name: v('bank-name') || null,
-    bank_account_name: v('bank-account-name') || null,
-    bank_iban: v('bank-iban') || null,
-    updated_at: new Date().toISOString()
-  };
-
-  const {error} = await sb.from('businesses').update(payload).eq('id', currentBiz.id);
-  if(error){
-    notify(error.message, 'error');
-    return;
-  }
-  Object.assign(currentBiz, payload);
-  showSaveStatus('invoice');
-  notify(currentLang==='ar'?'✅ تم حفظ إعدادات الفواتير':'✅ Invoice defaults saved', 'success');
-}
-
-/* ═══════════════════════════════════════════════════════
-   LOCALIZATION SAVE
-═══════════════════════════════════════════════════════ */
-async function saveLocalization(){
-  const payload = {
-    default_language: v('loc-language') || 'ar',
-    date_format: v('loc-date-format') || 'DD/MM/YYYY',
-    fiscal_year_start: v('loc-fiscal-year') || '01-01',
-    updated_at: new Date().toISOString()
-  };
-
-  const {error} = await sb.from('businesses').update(payload).eq('id', currentBiz.id);
-  if(error){
-    notify(error.message, 'error');
-    return;
-  }
-  Object.assign(currentBiz, payload);
-  showSaveStatus('localization');
-  notify(currentLang==='ar'?'✅ تم حفظ التفضيلات':'✅ Preferences saved', 'success');
-}
-
-/* ═══════════════════════════════════════════════════════
-   ACCOUNT ACTIONS
-═══════════════════════════════════════════════════════ */
-async function changePassword(){
-  if(!confirm(currentLang==='ar'
-    ? 'سيتم إرسال رابط إعادة تعيين كلمة المرور إلى بريدك. هل تريد المتابعة؟'
-    : 'A password reset link will be sent to your email. Continue?')) return;
-
-  const {error} = await sb.auth.resetPasswordForEmail(currentUser.email, {
-    redirectTo: window.location.origin + '/login.html'
-  });
-  if(error){
-    notify(error.message, 'error');
-    return;
-  }
-  notify(currentLang==='ar'?'✅ تم إرسال الرابط إلى بريدك':'✅ Reset link sent to your email', 'success');
-}
-
-async function deleteAccount(){
-  const msg = currentLang==='ar'
-    ? '⚠️ تحذير: سيتم حذف جميع بياناتك نهائياً (الفواتير، العملاء، المخزون، التقارير).\n\nاكتب "حذف" للتأكيد:'
-    : '⚠️ Warning: All your data will be permanently deleted (invoices, customers, inventory, reports).\n\nType "DELETE" to confirm:';
-  const expected = currentLang==='ar' ? 'حذف' : 'DELETE';
-  const input = prompt(msg);
-  if(input !== expected){
-    notify(currentLang==='ar'?'تم الإلغاء':'Cancelled', 'info');
-    return;
-  }
-  notify(currentLang==='ar'
-    ? 'حذف الحساب يتطلب تواصل مع الدعم — سيتم تنفيذها خلال 48 ساعة.'
-    : 'Account deletion requires support — will be processed within 48 hours.', 'info');
-  /* TODO: implement actual deletion via Edge Function with cascade */
-}
-
-/* ═══════════════════════════════════════════════════════
-   LANGUAGE
-═══════════════════════════════════════════════════════ */
-function setLang(lang){
-  currentLang = lang;
-  localStorage.setItem('gl_lang', lang);
-  document.getElementById('btn-ar')?.classList.toggle('on', lang==='ar');
-  document.getElementById('btn-en')?.classList.toggle('on', lang==='en');
-  document.documentElement.setAttribute('lang', lang);
-  document.documentElement.setAttribute('dir', lang==='ar' ? 'rtl' : 'ltr');
-  applyLang();
-}
-
-function applyLang(){
-  document.getElementById('btn-ar')?.classList.toggle('on', currentLang==='ar');
-  document.getElementById('btn-en')?.classList.toggle('on', currentLang==='en');
-  document.querySelectorAll('[data-ar][data-en]').forEach(el => {
-    if(el.children.length > 0) return;
-    const txt = el.getAttribute('data-' + currentLang);
-    if(txt != null) el.textContent = txt;
-  });
-}
-
-async function logout(){
-  await sb.auth.signOut();
-  window.location.href = 'login.html';
-}
-
-/* ═════════════════════════════════════════════════════════════
-   TEAMS UI — Round 2a
-   Owner-only. Roles stored as metadata; access enforcement is Round 2b.
-═════════════════════════════════════════════════════════════ */
-
-/* Determine if current user is the business owner */
-function isOwner(){
-  return !!(currentUser && currentBiz && currentBiz.user_id === currentUser.id);
-}
-
-/* Show owner-only gate or owner content based on role */
-function applyTeamGate(){
-  const ownerOnly = document.getElementById('team-owner-only');
-  const ownerContent = document.getElementById('team-owner-content');
-  if(isOwner()){
-    if(ownerOnly) ownerOnly.style.display = 'none';
-    if(ownerContent) ownerContent.style.display = '';
-  } else {
-    if(ownerOnly) ownerOnly.style.display = '';
-    if(ownerContent) ownerContent.style.display = 'none';
+  if(!confirm('إزالة وصول هذا المستخدم؟ سيتم تعطيل حسابه (دون حذفه).\nRevoke access? Account is deactivated (not deleted).')) return;
+  try {
+    const {error} = await sb.from('business_users').update({
+      status: 'revoked',
+      updated_at: new Date().toISOString()
+    }).eq('id', id);
+    if(error) throw error;
+    notify('🗑 تمت إزالة الوصول','g');
+    await loadUsers();
+  } catch(e){
+    notify('فشل: ' + (e.message||''),'r');
   }
 }
 
-const ROLE_LABELS_AR = {
-  owner: 'المالك',
-  admin: 'مسؤول',
-  accountant: 'محاسب',
-  sales: 'مبيعات',
-  warehouse: 'مخزون',
-  viewer: 'مشاهد فقط'
-};
-const ROLE_LABELS_EN = {
-  owner: 'Owner',
-  admin: 'Admin',
-  accountant: 'Accountant',
-  sales: 'Sales',
-  warehouse: 'Warehouse',
-  viewer: 'Viewer'
-};
-function roleLabel(role){
-  return (currentLang === 'ar' ? ROLE_LABELS_AR : ROLE_LABELS_EN)[role] || role;
-}
-
-let teamMembers = [];
-
-async function loadTeamList(){
-  if(!isOwner() || !currentBiz) return;
-  const loading = document.getElementById('team-list-loading');
-  const table = document.getElementById('team-list-table');
-  const empty = document.getElementById('team-list-empty');
-  if(loading) loading.style.display = '';
-  if(table) table.style.display = 'none';
-  if(empty) empty.style.display = 'none';
-
-  /* SELECT columns guarded — full_name and updated_at may be missing on legacy schemas.
-     If the migration adding them hasn't run, the .select() will return an error and we surface it.
-     Filter to status='active' only — removed/inactive members are hidden from the team list. */
-  const {data, error} = await sb.from('business_users')
-    .select('id, user_id, email, full_name, role, status, created_at')
-    .eq('business_id', currentBiz.id)
-    .eq('status', 'active')
-    .order('role', {ascending: true})
-    .order('created_at', {ascending: true, nullsFirst: false});
-
-  if(loading) loading.style.display = 'none';
-  if(error){
-    console.error('[teams] load error:', error);
-    /* Surface the actual error so user (and us) can diagnose */
-    const detail = error.message || error.details || JSON.stringify(error);
-    notify((currentLang==='ar'?'تعذّر تحميل الفريق: ':'Could not load team: ') + detail, 'error');
-    return;
-  }
-  teamMembers = data || [];
-  renderTeamList();
-}
-
-function renderTeamList(){
-  const tbody = document.getElementById('team-list-body');
-  const table = document.getElementById('team-list-table');
-  const empty = document.getElementById('team-list-empty');
-  if(!tbody) return;
-
-  if(teamMembers.length === 0){
-    if(table) table.style.display = 'none';
-    if(empty) empty.style.display = '';
-    return;
-  }
-  if(table) table.style.display = '';
-  if(empty) empty.style.display = 'none';
-
-  const ar = currentLang === 'ar';
-  tbody.innerHTML = teamMembers.map(m => {
-    const isOwnerRow = m.role === 'owner';
-    const isMe = m.user_id === currentUser?.id;
-    return `
-      <tr>
-        <td class="team-name-cell">${escHTML(m.full_name || (m.email ? m.email.split('@')[0] : '—'))}${isMe ? ` <span style="font-size:11px;color:var(--muted);">(${ar?'أنت':'you'})</span>` : ''}</td>
-        <td class="team-email-cell">${escHTML(m.email || '—')}</td>
-        <td><span class="team-role-pill role-${m.role}">${escHTML(roleLabel(m.role))}</span></td>
-        <td><span class="team-status-pill status-${m.status}">${escHTML(m.status === 'active' ? (ar?'نشط':'Active') : (ar?'موقوف':'Inactive'))}</span></td>
-        <td>
-          <div class="team-actions">
-            ${isOwnerRow ? '' : `
-              <button class="team-action-btn" onclick="editMemberRole('${m.id}')" title="${ar?'تعديل الدور':'Change role'}">${ar?'تعديل':'Edit'}</button>
-              <button class="team-action-btn danger" onclick="removeMember('${m.id}')" title="${ar?'إزالة العضو':'Remove'}">${ar?'إزالة':'Remove'}</button>
-            `}
-          </div>
-        </td>
-      </tr>
-    `;
-  }).join('');
-}
-
-function escHTML(s){
-  if(s == null) return '';
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-
-/* Add Member modal */
-function openAddMemberModal(){
-  if(!isOwner()){
-    notify(currentLang==='ar'?'مخصص للمالك':'Owner-only', 'error');
-    return;
-  }
-  ['mm-name','mm-email','mm-password'].forEach(id => {
-    const el = document.getElementById(id);
-    if(el) el.value = '';
-  });
-  document.getElementById('mm-role').value = 'accountant';
-  ['mm-field-name','mm-field-email','mm-field-password'].forEach(id => {
-    document.getElementById(id)?.classList.remove('error');
-  });
-  document.getElementById('member-modal-overlay').classList.add('open');
-  /* Re-apply lang to modal labels */
-  document.querySelectorAll('#member-modal-overlay [data-ar][data-en]').forEach(el => {
-    el.textContent = el.getAttribute('data-' + currentLang);
-  });
-  setTimeout(() => document.getElementById('mm-name')?.focus(), 100);
-}
-
-function closeAddMemberModal(){
-  document.getElementById('member-modal-overlay').classList.remove('open');
-}
-
-/* Backdrop click + Escape close */
-document.addEventListener('click', function(e){
-  const ov = document.getElementById('member-modal-overlay');
-  if(ov && e.target === ov) closeAddMemberModal();
-});
-document.addEventListener('keydown', function(e){
-  if(e.key === 'Escape'){
-    const ov = document.getElementById('member-modal-overlay');
-    if(ov && ov.classList.contains('open')) closeAddMemberModal();
+/* Unsaved changes guard */
+window.addEventListener('beforeunload', e => {
+  if(isDirty){
+    e.preventDefault();
+    e.returnValue = '';
+    return '';
   }
 });
-
-async function saveNewMember(){
-  if(!isOwner()) return;
-  const ar = currentLang === 'ar';
-  let hasError = false;
-  ['mm-field-name','mm-field-email','mm-field-password'].forEach(id => {
-    document.getElementById(id)?.classList.remove('error');
-  });
-
-  const fullName = document.getElementById('mm-name').value.trim();
-  const email = document.getElementById('mm-email').value.trim().toLowerCase();
-  const password = document.getElementById('mm-password').value;
-  const role = document.getElementById('mm-role').value;
-
-  if(fullName.length < 2){
-    setMmError('mm-field-name', ar?'الاسم الكامل مطلوب':'Full name is required');
-    hasError = true;
-  }
-  if(!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){
-    setMmError('mm-field-email', ar?'بريد إلكتروني غير صالح':'Invalid email address');
-    hasError = true;
-  }
-  if(password.length < 8){
-    setMmError('mm-field-password', ar?'كلمة المرور: 8 أحرف على الأقل':'Password: at least 8 characters');
-    hasError = true;
-  }
-  if(hasError) return;
-
-  const saveBtn = document.getElementById('mm-save-btn');
-  saveBtn.disabled = true;
-  const origText = saveBtn.textContent;
-  saveBtn.textContent = ar ? 'جارٍ الإنشاء...' : 'Creating...';
-
-  /* Use a SECOND Supabase client with persistSession: false so the owner stays logged in */
-  const sbAux = supabase.createClient(SUPABASE_URL, SUPABASE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false }
-  });
-
-  /* signUp the new user.
-     emailRedirectTo: when email confirmation is on, the magic link redirects
-     to login.html instead of the index page. */
-  const {data: signupData, error: signupError} = await sbAux.auth.signUp({
-    email,
-    password,
-    options: {
-      data: { full_name: fullName },
-      emailRedirectTo: window.location.origin + '/login.html'
-    }
-  });
-
-  if(signupError){
-    saveBtn.disabled = false;
-    saveBtn.textContent = origText;
-    /* Common error: email already registered */
-    if(/already.*registered|already.*exists|user.*registered/i.test(signupError.message || '')){
-      setMmError('mm-field-email', ar?'هذا البريد مسجل بالفعل':'This email is already registered');
-    } else {
-      notify((ar?'خطأ في إنشاء الحساب: ':'Signup error: ') + (signupError.message || 'unknown'), 'error');
-    }
-    return;
-  }
-
-  if(!signupData?.user){
-    saveBtn.disabled = false;
-    saveBtn.textContent = origText;
-    notify(ar?'تعذّر إنشاء الحساب':'Could not create account', 'error');
-    return;
-  }
-
-  /* Supabase anti-enumeration design: when the email already exists, signUp
-     returns "success" but with an empty identities array.
-     
-     But we want to support the re-add case: if this email was previously a 
-     member of THIS business (status='removed' or 'inactive'), offer to 
-     restore them instead of erroring out. */
-  if(Array.isArray(signupData.user.identities) && signupData.user.identities.length === 0){
-    /* Check if there's a removed/inactive membership for this business.
-       We look up by email rather than user_id because Supabase's anti-enum
-       behavior may return a fake user_id (we can't trust signupData.user.id here). */
-    const {data: existingRow} = await sb.from('business_users')
-      .select('id, status, role, user_id')
-      .eq('business_id', currentBiz.id)
-      .eq('email', email)
-      .in('status', ['removed', 'inactive'])
-      .maybeSingle();
-    
-    if(existingRow){
-      /* Member was previously removed from this business. Offer to restore. */
-      saveBtn.disabled = false;
-      saveBtn.textContent = origText;
-      const restoreConfirmed = confirm(ar
-        ? `هذا الشخص كان عضواً سابقاً في فريقك. هل تريد استعادة وصوله بدور ${roleLabel(role)}؟\n\nملاحظة: كلمة المرور الجديدة لن تُحدّث (يستخدم كلمة المرور السابقة).`
-        : `This person was previously a member of your team. Restore their access as ${roleLabel(role)}?\n\nNote: The password you entered won't update their account (they'll use their previous password).`);
-      if(!restoreConfirmed) return;
-      
-      const {error: updErr} = await sb.from('business_users').update({
-        status: 'active',
-        role: role,
-        full_name: fullName
-      }).eq('id', existingRow.id);
-      if(updErr){
-        notify((ar?'فشل الاستعادة: ':'Restore failed: ') + updErr.message, 'error');
-        return;
-      }
-      notify(ar?'تمت استعادة العضو':'Member restored', 'success');
-      closeAddMemberModal();
-      await loadTeamList();
-      return;
-    }
-    
-    /* Email exists in system but NOT a previous member of this business.
-       Could be a member of another business, or an unrelated user. */
-    saveBtn.disabled = false;
-    saveBtn.textContent = origText;
-    setMmError('mm-field-email', ar
-      ? 'هذا البريد الإلكتروني مسجل بالفعل في النظام. استخدم بريداً مختلفاً.'
-      : 'This email is already registered in the system. Use a different email.');
-    return;
-  }
-
-  /* Insert business_users row using owner's main session.
-     The new auth.users row may take a moment to be visible across connections,
-     causing FK violations on the first attempt. Retry with delays before giving up. */
-  const insertPayload = {
-    business_id: currentBiz.id,
-    user_id: signupData.user.id,
-    email,
-    full_name: fullName,
-    role,
-    status: 'active'
-  };
-
-  let insertError = null;
-  const delays = [0, 400, 1000, 2000]; /* immediate try, then 400ms, 1s, 2s */
-  for(let i = 0; i < delays.length; i++){
-    if(delays[i] > 0) await new Promise(r => setTimeout(r, delays[i]));
-    const result = await sb.from('business_users').insert(insertPayload);
-    insertError = result.error;
-    if(!insertError) break;
-    /* Only retry on FK violations; surface other errors immediately */
-    const msg = (insertError.message || '').toLowerCase();
-    const isFkRace = msg.includes('foreign key') || insertError.code === '23503';
-    if(!isFkRace) break;
-    console.warn(`[teams] FK race on attempt ${i+1}, retrying...`, insertError);
-  }
-
-  if(insertError){
-    saveBtn.disabled = false;
-    saveBtn.textContent = origText;
-    const code = insertError.code || '';
-    const isFk = code === '23503' || /foreign key/i.test(insertError.message || '');
-    if(isFk){
-      notify(ar
-        ? 'تم إنشاء حساب المصادقة، لكن فشل ربطه بالمنشأة. حاول مرة أخرى بعد دقيقة، أو تحقق من إعدادات Supabase.'
-        : 'Auth account created, but linking to business failed. Try again in a minute, or check Supabase settings.', 'error');
-    } else {
-      notify((ar?'فشل إنشاء العضو: ':'Failed to add member: ') + insertError.message, 'error');
-    }
-    return;
-  }
-
-  saveBtn.disabled = false;
-  saveBtn.textContent = origText;
-
-  /* Detect email-confirmation requirement: if signupData.session is null, confirmation is required */
-  const needsConfirm = !signupData.session;
-  let msg;
-  if(needsConfirm){
-    msg = ar
-      ? `تم إنشاء حساب ${fullName}. تحقق من إعدادات Supabase: إذا كان تأكيد البريد مفعلاً سيستلم العضو رسالة لتأكيد بريده قبل الدخول.`
-      : `Created ${fullName}'s account. Check your Supabase email-confirmation setting: if it's on, the member will receive a confirmation email before they can sign in.`;
-  } else {
-    msg = ar
-      ? `تم إنشاء ${fullName} بنجاح. شارك معه: ${email} وكلمة المرور التي أدخلتها.`
-      : `${fullName} created successfully. Share with them: ${email} and the password you entered.`;
-  }
-  notify(msg, 'success');
-
-  closeAddMemberModal();
-  await loadTeamList();
-}
-
-function setMmError(fieldId, message){
-  const f = document.getElementById(fieldId);
-  if(!f) return;
-  f.classList.add('error');
-  const err = f.querySelector('.setup-field-error');
-  if(err) err.textContent = message;
-}
-
-/* Edit role — small inline prompt for now (can become a proper modal later) */
-async function editMemberRole(memberId){
-  if(!isOwner()) return;
-  const member = teamMembers.find(m => m.id === memberId);
-  if(!member || member.role === 'owner') return;
-  const ar = currentLang === 'ar';
-  const roleOptions = ['admin','accountant','sales','warehouse','viewer'];
-  const promptMsg = ar
-    ? `الدور الحالي: ${roleLabel(member.role)}\nالأدوار المتاحة: ${roleOptions.map(r => roleLabel(r)).join(', ')}\nأدخل الدور الجديد (admin / accountant / sales / warehouse / viewer):`
-    : `Current role: ${roleLabel(member.role)}\nAvailable: ${roleOptions.join(', ')}\nEnter new role:`;
-  const newRole = (prompt(promptMsg, member.role) || '').trim().toLowerCase();
-  if(!newRole || newRole === member.role) return;
-  if(!roleOptions.includes(newRole)){
-    notify(ar?'دور غير صالح':'Invalid role', 'error');
-    return;
-  }
-  const {error} = await sb.from('business_users').update({role: newRole}).eq('id', memberId);
-  if(error){
-    notify((ar?'فشل التحديث: ':'Update failed: ') + error.message, 'error');
-    return;
-  }
-  notify(ar?'تم تحديث الدور':'Role updated', 'success');
-  await loadTeamList();
-}
-
-/* Remove member — sets status='removed'.
-   The row remains in DB (audit trail + access-revoke detection) but is
-   hidden from the team list. The same email can be re-added afterwards.
-   loadCurrentBusiness sees the non-active row and blocks login for that user. */
-async function removeMember(memberId){
-  if(!isOwner()) return;
-  const member = teamMembers.find(m => m.id === memberId);
-  if(!member || member.role === 'owner') return;
-  const ar = currentLang === 'ar';
-  const confirmed = confirm(ar
-    ? `هل تريد إزالة ${member.full_name || member.email} نهائياً من الفريق؟\n\nسيفقد هذا العضو الوصول للمنشأة فوراً. يمكنك إضافته مرة أخرى لاحقاً بنفس البريد الإلكتروني.`
-    : `Permanently remove ${member.full_name || member.email} from the team?\n\nThis member will lose access to the business immediately. You can re-add the same email later.`);
-  if(!confirmed) return;
-  const {error} = await sb.from('business_users').update({status: 'removed'}).eq('id', memberId);
-  if(error){
-    notify((ar?'فشل الإزالة: ':'Remove failed: ') + error.message, 'error');
-    return;
-  }
-  notify(ar?'تمت الإزالة':'Member removed', 'success');
-  await loadTeamList();
-}
-
-/* Hook into showSection — when 'team' is opened, load list (once owner check passes) */
-const _origShowSection = showSection;
-showSection = function(name, btn){
-  _origShowSection(name, btn);
-  if(name === 'team'){
-    applyTeamGate();
-    if(isOwner()) loadTeamList();
-  }
-};
 
 init();
 </script>
-<script>
-/* ═══ ROUND D1 — Canonical nav JS (activates current tab, profile dropdown) ═══ */
-(function() {
-  const currentPath = window.location.pathname.split('/').pop() || 'dashboard.html';
-  document.querySelectorAll('.app-nav-link').forEach(link => {
-    const href = link.getAttribute('href');
-    if (href === currentPath) link.classList.add('active');
-  });
-  window.toggleProfileMenu = function(e) {
-    if (e) e.stopPropagation();
-    const dd = document.getElementById('profile-dropdown');
-    const trigger = document.querySelector('.profile-trigger');
-    if (!dd) return;
-    const isOpen = dd.classList.contains('open');
-    dd.classList.toggle('open');
-    if (trigger) trigger.setAttribute('aria-expanded', String(!isOpen));
-  };
-  document.addEventListener('click', function(e) {
-    const menu = document.getElementById('profile-menu');
-    const dd = document.getElementById('profile-dropdown');
-    if (menu && dd && !menu.contains(e.target)) {
-      dd.classList.remove('open');
-      const t = document.querySelector('.profile-trigger');
-      if (t) t.setAttribute('aria-expanded', 'false');
-    }
-  });
-  document.addEventListener('keydown', function(e) {
-    if (e.key === 'Escape') {
-      const dd = document.getElementById('profile-dropdown');
-      if (dd) dd.classList.remove('open');
-    }
-  });
-})();
-
-/* ═══ Quick Action menu (canonical) ═══ */
-window.glQAToggle = function(e){
-  if(e) e.stopPropagation();
-  const m = document.getElementById('gl-qa-menu');
-  const b = document.querySelector('.gl-qa-btn');
-  if(!m) return;
-  const isOpen = m.classList.contains('open');
-  m.classList.toggle('open');
-  if(b) b.setAttribute('aria-expanded', String(!isOpen));
-  document.getElementById('profile-dropdown')?.classList.remove('open');
-};
-window.glQAClose = function(){
-  document.getElementById('gl-qa-menu')?.classList.remove('open');
-  const b = document.querySelector('.gl-qa-btn');
-  if(b) b.setAttribute('aria-expanded', 'false');
-};
-document.addEventListener('click', function(e){
-  const w = document.getElementById('gl-qa-wrap');
-  if(w && !w.contains(e.target)) glQAClose();
-});
-document.addEventListener('keydown', function(e){
-  if(e.key === 'Escape') glQAClose();
-});
-
-</script>
-
 </body>
 </html>
