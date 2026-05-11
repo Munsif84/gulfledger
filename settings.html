@@ -302,6 +302,8 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .role-viewer{background:#f3f4f6;color:#4b5563;}
 .team-status-pill{display:inline-block;padding:2px 8px;border-radius:5px;font-size:11px;font-weight:600;}
 .status-active{background:rgba(0,108,53,0.08);color:var(--green);}
+.status-pending{background:rgba(201,146,10,0.12);color:var(--amber);}
+.status-revoked,.status-removed{background:rgba(198,40,40,0.10);color:var(--red);}
 .status-inactive{background:#fee2e2;color:#991b1b;}
 .team-actions{display:flex;gap:6px;justify-content:flex-end;}
 .team-action-btn{padding:5px 10px;border-radius:6px;border:1px solid var(--border);background:#fff;color:var(--muted);font-size:12px;cursor:pointer;font-family:inherit;}
@@ -468,6 +470,10 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
       <button class="sidebar-link" onclick="showSection('invoice', this)">
         <span class="icon">🧾</span>
         <span data-ar="إعدادات الفواتير" data-en="Invoice Defaults">إعدادات الفواتير</span>
+      </button>
+      <button class="sidebar-link" onclick="showSection('inventory-costing', this)">
+        <span class="icon">📦</span>
+        <span data-ar="تقييم المخزون" data-en="Inventory Costing">تقييم المخزون</span>
       </button>
       <button class="sidebar-link" onclick="showSection('layout', this)">
         <span class="icon">📐</span>
@@ -708,15 +714,29 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           </div>
         </div>
 
-        <!-- VAT filing frequency -->
-        <div class="field-row" style="margin-top:14px;" id="field-vat-frequency">
+        <!-- VAT Registered toggle + Filing frequency (inline) -->
+        <div class="field-row double" style="margin-top:14px;" id="field-vat-row">
           <div class="field">
+            <div class="field-label">
+              <span data-ar="مسجل في ضريبة القيمة المضافة" data-en="VAT Registered">مسجل في ضريبة القيمة المضافة</span>
+            </div>
+            <div class="toggle-wrap" style="padding:9px 12px;border:1px solid var(--border);border-radius:8px;background:var(--white);margin:0;">
+              <div class="toggle-info">
+                <div class="toggle-label" style="font-size:13px;">
+                  <span id="vat-reg-state-label" data-ar="غير مسجل" data-en="Not registered">غير مسجل</span>
+                </div>
+                <div class="toggle-desc" data-ar="إذا كانت إيراداتك أكثر من 375,000 ريال سنوياً يجب أن تكون مسجلاً." data-en="Required if annual revenue exceeds SAR 375,000.">إذا كانت إيراداتك أكثر من 375,000 ريال سنوياً يجب أن تكون مسجلاً.</div>
+              </div>
+              <button class="toggle" id="toggle-vat-registered" onclick="toggleSwitch(this);onVatRegisteredChange()" aria-pressed="false" type="button"></button>
+            </div>
+          </div>
+          <div class="field" id="field-vat-frequency">
             <div class="field-label">
               <span data-ar="دورة تقديم إقرار VAT" data-en="VAT Filing Frequency">دورة تقديم إقرار VAT</span>
               <span class="req">*</span>
             </div>
             <select id="vat-filing-frequency">
-              <option value="quarterly" data-ar="ربع سنوي (الأكثر شيوعاً)" data-en="Quarterly (most common)">ربع سنوي (الأكثر شيوعاً)</option>
+              <option value="quarterly" data-ar="ربع سنوي (الأكثر شيوعاً)" data-en="Quarterly (most common)" selected>ربع سنوي (الأكثر شيوعاً)</option>
               <option value="monthly" data-ar="شهري (للإيرادات > 40 مليون ريال)" data-en="Monthly (for revenue > SAR 40M)">شهري (للإيرادات > 40 مليون ريال)</option>
             </select>
             <div class="field-hint" data-ar="الإيرادات السنوية أقل من 40 مليون = ربع سنوي. أكثر من ذلك = شهري." data-en="Annual revenue under SAR 40M = quarterly. Above that = monthly.">الإيرادات السنوية أقل من 40 مليون = ربع سنوي. أكثر من ذلك = شهري.</div>
@@ -981,6 +1001,48 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
       </div>
     </div>
 
+    <!-- ═════════ INVENTORY COSTING ═════════ -->
+    <div class="section-card" id="sec-inventory-costing" style="display:none;">
+      <div class="section-header">
+        <div class="section-title-wrap">
+          <div class="section-title">
+            <span class="icon">📦</span>
+            <span data-ar="تقييم المخزون" data-en="Inventory Costing">تقييم المخزون</span>
+          </div>
+          <div class="section-sub" data-ar="طريقة احتساب تكلفة البضاعة المباعة (COGS) عند إصدار فاتورة." data-en="How Cost of Goods Sold (COGS) is calculated when an invoice is issued.">طريقة احتساب تكلفة البضاعة المباعة (COGS) عند إصدار فاتورة.</div>
+        </div>
+      </div>
+      <div class="section-body">
+
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="طريقة التقييم" data-en="Costing Method">طريقة التقييم</span>
+            <span class="req">*</span>
+          </div>
+          <select id="costing-method" onchange="onCostingMethodChange()">
+            <option value="wac" data-ar="المتوسط المرجح (WAC)" data-en="Weighted Average Cost (WAC)">المتوسط المرجح (WAC)</option>
+            <option value="fifo" data-ar="الوارد أولاً صادر أولاً (FIFO)" data-en="First-In First-Out (FIFO)">الوارد أولاً صادر أولاً (FIFO)</option>
+          </select>
+          <div class="field-hint" data-ar="تغيير الطريقة يؤثر على الفواتير المستقبلية فقط. الفواتير الموجودة تحتفظ بطريقتها." data-en="Changing the method affects future invoices only. Existing invoices keep their original method.">تغيير الطريقة يؤثر على الفواتير المستقبلية فقط. الفواتير الموجودة تحتفظ بطريقتها.</div>
+        </div>
+
+        <!-- Method-specific explainer -->
+        <div id="costing-method-info" style="margin-top:14px;padding:14px 16px;background:var(--tint);border:1px solid var(--light);border-radius:10px;border-inline-start:4px solid var(--blue);">
+          <div style="font-size:12px;font-weight:700;color:var(--ink);margin-bottom:6px;">
+            ℹ️ <span id="costing-info-title" data-ar="المتوسط المرجح (WAC)" data-en="Weighted Average Cost (WAC)">المتوسط المرجح (WAC)</span>
+          </div>
+          <div style="font-size:13px;color:var(--ink);line-height:1.7;" id="costing-info-body"></div>
+        </div>
+
+      </div>
+      <div class="section-foot">
+        <span class="save-status" id="save-status-inventory-costing">✓ <span data-ar="تم الحفظ" data-en="Saved">تم الحفظ</span></span>
+        <button class="btn btn-primary" onclick="saveInventoryCosting()">
+          <span data-ar="حفظ التغييرات" data-en="Save Changes">حفظ التغييرات</span>
+        </button>
+      </div>
+    </div>
+
     <!-- ═════════ LOCALIZATION ═════════ -->
     <div class="section-card" id="sec-localization" style="display:none;">
       <div class="section-header">
@@ -1098,7 +1160,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
       </div>
     </div>
 
-    <!-- ═════════ TEAM & ROLES (Coming Soon placeholder) ═════════ -->
+    <!-- ═════════ TEAM & ROLES ═════════ -->
     <div class="section-card" id="sec-team" style="display:none;">
       <div class="section-header">
         <div class="section-title-wrap">
@@ -1463,8 +1525,10 @@ async function init(){
       'partners':            { section: 'tax-profile',  id: 'partners-anchor' },
       'filing-frequency':    { section: 'tax-profile',  id: 'field-vat-frequency' },
       'vat-filing-frequency':{ section: 'tax-profile',  id: 'field-vat-frequency' },
+      'vat-registered':      { section: 'tax-profile',  id: 'toggle-vat-registered' },
       'entity-type':         { section: 'tax-profile',  id: 'legal-entity-type' },
       'industry':            { section: 'tax-profile',  id: 'industry' },
+      'costing-method':      { section: 'inventory-costing', id: 'costing-method' },
       'fiscal-year':         { section: 'localization', id: 'loc-fiscal-year' }
     };
 
@@ -1547,6 +1611,18 @@ function populateAllForms(){
   setVal('legal-entity-type', b.legal_entity_type || '');
   setVal('industry', b.industry || 'general');
   setVal('vat-filing-frequency', b.vat_filing_frequency || 'quarterly');
+  /* VAT registered toggle */
+  const vatToggle = document.getElementById('toggle-vat-registered');
+  if(vatToggle){
+    if(b.vat_registered){
+      vatToggle.classList.add('on');
+      vatToggle.setAttribute('aria-pressed', 'true');
+    } else {
+      vatToggle.classList.remove('on');
+      vatToggle.setAttribute('aria-pressed', 'false');
+    }
+  }
+  onVatRegisteredChange();
   onTaxProfileChange();
   /* Partners are loaded asynchronously */
   loadPartners();
@@ -1559,6 +1635,10 @@ function populateAllForms(){
   setVal('inv-currency', b.default_currency || 'SAR');
   setVal('inv-notes-ar', b.invoice_default_notes_ar || '');
   setVal('inv-notes-en', b.invoice_default_notes || '');
+
+  /* Inventory Costing */
+  setVal('costing-method', b.costing_method || 'wac');
+  onCostingMethodChange();
 
   /* Bank details */
   if(b.invoice_show_bank_details){
@@ -1738,6 +1818,35 @@ function onTaxProfileChange(){
     warning.style.display = 'none';
   }
   recomputeTaxObligation();
+}
+
+/* Reactive helper: enable/disable VAT filing frequency based on whether the business
+   is VAT-registered. Also updates the state label inside the toggle row. */
+function onVatRegisteredChange(){
+  const toggle = document.getElementById('toggle-vat-registered');
+  const isReg = toggle?.classList.contains('on') || false;
+  const freq = document.getElementById('vat-filing-frequency');
+  const freqWrap = document.getElementById('field-vat-frequency');
+  const stateLabel = document.getElementById('vat-reg-state-label');
+
+  if(stateLabel){
+    if(isReg){
+      stateLabel.setAttribute('data-ar', 'مسجل');
+      stateLabel.setAttribute('data-en', 'Registered');
+      stateLabel.textContent = currentLang === 'ar' ? 'مسجل' : 'Registered';
+    } else {
+      stateLabel.setAttribute('data-ar', 'غير مسجل');
+      stateLabel.setAttribute('data-en', 'Not registered');
+      stateLabel.textContent = currentLang === 'ar' ? 'غير مسجل' : 'Not registered';
+    }
+  }
+  if(freq){
+    freq.disabled = !isReg;
+  }
+  if(freqWrap){
+    freqWrap.style.opacity = isReg ? '1' : '0.4';
+    freqWrap.style.pointerEvents = isReg ? '' : 'none';
+  }
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -2071,6 +2180,7 @@ async function saveTaxProfile(){
   const bizPayload = {
     legal_entity_type: entityType,
     industry: v('industry') || 'general',
+    vat_registered: document.getElementById('toggle-vat-registered')?.classList.contains('on') || false,
     vat_filing_frequency: v('vat-filing-frequency') || 'quarterly',
     ownership_type: ownershipType,
     saudi_ownership_pct: Math.round(saudiPct * 100) / 100,
@@ -2182,6 +2292,61 @@ async function saveInvoiceDefaults(){
   Object.assign(currentBiz, payload);
   showSaveStatus('invoice');
   notify(currentLang==='ar'?'✅ تم حفظ إعدادات الفواتير':'✅ Invoice defaults saved', 'success');
+}
+
+/* ═══════════════════════════════════════════════════════
+   INVENTORY COSTING SAVE
+═══════════════════════════════════════════════════════ */
+const COSTING_INFO = {
+  wac: {
+    title_ar: 'المتوسط المرجح (WAC)',
+    title_en: 'Weighted Average Cost (WAC)',
+    body_ar: 'تكلفة الوحدة المباعة = متوسط مرجح لتكاليف جميع الدفعات المتاحة. أبسط في التطبيق ومناسب للأصناف القياسية بدون تتبع تواريخ صلاحية. <strong>الافتراضي والموصى به للمبتدئين.</strong>',
+    body_en: 'Unit cost of sold goods = weighted average across all available batches. Simplest method, suitable for standard items without expiry tracking. <strong>Default and recommended for new businesses.</strong>'
+  },
+  fifo: {
+    title_ar: 'الوارد أولاً صادر أولاً (FIFO)',
+    title_en: 'First-In First-Out (FIFO)',
+    body_ar: 'تكلفة الوحدة المباعة = تكلفة أقدم دفعة موجودة. ضروري لتتبع تواريخ الصلاحية والدفعات (أدوية، مواد غذائية). يحافظ على دقة تكلفة كل دفعة بشكل منفصل.',
+    body_en: 'Unit cost of sold goods = cost of oldest batch in stock. Required for expiry/lot tracking (pharma, food). Preserves individual batch cost accuracy.'
+  }
+};
+
+function onCostingMethodChange(){
+  const method = v('costing-method') || 'wac';
+  const info = COSTING_INFO[method];
+  if(!info) return;
+  const titleEl = document.getElementById('costing-info-title');
+  const bodyEl = document.getElementById('costing-info-body');
+  if(titleEl){
+    titleEl.setAttribute('data-ar', info.title_ar);
+    titleEl.setAttribute('data-en', info.title_en);
+    titleEl.textContent = currentLang === 'ar' ? info.title_ar : info.title_en;
+  }
+  if(bodyEl){
+    bodyEl.setAttribute('data-ar', info.body_ar);
+    bodyEl.setAttribute('data-en', info.body_en);
+    bodyEl.innerHTML = currentLang === 'ar' ? info.body_ar : info.body_en;
+  }
+}
+
+async function saveInventoryCosting(){
+  const method = v('costing-method') || 'wac';
+  if(!['wac','fifo'].includes(method)){
+    notify('قيمة غير صحيحة','error');
+    return;
+  }
+  const {error} = await sb.from('businesses').update({
+    costing_method: method,
+    updated_at: new Date().toISOString()
+  }).eq('id', currentBiz.id);
+  if(error){
+    notify(error.message, 'error');
+    return;
+  }
+  currentBiz.costing_method = method;
+  showSaveStatus('inventory-costing');
+  notify(currentLang==='ar'?'✅ تم حفظ طريقة التقييم':'✅ Costing method saved', 'success');
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -2322,12 +2487,11 @@ async function loadTeamList(){
   if(empty) empty.style.display = 'none';
 
   /* SELECT columns guarded — full_name and updated_at may be missing on legacy schemas.
-     If the migration adding them hasn't run, the .select() will return an error and we surface it.
-     Filter to status='active' only — removed/inactive members are hidden from the team list. */
+     Round 4n: include pending invites in the list; hide removed members. */
   const {data, error} = await sb.from('business_users')
-    .select('id, user_id, email, full_name, role, status, created_at')
+    .select('id, user_id, email, full_name, role, status, created_at, joined_at')
     .eq('business_id', currentBiz.id)
-    .eq('status', 'active')
+    .neq('status', 'removed')   /* hide removed members but show pending */
     .order('role', {ascending: true})
     .order('created_at', {ascending: true, nullsFirst: false});
 
@@ -2358,26 +2522,92 @@ function renderTeamList(){
   if(empty) empty.style.display = 'none';
 
   const ar = currentLang === 'ar';
+  /* Compute total active owners so we can block last-owner self-modification */
+  const activeOwnerCount = teamMembers.filter(m => m.role === 'owner' && m.status === 'active').length;
+
   tbody.innerHTML = teamMembers.map(m => {
     const isOwnerRow = m.role === 'owner';
     const isMe = m.user_id === currentUser?.id;
+    const isPending = m.status === 'pending';
+    const isLastOwner = isOwnerRow && activeOwnerCount <= 1;
+
+    /* Status label: active/pending/removed */
+    const statusLabel = ({
+      active:  ar?'نشط':'Active',
+      pending: ar?'في الانتظار':'Pending',
+      removed: ar?'موقوف':'Removed'
+    })[m.status] || m.status;
+
+    /* Actions:
+       - Last owner: can't be edited/removed (would lock business out)
+       - Self (current user): can't be edited/removed (use a separate account-deletion flow)
+       - Pending: show "Copy invite link" instead of role/remove buttons
+       - Otherwise: edit role + remove */
+    let actionsHtml = '';
+    if(isPending){
+      actionsHtml = `<button class="team-action-btn" onclick="copyInviteLink('${m.id}', '${escHTML(m.email||'')}')" title="${ar?'نسخ رابط الدعوة':'Copy invite link'}">📋 ${ar?'رابط الدعوة':'Invite link'}</button>
+        <button class="team-action-btn danger" onclick="removeMember('${m.id}')" title="${ar?'إلغاء الدعوة':'Cancel invite'}">${ar?'إلغاء':'Cancel'}</button>`;
+    } else if(isMe){
+      actionsHtml = `<span style="font-size:11px;color:var(--muted);">${ar?'لا يمكن تعديل حسابك':'Cannot edit yourself'}</span>`;
+    } else if(isLastOwner){
+      actionsHtml = `<span style="font-size:11px;color:var(--muted);">${ar?'المالك الأخير':'Last owner'}</span>`;
+    } else if(isOwnerRow){
+      /* Multiple owners — can still modify */
+      actionsHtml = `<button class="team-action-btn" onclick="editMemberRole('${m.id}')" title="${ar?'تعديل الدور':'Change role'}">${ar?'تعديل':'Edit'}</button>
+        <button class="team-action-btn danger" onclick="removeMember('${m.id}')" title="${ar?'إزالة العضو':'Remove'}">${ar?'إزالة':'Remove'}</button>`;
+    } else {
+      actionsHtml = `<button class="team-action-btn" onclick="editMemberRole('${m.id}')" title="${ar?'تعديل الدور':'Change role'}">${ar?'تعديل':'Edit'}</button>
+        <button class="team-action-btn danger" onclick="removeMember('${m.id}')" title="${ar?'إزالة العضو':'Remove'}">${ar?'إزالة':'Remove'}</button>`;
+    }
+
     return `
-      <tr>
-        <td class="team-name-cell">${escHTML(m.full_name || (m.email ? m.email.split('@')[0] : '—'))}${isMe ? ` <span style="font-size:11px;color:var(--muted);">(${ar?'أنت':'you'})</span>` : ''}</td>
+      <tr style="${isPending?'opacity:0.85;':''}">
+        <td class="team-name-cell">
+          ${escHTML(m.full_name || (m.email ? m.email.split('@')[0] : '—'))}
+          ${isMe ? ` <span style="font-size:11px;color:var(--muted);font-weight:500;">(${ar?'أنت':'you'})</span>` : ''}
+          ${isPending ? ` <span style="font-size:11px;color:var(--amber);font-weight:600;">⏳</span>` : ''}
+        </td>
         <td class="team-email-cell">${escHTML(m.email || '—')}</td>
         <td><span class="team-role-pill role-${m.role}">${escHTML(roleLabel(m.role))}</span></td>
-        <td><span class="team-status-pill status-${m.status}">${escHTML(m.status === 'active' ? (ar?'نشط':'Active') : (ar?'موقوف':'Inactive'))}</span></td>
+        <td><span class="team-status-pill status-${m.status}">${escHTML(statusLabel)}</span></td>
         <td>
           <div class="team-actions">
-            ${isOwnerRow ? '' : `
-              <button class="team-action-btn" onclick="editMemberRole('${m.id}')" title="${ar?'تعديل الدور':'Change role'}">${ar?'تعديل':'Edit'}</button>
-              <button class="team-action-btn danger" onclick="removeMember('${m.id}')" title="${ar?'إزالة العضو':'Remove'}">${ar?'إزالة':'Remove'}</button>
-            `}
+            ${actionsHtml}
           </div>
         </td>
       </tr>
     `;
   }).join('');
+}
+
+/* Round 4n: copy a deep-link that prefills signup email — recipient signs up with
+   the SAME email and the existing pending business_users row auto-claims via the
+   email match. */
+function copyInviteLink(memberId, email){
+  if(!email){
+    notify(currentLang==='ar'?'لا يوجد بريد':'No email','error');
+    return;
+  }
+  const baseUrl = window.location.origin;
+  const url = `${baseUrl}/signup.html?invite=${encodeURIComponent(email)}&biz=${encodeURIComponent(currentBiz.id)}`;
+  /* Use Clipboard API where available; fall back to a hidden textarea trick */
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(url).then(() => {
+      notify(currentLang==='ar'?'✅ تم نسخ رابط الدعوة':'✅ Invite link copied','success');
+    }).catch(() => { fallbackCopy(url); });
+  } else {
+    fallbackCopy(url);
+  }
+}
+function fallbackCopy(text){
+  const ta = document.createElement('textarea');
+  ta.value = text;
+  ta.style.position = 'fixed'; ta.style.opacity = '0';
+  document.body.appendChild(ta);
+  ta.select();
+  try { document.execCommand('copy'); notify(currentLang==='ar'?'✅ تم النسخ':'✅ Copied','success'); }
+  catch(e){ prompt(currentLang==='ar'?'انسخ الرابط:':'Copy this link:', text); }
+  document.body.removeChild(ta);
 }
 
 function escHTML(s){
@@ -2616,8 +2846,21 @@ function setMmError(fieldId, message){
 async function editMemberRole(memberId){
   if(!isOwner()) return;
   const member = teamMembers.find(m => m.id === memberId);
-  if(!member || member.role === 'owner') return;
+  if(!member) return;
   const ar = currentLang === 'ar';
+  /* Self-protection: can't change own role */
+  if(member.user_id === currentUser?.id){
+    notify(ar?'لا يمكنك تعديل دورك':'Cannot edit your own role','error');
+    return;
+  }
+  /* Last-owner protection */
+  if(member.role === 'owner'){
+    const activeOwners = teamMembers.filter(m => m.role === 'owner' && m.status === 'active').length;
+    if(activeOwners <= 1){
+      notify(ar?'هذا المالك الأخير — أضف مالكاً آخر أولاً':'This is the last owner — add another owner first','error');
+      return;
+    }
+  }
   const roleOptions = ['admin','accountant','sales','warehouse','viewer'];
   const promptMsg = ar
     ? `الدور الحالي: ${roleLabel(member.role)}\nالأدوار المتاحة: ${roleOptions.map(r => roleLabel(r)).join(', ')}\nأدخل الدور الجديد (admin / accountant / sales / warehouse / viewer):`
@@ -2644,18 +2887,36 @@ async function editMemberRole(memberId){
 async function removeMember(memberId){
   if(!isOwner()) return;
   const member = teamMembers.find(m => m.id === memberId);
-  if(!member || member.role === 'owner') return;
+  if(!member) return;
   const ar = currentLang === 'ar';
+  /* Self-protection: can't remove yourself */
+  if(member.user_id === currentUser?.id){
+    notify(ar?'لا يمكنك إزالة نفسك':'Cannot remove yourself','error');
+    return;
+  }
+  /* Last-owner protection */
+  if(member.role === 'owner'){
+    const activeOwners = teamMembers.filter(m => m.role === 'owner' && m.status === 'active').length;
+    if(activeOwners <= 1){
+      notify(ar?'هذا المالك الأخير — أضف مالكاً آخر أولاً':'This is the last owner — add another owner first','error');
+      return;
+    }
+  }
+  const isPending = member.status === 'pending';
   const confirmed = confirm(ar
-    ? `هل تريد إزالة ${member.full_name || member.email} نهائياً من الفريق؟\n\nسيفقد هذا العضو الوصول للمنشأة فوراً. يمكنك إضافته مرة أخرى لاحقاً بنفس البريد الإلكتروني.`
-    : `Permanently remove ${member.full_name || member.email} from the team?\n\nThis member will lose access to the business immediately. You can re-add the same email later.`);
+    ? (isPending
+        ? `إلغاء الدعوة المرسلة إلى ${member.email}؟`
+        : `هل تريد إزالة ${member.full_name || member.email} نهائياً من الفريق؟\n\nسيفقد هذا العضو الوصول للمنشأة فوراً. يمكنك إضافته مرة أخرى لاحقاً بنفس البريد الإلكتروني.`)
+    : (isPending
+        ? `Cancel pending invite to ${member.email}?`
+        : `Permanently remove ${member.full_name || member.email} from the team?\n\nThis member will lose access to the business immediately. You can re-add the same email later.`));
   if(!confirmed) return;
   const {error} = await sb.from('business_users').update({status: 'removed'}).eq('id', memberId);
   if(error){
     notify((ar?'فشل الإزالة: ':'Remove failed: ') + error.message, 'error');
     return;
   }
-  notify(ar?'تمت الإزالة':'Member removed', 'success');
+  notify(ar?(isPending?'تم إلغاء الدعوة':'تمت الإزالة'):(isPending?'Invite cancelled':'Member removed'), 'success');
   await loadTeamList();
 }
 
