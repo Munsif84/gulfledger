@@ -3031,13 +3031,18 @@ function renderValuationTable(){
   const wrap = document.getElementById('valuation-table-wrap');
   if(!wrap) return;
 
-  /* Filter by active pill */
-  let list = _valItems.filter(x => x._qty > 0);
-  if(_valFilter === 'active')    list = list.filter(x => x._status === 'active');
-  else if(_valFilter === 'slow') list = list.filter(x => x._status === 'slow');
-  else if(_valFilter === 'dead') list = list.filter(x => x._status === 'dead');
-  else if(_valFilter === 'overstock') list = list.filter(x => x._isOverstock);
-  else if(_valFilter === 'reorder')   list = list.filter(x => x._needsReorder);
+  /* Filter by active pill.
+     Note: 'reorder' filter includes items even at qty=0 (they need urgent reorder!). */
+  let list;
+  if(_valFilter === 'reorder'){
+    list = _valItems.filter(x => x._needsReorder);
+  } else {
+    list = _valItems.filter(x => x._qty > 0);
+    if(_valFilter === 'active')    list = list.filter(x => x._status === 'active');
+    else if(_valFilter === 'slow') list = list.filter(x => x._status === 'slow');
+    else if(_valFilter === 'dead') list = list.filter(x => x._status === 'dead');
+    else if(_valFilter === 'overstock') list = list.filter(x => x._isOverstock);
+  }
 
   list.sort((a,b) => b._value - a._value);
 
@@ -3051,6 +3056,13 @@ function renderValuationTable(){
     </div>`;
     return;
   }
+
+  /* Round 4p: bulk "Create PO" action when reorder filter active.
+     We persist the chosen item IDs in sessionStorage and redirect to purchasing.html
+     which reads them on load. */
+  const bulkActionHtml = (_valFilter === 'reorder' && list.length > 0)
+    ? `<button class="btn btn-primary btn-sm" onclick="createPOFromReorderList()" style="margin-inline-start:auto;">📋 ${ar?'إنشاء طلب شراء لهذه الأصناف':'Create PO for these items'}</button>`
+    : '';
 
   const statusBadge = (it) => {
     const badges = [];
@@ -3078,6 +3090,7 @@ function renderValuationTable(){
     <div style="padding:8px 14px;color:var(--muted);font-size:12px;background:var(--tint);border:1px solid var(--border);border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
       <span>${list.length} ${ar?'صنف':'items'}</span>
       <span style="font-family:'DM Mono',monospace;font-weight:700;color:var(--ink);">SAR ${fmt(totalValueShown)}</span>
+      ${bulkActionHtml}
     </div>
     <table class="tbl" style="border-radius:0 0 8px 8px;">
       <thead>
@@ -3152,6 +3165,65 @@ function exportValuationCSV(){
   a.click();
   URL.revokeObjectURL(url);
   notify(ar?'📥 تم تصدير الملف':'📥 CSV exported', 'success');
+}
+
+/* Round 4p: bridge from Valuation → Purchasing.
+   Stores reorder items in sessionStorage, then navigates to purchasing.html which
+   reads the key on init and pre-populates a draft PO. Each preferred_supplier_id
+   becomes one PO (since suppliers are different). */
+function createPOFromReorderList(){
+  const ar = currentLang === 'ar';
+  const reorderItems = _valItems.filter(x => x._needsReorder);
+  if(reorderItems.length === 0){
+    notify(ar?'لا توجد أصناف تحتاج إعادة طلب':'No items need reorder', 'error');
+    return;
+  }
+
+  /* Group by preferred_supplier_id. If multiple suppliers, we'll create one PO per supplier
+     and let the user pick which one to open (or just open the largest group). */
+  const bySupplier = {};
+  for(const it of reorderItems){
+    const sup = it.preferred_supplier_id || it.supplier_id || '_no_supplier_';
+    if(!bySupplier[sup]) bySupplier[sup] = [];
+    /* Suggested qty: cover (overstock_days/2) days of consumption, minimum reorder_point */
+    const targetDays = Math.max(30, (parseInt(currentBiz?.overstock_days)||180) / 2);
+    const suggestedQty = Math.max(
+      Math.ceil(it._dailyConsumption * targetDays),
+      parseFloat(it.reorder_point)||0,
+      1
+    );
+    bySupplier[sup].push({
+      item_id: it.id,
+      description: displayName(it),
+      description_ar: it.name_ar || it.name || '',
+      quantity: suggestedQty,
+      unit_price: parseFloat(it.cost_price) || 0,
+      vat_rate: 15
+    });
+  }
+
+  const supplierIds = Object.keys(bySupplier);
+  if(supplierIds.length > 1){
+    if(!confirm(ar
+      ? `هناك ${supplierIds.length} موردين مختلفين. سيتم إنشاء أمر شراء واحد للمجموعة الأكبر فقط. للأخرى أنشئها يدوياً. متابعة؟`
+      : `${supplierIds.length} different suppliers found. We'll create a PO for the largest group only — others must be created manually. Continue?`)){
+      return;
+    }
+  }
+
+  /* Pick the supplier with most items */
+  const chosenSupplier = supplierIds.sort((a,b) => bySupplier[b].length - bySupplier[a].length)[0];
+  const itemsForPO = bySupplier[chosenSupplier];
+
+  sessionStorage.setItem('gl_po_prefill', JSON.stringify({
+    supplier_id: chosenSupplier === '_no_supplier_' ? null : chosenSupplier,
+    items: itemsForPO,
+    source: 'reorder',
+    note: ar?'تم الإنشاء من قائمة إعادة الطلب':'Generated from reorder list'
+  }));
+
+  /* Navigate to purchasing with hint to open new PO modal */
+  window.location.href = 'purchasing.html?tab=orders&action=new_po';
 }
 
 

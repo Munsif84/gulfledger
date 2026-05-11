@@ -1094,6 +1094,20 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           </div>
         </div>
 
+        <!-- Round 4p: PO overdue threshold -->
+        <div class="field-row double">
+          <div class="field">
+            <div class="field-label">
+              <span data-ar="أمر الشراء متأخر — بعد كم يوم من تاريخ التسليم المتوقع" data-en="PO overdue — days past expected delivery">أمر الشراء متأخر — بعد كم يوم من تاريخ التسليم المتوقع</span>
+            </div>
+            <input type="number" id="th-po-overdue-days" class="mono" min="1" max="365" placeholder="14" dir="ltr">
+            <div class="field-hint" data-ar="أوامر الشراء بدون استلام بعد هذه المدة من التاريخ المتوقع تُعتبر متأخرة (افتراضي 14 يوم)." data-en="POs not received within this many days past expected delivery are flagged overdue (default 14 days).">أوامر الشراء بدون استلام بعد هذه المدة من التاريخ المتوقع تُعتبر متأخرة (افتراضي 14 يوم).</div>
+          </div>
+          <div class="field">
+            <!-- Reserved for future analytics threshold -->
+          </div>
+        </div>
+
         <!-- Live example -->
         <div style="margin-top:14px;padding:14px 16px;background:var(--tint);border:1px solid var(--light);border-radius:10px;border-inline-start:4px solid var(--blue);">
           <div style="font-size:12px;font-weight:700;color:var(--ink);margin-bottom:6px;">
@@ -1721,6 +1735,7 @@ function populateAllForms(){
   setVal('th-dead-days',      String(b.dead_stock_days != null ? b.dead_stock_days : 90));
   setVal('th-overstock-days', String(b.overstock_days  != null ? b.overstock_days  : 180));
   setVal('th-reorder-days',   String(b.reorder_urgency_days != null ? b.reorder_urgency_days : 7));
+  setVal('th-po-overdue-days', String(b.po_overdue_days != null ? b.po_overdue_days : 14));
   updateThresholdsExample();
   /* Wire reactive example update */
   ['th-slow-days','th-dead-days'].forEach(id => {
@@ -2452,18 +2467,21 @@ async function saveInventoryAnalytics(){
   const dead = parseInt(v('th-dead-days'), 10);
   const overstock = parseInt(v('th-overstock-days'), 10);
   const reorder = parseInt(v('th-reorder-days'), 10);
+  const poOverdue = parseInt(v('th-po-overdue-days'), 10);
 
   if(!slow || slow < 7 || slow > 365){ notify(ar?'حد المتحرك ببطء غير صحيح (7-365)':'Invalid slow-moving days (7-365)','error'); return; }
   if(!dead || dead < 14 || dead > 730){ notify(ar?'حد الراكد غير صحيح (14-730)':'Invalid dead-stock days (14-730)','error'); return; }
   if(dead <= slow){ notify(ar?'حد الراكد يجب أن يكون أكبر من حد المتحرك ببطء':'Dead-stock days must exceed slow-moving days','error'); return; }
   if(!overstock || overstock < 30 || overstock > 1095){ notify(ar?'حد الفائض غير صحيح (30-1095)':'Invalid overstock days','error'); return; }
   if(!reorder || reorder < 1 || reorder > 90){ notify(ar?'حد إعادة الطلب غير صحيح (1-90)':'Invalid reorder days','error'); return; }
+  if(!poOverdue || poOverdue < 1 || poOverdue > 365){ notify(ar?'حد تأخر أمر الشراء غير صحيح (1-365)':'Invalid PO overdue days (1-365)','error'); return; }
 
   const payload = {
     slow_moving_days: slow,
     dead_stock_days: dead,
     overstock_days: overstock,
     reorder_urgency_days: reorder,
+    po_overdue_days: poOverdue,
     updated_at: new Date().toISOString()
   };
   const {error} = await sb.from('businesses').update(payload).eq('id', currentBiz.id);
