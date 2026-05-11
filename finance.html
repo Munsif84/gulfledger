@@ -8,6 +8,8 @@
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@400;500;700;800&family=Cairo:wght@400;600;700;800&family=DM+Mono:wght@400;500&family=Playfair+Display:wght@600;700&display=swap" rel="stylesheet">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<!-- Round 4q: SheetJS for XLSX parsing during bank statement imports -->
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script>
 const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
@@ -921,10 +923,36 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   ════════════════════════════════════════════════ -->
   <div id="pane-reconciliation" style="display:none;">
 
+    <!-- Round 4q: Import Statement entry point — opens the multi-step CSV/XLSX import wizard -->
+    <div style="background:linear-gradient(135deg, var(--tint) 0%, #fff 100%);border:1px solid var(--light);border-radius:14px;padding:14px 18px;margin-bottom:14px;display:flex;justify-content:space-between;align-items:center;gap:14px;flex-wrap:wrap;">
+      <div style="flex:1;min-width:240px;">
+        <h3 style="font-size:15px;font-weight:700;color:var(--navy);margin:0 0 4px;display:flex;align-items:center;gap:6px;">
+          📥 <span data-ar="استيراد كشف بنكي" data-en="Import Bank Statement">استيراد كشف بنكي</span>
+        </h3>
+        <p style="color:var(--muted);font-size:12px;line-height:1.6;margin:0;"
+           data-ar="حمّل كشف حسابك البنكي (CSV / Excel) وسيقوم النظام بمطابقته تلقائياً مع المعاملات المسجلة. يدعم بنوك: SNB, الراجحي, الرياض, ANB, الإنماء."
+           data-en="Upload your bank statement (CSV / Excel) and the system will auto-match against your recorded transactions. Supports SNB, Al Rajhi, Riyad, ANB, Alinma.">
+          حمّل كشف حسابك البنكي.
+        </p>
+      </div>
+      <button class="btn btn-primary" onclick="openStatementImportWizard()">
+        📥 <span data-ar="استيراد كشف" data-en="Import Statement">استيراد كشف</span>
+      </button>
+    </div>
+
+    <!-- Past imports list (loaded when reconciliation tab opens) -->
+    <div id="imports-history" style="display:none;background:#fff;border:1px solid var(--border);border-radius:14px;padding:14px 18px;margin-bottom:14px;">
+      <h3 style="font-size:14px;font-weight:700;color:var(--navy);margin:0 0 10px;display:flex;align-items:center;justify-content:space-between;gap:6px;">
+        <span>📂 <span data-ar="آخر الاستيرادات" data-en="Recent Imports">آخر الاستيرادات</span></span>
+        <span style="font-size:11px;color:var(--muted);font-weight:400;" id="imports-count">—</span>
+      </h3>
+      <div id="imports-list"></div>
+    </div>
+
     <!-- Setup form: account + statement info -->
     <div style="background:#fff;border:1px solid var(--border);border-radius:14px;padding:18px;margin-bottom:14px;">
       <h3 style="font-size:15px;font-weight:700;color:var(--navy);margin:0 0 12px;display:flex;align-items:center;gap:6px;">
-        🔄 <span data-ar="بدء تسوية بنكية" data-en="Start a bank reconciliation">بدء تسوية بنكية</span>
+        🔄 <span data-ar="تسوية يدوية" data-en="Manual Reconciliation">تسوية يدوية</span>
       </h3>
       <p style="color:var(--muted);font-size:12px;line-height:1.7;margin:0 0 14px;"
          data-ar="اختر حساباً وأدخل تاريخ الكشف البنكي والرصيد النهائي. ثم حدد المعاملات التي تظهر على الكشف. عندما يتطابق الفرق مع صفر، احفظ التسوية."
@@ -1534,6 +1562,79 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
     </div>
   </div>
 </div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     ROUND 4Q — Bank Statement Import Wizard (multi-step modal)
+     Steps:
+       1. Upload — pick account, file, bank format
+       2. Preview — parsed lines with mapped columns; user can fix mapping
+       3. Match — auto-matches against bank_transactions, shows scores
+       4. Review — accept/reject suggested matches, handle unmatched
+       5. Done — saves import + statement lines + updates bank_transactions
+═══════════════════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="stmt-import-modal">
+  <div class="modal" style="max-width:980px;width:100%;max-height:92vh;overflow:hidden;display:flex;flex-direction:column;">
+    <div class="modal-head" style="border-bottom:1px solid var(--border);padding:14px 22px;display:flex;justify-content:space-between;align-items:center;">
+      <div>
+        <div class="modal-title" style="font-size:16px;font-weight:800;">
+          📥 <span data-ar="استيراد كشف بنكي" data-en="Import Bank Statement">استيراد كشف بنكي</span>
+        </div>
+        <!-- Step indicator -->
+        <div id="stmt-step-indicator" style="display:flex;gap:8px;margin-top:8px;font-size:11px;">
+          <span class="stmt-step active" data-step="1">1 · <span data-ar="رفع" data-en="Upload">رفع</span></span>
+          <span style="color:var(--muted);">→</span>
+          <span class="stmt-step" data-step="2">2 · <span data-ar="معاينة" data-en="Preview">معاينة</span></span>
+          <span style="color:var(--muted);">→</span>
+          <span class="stmt-step" data-step="3">3 · <span data-ar="مطابقة" data-en="Match">مطابقة</span></span>
+          <span style="color:var(--muted);">→</span>
+          <span class="stmt-step" data-step="4">4 · <span data-ar="مراجعة" data-en="Review">مراجعة</span></span>
+        </div>
+      </div>
+      <button class="modal-close" onclick="closeStatementImportWizard()" style="background:transparent;border:none;font-size:22px;color:var(--muted);cursor:pointer;">×</button>
+    </div>
+
+    <div class="modal-body" id="stmt-modal-body" style="flex:1;overflow-y:auto;padding:20px;">
+      <!-- Filled dynamically per step -->
+    </div>
+
+    <div class="modal-foot" style="border-top:1px solid var(--border);padding:14px 22px;display:flex;justify-content:space-between;align-items:center;gap:10px;">
+      <button class="btn btn-ghost" id="stmt-back-btn" onclick="stmtWizardBack()" style="display:none;">← <span data-ar="رجوع" data-en="Back">رجوع</span></button>
+      <div style="flex:1;font-size:12px;color:var(--muted);" id="stmt-status-line"></div>
+      <button class="btn btn-primary" id="stmt-next-btn" onclick="stmtWizardNext()" disabled><span data-ar="التالي" data-en="Next">التالي</span> →</button>
+    </div>
+  </div>
+</div>
+
+<style>
+.stmt-step{padding:3px 10px;border-radius:10px;font-weight:700;background:var(--tint);color:var(--muted);}
+.stmt-step.active{background:var(--blue);color:#fff;}
+.stmt-step.done{background:#dcfce7;color:#166534;}
+.stmt-drop{border:2px dashed var(--border);border-radius:12px;padding:36px 20px;text-align:center;cursor:pointer;transition:all .15s;}
+.stmt-drop:hover,.stmt-drop.dragging{border-color:var(--blue);background:var(--tint);}
+.stmt-preview-tbl{width:100%;border-collapse:collapse;font-size:12px;}
+.stmt-preview-tbl th{background:var(--tint);padding:6px 8px;text-align:start;font-size:10px;font-weight:700;text-transform:uppercase;color:var(--muted);border-bottom:1px solid var(--border);}
+.stmt-preview-tbl td{padding:6px 8px;border-bottom:1px solid var(--tint);}
+.match-row{display:grid;grid-template-columns:1fr 80px 1fr;gap:12px;padding:10px;border:1px solid var(--border);border-radius:10px;margin-bottom:8px;align-items:center;}
+.match-row.confirmed{border-color:var(--green);background:#f0fdf4;}
+.match-row.suggested{border-color:var(--amber);background:#fffbeb;}
+.match-row.unmatched{border-color:var(--red);background:#fef2f2;}
+.match-score{text-align:center;font-family:'DM Mono',monospace;font-size:11px;font-weight:700;padding:6px 10px;border-radius:8px;}
+.match-score.high{background:#dcfce7;color:#166534;}
+.match-score.mid{background:#fef3c7;color:#78350f;}
+.match-score.low{background:#fee2e2;color:#991b1b;}
+.match-stmt-cell,.match-book-cell{font-size:12px;line-height:1.5;}
+.match-stmt-cell .date,.match-book-cell .date{color:var(--muted);font-size:11px;font-family:'DM Mono',monospace;}
+.match-stmt-cell .amt,.match-book-cell .amt{font-family:'DM Mono',monospace;font-weight:700;}
+.match-stmt-cell .desc,.match-book-cell .desc{color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.match-actions{display:flex;gap:4px;justify-content:flex-end;margin-top:4px;}
+.match-action-btn{padding:3px 8px;font-size:11px;border-radius:6px;border:none;cursor:pointer;font-family:inherit;font-weight:600;}
+.match-action-btn.accept{background:var(--green);color:#fff;}
+.match-action-btn.reject{background:#fee2e2;color:#991b1b;}
+.match-action-btn.manual{background:var(--tint);color:var(--ink);}
+@media (max-width:680px){
+  .match-row{grid-template-columns:1fr;}
+}
+</style>
 
 
 <script>
@@ -3763,16 +3864,24 @@ function switchTab(name){
     }
   }
 
-  /* Round 4j: reconciliation needs banks data + reconciliations history */
+  /* Round 4j: reconciliation needs banks data + reconciliations history.
+     Round 4q: also loads recent statement imports list. */
   if(name === 'reconciliation'){
     if(!window._banksLoaded){
       window._banksLoaded = true;
-      Promise.all([loadBankAccounts(), loadBankTransactions(), loadReconciliations()]).then(renderReconciliation);
+      Promise.all([loadBankAccounts(), loadBankTransactions(), loadReconciliations()]).then(() => {
+        renderReconciliation();
+        loadStatementImports();
+      });
     } else if(!window._reconLoaded){
       window._reconLoaded = true;
-      loadReconciliations().then(renderReconciliation);
+      loadReconciliations().then(() => {
+        renderReconciliation();
+        loadStatementImports();
+      });
     } else {
       renderReconciliation();
+      loadStatementImports();
     }
   }
 }
@@ -5908,6 +6017,978 @@ document.addEventListener('keydown', e => {
     closeAllMenus();
   }
 });
+
+/* ═══════════════════════════════════════════════════════════════════
+   ROUND 4Q — BANK STATEMENT IMPORT WIZARD
+   Steps: Upload → Preview → Match → Review → Done
+   Supports: SNB, Al Rajhi, Riyad, ANB, Alinma CSV/XLSX formats + generic.
+═══════════════════════════════════════════════════════════════════ */
+
+const STMT_BANK_PRESETS = {
+  snb_csv: {
+    label_ar: 'البنك الأهلي السعودي (SNB)',
+    label_en: 'Saudi National Bank (SNB)',
+    /* Header keywords (lowercase) — used to detect format from first non-empty row */
+    detect: ['transaction date','تاريخ المعاملة','بيان','debit','credit'],
+    /* Column mappings — case-insensitive substring match on header */
+    cols: {
+      date: ['transaction date','date','تاريخ المعاملة','تاريخ'],
+      posting_date: ['posting date','تاريخ القيد'],
+      description: ['narration','description','بيان','تفاصيل'],
+      reference: ['reference','مرجع'],
+      debit: ['debit','مدين'],
+      credit: ['credit','دائن'],
+      amount: ['amount','المبلغ'],
+      balance: ['balance','الرصيد']
+    }
+  },
+  rajhi_csv: {
+    label_ar: 'مصرف الراجحي',
+    label_en: 'Al Rajhi Bank',
+    detect: ['transaction date','الراجحي','rajhi','tx date'],
+    cols: {
+      date: ['transaction date','tx date','date','التاريخ'],
+      description: ['description','remarks','الوصف','البيان'],
+      reference: ['reference','مرجع'],
+      debit: ['debit','withdrawal','مدين','سحب'],
+      credit: ['credit','deposit','دائن','إيداع'],
+      amount: ['amount','المبلغ'],
+      balance: ['balance','الرصيد']
+    }
+  },
+  riyad_csv: {
+    label_ar: 'بنك الرياض',
+    label_en: 'Riyad Bank',
+    detect: ['riyad','transaction details','تفاصيل المعاملة'],
+    cols: {
+      date: ['date','تاريخ','transaction date'],
+      description: ['transaction details','details','تفاصيل','بيان'],
+      reference: ['reference','مرجع','ref'],
+      debit: ['debit','مدين'],
+      credit: ['credit','دائن'],
+      amount: ['amount','المبلغ'],
+      balance: ['balance','الرصيد']
+    }
+  },
+  anb_csv: {
+    label_ar: 'البنك العربي الوطني (ANB)',
+    label_en: 'Arab National Bank (ANB)',
+    detect: ['anb','arab national'],
+    cols: {
+      date: ['date','transaction date','تاريخ'],
+      description: ['description','particulars','بيان'],
+      reference: ['reference','مرجع'],
+      debit: ['debit','مدين'],
+      credit: ['credit','دائن'],
+      amount: ['amount','المبلغ'],
+      balance: ['balance','الرصيد']
+    }
+  },
+  alinma_csv: {
+    label_ar: 'مصرف الإنماء',
+    label_en: 'Alinma Bank',
+    detect: ['alinma','الإنماء'],
+    cols: {
+      date: ['date','transaction date','التاريخ','تاريخ'],
+      description: ['description','narration','البيان','بيان'],
+      reference: ['reference','مرجع','ref'],
+      debit: ['debit','مدين'],
+      credit: ['credit','دائن'],
+      amount: ['amount','المبلغ'],
+      balance: ['balance','الرصيد']
+    }
+  },
+  generic_csv: {
+    label_ar: 'تنسيق عام',
+    label_en: 'Generic CSV',
+    detect: [],
+    cols: {
+      date: ['date','تاريخ'],
+      description: ['description','desc','narration','بيان','وصف'],
+      reference: ['reference','ref','مرجع'],
+      debit: ['debit','withdrawal','مدين','سحب'],
+      credit: ['credit','deposit','دائن','إيداع'],
+      amount: ['amount','المبلغ'],
+      balance: ['balance','الرصيد']
+    }
+  }
+};
+
+/* Wizard state */
+let _stmtStep = 1;
+let _stmtFile = null;
+let _stmtFormat = null;          /* 'snb_csv' | etc. */
+let _stmtAccount = null;
+let _stmtRawHeaders = [];
+let _stmtRawRows = [];
+let _stmtColMap = {};            /* {date: 'colName', description: 'colName', ...} */
+let _stmtParsedLines = [];       /* [{tx_date, description, amount, ...}] */
+let _stmtMatches = [];           /* per-line match results */
+let _stmtBookTxs = [];           /* candidate bank_transactions to match against */
+
+/* ──────────────────────────────────────────
+   Entry points
+   ────────────────────────────────────────── */
+function openStatementImportWizard(){
+  _stmtStep = 1; _stmtFile = null; _stmtFormat = null; _stmtAccount = null;
+  _stmtRawHeaders = []; _stmtRawRows = []; _stmtColMap = {};
+  _stmtParsedLines = []; _stmtMatches = []; _stmtBookTxs = [];
+  renderStmtStep();
+  document.getElementById('stmt-import-modal').classList.add('show');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeStatementImportWizard(){
+  if(_stmtStep > 1 && _stmtStep < 5){
+    if(!confirm(currentLang==='ar'?'إغلاق المعالج؟ سيتم فقد التقدم.':'Close wizard? Progress will be lost.')) return;
+  }
+  document.getElementById('stmt-import-modal').classList.remove('show');
+  document.body.style.overflow = '';
+}
+
+function renderStmtStep(){
+  /* Update step indicator */
+  document.querySelectorAll('.stmt-step').forEach(el => {
+    const s = parseInt(el.dataset.step,10);
+    el.classList.toggle('active', s === _stmtStep);
+    el.classList.toggle('done', s < _stmtStep);
+  });
+  /* Back button visibility */
+  document.getElementById('stmt-back-btn').style.display = (_stmtStep > 1 && _stmtStep < 5) ? '' : 'none';
+  /* Body */
+  if(_stmtStep === 1)      renderStmtStep1Upload();
+  else if(_stmtStep === 2) renderStmtStep2Preview();
+  else if(_stmtStep === 3) renderStmtStep3Match();
+  else if(_stmtStep === 4) renderStmtStep4Review();
+  else if(_stmtStep === 5) renderStmtStep5Done();
+}
+
+function stmtWizardBack(){
+  if(_stmtStep > 1){ _stmtStep--; renderStmtStep(); }
+}
+function stmtWizardNext(){
+  /* Step-specific advance logic invoked from "Next" button */
+  if(_stmtStep === 1) stmtAdvanceFromUpload();
+  else if(_stmtStep === 2) stmtAdvanceFromPreview();
+  else if(_stmtStep === 3) stmtAdvanceFromMatch();
+  else if(_stmtStep === 4) stmtAdvanceFromReview();
+}
+
+/* ──────────────────────────────────────────
+   STEP 1 — Upload
+   ────────────────────────────────────────── */
+function renderStmtStep1Upload(){
+  const ar = currentLang === 'ar';
+  const body = document.getElementById('stmt-modal-body');
+
+  /* Account picker source: allBankAccounts loaded by finance.html init */
+  const accounts = (typeof allBankAccounts !== 'undefined' ? allBankAccounts : []).filter(a => a.is_active !== false);
+  const acctOptions = accounts.map(a =>
+    `<option value="${a.id}">${escHTML(a.account_name || a.bank_name || '—')} ${a.iban ? ' · ' + escHTML((a.iban||'').slice(-6)) : ''}</option>`
+  ).join('');
+
+  const presetOptions = Object.entries(STMT_BANK_PRESETS).map(([k, p]) =>
+    `<option value="${k}">${ar ? p.label_ar : p.label_en}</option>`
+  ).join('');
+
+  body.innerHTML = `
+    <div style="max-width:560px;margin:0 auto;">
+      <div class="field" style="margin-bottom:18px;">
+        <label class="field-label">
+          🏦 <span data-ar="الحساب البنكي" data-en="Bank Account">الحساب البنكي</span>
+          <span class="req">*</span>
+        </label>
+        <select id="stmt-account" onchange="stmtOnFieldChange()" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;background:#fff;">
+          <option value="">-- ${ar?'اختر الحساب':'Select account'} --</option>
+          ${acctOptions || `<option value="" disabled>${ar?'لا توجد حسابات بنكية — أنشئ حساباً أولاً':'No bank accounts — create one first'}</option>`}
+        </select>
+      </div>
+
+      <div class="field" style="margin-bottom:18px;">
+        <label class="field-label">
+          🏛 <span data-ar="تنسيق البنك" data-en="Bank Format">تنسيق البنك</span>
+          <span class="req">*</span>
+        </label>
+        <select id="stmt-format" onchange="stmtOnFieldChange()" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;background:#fff;">
+          <option value="">-- ${ar?'اختر التنسيق':'Select format'} --</option>
+          ${presetOptions}
+        </select>
+        <div class="field-hint" style="font-size:11px;color:var(--muted);margin-top:4px;" data-ar="إذا كان البنك غير مدرج، اختر 'تنسيق عام'" data-en="If your bank isn't listed, choose 'Generic CSV'">إذا كان البنك غير مدرج، اختر 'تنسيق عام'</div>
+      </div>
+
+      <div class="field">
+        <label class="field-label">
+          📄 <span data-ar="الملف" data-en="File">الملف</span>
+          <span class="req">*</span>
+        </label>
+        <div class="stmt-drop" id="stmt-drop" onclick="document.getElementById('stmt-file').click()">
+          <div style="font-size:36px;line-height:1;">📥</div>
+          <div style="font-weight:700;margin-top:8px;font-size:14px;" id="stmt-drop-title" data-ar="اسحب الملف هنا أو اضغط للاختيار" data-en="Drop file here or click to browse">اسحب الملف هنا أو اضغط للاختيار</div>
+          <div style="font-size:11px;color:var(--muted);margin-top:6px;">CSV, XLSX, XLS · ${ar?'أقصى حجم 5 ميجابايت':'max 5 MB'}</div>
+        </div>
+        <input type="file" id="stmt-file" accept=".csv,.xlsx,.xls,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-excel" style="display:none;" onchange="stmtOnFileChosen(event)">
+      </div>
+    </div>
+  `;
+
+  /* Drag & drop wiring */
+  const drop = document.getElementById('stmt-drop');
+  if(drop){
+    ['dragenter','dragover'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.add('dragging'); }));
+    ['dragleave','drop'].forEach(ev => drop.addEventListener(ev, e => { e.preventDefault(); drop.classList.remove('dragging'); }));
+    drop.addEventListener('drop', e => {
+      e.preventDefault();
+      if(e.dataTransfer?.files?.length){
+        document.getElementById('stmt-file').files = e.dataTransfer.files;
+        stmtOnFileChosen({target: {files: e.dataTransfer.files}});
+      }
+    });
+  }
+
+  document.getElementById('stmt-next-btn').disabled = true;
+  document.getElementById('stmt-status-line').textContent = '';
+  stmtOnFieldChange();
+}
+
+function stmtOnFileChosen(e){
+  const f = e.target.files?.[0];
+  if(!f) return;
+  if(f.size > 5*1024*1024){
+    notify(currentLang==='ar'?'الحجم يتجاوز 5 ميجابايت':'File exceeds 5 MB','error');
+    return;
+  }
+  _stmtFile = f;
+  document.getElementById('stmt-drop-title').textContent = '📎 ' + f.name + ' (' + (f.size/1024).toFixed(1) + ' KB)';
+  stmtOnFieldChange();
+}
+
+function stmtOnFieldChange(){
+  _stmtAccount = document.getElementById('stmt-account')?.value || null;
+  _stmtFormat = document.getElementById('stmt-format')?.value || null;
+  const ok = !!(_stmtAccount && _stmtFormat && _stmtFile);
+  document.getElementById('stmt-next-btn').disabled = !ok;
+}
+
+async function stmtAdvanceFromUpload(){
+  const ar = currentLang === 'ar';
+  const btn = document.getElementById('stmt-next-btn');
+  btn.disabled = true; btn.textContent = '⏳ ' + (ar?'جارٍ القراءة...':'Reading...');
+  try {
+    await stmtParseFile();
+    _stmtStep = 2;
+    renderStmtStep();
+  } catch(e){
+    console.error('[GL] stmt parse:', e);
+    notify((ar?'فشل قراءة الملف: ':'Parse failed: ') + (e.message||''),'error');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = '<span data-ar="التالي" data-en="Next">' + (ar?'التالي':'Next') + '</span> →';
+  }
+}
+
+/* ──────────────────────────────────────────
+   PARSER — CSV / XLSX → headers + rows
+   ────────────────────────────────────────── */
+async function stmtParseFile(){
+  const f = _stmtFile;
+  const ext = (f.name.split('.').pop() || '').toLowerCase();
+
+  if(ext === 'csv'){
+    const text = await f.text();
+    return stmtParseCSV(text);
+  } else if(ext === 'xlsx' || ext === 'xls'){
+    if(typeof XLSX === 'undefined') throw new Error('XLSX library not loaded');
+    const buf = await f.arrayBuffer();
+    const wb = XLSX.read(buf, {type: 'array'});
+    const ws = wb.Sheets[wb.SheetNames[0]];
+    const aoa = XLSX.utils.sheet_to_json(ws, {header: 1, raw: false, defval: ''});
+    return stmtConsumeAOA(aoa);
+  }
+  throw new Error('Unsupported file extension: ' + ext);
+}
+
+function stmtParseCSV(text){
+  /* Strip BOM */
+  if(text.charCodeAt(0) === 0xFEFF) text = text.slice(1);
+  const lines = text.split(/\r\n|\n|\r/).filter(l => l.length > 0);
+  /* Naive CSV parser — handles quoted commas */
+  const aoa = lines.map(line => stmtSplitCSVLine(line));
+  return stmtConsumeAOA(aoa);
+}
+
+function stmtSplitCSVLine(line){
+  const cells = [];
+  let cur = '', inQuote = false, i = 0;
+  while(i < line.length){
+    const ch = line[i];
+    if(inQuote){
+      if(ch === '"' && line[i+1] === '"'){ cur += '"'; i += 2; continue; }
+      if(ch === '"'){ inQuote = false; i++; continue; }
+      cur += ch; i++;
+    } else {
+      if(ch === '"' && cur === ''){ inQuote = true; i++; continue; }
+      if(ch === ','){ cells.push(cur); cur = ''; i++; continue; }
+      cur += ch; i++;
+    }
+  }
+  cells.push(cur);
+  return cells.map(c => c.trim());
+}
+
+function stmtConsumeAOA(aoa){
+  /* Find header row — usually first non-empty row with > 2 cells */
+  let headerIdx = 0;
+  for(let i = 0; i < Math.min(aoa.length, 10); i++){
+    const nonEmpty = aoa[i].filter(c => String(c||'').trim()).length;
+    if(nonEmpty >= 3){ headerIdx = i; break; }
+  }
+  _stmtRawHeaders = aoa[headerIdx].map(h => String(h||'').trim());
+  _stmtRawRows = aoa.slice(headerIdx + 1).filter(row => row.some(c => String(c||'').trim()));
+
+  /* Auto-map columns based on selected format preset */
+  const preset = STMT_BANK_PRESETS[_stmtFormat] || STMT_BANK_PRESETS.generic_csv;
+  _stmtColMap = {};
+  const headersLower = _stmtRawHeaders.map(h => h.toLowerCase());
+  Object.entries(preset.cols).forEach(([field, keywords]) => {
+    for(const kw of keywords){
+      const idx = headersLower.findIndex(h => h.includes(kw.toLowerCase()));
+      if(idx >= 0){ _stmtColMap[field] = _stmtRawHeaders[idx]; break; }
+    }
+  });
+  /* Sanity: at least date + (amount or debit/credit) + description required */
+  if(!_stmtColMap.date){ throw new Error('Could not detect date column'); }
+  if(!_stmtColMap.amount && !_stmtColMap.debit && !_stmtColMap.credit){
+    throw new Error('Could not detect amount column');
+  }
+}
+
+/* ──────────────────────────────────────────
+   STEP 2 — Preview parsed rows + adjust mapping
+   ────────────────────────────────────────── */
+function renderStmtStep2Preview(){
+  const ar = currentLang === 'ar';
+  const body = document.getElementById('stmt-modal-body');
+
+  /* Build parsed lines preview */
+  _stmtParsedLines = _stmtRawRows.map((row, i) => stmtMapRowToLine(row, i)).filter(l => l !== null);
+
+  const mappingControls = ['date','description','reference','debit','credit','amount','balance'].map(field => {
+    const current = _stmtColMap[field] || '';
+    const opts = ['<option value="">-- ' + (ar?'لا شيء':'none') + ' --</option>'].concat(
+      _stmtRawHeaders.map(h => `<option value="${escAttr(h)}"${h===current?' selected':''}>${escHTML(h)}</option>`)
+    ).join('');
+    const labels = {date:'التاريخ',description:'الوصف',reference:'المرجع',debit:'مدين',credit:'دائن',amount:'المبلغ',balance:'الرصيد'};
+    const enLabels = {date:'Date',description:'Description',reference:'Reference',debit:'Debit',credit:'Credit',amount:'Amount',balance:'Balance'};
+    return `<div style="display:flex;align-items:center;gap:8px;font-size:12px;">
+      <label style="min-width:90px;font-weight:600;">${ar?labels[field]:enLabels[field]}:</label>
+      <select onchange="stmtRemap('${field}', this.value)" style="flex:1;padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:inherit;font-size:12px;">${opts}</select>
+    </div>`;
+  }).join('');
+
+  const previewRowsHtml = _stmtParsedLines.slice(0, 10).map(l => `
+    <tr>
+      <td style="font-family:'DM Mono',monospace;font-size:11px;">${l.tx_date||'—'}</td>
+      <td style="overflow:hidden;text-overflow:ellipsis;max-width:280px;white-space:nowrap;">${escHTML(l.description||'—')}</td>
+      <td style="font-family:'DM Mono',monospace;color:var(--muted);font-size:11px;">${escHTML(l.reference||'')}</td>
+      <td class="num" style="font-family:'DM Mono',monospace;color:${l.amount<0?'var(--red)':'var(--green)'};font-weight:700;">${(l.amount||0).toFixed(2)}</td>
+    </tr>
+  `).join('');
+
+  body.innerHTML = `
+    <div style="display:grid;grid-template-columns:300px 1fr;gap:20px;">
+      <div>
+        <h4 style="font-size:13px;font-weight:700;margin:0 0 10px;color:var(--navy);">🔧 <span data-ar="ربط الأعمدة" data-en="Column Mapping">ربط الأعمدة</span></h4>
+        <div style="display:flex;flex-direction:column;gap:8px;">
+          ${mappingControls}
+        </div>
+        <div style="margin-top:12px;padding:10px;background:var(--tint);border-radius:8px;font-size:11px;color:var(--ink);line-height:1.5;">
+          <strong>${ar?'ملاحظة':'Note'}:</strong> ${ar?'إذا وُجد عمود "المبلغ" وحده، فالأرقام السالبة = خصم. إذا وُجد عمودا "مدين/دائن"، يتم احتسابهما تلقائياً.':'If only "Amount" column is mapped, negatives = debits. If both "Debit/Credit" columns are mapped, they are combined automatically.'}
+        </div>
+      </div>
+
+      <div>
+        <h4 style="font-size:13px;font-weight:700;margin:0 0 10px;color:var(--navy);display:flex;justify-content:space-between;align-items:center;">
+          <span>📋 <span data-ar="معاينة" data-en="Preview">معاينة</span></span>
+          <span style="font-weight:400;font-size:11px;color:var(--muted);">${_stmtParsedLines.length} ${ar?'صف':'rows'}</span>
+        </h4>
+        <div style="border:1px solid var(--border);border-radius:8px;overflow:hidden;">
+          <table class="stmt-preview-tbl">
+            <thead>
+              <tr>
+                <th>${ar?'التاريخ':'Date'}</th>
+                <th>${ar?'الوصف':'Description'}</th>
+                <th>${ar?'مرجع':'Ref'}</th>
+                <th class="num">${ar?'المبلغ':'Amount'}</th>
+              </tr>
+            </thead>
+            <tbody>${previewRowsHtml || `<tr><td colspan="4" style="text-align:center;color:var(--muted);padding:20px;">${ar?'لا توجد صفوف صالحة':'No valid rows'}</td></tr>`}</tbody>
+          </table>
+        </div>
+        ${_stmtParsedLines.length > 10 ? `<div style="font-size:11px;color:var(--muted);margin-top:6px;text-align:center;">${ar?`عرض 10 من ${_stmtParsedLines.length}`:`Showing 10 of ${_stmtParsedLines.length}`}</div>` : ''}
+      </div>
+    </div>
+  `;
+
+  document.getElementById('stmt-next-btn').disabled = _stmtParsedLines.length === 0;
+  document.getElementById('stmt-next-btn').innerHTML = '<span data-ar="مطابقة" data-en="Match">' + (ar?'مطابقة':'Match') + '</span> →';
+  document.getElementById('stmt-status-line').textContent = _stmtParsedLines.length + ' ' + (ar?'صف صالح':'valid rows');
+}
+
+function stmtRemap(field, value){
+  _stmtColMap[field] = value || null;
+  /* Re-parse lines and re-render */
+  renderStmtStep2Preview();
+}
+
+function stmtMapRowToLine(row, idx){
+  const getCell = (field) => {
+    const col = _stmtColMap[field];
+    if(!col) return null;
+    const colIdx = _stmtRawHeaders.indexOf(col);
+    if(colIdx < 0) return null;
+    return String(row[colIdx] || '').trim();
+  };
+
+  /* Date */
+  const dateRaw = getCell('date');
+  if(!dateRaw) return null;
+  const tx_date = stmtParseDate(dateRaw);
+  if(!tx_date) return null;
+
+  /* Amount */
+  let amount = 0;
+  const amountRaw = getCell('amount');
+  const debitRaw = getCell('debit');
+  const creditRaw = getCell('credit');
+  if(amountRaw){
+    amount = stmtParseAmount(amountRaw);
+  } else if(debitRaw || creditRaw){
+    const d = stmtParseAmount(debitRaw)||0;
+    const c = stmtParseAmount(creditRaw)||0;
+    amount = c - d;   /* credit positive, debit negative */
+  } else {
+    return null;
+  }
+  if(amount === 0 || isNaN(amount)) return null;
+
+  const description = getCell('description') || '';
+  const reference = getCell('reference') || '';
+  const balance = stmtParseAmount(getCell('balance')||'');
+
+  return {
+    line_order: idx,
+    tx_date,
+    description,
+    description_clean: stmtNormalize(description),
+    reference,
+    amount,
+    running_balance: balance || null,
+    raw_row: row
+  };
+}
+
+function stmtParseDate(s){
+  if(!s) return null;
+  s = String(s).trim();
+  /* Try ISO YYYY-MM-DD */
+  if(/^\d{4}-\d{2}-\d{2}/.test(s)) return s.slice(0,10);
+  /* DD/MM/YYYY or DD-MM-YYYY */
+  let m = s.match(/^(\d{1,2})[\/\-\.](\d{1,2})[\/\-\.](\d{2,4})/);
+  if(m){
+    let [_, d, mo, y] = m;
+    if(y.length === 2) y = '20' + y;
+    return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  }
+  /* Try MM/DD/YYYY US format as fallback */
+  m = s.match(/^(\d{4})[\/\-\.](\d{1,2})[\/\-\.](\d{1,2})/);
+  if(m){
+    let [_, y, mo, d] = m;
+    return `${y}-${String(mo).padStart(2,'0')}-${String(d).padStart(2,'0')}`;
+  }
+  /* Try Date.parse fallback */
+  const parsed = new Date(s);
+  if(!isNaN(parsed.getTime())) return parsed.toISOString().slice(0,10);
+  return null;
+}
+
+function stmtParseAmount(s){
+  if(s == null || s === '') return 0;
+  s = String(s).trim();
+  if(!s) return 0;
+  /* Strip currency symbols, spaces, thousand separators */
+  let cleaned = s.replace(/[^\d.\-(),]/g,'');
+  /* Parentheses = negative */
+  let neg = false;
+  if(cleaned.startsWith('(') && cleaned.endsWith(')')){
+    neg = true;
+    cleaned = cleaned.slice(1,-1);
+  }
+  /* DR/CR suffix tested separately */
+  if(/dr/i.test(s) && !/cr/i.test(s)) neg = true;
+  /* Remove thousand separators */
+  cleaned = cleaned.replace(/,/g,'');
+  const n = parseFloat(cleaned);
+  if(isNaN(n)) return 0;
+  return neg ? -Math.abs(n) : n;
+}
+
+function stmtNormalize(s){
+  return String(s||'').toLowerCase()
+    .replace(/[^\w\u0600-\u06FF\s]/g,' ')   /* keep alphanum + arabic + space */
+    .replace(/\s+/g,' ')
+    .trim();
+}
+
+function stmtAdvanceFromPreview(){
+  if(_stmtParsedLines.length === 0){
+    notify(currentLang==='ar'?'لا توجد صفوف صالحة':'No valid rows','error');
+    return;
+  }
+  _stmtStep = 3;
+  renderStmtStep();
+}
+
+/* ──────────────────────────────────────────
+   STEP 3 — Match against bank_transactions
+   ────────────────────────────────────────── */
+async function renderStmtStep3Match(){
+  const ar = currentLang === 'ar';
+  const body = document.getElementById('stmt-modal-body');
+  body.innerHTML = `<div style="text-align:center;padding:60px 20px;">
+    <div style="font-size:36px;animation:spin 1s linear infinite;">⚙️</div>
+    <div style="font-size:14px;margin-top:14px;color:var(--ink);">${ar?'جارٍ المطابقة...':'Matching transactions...'}</div>
+    <div style="font-size:12px;color:var(--muted);margin-top:6px;">${ar?'مقارنة مع المعاملات المسجلة':'Comparing with recorded transactions'}</div>
+  </div>`;
+  document.getElementById('stmt-next-btn').disabled = true;
+
+  /* Load candidate bank_transactions for this account
+     Window: 60 days before earliest stmt date, 30 days after latest stmt date */
+  const dates = _stmtParsedLines.map(l => l.tx_date).sort();
+  const minD = dates[0];
+  const maxD = dates[dates.length-1];
+  const winFrom = stmtAddDays(minD, -60);
+  const winTo = stmtAddDays(maxD, 30);
+
+  const {data: txs, error} = await sb.from('bank_transactions')
+    .select('id, transaction_date, description, amount, reference_number, is_reconciled, matched_statement_line_id')
+    .eq('business_id', currentBiz.id)
+    .eq('account_id', _stmtAccount)
+    .gte('transaction_date', winFrom)
+    .lte('transaction_date', winTo)
+    .order('transaction_date');
+  if(error){
+    console.error('[GL] match load:', error);
+    notify((ar?'فشل التحميل: ':'Load failed: ') + error.message,'error');
+    return;
+  }
+  _stmtBookTxs = txs || [];
+
+  /* Score each statement line against all candidates */
+  _stmtMatches = _stmtParsedLines.map(line => stmtFindBestMatch(line));
+
+  setTimeout(() => renderStmtStep3Results(), 300);  /* small delay so spinner shows */
+}
+
+function renderStmtStep3Results(){
+  const ar = currentLang === 'ar';
+  const body = document.getElementById('stmt-modal-body');
+
+  const confirmed = _stmtMatches.filter(m => m.score >= 90).length;
+  const suggested = _stmtMatches.filter(m => m.score >= 60 && m.score < 90).length;
+  const unmatched = _stmtMatches.filter(m => m.score < 60).length;
+
+  body.innerHTML = `
+    <div style="text-align:center;padding:20px;">
+      <div style="font-size:36px;">📊</div>
+      <h3 style="font-size:18px;margin:12px 0 4px;color:var(--navy);">${ar?'نتائج المطابقة':'Match Results'}</h3>
+      <div style="font-size:12px;color:var(--muted);">${ar?'تمت مقارنة':'Compared'} ${_stmtParsedLines.length} ${ar?'صف من الكشف مع':'statement rows against'} ${_stmtBookTxs.length} ${ar?'معاملة في الدفاتر':'book transactions'}</div>
+    </div>
+
+    <div style="display:grid;grid-template-columns:repeat(3, 1fr);gap:12px;margin-top:20px;">
+      <div style="background:#dcfce7;border:1px solid #86efac;border-radius:10px;padding:14px;text-align:center;">
+        <div style="font-size:24px;font-weight:800;color:#166534;font-family:'DM Mono',monospace;">${confirmed}</div>
+        <div style="font-size:12px;color:#166534;font-weight:700;margin-top:4px;">✅ ${ar?'مؤكدة (90%+)':'Confirmed (90%+)'}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px;">${ar?'مطابقة عالية الثقة':'high confidence'}</div>
+      </div>
+      <div style="background:#fef3c7;border:1px solid #fde047;border-radius:10px;padding:14px;text-align:center;">
+        <div style="font-size:24px;font-weight:800;color:#78350f;font-family:'DM Mono',monospace;">${suggested}</div>
+        <div style="font-size:12px;color:#78350f;font-weight:700;margin-top:4px;">❓ ${ar?'مقترحة (60-89%)':'Suggested (60-89%)'}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px;">${ar?'تحتاج مراجعة':'needs review'}</div>
+      </div>
+      <div style="background:#fee2e2;border:1px solid #fca5a5;border-radius:10px;padding:14px;text-align:center;">
+        <div style="font-size:24px;font-weight:800;color:#991b1b;font-family:'DM Mono',monospace;">${unmatched}</div>
+        <div style="font-size:12px;color:#991b1b;font-weight:700;margin-top:4px;">⚠️ ${ar?'بدون مطابقة':'Unmatched'}</div>
+        <div style="font-size:10px;color:var(--muted);margin-top:2px;">${ar?'لا توجد معاملة مقابلة':'no candidate found'}</div>
+      </div>
+    </div>
+
+    <div style="margin-top:18px;padding:14px;background:var(--tint);border:1px solid var(--light);border-radius:10px;font-size:13px;color:var(--ink);line-height:1.7;">
+      <strong>${ar?'الخطوة التالية':'Next step'}:</strong> ${ar?'راجع كل مطابقة وقبلها أو ارفضها. سيتم تعليم المعاملات المؤكدة كمطابقة في النظام.':'Review each match, accept or reject. Confirmed matches will be flagged as reconciled in the system.'}
+    </div>
+  `;
+
+  document.getElementById('stmt-next-btn').disabled = false;
+  document.getElementById('stmt-next-btn').innerHTML = '<span data-ar="مراجعة" data-en="Review">' + (ar?'مراجعة':'Review') + '</span> →';
+  document.getElementById('stmt-status-line').textContent = '';
+}
+
+function stmtAddDays(dateStr, days){
+  const d = new Date(dateStr);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0,10);
+}
+
+/* Match scoring algorithm:
+   - Amount match: 50 points if exact (within 0.01), 0 otherwise
+   - Date proximity: 30 points if same day, sliding down 3pts/day, 0 after 10 days
+   - Reference contains: 20 points if any token from book reference appears in stmt description
+   Max score = 100. */
+function stmtFindBestMatch(line){
+  const result = { line, candidate: null, score: 0, reason: 'unmatched' };
+  const lineAmt = parseFloat(line.amount);
+  const lineDate = new Date(line.tx_date);
+  const lineDesc = stmtNormalize(line.description);
+
+  for(const tx of _stmtBookTxs){
+    /* Skip already-matched to another line */
+    if(tx.matched_statement_line_id && tx.matched_statement_line_id !== line.id) continue;
+
+    const txAmt = parseFloat(tx.amount);
+    const txDate = new Date(tx.transaction_date);
+
+    /* Amount must match within 0.01 — sign must agree */
+    if(Math.abs(txAmt - lineAmt) > 0.01) continue;
+
+    /* Date proximity */
+    const diffDays = Math.abs((lineDate - txDate) / (24*60*60*1000));
+    if(diffDays > 10) continue;
+
+    let score = 0;
+    score += 50;                              /* amount match */
+    score += Math.max(0, 30 - diffDays * 3);  /* date proximity */
+
+    /* Reference match — check tx reference + description tokens in stmt description */
+    const refTokens = [
+      tx.reference_number || '',
+      tx.description || ''
+    ].join(' ').toLowerCase().split(/\W+/).filter(t => t.length >= 4);
+    let refMatch = false;
+    for(const tok of refTokens){
+      if(lineDesc.includes(tok)){ refMatch = true; break; }
+    }
+    if(refMatch) score += 20;
+
+    score = Math.round(score);
+    if(score > result.score){
+      result.candidate = tx;
+      result.score = score;
+      if(score >= 90 && refMatch) result.reason = 'reference_match';
+      else if(score >= 90) result.reason = 'exact_amount_date';
+      else if(score >= 60) result.reason = 'fuzzy_amount_date';
+      else result.reason = 'weak';
+    }
+  }
+
+  return result;
+}
+
+function stmtAdvanceFromMatch(){
+  /* Auto-confirm score >= 90, suggest 60-89, leave others unmatched */
+  _stmtMatches.forEach(m => {
+    if(m.score >= 90) m.status = 'confirmed';
+    else if(m.score >= 60) m.status = 'suggested';
+    else m.status = 'unmatched';
+  });
+  _stmtStep = 4;
+  renderStmtStep();
+}
+
+/* ──────────────────────────────────────────
+   STEP 4 — Review match results
+   ────────────────────────────────────────── */
+function renderStmtStep4Review(){
+  const ar = currentLang === 'ar';
+  const body = document.getElementById('stmt-modal-body');
+
+  body.innerHTML = `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:14px;">
+      <button class="btn btn-secondary btn-sm stmt-review-pill active" data-filter="all" onclick="stmtFilterReview('all')">${ar?'الكل':'All'} <span class="count-badge"></span></button>
+      <button class="btn btn-secondary btn-sm stmt-review-pill" data-filter="confirmed" onclick="stmtFilterReview('confirmed')">✅ ${ar?'مؤكدة':'Confirmed'}</button>
+      <button class="btn btn-secondary btn-sm stmt-review-pill" data-filter="suggested" onclick="stmtFilterReview('suggested')">❓ ${ar?'مقترحة':'Suggested'}</button>
+      <button class="btn btn-secondary btn-sm stmt-review-pill" data-filter="unmatched" onclick="stmtFilterReview('unmatched')">⚠️ ${ar?'بدون مطابقة':'Unmatched'}</button>
+    </div>
+    <div id="stmt-review-list"></div>
+  `;
+
+  /* Default filter: all */
+  stmtFilterReview('all');
+
+  document.getElementById('stmt-next-btn').disabled = false;
+  document.getElementById('stmt-next-btn').innerHTML = '💾 <span data-ar="حفظ الاستيراد" data-en="Save Import">حفظ الاستيراد</span>';
+  document.getElementById('stmt-status-line').textContent = '';
+}
+
+let _stmtReviewFilter = 'all';
+function stmtFilterReview(f){
+  _stmtReviewFilter = f;
+  document.querySelectorAll('.stmt-review-pill').forEach(el => {
+    el.classList.toggle('active', el.dataset.filter === f);
+  });
+  stmtRenderReviewList();
+}
+
+function stmtRenderReviewList(){
+  const ar = currentLang === 'ar';
+  const wrap = document.getElementById('stmt-review-list');
+  let list = _stmtMatches;
+  if(_stmtReviewFilter !== 'all') list = list.filter(m => m.status === _stmtReviewFilter);
+
+  if(list.length === 0){
+    wrap.innerHTML = `<div style="text-align:center;color:var(--muted);padding:40px 20px;font-size:13px;">${ar?'لا توجد عناصر':'No items'}</div>`;
+    return;
+  }
+
+  wrap.innerHTML = list.map((m, idx) => {
+    const realIdx = _stmtMatches.indexOf(m);
+    const scoreClass = m.score >= 90 ? 'high' : (m.score >= 60 ? 'mid' : 'low');
+    const statusClass = m.status;
+    const cand = m.candidate;
+    const candHtml = cand
+      ? `<div class="match-book-cell">
+          <div class="date">${cand.transaction_date}</div>
+          <div class="desc" title="${escAttr(cand.description||'')}">${escHTML((cand.description||'—').slice(0,60))}</div>
+          <div class="amt" style="color:${parseFloat(cand.amount)<0?'var(--red)':'var(--green)'};">${parseFloat(cand.amount).toFixed(2)}</div>
+        </div>`
+      : `<div class="match-book-cell" style="color:var(--muted);font-style:italic;">${ar?'لم يتم العثور على معاملة':'No candidate found'}</div>`;
+
+    const actionBtns = m.status === 'confirmed'
+      ? `<button class="match-action-btn reject" onclick="stmtRejectMatch(${realIdx})">↶ ${ar?'تراجع':'Unconfirm'}</button>`
+      : (m.status === 'suggested'
+        ? `<button class="match-action-btn accept" onclick="stmtAcceptMatch(${realIdx})">✅ ${ar?'قبول':'Accept'}</button>
+           <button class="match-action-btn reject" onclick="stmtRejectMatch(${realIdx})">✗ ${ar?'رفض':'Reject'}</button>`
+        : `<button class="match-action-btn manual" onclick="stmtManualMatch(${realIdx})">🔗 ${ar?'مطابقة يدوية':'Match manually'}</button>`);
+
+    return `<div class="match-row ${statusClass}">
+      <div class="match-stmt-cell">
+        <div class="date">${m.line.tx_date}</div>
+        <div class="desc" title="${escAttr(m.line.description||'')}">${escHTML((m.line.description||'—').slice(0,60))}</div>
+        <div class="amt" style="color:${m.line.amount<0?'var(--red)':'var(--green)'};">${m.line.amount.toFixed(2)}</div>
+        ${m.line.reference ? `<div style="font-size:10px;color:var(--muted);font-family:'DM Mono',monospace;">${escHTML(m.line.reference)}</div>` : ''}
+      </div>
+      <div style="text-align:center;">
+        <div class="match-score ${scoreClass}">${m.score}%</div>
+        <div class="match-actions">${actionBtns}</div>
+      </div>
+      ${candHtml}
+    </div>`;
+  }).join('');
+}
+
+function stmtAcceptMatch(idx){
+  _stmtMatches[idx].status = 'confirmed';
+  stmtRenderReviewList();
+}
+function stmtRejectMatch(idx){
+  _stmtMatches[idx].status = 'rejected';
+  _stmtMatches[idx].candidate = null;
+  stmtRenderReviewList();
+}
+function stmtManualMatch(idx){
+  const ar = currentLang === 'ar';
+  const line = _stmtMatches[idx].line;
+  /* Build a list of unmatched-by-this-line book txs near the date */
+  const candidates = _stmtBookTxs.filter(tx => {
+    if(tx.matched_statement_line_id) return false;
+    const diff = Math.abs(new Date(tx.transaction_date) - new Date(line.tx_date)) / (24*60*60*1000);
+    return diff <= 30;  /* wider window for manual */
+  });
+  if(candidates.length === 0){
+    notify(ar?'لا توجد معاملات مرشحة قريبة من هذا التاريخ':'No candidates near this date','error');
+    return;
+  }
+  const choices = candidates.map((tx,i) =>
+    `${i+1}. ${tx.transaction_date} · ${parseFloat(tx.amount).toFixed(2)} · ${(tx.description||'').slice(0,30)}`
+  ).join('\n');
+  const pick = prompt((ar?'اختر معاملة لمطابقتها:\n\n':'Pick a transaction:\n\n') + choices + '\n\n' + (ar?'أدخل الرقم:':'Enter number:'),'1');
+  if(!pick) return;
+  const i = parseInt(pick,10) - 1;
+  if(isNaN(i) || i < 0 || i >= candidates.length){
+    notify(ar?'اختيار غير صحيح':'Invalid choice','error');
+    return;
+  }
+  _stmtMatches[idx].candidate = candidates[i];
+  _stmtMatches[idx].status = 'confirmed';
+  _stmtMatches[idx].reason = 'manual';
+  _stmtMatches[idx].score = 100;
+  stmtRenderReviewList();
+}
+
+async function stmtAdvanceFromReview(){
+  const ar = currentLang === 'ar';
+  const btn = document.getElementById('stmt-next-btn');
+  btn.disabled = true; btn.innerHTML = '⏳ ' + (ar?'جارٍ الحفظ...':'Saving...');
+
+  try {
+    await stmtSaveImport();
+    _stmtStep = 5;
+    renderStmtStep();
+  } catch(e){
+    console.error('[GL] save import:', e);
+    notify((ar?'فشل الحفظ: ':'Save failed: ') + (e.message||''),'error');
+    btn.disabled = false;
+    btn.innerHTML = '💾 ' + (ar?'حفظ الاستيراد':'Save Import');
+  }
+}
+
+async function stmtSaveImport(){
+  /* 1. Insert bank_statement_imports header */
+  const totalLines = _stmtParsedLines.length;
+  const confirmedCount = _stmtMatches.filter(m => m.status === 'confirmed').length;
+  const unmatchedCount = totalLines - confirmedCount;
+  const dates = _stmtParsedLines.map(l => l.tx_date).sort();
+
+  const {data: importHeader, error: hErr} = await sb.from('bank_statement_imports').insert({
+    business_id: currentBiz.id,
+    user_id: currentUser.id,
+    account_id: _stmtAccount,
+    file_name: _stmtFile.name,
+    file_size_bytes: _stmtFile.size,
+    source_format: _stmtFormat,
+    period_start: dates[0] || null,
+    period_end: dates[dates.length-1] || null,
+    total_lines: totalLines,
+    matched_lines: confirmedCount,
+    unmatched_lines: unmatchedCount,
+    status: 'completed'
+  }).select().single();
+  if(hErr) throw hErr;
+
+  /* 2. Insert all statement lines */
+  const lineRows = _stmtMatches.map((m, i) => ({
+    import_id: importHeader.id,
+    business_id: currentBiz.id,
+    tx_date: m.line.tx_date,
+    description: m.line.description || null,
+    description_clean: m.line.description_clean || null,
+    reference: m.line.reference || null,
+    amount: m.line.amount,
+    running_balance: m.line.running_balance || null,
+    raw_row: m.line.raw_row || null,
+    matched_tx_id: (m.status === 'confirmed' && m.candidate) ? m.candidate.id : null,
+    match_score: m.score,
+    match_reason: m.reason,
+    match_status: m.status,
+    line_order: i
+  }));
+  /* Insert in chunks of 100 to avoid payload limits */
+  for(let off = 0; off < lineRows.length; off += 100){
+    const chunk = lineRows.slice(off, off + 100);
+    const {error: lErr} = await sb.from('bank_statement_lines').insert(chunk);
+    if(lErr) throw lErr;
+  }
+
+  /* 3. Update matched bank_transactions to set is_reconciled + reverse link */
+  const confirmedMatches = _stmtMatches.filter(m => m.status === 'confirmed' && m.candidate);
+  /* We need the inserted statement_line IDs to set the reverse link.
+     Refetch the lines just inserted (cheap) to get IDs. */
+  if(confirmedMatches.length > 0){
+    const {data: insertedLines} = await sb.from('bank_statement_lines')
+      .select('id, line_order, matched_tx_id')
+      .eq('import_id', importHeader.id)
+      .not('matched_tx_id','is',null);
+
+    for(const ln of (insertedLines||[])){
+      if(!ln.matched_tx_id) continue;
+      await sb.from('bank_transactions').update({
+        is_reconciled: true,
+        matched_statement_line_id: ln.id,
+        reconciled_at: new Date().toISOString()
+      }).eq('id', ln.matched_tx_id);
+    }
+  }
+
+  return importHeader;
+}
+
+/* ──────────────────────────────────────────
+   STEP 5 — Done
+   ────────────────────────────────────────── */
+function renderStmtStep5Done(){
+  const ar = currentLang === 'ar';
+  const body = document.getElementById('stmt-modal-body');
+  const confirmed = _stmtMatches.filter(m => m.status === 'confirmed').length;
+  const unmatched = _stmtMatches.filter(m => m.status !== 'confirmed').length;
+  const total = _stmtMatches.length;
+
+  body.innerHTML = `
+    <div style="text-align:center;padding:40px 20px;">
+      <div style="font-size:64px;">✅</div>
+      <h2 style="font-size:22px;color:var(--green);margin:18px 0 8px;">${ar?'تم الاستيراد بنجاح':'Import Complete'}</h2>
+      <div style="font-size:14px;color:var(--ink);line-height:1.7;max-width:480px;margin:0 auto;">
+        ${ar?'تم استيراد':'Imported'} <strong style="font-family:'DM Mono',monospace;">${total}</strong> ${ar?'صف من الكشف. تم تأكيد':'rows. Confirmed'} <strong style="font-family:'DM Mono',monospace;color:var(--green);">${confirmed}</strong> ${ar?'مطابقة وتعليمها كمسوّاة. تبقى':'matches and marked as reconciled.'} <strong style="font-family:'DM Mono',monospace;color:var(--amber);">${unmatched}</strong> ${ar?'صف بدون مطابقة، يمكنك مراجعتها لاحقاً.':'rows unmatched — you can review them later.'}
+      </div>
+    </div>
+  `;
+
+  document.getElementById('stmt-back-btn').style.display = 'none';
+  document.getElementById('stmt-next-btn').innerHTML = '✓ ' + (ar?'تم':'Done');
+  document.getElementById('stmt-next-btn').onclick = () => {
+    closeStatementImportWizard();
+    /* Refresh reconciliation views */
+    if(typeof loadBankTransactions === 'function') loadBankTransactions();
+    if(typeof loadReconciliations === 'function') loadReconciliations();
+    if(typeof renderReconciliation === 'function') renderReconciliation();
+    if(typeof loadStatementImports === 'function') loadStatementImports();
+  };
+  document.getElementById('stmt-status-line').textContent = '';
+}
+
+/* ──────────────────────────────────────────
+   Past imports list (rendered into #imports-list)
+   ────────────────────────────────────────── */
+async function loadStatementImports(){
+  if(!currentBiz?.id) return;
+  const {data, error} = await sb.from('bank_statement_imports')
+    .select('id, file_name, source_format, period_start, period_end, total_lines, matched_lines, unmatched_lines, status, created_at, account_id')
+    .eq('business_id', currentBiz.id)
+    .order('created_at', {ascending: false})
+    .limit(20);
+  if(error){ console.warn('[GL] loadStatementImports:', error); return; }
+  const ar = currentLang === 'ar';
+  const wrap = document.getElementById('imports-list');
+  const hist = document.getElementById('imports-history');
+  const countEl = document.getElementById('imports-count');
+  if(!wrap || !hist) return;
+
+  if(!data || data.length === 0){
+    hist.style.display = 'none';
+    return;
+  }
+  hist.style.display = '';
+  if(countEl) countEl.textContent = data.length + ' ' + (ar?'استيراد':'imports');
+
+  wrap.innerHTML = data.map(imp => {
+    const acct = (typeof allBankAccounts !== 'undefined' ? allBankAccounts : []).find(a => a.id === imp.account_id);
+    const acctLabel = acct ? (acct.account_name || acct.bank_name || '—') : '—';
+    const formatLabel = (STMT_BANK_PRESETS[imp.source_format]?.[ar?'label_ar':'label_en']) || imp.source_format;
+    const matchPct = imp.total_lines > 0 ? Math.round(imp.matched_lines/imp.total_lines*100) : 0;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid var(--tint);font-size:13px;gap:10px;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHTML(imp.file_name||'—')}</div>
+        <div style="font-size:11px;color:var(--muted);">${escHTML(acctLabel)} · ${escHTML(formatLabel)} · ${imp.period_start||''} → ${imp.period_end||''}</div>
+      </div>
+      <div style="text-align:end;font-size:12px;">
+        <div><strong style="color:var(--green);">${imp.matched_lines}</strong> / ${imp.total_lines} ${ar?'مطابقة':'matched'}</div>
+        <div style="background:var(--tint);height:4px;border-radius:2px;width:80px;margin-top:3px;overflow:hidden;">
+          <div style="background:var(--green);height:100%;width:${matchPct}%;"></div>
+        </div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+/* Helper for escaping attribute values when interpolating into HTML strings */
+function escAttr(s){return String(s||'').replace(/"/g,'&quot;');}
 
 init();
 </script>
