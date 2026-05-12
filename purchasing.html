@@ -146,6 +146,15 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .btn-danger:hover{background:#fef2f2;}
 .btn-sm{padding:5px 10px;font-size:12px;}
 
+/* Filter pills — canonical pattern (matches val-filter-pill in inventory.html).
+   Used with: <button class="btn btn-secondary btn-sm filter-pill [active]" data-filter="..."> */
+.filter-pill{transition:all .15s;}
+.filter-pill .count-badge{display:inline-block;background:var(--tint);color:var(--muted);padding:1px 7px;border-radius:8px;font-size:11px;font-weight:700;font-family:'DM Mono',monospace;margin-inline-start:4px;}
+.filter-pill.active{background:var(--blue);color:#fff;border-color:var(--blue);}
+.filter-pill.active .count-badge{background:rgba(255,255,255,0.25);color:#fff;}
+.filter-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
+.filter-row-label{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-inline-end:4px;}
+
 /* Tables */
 .table-wrap{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:visible;}
 .table-scroll{overflow-x:auto;border-radius:12px;}
@@ -1247,25 +1256,25 @@ function renderPOs(){
     pos = pos.filter(p => p._match_status === 'partial' || p._match_status === 'not_received');
   }
 
-  /* Round 4s + 5a: filter-pills row (rendered above the table) */
+  /* Round 4s + 5a: filter-pills row (rendered above the table).
+     Uses canonical .filter-pill pattern matching val-filter-pill in inventory.html. */
   const billPendingCount = allPOs.filter(p => p._match_status==='bill_pending' || p._match_status==='awaiting_invoice').length;
   const pillsHtml = `
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center;">
-      <span style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-inline-end:4px;">${ar?'تصفية':'Filter'}:</span>
+    <div class="filter-row">
+      <span class="filter-row-label">${ar?'تصفية':'Filter'}</span>
       ${[
         ['',                 ar?'الكل':'All',                            allPOs.length],
         ['needs_attention',  ar?'يحتاج اهتماماً':'Needs attention',      attentionCount],
-        ['open',             ar?'مفتوح':'Open',                           allPOs.filter(p => p._match_status==='partial'||p._match_status==='not_received').length],
-        ['bill_pending',     ar?'بحاجة فاتورة':'Needs Bill',              billPendingCount],
-        ['variance',         ar?'فرق سعري/زائد':'Variance / over',       allPOs.filter(p => p._match_status==='price_variance'||p._match_status==='over_received').length],
+        ['open',             ar?'مفتوح':'Open',                          allPOs.filter(p => p._match_status==='partial'||p._match_status==='not_received').length],
+        ['bill_pending',     ar?'بحاجة فاتورة':'Needs Bill',             billPendingCount],
+        ['variance',         ar?'فرق/زائد':'Variance / over',            allPOs.filter(p => p._match_status==='price_variance'||p._match_status==='over_received').length],
         ['matched',          ar?'مطابق':'Matched',                       allPOs.filter(p => p._match_status==='matched').length]
       ].map(([key,label,count]) => {
         const active = (_poMatchFilter || '') === key;
-        const bg = active ? 'var(--blue)' : '#fff';
-        const fg = active ? '#fff' : 'var(--ink)';
-        const bd = active ? 'var(--blue)' : 'var(--border)';
         const safeKey = key.replace(/'/g, '');
-        return `<button onclick="setPOMatchFilter(${key ? `'${safeKey}'` : 'null'})" style="border:1px solid ${bd};background:${bg};color:${fg};padding:5px 12px;border-radius:18px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;font-family:inherit;">${escHTML(label)}${count > 0 ? ` <span style="opacity:.7;font-weight:500;">·${count}</span>` : ''}</button>`;
+        const cls = 'btn btn-secondary btn-sm filter-pill' + (active ? ' active' : '');
+        const onclick = key ? `setPOMatchFilter('${safeKey}')` : 'setPOMatchFilter(null)';
+        return `<button class="${cls}" onclick="${onclick}">${escHTML(label)}<span class="count-badge">${count}</span></button>`;
       }).join('')}
     </div>`;
 
