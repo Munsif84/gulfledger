@@ -1630,6 +1630,35 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         </div>
       </div>
 
+      <!-- ═══ Round 4r: PO Progress Panel (shown when receiving against a PO) ═══ -->
+      <div id="rcp-po-progress-panel" style="display:none;background:var(--tint);border:1px solid var(--light);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap;">
+          <div style="font-size:13px;font-weight:700;color:var(--ink);">
+            📋 <span id="rcp-po-progress-title" data-ar="تقدم أمر الشراء" data-en="PO Progress">تقدم أمر الشراء</span>
+          </div>
+          <button type="button" class="btn btn-secondary btn-sm" onclick="openCloseShortDialog()" id="rcp-close-short-btn" style="display:none;font-size:12px;padding:4px 10px;">
+            <span data-ar="إغلاق مبكر" data-en="Close Short">إغلاق مبكر</span>
+          </button>
+        </div>
+        <div id="rcp-po-progress-lines"></div>
+      </div>
+
+      <!-- ═══ Round 4r: Cost variance warning (shown if any line varies >5% from PO price) ═══ -->
+      <div id="rcp-variance-banner" style="display:none;background:#FFF5E5;border:1px solid var(--amber);border-radius:10px;padding:10px 14px;margin-bottom:14px;color:#8B5A00;">
+        <div style="font-weight:700;font-size:13px;margin-bottom:4px;">
+          ⚠ <span data-ar="تنبيه: فرق في التكلفة" data-en="Cost Variance Warning">تنبيه: فرق في التكلفة</span>
+        </div>
+        <div id="rcp-variance-details" style="font-size:12px;line-height:1.7;"></div>
+      </div>
+
+      <!-- ═══ Round 4r: Over-receipt warning (shown if any qty exceeds remaining ordered) ═══ -->
+      <div id="rcp-over-receipt-banner" style="display:none;background:#FDECEC;border:1px solid var(--red);border-radius:10px;padding:10px 14px;margin-bottom:14px;color:#8B1A1A;">
+        <div style="font-weight:700;font-size:13px;margin-bottom:4px;">
+          ⚠ <span data-ar="تنبيه: استلام يزيد عن المطلوب" data-en="Over-Receipt Warning">تنبيه: استلام يزيد عن المطلوب</span>
+        </div>
+        <div id="rcp-over-receipt-details" style="font-size:12px;line-height:1.7;"></div>
+      </div>
+
       <div class="section-title-sm" data-ar="الأصناف المستلمة" data-en="Items Received">الأصناف المستلمة</div>
 
       <table class="receipt-items-table">
@@ -4206,6 +4235,11 @@ async function fetchNextReceiptNumber(){
    (supplier, etc.) and all PO line items into the receipt form.
    Pre-conditions: PO must exist, belong to this business, and not be in
    draft/cancelled status (typical workflow: only sent/partial POs receive). */
+/* Round 4r: state for the active PO being received against.
+   Cleared on modal close. Populated by loadFromPO(). */
+let activePO = null;          /* {id, po_number, status, supplier_id, supplier_name} */
+let activePOLines = [];       /* [{po_item_id, item_id, description, ordered, received, remaining, unit_price, vat_rate}] */
+
 async function loadFromPO(){
   const ar = currentLang === 'ar';
   const poNumber = (document.getElementById('rcp-po-number')?.value || '').trim();
@@ -4220,7 +4254,7 @@ async function loadFromPO(){
 
   /* Fetch PO header by po_number (case-sensitive — ZATCA/audit tracking is exact) */
   const {data: poRow, error: poErr} = await sb.from('purchase_orders')
-    .select('id, po_number, status, supplier_id, supplier_name, po_date, notes')
+    .select('id, po_number, status, supplier_id, supplier_name, po_date, completed_at, closed_with_reason, notes')
     .eq('business_id', currentBiz.id)
     .eq('po_number', poNumber)
     .maybeSingle();
@@ -4238,10 +4272,18 @@ async function loadFromPO(){
     notify((ar?'لا يمكن الاستلام من طلب بحالة: ':'Cannot receive from PO with status: ') + poRow.status, 'error');
     return;
   }
+  /* Round 4r: allow continuing to receive against a 'received'/completed PO only if user confirms.
+     Useful when a previous full-receipt status needs over-receipt correction. */
+  if(poRow.status === 'received' || poRow.completed_at){
+    const msg = ar
+      ? `أمر الشراء ${poRow.po_number} مكتمل بالفعل. هل تريد المتابعة؟ (سيُعتبر هذا استلاماً زائداً)`
+      : `PO ${poRow.po_number} is already complete. Continue anyway? (This will be treated as over-receipt.)`;
+    if(!confirm(msg)) return;
+  }
 
   /* Fetch PO line items */
   const {data: lines, error: linesErr} = await sb.from('po_items')
-    .select('item_id, description, quantity, unit_price, vat_rate, qty_received')
+    .select('id, item_id, description, quantity, unit_price, vat_rate, qty_received, sort_order')
     .eq('po_id', poRow.id)
     .order('sort_order', {ascending: true});
 
@@ -4259,32 +4301,48 @@ async function loadFromPO(){
   const currentSupplierVal = document.getElementById('rcp-supplier')?.value;
   if(poRow.supplier_id && !currentSupplierVal){
     setVal('rcp-supplier', poRow.supplier_id);
-    /* Also reflect in the supplier combobox display if present */
     const supRow = allSuppliers.find(s => s.id === poRow.supplier_id);
     if(supRow && supplierCombo && typeof supplierCombo.setValue === 'function'){
       try { supplierCombo.setValue(poRow.supplier_id); } catch(e){ /* combo may not support setValue — ignore */ }
     }
-    /* Fallback: if combobox display input exists by id, set its visible value */
     const comboDisplay = document.querySelector('#rcp-supplier-combo input[type="text"]');
     if(supRow && comboDisplay && !comboDisplay.value){
       comboDisplay.value = supRow.name_ar || supRow.name || supRow.name_en || '';
     }
   }
 
-  /* Map PO lines → receipt items.
-     Default qty to remaining (PO qty − qty_received already received).
-     Default cost to PO unit_price. */
-  receiptItems = lines.map(l => {
+  /* Round 4r: cache PO + line mapping for save-time qty_received increment and progress display */
+  activePO = {
+    id: poRow.id,
+    po_number: poRow.po_number,
+    status: poRow.status,
+    supplier_id: poRow.supplier_id,
+    supplier_name: poRow.supplier_name,
+    completed_at: poRow.completed_at
+  };
+  activePOLines = lines.map(l => {
     const ordered = parseFloat(l.quantity) || 0;
     const received = parseFloat(l.qty_received) || 0;
-    const remaining = Math.max(0, ordered - received);
     return {
-      item_id: l.item_id || '',
-      quantity: remaining > 0 ? remaining : ordered,
-      unit_cost: parseFloat(l.unit_price) || 0,
-      vat_pct: parseFloat(l.vat_rate) || 15
+      po_item_id: l.id,
+      item_id: l.item_id || null,
+      description: l.description || '',
+      ordered,
+      received,
+      remaining: Math.max(0, ordered - received),
+      unit_price: parseFloat(l.unit_price) || 0,
+      vat_rate: parseFloat(l.vat_rate) || 15
     };
   });
+
+  /* Map PO lines → receipt items. Each receipt row carries po_item_id back to save-time. */
+  receiptItems = activePOLines.map(pl => ({
+    item_id: pl.item_id || '',
+    quantity: pl.remaining > 0 ? pl.remaining : pl.ordered,
+    unit_cost: pl.unit_price,
+    vat_pct: pl.vat_rate,
+    po_item_id: pl.po_item_id     /* Round 4r: persists into stock_receipt_items */
+  }));
 
   /* Lines without item_id (free-text PO lines) cannot be auto-mapped to inventory.
      Warn user but keep them — they can pick the matching inventory item manually. */
@@ -4300,21 +4358,171 @@ async function loadFromPO(){
 
   renderReceiptItems();
   computeReceiptTotals();
+  renderPOProgressPanel();      /* Round 4r */
+}
+
+/* Round 4r: render the per-line progress bars + close-short button */
+function renderPOProgressPanel(){
+  const panel = document.getElementById('rcp-po-progress-panel');
+  const linesEl = document.getElementById('rcp-po-progress-lines');
+  const closeBtn = document.getElementById('rcp-close-short-btn');
+  if(!panel || !linesEl) return;
+
+  if(!activePO || !activePOLines.length){
+    panel.style.display = 'none';
+    if(closeBtn) closeBtn.style.display = 'none';
+    return;
+  }
+
+  panel.style.display = '';
+  const ar = currentLang === 'ar';
+  const titleEl = document.getElementById('rcp-po-progress-title');
+  if(titleEl) titleEl.textContent = (ar ? 'تقدم ' : '') + activePO.po_number + (ar ? '' : ' progress');
+
+  linesEl.innerHTML = activePOLines.map(pl => {
+    const ordered = pl.ordered;
+    const received = pl.received;
+    const remaining = pl.remaining;
+    const pct = ordered > 0 ? Math.min(100, (received / ordered) * 100) : 0;
+    const barColor = pct >= 100 ? 'var(--green)' : (pct > 0 ? 'var(--blue)' : 'var(--border)');
+    const item = pl.item_id ? allItems.find(it => it.id === pl.item_id) : null;
+    const label = item ? displayName(item) : (pl.description || (ar?'بند غير مربوط':'unlinked line'));
+    return `
+      <div style="margin-bottom:8px;">
+        <div style="display:flex;justify-content:space-between;font-size:12px;margin-bottom:3px;gap:8px;">
+          <span style="color:var(--ink);font-weight:500;">${escHTML(label)}</span>
+          <span class="mono" style="color:var(--muted);font-size:11px;">${fmt(received)} / ${fmt(ordered)}${remaining > 0 ? ` <span style="color:var(--amber);">(${ar?'متبقي':'remaining'} ${fmt(remaining)})</span>` : ''}</span>
+        </div>
+        <div style="background:#fff;border:1px solid var(--border);border-radius:4px;height:6px;overflow:hidden;">
+          <div style="background:${barColor};height:100%;width:${pct}%;transition:width 200ms;"></div>
+        </div>
+      </div>
+    `;
+  }).join('');
+
+  /* Show close-short only for non-completed POs */
+  if(closeBtn){
+    const canCloseShort = (activePO.status === 'sent' || activePO.status === 'partial') && !activePO.completed_at;
+    closeBtn.style.display = canCloseShort ? '' : 'none';
+  }
+}
+
+/* Round 4r: Check the current receipt rows for cost variance (>5%) and over-receipt vs PO.
+   Returns {variances:[...], overReceipts:[...]} for banner rendering and pre-save confirm. */
+const RCP_VARIANCE_THRESHOLD = 0.05;   /* 5% */
+function checkVarianceAndOverReceipt(){
+  const variances = [];
+  const overReceipts = [];
+
+  if(!activePO || !activePOLines.length){
+    return {variances, overReceipts};
+  }
+
+  const byId = {};
+  activePOLines.forEach(pl => { byId[pl.po_item_id] = pl; });
+
+  receiptItems.forEach((r, idx) => {
+    if(!r.po_item_id) return;
+    const pl = byId[r.po_item_id];
+    if(!pl) return;
+
+    const qty = parseFloat(r.quantity) || 0;
+    const cost = parseFloat(r.unit_cost) || 0;
+    if(qty <= 0) return;
+
+    /* Cost variance: only flag when both prices are non-zero */
+    if(pl.unit_price > 0 && cost > 0){
+      const diff = cost - pl.unit_price;
+      const pctDiff = Math.abs(diff / pl.unit_price);
+      if(pctDiff > RCP_VARIANCE_THRESHOLD){
+        const item = pl.item_id ? allItems.find(it => it.id === pl.item_id) : null;
+        variances.push({
+          label: item ? displayName(item) : (pl.description || ''),
+          po_price: pl.unit_price,
+          rcp_cost: cost,
+          diff,
+          pctDiff
+        });
+      }
+    }
+
+    /* Over-receipt: this receipt's qty exceeds line's remaining */
+    if(qty > pl.remaining){
+      const item = pl.item_id ? allItems.find(it => it.id === pl.item_id) : null;
+      overReceipts.push({
+        label: item ? displayName(item) : (pl.description || ''),
+        ordered: pl.ordered,
+        prev_received: pl.received,
+        this_qty: qty,
+        over_by: qty - pl.remaining
+      });
+    }
+  });
+
+  return {variances, overReceipts};
+}
+
+/* Round 4r: render the two warning banners and return whether any are showing */
+function renderVarianceAndOverReceiptBanners(){
+  const {variances, overReceipts} = checkVarianceAndOverReceipt();
+  const ar = currentLang === 'ar';
+
+  const vBanner = document.getElementById('rcp-variance-banner');
+  const vDetails = document.getElementById('rcp-variance-details');
+  if(vBanner && vDetails){
+    if(variances.length){
+      vDetails.innerHTML = variances.map(x => {
+        const pct = (x.pctDiff * 100).toFixed(1);
+        const sign = x.diff > 0 ? '+' : '';
+        return `<div>• <strong>${escHTML(x.label)}</strong>: ${ar?'سعر أمر الشراء':'PO price'} <span class="mono">${fmt(x.po_price)}</span> → ${ar?'تكلفة الاستلام':'receipt cost'} <span class="mono">${fmt(x.rcp_cost)}</span> <span class="mono">(${sign}${pct}%)</span></div>`;
+      }).join('');
+      vBanner.style.display = '';
+    } else {
+      vBanner.style.display = 'none';
+    }
+  }
+
+  const oBanner = document.getElementById('rcp-over-receipt-banner');
+  const oDetails = document.getElementById('rcp-over-receipt-details');
+  if(oBanner && oDetails){
+    if(overReceipts.length){
+      oDetails.innerHTML = overReceipts.map(x => {
+        return `<div>• <strong>${escHTML(x.label)}</strong>: ${ar?'مطلوب':'ordered'} <span class="mono">${fmt(x.ordered)}</span>, ${ar?'مستلَم سابقاً':'previously received'} <span class="mono">${fmt(x.prev_received)}</span>, ${ar?'هذا الاستلام':'this receipt'} <span class="mono">${fmt(x.this_qty)}</span> — ${ar?'زيادة':'over by'} <span class="mono">${fmt(x.over_by)}</span></div>`;
+      }).join('');
+      oBanner.style.display = '';
+    } else {
+      oBanner.style.display = 'none';
+    }
+  }
+
+  return {variances, overReceipts};
 }
 
 /* Enable/disable the loadFromPO button based on whether PO field has content */
 function onReceiptPONumberInput(){
   const val = (document.getElementById('rcp-po-number')?.value || '').trim();
   const btn = document.querySelector('button[onclick="loadFromPO()"]');
-  if(!btn) return;
-  if(val){
-    btn.disabled = false;
-    btn.style.opacity = '';
-    btn.style.cursor = 'pointer';
-  } else {
-    btn.disabled = true;
-    btn.style.opacity = '0.5';
-    btn.style.cursor = 'not-allowed';
+  if(btn){
+    if(val){
+      btn.disabled = false;
+      btn.style.opacity = '';
+      btn.style.cursor = 'pointer';
+    } else {
+      btn.disabled = true;
+      btn.style.opacity = '0.5';
+      btn.style.cursor = 'not-allowed';
+    }
+  }
+
+  /* Round 4r: if user clears the PO number, hide progress + banners and clear cached PO */
+  if(!val){
+    activePO = null;
+    activePOLines = [];
+    renderPOProgressPanel();
+    const vBan = document.getElementById('rcp-variance-banner');
+    const oBan = document.getElementById('rcp-over-receipt-banner');
+    if(vBan) vBan.style.display = 'none';
+    if(oBan) oBan.style.display = 'none';
   }
 }
 
@@ -4416,6 +4624,17 @@ function populateSupplierDropdown(){
 function closeReceiveModal(){
   document.getElementById('receive-modal').classList.remove('open');
   receiptItems = [];
+  /* Round 4r: clear cached PO + hide banners/progress on close */
+  activePO = null;
+  activePOLines = [];
+  const panel = document.getElementById('rcp-po-progress-panel');
+  const vBan = document.getElementById('rcp-variance-banner');
+  const oBan = document.getElementById('rcp-over-receipt-banner');
+  const closeBtn = document.getElementById('rcp-close-short-btn');
+  if(panel) panel.style.display = 'none';
+  if(vBan) vBan.style.display = 'none';
+  if(oBan) oBan.style.display = 'none';
+  if(closeBtn) closeBtn.style.display = 'none';
 }
 
 function onPaymentMethodChange(){
@@ -4559,6 +4778,14 @@ function updateReceiptItem(idx, field, value){
   receiptItems[idx][field] = field === 'item_id' ? value : (parseFloat(value)||0);
   /* On item change: auto-fill cost AND re-render (to update the row) */
   if(field === 'item_id'){
+    /* Round 4r: if the user picks a different item than the PO line specified,
+       drop the po_item_id link so we don't credit the wrong PO line at save-time. */
+    if(receiptItems[idx].po_item_id && activePOLines.length){
+      const pl = activePOLines.find(x => x.po_item_id === receiptItems[idx].po_item_id);
+      if(pl && pl.item_id !== value){
+        receiptItems[idx].po_item_id = null;
+      }
+    }
     if(value){
       const it = allItems.find(x => x.id === value);
       if(it && !receiptItems[idx].unit_cost){
@@ -4594,6 +4821,12 @@ function computeReceiptTotals(){
   if(method !== 'credit'){
     setVal('rcp-amount-paid', total.toFixed(2));
   }
+
+  /* Round 4r: live-refresh variance + over-receipt banners as user edits qty/cost.
+     Only when receiving against a PO. Safe to call when activePO is null (silently no-ops). */
+  if(activePO){
+    renderVarianceAndOverReceiptBanners();
+  }
 }
 
 async function saveReceipt(){
@@ -4612,6 +4845,26 @@ async function saveReceipt(){
   if(validItems.length === 0){
     notify(currentLang==='ar'?'أضف صنفاً واحداً على الأقل':'Add at least one item','error');
     return;
+  }
+
+  /* Round 4r: variance + over-receipt pre-flight check.
+     Banners are also kept visible after this confirm so user sees what they accepted. */
+  const ar = currentLang === 'ar';
+  const {variances, overReceipts} = renderVarianceAndOverReceiptBanners();
+  if(variances.length || overReceipts.length){
+    const msgs = [];
+    if(variances.length){
+      msgs.push(ar
+        ? `${variances.length} بند يتجاوز فرق التكلفة 5%`
+        : `${variances.length} line(s) with cost variance over 5%`);
+    }
+    if(overReceipts.length){
+      msgs.push(ar
+        ? `${overReceipts.length} بند بكمية تزيد عن المطلوب`
+        : `${overReceipts.length} line(s) over-receipted`);
+    }
+    const confirmMsg = msgs.join('\n') + '\n\n' + (ar?'هل تريد المتابعة؟':'Continue saving anyway?');
+    if(!confirm(confirmMsg)) return;
   }
 
   /* Compute totals */
@@ -4645,6 +4898,7 @@ async function saveReceipt(){
     supplier_id: v('rcp-supplier') || null,
     supplier_invoice_number: v('rcp-supplier-invoice') || null,
     po_number: v('rcp-po-number') || null,
+    po_id: activePO?.id || null,    /* Round 4r: link to purchase_orders.id */
     receipt_date: v('rcp-date') || todayISO(),
     location_id: locationId,        /* Round 4m */
     subtotal,
@@ -4715,6 +4969,7 @@ async function saveReceipt(){
     await sb.from('stock_receipt_items').insert({
       receipt_id: receipt.id,
       item_id: r.item_id,
+      po_item_id: r.po_item_id || null,   /* Round 4r: link to po_items.id when receiving against PO */
       quantity: r.quantity,
       unit_cost: r.unit_cost,
       vat_pct: r.vat_pct,
@@ -4775,8 +5030,293 @@ async function saveReceipt(){
     }
   }
 
+  /* 5. Round 4r: PO post-processing — qty_received increment, status recompute,
+        audit log, and supplier-invoice prompt on full receipt.
+        Non-blocking: failures here don't roll back the receipt, but are logged. */
+  let promptForSupInvoice = false;
+  if(activePO?.id){
+    try {
+      const poUpdateResult = await applyPOReceiptUpdate(activePO.id, validItems, receipt);
+      promptForSupInvoice = poUpdateResult.fullyReceived && !v('rcp-supplier-invoice');
+    } catch(e){
+      console.warn('[GL] Round 4r PO update failed:', e);
+      notify(currentLang==='ar'
+        ? 'تم حفظ الاستلام، لكن فشل تحديث أمر الشراء'
+        : 'Receipt saved, but PO update failed', 'error');
+    }
+  }
+
+  /* 6. Round 4r: audit log entry (best-effort) */
+  await writeAuditLog({
+    entity_type: 'stock_receipt',
+    entity_id: receipt.id,
+    entity_reference: receipt.receipt_number,
+    action: 'create',
+    after_data: {
+      receipt_number: receipt.receipt_number,
+      po_id: receiptPayload.po_id,
+      po_number: receiptPayload.po_number,
+      supplier_id: receiptPayload.supplier_id,
+      line_count: validItems.length,
+      subtotal, vat_amount: vatAmount, total,
+      payment_method: paymentMethod,
+      payment_status: paymentStatus,
+      variances: variances.length ? variances.map(x => ({label:x.label, po_price:x.po_price, rcp_cost:x.rcp_cost, pct:Math.round(x.pctDiff*1000)/10})) : undefined,
+      over_receipts: overReceipts.length ? overReceipts.map(x => ({label:x.label, ordered:x.ordered, prev_received:x.prev_received, this_qty:x.this_qty, over_by:x.over_by})) : undefined
+    }
+  });
+
   notify(currentLang==='ar'?'✅ تم الاستلام والتسجيل':'✅ Receipt posted','success');
+
+  /* 7. Round 4r: if this receipt fully closes the PO and no supplier invoice # was
+        entered on the receipt itself, prompt the user to enter it now.
+        (Per Option 2 of the GRNI-vs-receipt-only design discussion.) */
+  if(promptForSupInvoice){
+    openSupInvoicePrompt(receipt, activePO);
+  }
+
   closeReceiveModal();
+  await loadAll();
+}
+
+/* ═══════════════════════════════════════════════════════
+   Round 4r — PO post-receipt update + close-short + supplier invoice prompt
+═══════════════════════════════════════════════════════ */
+
+/* Apply qty_received increments to po_items and recompute parent PO status.
+   Returns {fullyReceived: bool, newStatus: string}.
+   Race-safety note: this assumes single-user save-at-a-time (consistent with
+   existing patterns in this file). For concurrent receipt saves, a Postgres
+   RPC would be needed — out of scope for Round 4r. */
+async function applyPOReceiptUpdate(poId, validItems, savedReceipt){
+  const ar = currentLang === 'ar';
+
+  /* Re-fetch po_items from DB (not from activePOLines) so we operate on
+     authoritative values — another user may have received against the same PO. */
+  const {data: poItems, error: piErr} = await sb.from('po_items')
+    .select('id, item_id, quantity, qty_received')
+    .eq('po_id', poId);
+  if(piErr){
+    throw new Error('po_items fetch failed: ' + piErr.message);
+  }
+
+  const byId = {};
+  (poItems || []).forEach(p => {
+    byId[p.id] = {
+      id: p.id,
+      ordered: parseFloat(p.quantity) || 0,
+      received: parseFloat(p.qty_received) || 0,
+      delta: 0
+    };
+  });
+
+  /* Accumulate this-receipt increments per po_item_id */
+  validItems.forEach(r => {
+    if(!r.po_item_id || !byId[r.po_item_id]) return;
+    byId[r.po_item_id].delta += parseFloat(r.quantity) || 0;
+  });
+
+  /* Apply each non-zero delta in parallel */
+  const updates = Object.values(byId)
+    .filter(pi => pi.delta > 0)
+    .map(pi => {
+      const newReceived = roundQty(pi.received + pi.delta);
+      return sb.from('po_items')
+        .update({ qty_received: newReceived })
+        .eq('id', pi.id);
+    });
+  if(updates.length){
+    const results = await Promise.all(updates);
+    const firstErr = results.find(r => r.error);
+    if(firstErr){
+      throw new Error('po_items update failed: ' + firstErr.error.message);
+    }
+  }
+
+  /* Recompute status from updated totals (using accumulated deltas in memory
+     rather than re-fetching — saves a round trip). */
+  let totalOrdered = 0, totalReceived = 0;
+  Object.values(byId).forEach(pi => {
+    totalOrdered += pi.ordered;
+    totalReceived += (pi.received + pi.delta);
+  });
+
+  let newStatus = 'partial';
+  let completedAt = null;
+  if(totalReceived <= 0){
+    newStatus = 'sent';
+  } else if(totalOrdered > 0 && totalReceived >= totalOrdered){
+    newStatus = 'received';
+    completedAt = new Date().toISOString();
+  }
+
+  const patch = { status: newStatus };
+  if(completedAt) patch.completed_at = completedAt;
+
+  const {error: poUpdErr} = await sb.from('purchase_orders')
+    .update(patch)
+    .eq('id', poId);
+  if(poUpdErr){
+    throw new Error('purchase_orders status update failed: ' + poUpdErr.message);
+  }
+
+  return { fullyReceived: newStatus === 'received', newStatus };
+}
+
+/* Round 4r: 3-decimal quantity rounding (matches inventory_items.current_qty precision) */
+function roundQty(n){
+  const v = parseFloat(n);
+  if(!Number.isFinite(v)) return 0;
+  return Math.round(v * 1000) / 1000;
+}
+
+/* ─── Close-Short flow ─── */
+
+function openCloseShortDialog(){
+  const ar = currentLang === 'ar';
+  if(!activePO?.id){
+    notify(ar?'حمّل أمر شراء أولاً':'Load a PO first','error');
+    return;
+  }
+  setVal('close-short-reason', '');
+  setVal('close-short-notes', '');
+  document.getElementById('close-short-modal').classList.add('open');
+}
+
+function closeCloseShortModal(){
+  document.getElementById('close-short-modal').classList.remove('open');
+}
+
+async function confirmCloseShort(){
+  const ar = currentLang === 'ar';
+  const reason = v('close-short-reason');
+  const notes = v('close-short-notes');
+  if(!reason){
+    notify(ar?'اختر سبباً':'Select a reason','error');
+    return;
+  }
+  if(!activePO?.id){
+    notify(ar?'لا يوجد أمر شراء محمّل':'No PO loaded','error');
+    return;
+  }
+
+  const confirmMsg = ar
+    ? `إغلاق أمر الشراء ${activePO.po_number} مبكراً؟ سيُسجَّل كمكتمل مع كميات متبقية غير مستلمة.`
+    : `Close PO ${activePO.po_number} short? It will be marked complete with outstanding quantities undelivered.`;
+  if(!confirm(confirmMsg)) return;
+
+  const fullReason = reason + (notes ? ': ' + notes : '');
+  const nowIso = new Date().toISOString();
+
+  /* Capture before-state for audit */
+  const beforeState = {
+    status: activePO.status,
+    completed_at: activePO.completed_at || null,
+    closed_with_reason: null
+  };
+
+  const {error} = await sb.from('purchase_orders')
+    .update({
+      status: 'received',                /* treat short-close as complete */
+      completed_at: nowIso,
+      closed_with_reason: fullReason,
+      closed_short_at: nowIso
+    })
+    .eq('id', activePO.id);
+
+  if(error){
+    notify(friendlyDbError(error), 'error');
+    return;
+  }
+
+  await writeAuditLog({
+    entity_type: 'purchase_order',
+    entity_id: activePO.id,
+    entity_reference: activePO.po_number,
+    action: 'close_short',
+    before_data: beforeState,
+    after_data: {
+      status: 'received',
+      completed_at: nowIso,
+      closed_with_reason: fullReason
+    },
+    reason: reason
+  });
+
+  notify(ar
+    ? `✅ تم إغلاق ${activePO.po_number} مبكراً`
+    : `✅ PO ${activePO.po_number} closed short`, 'success');
+  closeCloseShortModal();
+  closeReceiveModal();
+  await loadAll();
+}
+
+/* ─── Supplier Invoice Prompt (after full PO receipt) ─── */
+/* Round 4r: invoked when the just-saved receipt completes the PO and
+   supplier_invoice_number was left blank on the receipt itself. Fills
+   stock_receipts.supplier_invoice_number — no separate expense row.
+   See Round 4r design discussion (Option 2). */
+
+let pendingSupInvoiceContext = null;    /* {receipt, po} */
+
+function openSupInvoicePrompt(receipt, po){
+  pendingSupInvoiceContext = { receipt, po };
+  setVal('sup-invoice-prompt-number', '');
+  setVal('sup-invoice-prompt-date', '');
+  document.getElementById('sup-invoice-prompt-modal').classList.add('open');
+}
+
+function closeSupInvoicePrompt(){
+  document.getElementById('sup-invoice-prompt-modal').classList.remove('open');
+  pendingSupInvoiceContext = null;
+}
+
+async function saveSupInvoicePrompt(){
+  const ar = currentLang === 'ar';
+  if(!pendingSupInvoiceContext?.receipt?.id){
+    closeSupInvoicePrompt();
+    return;
+  }
+  const supInvNum = v('sup-invoice-prompt-number');
+  const supInvDate = v('sup-invoice-prompt-date');
+  if(!supInvNum){
+    /* Treat as "Later" — just close, user can edit the receipt manually */
+    closeSupInvoicePrompt();
+    notify(ar?'يمكنك إضافة رقم الفاتورة لاحقاً من تفاصيل الاستلام':'You can add the invoice number later from receipt details', 'info');
+    return;
+  }
+
+  const patch = { supplier_invoice_number: supInvNum };
+  /* Note: stock_receipts has no supplier_invoice_date column today.
+     If/when it's added (future schema round), we can persist supInvDate too.
+     For now, append to notes as a structured suffix. */
+  if(supInvDate){
+    const existing = pendingSupInvoiceContext.receipt.notes || '';
+    const dateNote = `[supplier_invoice_date=${supInvDate}]`;
+    patch.notes = existing
+      ? (existing.includes('[supplier_invoice_date=') ? existing : existing + '\n' + dateNote)
+      : dateNote;
+  }
+
+  const {error} = await sb.from('stock_receipts')
+    .update(patch)
+    .eq('id', pendingSupInvoiceContext.receipt.id);
+
+  if(error){
+    notify(friendlyDbError(error), 'error');
+    return;
+  }
+
+  await writeAuditLog({
+    entity_type: 'stock_receipt',
+    entity_id: pendingSupInvoiceContext.receipt.id,
+    entity_reference: pendingSupInvoiceContext.receipt.receipt_number,
+    action: 'add_supplier_invoice',
+    after_data: { supplier_invoice_number: supInvNum, supplier_invoice_date: supInvDate || null }
+  });
+
+  notify(ar?'✅ تم حفظ رقم فاتورة المورد':'✅ Supplier invoice # saved', 'success');
+  closeSupInvoicePrompt();
   await loadAll();
 }
 
@@ -6258,6 +6798,92 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
   });
 })();
 </script>
+
+<!-- ════════════════════════════════════════════════
+     Round 4r: Close PO Short modal
+════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="close-short-modal">
+  <div class="modal" style="max-width:500px;">
+    <div class="modal-head">
+      <div class="modal-title">
+        <span data-ar="إغلاق أمر الشراء مبكراً" data-en="Close PO Short">إغلاق أمر الشراء مبكراً</span>
+      </div>
+      <button class="modal-close" onclick="closeCloseShortModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:13px;margin-bottom:14px;line-height:1.6;">
+        <span data-ar="سيتم إغلاق أمر الشراء حتى لو لم يتم استلام كامل الكميات. الكميات المتبقية تُسجَّل ولن تُسلَّم." data-en="The PO will be closed as completed even if some quantities weren't fully received. Outstanding quantities will be recorded but not delivered.">سيتم إغلاق أمر الشراء حتى لو لم يتم استلام كامل الكميات. الكميات المتبقية تُسجَّل ولن تُسلَّم.</span>
+      </p>
+      <div class="field">
+        <div class="field-label">
+          <span data-ar="السبب" data-en="Reason">السبب</span>
+          <span class="req">*</span>
+        </div>
+        <select id="close-short-reason" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;background:#fff;">
+          <option value="">—</option>
+          <option value="supplier_backorder" data-ar="طلب معلق لدى المورد" data-en="Supplier backorder">طلب معلق لدى المورد · Supplier backorder</option>
+          <option value="supplier_cancelled" data-ar="إلغاء من المورد" data-en="Supplier cancelled balance">إلغاء من المورد · Supplier cancelled balance</option>
+          <option value="quality_rejected" data-ar="رفض جودة — لن يُعاد الطلب" data-en="Quality rejected — won't reorder">رفض جودة — لن يُعاد الطلب · Quality rejected</option>
+          <option value="no_longer_needed" data-ar="لم تعد هناك حاجة" data-en="No longer needed">لم تعد هناك حاجة · No longer needed</option>
+          <option value="other" data-ar="أخرى" data-en="Other">أخرى · Other</option>
+        </select>
+      </div>
+      <div class="field" style="margin-top:12px;">
+        <div class="field-label">
+          <span data-ar="ملاحظات" data-en="Notes">ملاحظات</span>
+          <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
+        </div>
+        <textarea id="close-short-notes" rows="3" placeholder="..." style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;resize:vertical;"></textarea>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeCloseShortModal()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+      <button class="btn btn-primary" onclick="confirmCloseShort()">
+        <span data-ar="تأكيد الإغلاق" data-en="Confirm Close">تأكيد الإغلاق</span>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════
+     Round 4r: Supplier Invoice Prompt (after full PO receipt)
+     Replaces auto-bill (would double-post AP since receipts already credit 2100).
+     Fills stock_receipts.supplier_invoice_number — the tax-invoice paper trail.
+════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="sup-invoice-prompt-modal">
+  <div class="modal" style="max-width:520px;">
+    <div class="modal-head">
+      <div class="modal-title">
+        ✅ <span data-ar="تم استلام أمر الشراء بالكامل" data-en="PO Fully Received">تم استلام أمر الشراء بالكامل</span>
+      </div>
+      <button class="modal-close" onclick="closeSupInvoicePrompt()">×</button>
+    </div>
+    <div class="modal-body">
+      <p style="color:var(--muted);font-size:13px;margin-bottom:14px;line-height:1.7;">
+        <span id="sup-invoice-prompt-msg" data-ar="تم استلام جميع الكميات. هل وصلت فاتورة المورد الضريبية؟ إدخال الرقم الآن يكتمل سجل الفاتورة لأغراض ZATCA." data-en="All quantities received. Has the supplier's tax invoice arrived? Entering the number now completes the invoice trail for ZATCA purposes.">تم استلام جميع الكميات. هل وصلت فاتورة المورد الضريبية؟ إدخال الرقم الآن يكتمل سجل الفاتورة لأغراض ZATCA.</span>
+      </p>
+      <div class="field">
+        <div class="field-label">
+          <span data-ar="رقم فاتورة المورد" data-en="Supplier Invoice #">رقم فاتورة المورد</span>
+        </div>
+        <input type="text" id="sup-invoice-prompt-number" class="mono" placeholder="BILL-2026-001" dir="ltr" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-family:'DM Mono',monospace;font-size:14px;">
+      </div>
+      <div class="field" style="margin-top:12px;">
+        <div class="field-label">
+          <span data-ar="تاريخ فاتورة المورد" data-en="Supplier Invoice Date">تاريخ فاتورة المورد</span>
+          <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
+        </div>
+        <input type="date" id="sup-invoice-prompt-date" class="mono" style="width:100%;padding:9px 12px;border:1px solid var(--border);border-radius:8px;font-family:'DM Mono',monospace;font-size:14px;">
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="closeSupInvoicePrompt()" data-ar="لاحقاً" data-en="Later">لاحقاً</button>
+      <button class="btn btn-primary" onclick="saveSupInvoicePrompt()">
+        <span data-ar="حفظ" data-en="Save">حفظ</span>
+      </button>
+    </div>
+  </div>
+</div>
 
 </body>
 </html>
