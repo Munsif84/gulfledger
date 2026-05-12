@@ -214,6 +214,32 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .modal-body{padding:18px 20px;overflow-y:auto;flex:1;}
 .modal-foot{padding:14px 20px;border-top:1px solid var(--tint);display:flex;justify-content:flex-end;gap:8px;background:#fafbfa;flex-wrap:wrap;}
 
+/* ─── Combobox (Round 4r — ported from inventory.html for consistency) ─── */
+.combo{position:relative;}
+.combo-input{width:100%;padding:8px 11px 8px 32px;border:1px solid var(--border);border-radius:7px;background:#fff;font-family:inherit;font-size:14px;color:var(--ink);transition:border .15s, box-shadow .15s;}
+[dir="rtl"] .combo-input{padding:8px 32px 8px 11px;}
+.combo-input:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,108,53,0.12);}
+.combo-icon{position:absolute;top:50%;transform:translateY(-50%);color:var(--muted);font-size:13px;pointer-events:none;}
+[dir="ltr"] .combo-icon{left:11px;}
+[dir="rtl"] .combo-icon{right:11px;}
+.combo-clear{position:absolute;top:50%;transform:translateY(-50%);background:transparent;border:none;color:var(--muted);font-size:16px;cursor:pointer;padding:0 8px;border-radius:4px;display:none;}
+[dir="ltr"] .combo-clear{right:6px;}
+[dir="rtl"] .combo-clear{left:6px;}
+.combo-clear:hover{background:var(--tint);color:var(--ink);}
+.combo-clear.show{display:block;}
+.combo-dropdown{display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.12);max-height:240px;overflow-y:auto;z-index:700;}
+.combo-dropdown.open{display:block;}
+.combo-item{padding:8px 12px;font-size:13px;color:var(--ink);cursor:pointer;border-bottom:1px solid var(--tint);display:flex;align-items:center;gap:8px;}
+.combo-item:last-child{border-bottom:none;}
+.combo-item:hover,.combo-item.highlighted{background:var(--tint);}
+.combo-item .combo-name{font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.combo-item .combo-meta{font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;flex-shrink:0;}
+.combo-empty{padding:14px;text-align:center;font-size:12px;color:var(--muted);font-style:italic;}
+.combo-add-new{padding:9px 12px;font-size:13px;font-weight:600;color:var(--blue);cursor:pointer;border-top:1px solid var(--border);background:#fafbfa;display:flex;align-items:center;gap:6px;}
+.combo-add-new:hover{background:var(--tint);}
+.combo-add-new.combo-quick-add{color:var(--ink);background:var(--tint);font-weight:500;}
+.combo-add-new.combo-quick-add:hover{background:var(--light);}
+
 /* Form fields */
 .field-row{display:grid;gap:12px;margin-bottom:12px;}
 .field-row.double{grid-template-columns:1fr 1fr;}
@@ -1177,6 +1203,171 @@ function poStatusBadge(status){
   return `<span style="background:${m.bg};color:${m.fg};padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;display:inline-block;">${ar?m.ar:m.en}</span>`;
 }
 
+/* ─────────────────────────────────────────────────────────
+   Combobox component (Round 4r — ported from inventory.html)
+   ───────────────────────────────────────────────────────── */
+function mountCombobox(opts){
+  const {wrapEl, placeholder, items, value, onSelect, onAddNew, onQuickAdd, addNewLabel, quickAddLabel} = opts;
+
+  let currentValue = value || '';
+  let currentItems = items || [];
+  let highlightIdx = -1;
+  let isOpen = false;
+
+  wrapEl.classList.add('combo');
+  wrapEl.innerHTML = `
+    <span class="combo-icon">🔍</span>
+    <input type="text" class="combo-input" placeholder="${escHTML(placeholder || '')}" autocomplete="off">
+    <button type="button" class="combo-clear" tabindex="-1" aria-label="Clear">×</button>
+    <div class="combo-dropdown"></div>
+  `;
+  const input = wrapEl.querySelector('.combo-input');
+  const clearBtn = wrapEl.querySelector('.combo-clear');
+  const dropdown = wrapEl.querySelector('.combo-dropdown');
+
+  function renderInput(){
+    const selected = currentItems.find(it => it.id === currentValue);
+    input.value = selected ? selected.label : '';
+    clearBtn.classList.toggle('show', !!currentValue);
+  }
+
+  function getFilteredItems(query){
+    const q = (query || '').trim().toLowerCase();
+    if(!q) return currentItems;
+    return currentItems.filter(it =>
+      (it.label || '').toLowerCase().includes(q) ||
+      (it.meta || '').toLowerCase().includes(q)
+    );
+  }
+
+  function renderDropdown(query){
+    const filtered = getFilteredItems(query);
+    const q = (input.value || '').trim();
+    let html = '';
+    if(filtered.length === 0){
+      html = `<div class="combo-empty">${currentLang==='ar'?'لا توجد نتائج':'No matches'}</div>`;
+    } else {
+      html = filtered.map((it, idx) => `
+        <div class="combo-item ${idx === highlightIdx ? 'highlighted' : ''}" data-id="${escHTML(it.id)}">
+          <span class="combo-name">${escHTML(it.label)}</span>
+          ${it.meta ? `<span class="combo-meta">${escHTML(it.meta)}</span>` : ''}
+        </div>`).join('');
+    }
+    if(onQuickAdd && q){
+      const qLabel = quickAddLabel || (currentLang==='ar' ? 'إضافة سريعة' : 'Quick add');
+      html += `<div class="combo-add-new combo-quick-add" data-quick-add="1" style="border-top-color:var(--border);">⚡ ${qLabel}: "<span style="font-weight:600;">${escHTML(q)}</span>"</div>`;
+    }
+    if(onAddNew){
+      const label = addNewLabel || (currentLang==='ar' ? '+ فتح النموذج الكامل' : '+ Open full form');
+      html += `<div class="combo-add-new" data-add-new="1" style="font-weight:600;color:var(--muted);font-size:12px;">${label}</div>`;
+    }
+    dropdown.innerHTML = html;
+    isOpen = true;
+    dropdown.classList.add('open');
+  }
+
+  function closeDropdown(){
+    isOpen = false;
+    dropdown.classList.remove('open');
+    highlightIdx = -1;
+    renderInput();
+  }
+
+  function selectItem(id){
+    currentValue = id;
+    const item = currentItems.find(it => it.id === id);
+    renderInput();
+    closeDropdown();
+    if(onSelect) onSelect(id, item);
+  }
+
+  input.addEventListener('focus', () => {
+    input.value = '';
+    renderDropdown('');
+  });
+  input.addEventListener('input', e => {
+    highlightIdx = -1;
+    renderDropdown(e.target.value);
+  });
+  input.addEventListener('keydown', e => {
+    const filtered = getFilteredItems(input.value);
+    if(e.key === 'ArrowDown'){
+      e.preventDefault();
+      highlightIdx = Math.min(highlightIdx + 1, filtered.length - 1);
+      renderDropdown(input.value);
+    } else if(e.key === 'ArrowUp'){
+      e.preventDefault();
+      highlightIdx = Math.max(highlightIdx - 1, 0);
+      renderDropdown(input.value);
+    } else if(e.key === 'Enter'){
+      e.preventDefault();
+      if(highlightIdx >= 0 && filtered[highlightIdx]){
+        selectItem(filtered[highlightIdx].id);
+      } else if(filtered.length === 0 && onQuickAdd && input.value.trim()){
+        const q = input.value.trim();
+        closeDropdown();
+        onQuickAdd(q);
+      }
+    } else if(e.key === 'Escape'){
+      closeDropdown();
+      input.blur();
+    }
+  });
+
+  dropdown.addEventListener('mousedown', e => {
+    const item = e.target.closest('.combo-item');
+    const quickAdd = e.target.closest('[data-quick-add]');
+    const addNew = e.target.closest('[data-add-new]');
+    if(item){
+      e.preventDefault();
+      selectItem(item.dataset.id);
+    } else if(quickAdd && onQuickAdd){
+      e.preventDefault();
+      const q = input.value.trim();
+      closeDropdown();
+      onQuickAdd(q);
+    } else if(addNew && onAddNew){
+      e.preventDefault();
+      const q = input.value.trim();
+      closeDropdown();
+      onAddNew(q);
+    }
+  });
+
+  clearBtn.addEventListener('click', e => {
+    e.preventDefault();
+    currentValue = '';
+    renderInput();
+    if(onSelect) onSelect('', null);
+    input.focus();
+  });
+
+  document.addEventListener('mousedown', e => {
+    if(isOpen && !wrapEl.contains(e.target)) closeDropdown();
+  });
+
+  renderInput();
+
+  return {
+    setValue: id => { currentValue = id; renderInput(); },
+    getValue: () => currentValue,
+    refresh: newItems => {
+      currentItems = newItems;
+      renderInput();
+      if(isOpen) renderDropdown(input.value);
+    },
+    focus: () => input.focus(),
+    close: closeDropdown,
+    el: wrapEl
+  };
+}
+
+/* Round 4r: track combobox handles for the open PO modal so we can read their
+   values at save-time and tear them down on close. Keyed by row idx for items;
+   single value for supplier. */
+let poSupplierCombo = null;
+let poItemCombos = {};   /* {0: handle, 1: handle, ...} */
+
 /* ───── PO CREATE MODAL ───── */
 async function openPOModal(prefill){
   console.log('[GL Round 4p] openPOModal invoked');
@@ -1217,7 +1408,7 @@ async function openPOModal(prefill){
   const ar = currentLang === 'ar';
 
   const overlay = document.createElement('div');
-  overlay.className = 'modal-overlay open';   /* fixed: CSS uses .open not .show */
+  overlay.className = 'modal-overlay open';
   overlay.id = 'po-modal';
   overlay.innerHTML = `
     <div class="modal" style="max-width:900px;">
@@ -1229,7 +1420,7 @@ async function openPOModal(prefill){
         <div class="field-row double">
           <div class="field">
             <div class="field-label"><span data-ar="رقم الطلب" data-en="PO #">رقم الطلب</span></div>
-            <input type="text" id="po-f-num" class="mono" value="${escHTML(nextNum)}" readonly dir="ltr">
+            <input type="text" id="po-f-num" class="mono" value="${escHTML(nextNum)}" readonly dir="ltr" style="background:var(--tint);cursor:not-allowed;">
           </div>
           <div class="field">
             <div class="field-label"><span data-ar="التاريخ" data-en="Date">التاريخ</span><span class="req">*</span></div>
@@ -1242,10 +1433,8 @@ async function openPOModal(prefill){
               <span data-ar="المورد" data-en="Supplier">المورد</span>
               <span class="opt">(optional)</span>
             </div>
-            <select id="po-f-supplier">
-              <option value="">${ar?'-- اختر المورد --':'-- Select supplier --'}</option>
-              ${allSuppliers.map(s => `<option value="${s.id}">${escHTML(s.name_ar || s.name || '')}${s.name_en ? ' · ' + escHTML(s.name_en) : ''}</option>`).join('')}
-            </select>
+            <div id="po-f-supplier-combo"></div>
+            <input type="hidden" id="po-f-supplier" value="">
           </div>
           <div class="field">
             <div class="field-label">
@@ -1327,16 +1516,32 @@ async function openPOModal(prefill){
   `;
   document.body.appendChild(overlay);
   applyLang();
+
+  /* Round 4r: mount supplier combobox + reset item-combobox handles */
+  poItemCombos = {};
+  poSupplierCombo = null;
+  const supWrap = document.getElementById('po-f-supplier-combo');
+  if(supWrap){
+    poSupplierCombo = mountCombobox({
+      wrapEl: supWrap,
+      placeholder: ar ? 'ابحث أو اختر مورداً...' : 'Search or pick supplier...',
+      items: allSuppliers.map(s => ({
+        id: s.id,
+        label: s.name_ar || s.name || s.name_en || '',
+        meta: s.name_en && (s.name_en !== (s.name_ar || s.name)) ? s.name_en : ''
+      })),
+      value: '',
+      onSelect: (id) => { setVal('po-f-supplier', id || ''); }
+    });
+  }
+
   renderPOLines();
 
   /* Round 4p: apply prefill supplier + notes if we had them */
   if(prefillData){
     if(prefillData.supplier_id){
-      const sel = document.getElementById('po-f-supplier');
-      if(sel){
-        const opt = Array.from(sel.options).find(o => o.value === prefillData.supplier_id);
-        if(opt) sel.value = prefillData.supplier_id;
-      }
+      setVal('po-f-supplier', prefillData.supplier_id);
+      if(poSupplierCombo) poSupplierCombo.setValue(prefillData.supplier_id);
     }
     if(prefillData.note){
       const notesEl = document.getElementById('po-f-notes');
@@ -1357,6 +1562,8 @@ async function openPOModal(prefill){
 function closePOModal(){
   document.getElementById('po-modal')?.remove();
   poItems = [];
+  poSupplierCombo = null;     /* Round 4r: clear combobox handles */
+  poItemCombos = {};
 }
 
 function addPOLine(){
@@ -1376,7 +1583,7 @@ function removePOLine(idx){
 function updatePOLine(idx, field, value){
   if(!poItems[idx]) return;
   if(field === 'item_id'){
-    /* Selected from inventory dropdown — autofill */
+    /* Selected from inventory combobox — autofill description + unit price */
     const item = allItems.find(i => i.id === value);
     if(item){
       poItems[idx].item_id = item.id;
@@ -1384,13 +1591,40 @@ function updatePOLine(idx, field, value){
       poItems[idx].unit_price = parseFloat(item.cost_price) || 0;
     } else {
       poItems[idx].item_id = null;
+      poItems[idx].description = '';
+      /* Don't clear unit_price — user may have typed one already */
     }
+    /* Item change requires full re-render (combobox visual + price update) */
+    renderPOLines();
   } else if(['quantity','unit_price','vat_rate'].includes(field)){
+    /* Round 4r: numeric edits — update totals only, no re-render (preserves focus) */
     poItems[idx][field] = parseFloat(value) || 0;
+    updatePOLineTotal(idx);
   } else {
     poItems[idx][field] = value;
   }
-  renderPOLines();
+}
+
+/* Round 4r: update one row's total cell + the grand totals, without re-rendering */
+function updatePOLineTotal(idx){
+  const it = poItems[idx];
+  if(!it) return;
+  const lineSub = (parseFloat(it.quantity)||0) * (parseFloat(it.unit_price)||0);
+  const lineVat = lineSub * ((parseFloat(it.vat_rate)||0) / 100);
+  const lineTotal = lineSub + lineVat;
+  const cell = document.getElementById('po-line-total-' + idx);
+  if(cell) cell.textContent = 'SAR ' + fmt(lineTotal);
+
+  /* Recompute grand totals across all rows */
+  let subtotal = 0, vatTotal = 0;
+  for(const r of poItems){
+    const s = (parseFloat(r.quantity)||0) * (parseFloat(r.unit_price)||0);
+    subtotal += s;
+    vatTotal += s * ((parseFloat(r.vat_rate)||0) / 100);
+  }
+  setText('po-tot-sub', 'SAR ' + fmt(subtotal));
+  setText('po-tot-vat', 'SAR ' + fmt(vatTotal));
+  setText('po-tot-grand', 'SAR ' + fmt(subtotal + vatTotal));
 }
 
 function renderPOLines(){
@@ -1405,14 +1639,10 @@ function renderPOLines(){
     const lineTotal = lineSub + lineVat;
     subtotal += lineSub;
     vatTotal += lineVat;
-    return `<tr>
+    return `<tr data-row-idx="${idx}">
       <td>
         <div class="field" style="margin:0;">
-          <select onchange="updatePOLine(${idx},'item_id',this.value)" style="margin-bottom:4px;">
-            <option value="">-- ${ar?'صنف من المخزون':'Pick from inventory'} --</option>
-            ${allItems.map(i => `<option value="${i.id}"${it.item_id===i.id?' selected':''}>${escHTML(i.name_ar || i.name || '')}${i.sku ? ' · ' + escHTML(i.sku) : ''}</option>`).join('')}
-          </select>
-          <input type="text" value="${escHTML(it.description||'')}" oninput="updatePOLine(${idx},'description',this.value)" placeholder="${ar?'وصف البند':'Description'}">
+          <div id="po-item-combo-${idx}"></div>
         </div>
       </td>
       <td>
@@ -1424,7 +1654,7 @@ function renderPOLines(){
       <td>
         <div class="field" style="margin:0;"><input type="number" step="0.01" min="0" class="mono" value="${it.vat_rate}" oninput="updatePOLine(${idx},'vat_rate',this.value)" style="text-align:end;"></div>
       </td>
-      <td class="num">SAR ${fmt(lineTotal)}</td>
+      <td class="num" id="po-line-total-${idx}">SAR ${fmt(lineTotal)}</td>
       <td class="center"><button class="btn btn-ghost btn-sm" onclick="removePOLine(${idx})" title="${ar?'حذف':'Remove'}" style="color:var(--red);padding:4px 8px;">×</button></td>
     </tr>`;
   }).join('');
@@ -1432,6 +1662,58 @@ function renderPOLines(){
   setText('po-tot-sub', 'SAR ' + fmt(subtotal));
   setText('po-tot-vat', 'SAR ' + fmt(vatTotal));
   setText('po-tot-grand', 'SAR ' + fmt(subtotal + vatTotal));
+
+  /* Round 4r: mount item combobox in each row */
+  const itemOptions = allItems
+    .filter(i => i.is_active !== false)
+    .map(i => ({
+      id: i.id,
+      label: i.name_ar || i.name || i.name_en || '',
+      meta: i.sku || ''
+    }));
+
+  poItems.forEach((it, idx) => {
+    const wrap = document.getElementById('po-item-combo-' + idx);
+    if(!wrap) return;
+    poItemCombos[idx] = mountCombobox({
+      wrapEl: wrap,
+      placeholder: ar ? 'ابحث أو اختر صنفاً...' : 'Search or pick item...',
+      items: itemOptions,
+      value: it.item_id || '',
+      onSelect: (id) => { updatePOLine(idx, 'item_id', id); },
+      onQuickAdd: async (name) => {
+        /* Inline quick-add — creates an inventory item with name + auto SKU,
+           then auto-selects it on this row. Cost defaults to current row's
+           unit_price (so user-typed price isn't lost). */
+        const sku = (typeof nextItemSKU === 'function') ? nextItemSKU() : ('SKU-' + Date.now());
+        const rowPrice = parseFloat(poItems[idx].unit_price) || 0;
+        const payload = {
+          user_id: currentUser.id,
+          business_id: currentBiz.id,
+          name: name,
+          name_ar: name,
+          sku: sku,
+          unit: 'pcs',
+          cost_price: rowPrice,
+          sale_price: 0,
+          current_qty: 0,
+          is_active: true,
+          updated_at: new Date().toISOString()
+        };
+        const {data, error} = await sb.from('inventory_items').insert(payload).select().single();
+        if(error){ notify((ar?'فشل الإنشاء: ':'Create failed: ') + (error.message||''), 'error'); return; }
+        notify(ar?`✅ تم إنشاء "${name}" (${sku})`:`✅ Created "${name}" (${sku})`, 'success');
+        /* Refresh items cache so combobox sees the new item, then auto-select on this row */
+        allItems.push(data);
+        poItems[idx].item_id = data.id;
+        poItems[idx].description = data.name_ar || data.name || '';
+        if(!poItems[idx].unit_price && rowPrice === 0){
+          poItems[idx].unit_price = parseFloat(data.cost_price) || 0;
+        }
+        renderPOLines();
+      }
+    });
+  });
 }
 
 async function fetchNextPONumber(){
