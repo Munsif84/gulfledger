@@ -644,7 +644,10 @@ async function loadEntries(){
     const expIds = (bizExpenses || []).map(e => e.id);
 
     let rows2 = [];
-    if(expIds.length){
+    /* Round 5b: skip the legacy expense_audit_log query entirely if a prior
+       attempt found the table missing. Errors are silenced — but pinging a
+       non-existent table on every filter change wastes a roundtrip each time. */
+    if(expIds.length && !window._expenseAuditLogMissing){
       let q2 = sb.from('expense_audit_log')
         .select('id, created_at, user_id, user_email, expense_id, action, reason')
         .in('expense_id', expIds)
@@ -653,9 +656,16 @@ async function loadEntries(){
       if(fromTs) q2 = q2.gte('created_at', fromTs);
       if(toTs)   q2 = q2.lte('created_at', toTs);
       const {data, error: e2} = await q2;
-      /* Don't fail the whole load if the legacy table errors — just warn */
+      /* Don't fail the whole load if the legacy table errors — just warn.
+         Cache "missing" so subsequent loads skip the query. */
       if(e2){
-        console.warn('[GL] expense_audit_log query failed (non-blocking):', e2.message);
+        const msg = (e2.message || '').toLowerCase();
+        if(msg.includes('does not exist') || msg.includes('relation')){
+          window._expenseAuditLogMissing = true;
+          console.info('[GL] expense_audit_log table not present — legacy queries disabled for this session');
+        } else {
+          console.warn('[GL] expense_audit_log query failed (non-blocking):', e2.message);
+        }
       } else {
         rows2 = data || [];
       }

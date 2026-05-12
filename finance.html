@@ -5273,14 +5273,15 @@ async function attachReceiptToExpense(expenseId, files){
     return;
   }
 
-  /* Audit log */
-  await sb.from('expense_audit_log').insert({
-    user_id: currentUser.id,
-    expense_id: expenseId,
+  /* Round 5b: audit via canonical audit_log (replaces legacy expense_audit_log
+     which has been removed from schema). writeAuditLog() handles error swallow. */
+  await writeAuditLog({
+    entity_type: 'expense',
+    entity_id: expenseId,
+    entity_reference: (allExpenses.find(e => e.id === expenseId) || {}).expense_number || null,
     action: 'edited',
-    user_email: currentUser.email,
     reason: ar?'تم إرفاق إيصال':'Receipt attached'
-  }).then(() => {}).catch(() => {});
+  });
 
   notify(ar?'تم إرفاق الإيصال':'Receipt attached','success');
 
