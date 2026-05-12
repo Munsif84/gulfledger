@@ -528,6 +528,11 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         <div class="value" id="stat-po-overdue">0</div>
         <div class="sub" data-ar="تجاوزت موعد التسليم" data-en="past expected delivery">تجاوزت موعد التسليم</div>
       </div>
+      <div class="stat-card amber">
+        <div class="label" data-ar="يحتاج اهتماماً" data-en="Needs Attention">يحتاج اهتماماً</div>
+        <div class="value" id="stat-po-attention">0</div>
+        <div class="sub" data-ar="فرق سعري / استلام زائد / فاتورة ناقصة" data-en="variance / over-receipt / missing invoice">فرق سعري / استلام زائد / فاتورة ناقصة</div>
+      </div>
       <div class="stat-card green">
         <div class="label" data-ar="إجمالي القيمة" data-en="Total Value">إجمالي القيمة</div>
         <div class="value" id="stat-po-value">SAR 0</div>
@@ -1088,20 +1093,98 @@ let poItems = []; /* line items in the open create modal */
 async function loadPOs(){
   if(!currentBiz?.id){ allPOs = []; return; }
   const {data, error} = await sb.from('purchase_orders')
-    .select('id, po_number, po_date, expected_date, supplier_id, supplier_name, status, subtotal, vat_amount, total, notes, payment_terms, created_at')
+    .select('id, po_number, po_date, expected_date, supplier_id, supplier_name, status, subtotal, vat_amount, total, notes, payment_terms, created_at, completed_at, closed_with_reason, closed_short_at')
     .eq('business_id', currentBiz.id)
     .order('created_at', {ascending: false});
   if(error){ console.error('POs load:', error); allPOs = []; return; }
-  /* Fetch line counts in a second query — simpler than nested select */
+
   const ids = (data || []).map(p => p.id);
-  let countsByPO = {};
+
+  /* Per-PO line aggregates: count, ordered qty, received qty, max receipt unit cost vs PO unit price */
+  let agg = {};
   if(ids.length){
+    /* Lines (count + sums of quantity / qty_received per PO + per-line unit_price for variance) */
     const {data: lines} = await sb.from('po_items')
-      .select('po_id').in('po_id', ids);
-    (lines || []).forEach(l => { countsByPO[l.po_id] = (countsByPO[l.po_id] || 0) + 1; });
+      .select('id, po_id, quantity, qty_received, unit_price').in('po_id', ids);
+
+    (lines || []).forEach(l => {
+      if(!agg[l.po_id]) agg[l.po_id] = {
+        line_count: 0,
+        qty_ordered_total: 0,
+        qty_received_total: 0,
+        lines: {},                /* po_item_id -> {ordered, received, unit_price, max_receipt_cost} */
+        any_receipt: false,
+        any_supplier_invoice: false,
+        any_missing_supplier_invoice: false
+      };
+      agg[l.po_id].line_count += 1;
+      agg[l.po_id].qty_ordered_total  += parseFloat(l.quantity) || 0;
+      agg[l.po_id].qty_received_total += parseFloat(l.qty_received) || 0;
+      agg[l.po_id].lines[l.id] = {
+        ordered: parseFloat(l.quantity) || 0,
+        received: parseFloat(l.qty_received) || 0,
+        unit_price: parseFloat(l.unit_price) || 0,
+        max_receipt_cost: 0       /* filled by next query */
+      };
+    });
+
+    /* Round 4s: Receipts against these POs — supplier_invoice_number presence,
+       and receipt items' unit_cost per po_item_id for variance check */
+    const {data: rcps} = await sb.from('stock_receipts')
+      .select('id, po_id, supplier_invoice_number, status')
+      .in('po_id', ids);
+    const receiptById = {};
+    (rcps || []).forEach(r => {
+      if(r.status === 'voided') return;
+      receiptById[r.id] = r;
+      const a = agg[r.po_id];
+      if(!a) return;
+      a.any_receipt = true;
+      if((r.supplier_invoice_number || '').trim()){
+        a.any_supplier_invoice = true;
+      } else {
+        a.any_missing_supplier_invoice = true;
+      }
+    });
+
+    /* Round 4s: per-line receipt cost — pick the max cost across all receipts on each po_item_id.
+       We use max (not avg) to flag any variance occurrence; matches the receive-side warning logic. */
+    const rcpIds = Object.keys(receiptById);
+    if(rcpIds.length){
+      const {data: rcpItems} = await sb.from('stock_receipt_items')
+        .select('receipt_id, po_item_id, unit_cost')
+        .in('receipt_id', rcpIds);
+      (rcpItems || []).forEach(ri => {
+        if(!ri.po_item_id) return;
+        const r = receiptById[ri.receipt_id];
+        if(!r) return;
+        const a = agg[r.po_id];
+        if(!a || !a.lines[ri.po_item_id]) return;
+        const cost = parseFloat(ri.unit_cost) || 0;
+        if(cost > a.lines[ri.po_item_id].max_receipt_cost){
+          a.lines[ri.po_item_id].max_receipt_cost = cost;
+        }
+      });
+    }
   }
-  allPOs = (data || []).map(p => ({...p, _line_count: countsByPO[p.id] || 0}));
+
+  allPOs = (data || []).map(p => {
+    const a = agg[p.id] || {line_count:0, qty_ordered_total:0, qty_received_total:0, lines:{}, any_receipt:false, any_supplier_invoice:false, any_missing_supplier_invoice:false};
+    return {
+      ...p,
+      _line_count: a.line_count,
+      _qty_ordered: a.qty_ordered_total,
+      _qty_received: a.qty_received_total,
+      _po_lines_agg: a.lines,
+      _any_receipt: a.any_receipt,
+      _any_supplier_invoice: a.any_supplier_invoice,
+      _any_missing_supplier_invoice: a.any_missing_supplier_invoice
+    };
+  });
 }
+
+/* Round 4s: which match-status filter pill is active. null = no filter (show all). */
+let _poMatchFilter = null;
 
 function renderPOs(){
   const wrap = document.getElementById('pos-table-wrap');
@@ -1121,6 +1204,14 @@ function renderPOs(){
   setText('stat-po-value', 'SAR ' + fmt(totalValue));
   setText('count-orders', allPOs.length);
 
+  /* Round 4s: compute match status once per PO and cache on the object */
+  allPOs.forEach(p => { p._match_status = computePOMatchStatus(p); });
+
+  /* Round 4s: needs-attention count for the stat card + filter pills */
+  const attentionCount = allPOs.filter(p => poNeedsAttention(p._match_status)).length;
+  const attentionEl = document.getElementById('stat-po-attention');
+  if(attentionEl) setText('stat-po-attention', attentionCount);
+
   let pos = allPOs.slice();
   if(search){
     pos = pos.filter(p =>
@@ -1128,6 +1219,39 @@ function renderPOs(){
       (p.supplier_name||'').toLowerCase().includes(search)
     );
   }
+  /* Round 4s: apply match-status filter pill */
+  if(_poMatchFilter === 'needs_attention'){
+    pos = pos.filter(p => poNeedsAttention(p._match_status));
+  } else if(_poMatchFilter === 'matched'){
+    pos = pos.filter(p => p._match_status === 'matched');
+  } else if(_poMatchFilter === 'awaiting_invoice'){
+    pos = pos.filter(p => p._match_status === 'awaiting_invoice');
+  } else if(_poMatchFilter === 'variance'){
+    pos = pos.filter(p => p._match_status === 'price_variance' || p._match_status === 'over_received');
+  } else if(_poMatchFilter === 'open'){
+    pos = pos.filter(p => p._match_status === 'partial' || p._match_status === 'not_received');
+  }
+
+  /* Round 4s: filter-pills row (rendered above the table) */
+  const pillsHtml = `
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center;">
+      <span style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-inline-end:4px;">${ar?'تصفية':'Filter'}:</span>
+      ${[
+        ['',                 ar?'الكل':'All',                            allPOs.length],
+        ['needs_attention',  ar?'يحتاج اهتماماً':'Needs attention',      attentionCount],
+        ['open',             ar?'مفتوح':'Open',                           allPOs.filter(p => p._match_status==='partial'||p._match_status==='not_received').length],
+        ['awaiting_invoice', ar?'بانتظار الفاتورة':'Awaiting invoice #', allPOs.filter(p => p._match_status==='awaiting_invoice').length],
+        ['variance',         ar?'فرق سعري/زائد':'Variance / over',       allPOs.filter(p => p._match_status==='price_variance'||p._match_status==='over_received').length],
+        ['matched',          ar?'مطابق':'Matched',                       allPOs.filter(p => p._match_status==='matched').length]
+      ].map(([key,label,count]) => {
+        const active = (_poMatchFilter || '') === key;
+        const bg = active ? 'var(--blue)' : '#fff';
+        const fg = active ? '#fff' : 'var(--ink)';
+        const bd = active ? 'var(--blue)' : 'var(--border)';
+        const safeKey = key.replace(/'/g, '');
+        return `<button onclick="setPOMatchFilter(${key ? `'${safeKey}'` : 'null'})" style="border:1px solid ${bd};background:${bg};color:${fg};padding:5px 12px;border-radius:18px;font-size:12px;font-weight:600;cursor:pointer;transition:all .15s;font-family:inherit;">${escHTML(label)}${count > 0 ? ` <span style="opacity:.7;font-weight:500;">·${count}</span>` : ''}</button>`;
+      }).join('')}
+    </div>`;
 
   if(allPOs.length === 0){
     wrap.innerHTML = `
@@ -1143,16 +1267,16 @@ function renderPOs(){
   }
 
   if(pos.length === 0){
-    wrap.innerHTML = `
+    wrap.innerHTML = pillsHtml + `
       <div class="empty-state">
         <div class="icon">🔍</div>
         <div class="title">${ar?'لا توجد نتائج':'No results'}</div>
-        <div class="text">${ar?'جرب بحثاً آخر.':'Try a different search.'}</div>
+        <div class="text">${ar?'جرب بحثاً آخر أو امسح التصفية.':'Try a different search or clear the filter.'}</div>
       </div>`;
     return;
   }
 
-  wrap.innerHTML = `
+  wrap.innerHTML = pillsHtml + `
     <table class="tbl">
       <thead>
         <tr>
@@ -1160,6 +1284,7 @@ function renderPOs(){
           <th>${ar?'التاريخ':'Date'}</th>
           <th>${ar?'المورد':'Supplier'}</th>
           <th class="center">${ar?'الحالة':'Status'}</th>
+          <th class="center">${ar?'المطابقة':'Match'}</th>
           <th class="num">${ar?'الأصناف':'Items'}</th>
           <th class="num">${ar?'الإجمالي':'Total'}</th>
           <th class="center"></th>
@@ -1174,6 +1299,7 @@ function renderPOs(){
             <td>${escHTML(p.po_date || '—')} ${overdue?`<span class="badge" style="background:#fee2e2;color:#991b1b;font-size:10px;padding:2px 6px;border-radius:5px;font-weight:700;margin-inline-start:6px;">⏰ ${ar?'متأخر':'Overdue'}</span>`:''}</td>
             <td>${escHTML(p.supplier_name || '—')}</td>
             <td class="center">${poStatusBadge(p.status || 'draft')}</td>
+            <td class="center">${poMatchBadge(p._match_status)}</td>
             <td class="num">${p._line_count}</td>
             <td class="num">SAR ${fmt(p.total || 0)}</td>
             <td class="center">
@@ -1190,6 +1316,12 @@ function renderPOs(){
     </table>`;
 }
 
+/* Round 4s: filter pill click handler */
+function setPOMatchFilter(filter){
+  _poMatchFilter = filter || null;
+  renderPOs();
+}
+
 function poStatusBadge(status){
   const ar = currentLang === 'ar';
   const map = {
@@ -1201,6 +1333,83 @@ function poStatusBadge(status){
   };
   const m = map[status] || map.draft;
   return `<span style="background:${m.bg};color:${m.fg};padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;display:inline-block;">${ar?m.ar:m.en}</span>`;
+}
+
+/* ═══════════════════════════════════════════════════════
+   Round 4s — Match Status (2-way: PO ↔ Receipt)
+   Returns one of:
+     'not_applicable' — draft/cancelled POs (no match needed)
+     'not_received'   — sent, nothing arrived yet
+     'partial'        — some lines received, none completed across the PO
+     'over_received'  — any line received more than ordered
+     'price_variance' — at least one line's receipt cost exceeded variance threshold
+     'awaiting_invoice' — fully received but at least one receipt has no supplier_invoice_number
+     'matched'        — fully received, supplier invoice # on all receipts, no over-receipt, no variance
+   Severity ordering (worst first): over_received > price_variance > awaiting_invoice > partial > not_received > matched > not_applicable
+═══════════════════════════════════════════════════════ */
+function getPOVarianceThreshold(){
+  /* Round 4s: configurable per-business via Settings (default 5%). Returns 0..1 ratio. */
+  const pct = parseFloat(currentBiz?.po_variance_pct_threshold);
+  if(Number.isFinite(pct) && pct > 0) return pct / 100;
+  return 0.05;
+}
+
+function computePOMatchStatus(p){
+  const status = p.status || 'draft';
+  if(status === 'draft' || status === 'cancelled') return 'not_applicable';
+
+  const ordered  = parseFloat(p._qty_ordered)  || 0;
+  const received = parseFloat(p._qty_received) || 0;
+  const lines = p._po_lines_agg || {};
+
+  /* Check over-receipt per line first (most severe) */
+  let overReceived = false;
+  let priceVariance = false;
+  const threshold = getPOVarianceThreshold();
+  for(const id in lines){
+    const l = lines[id];
+    if(l.received > l.ordered + 0.001){ overReceived = true; }
+    /* Price variance: only compare when there's actually a receipt cost recorded */
+    if(l.unit_price > 0 && l.max_receipt_cost > 0){
+      const pct = Math.abs(l.max_receipt_cost - l.unit_price) / l.unit_price;
+      if(pct > threshold) priceVariance = true;
+    }
+  }
+  if(overReceived) return 'over_received';
+  if(priceVariance) return 'price_variance';
+
+  /* Fully received: check supplier invoice presence on all receipts */
+  const fullyReceived = ordered > 0 && received >= ordered;
+  if(fullyReceived){
+    if(p._any_missing_supplier_invoice) return 'awaiting_invoice';
+    return 'matched';
+  }
+
+  /* Partial states */
+  if(received > 0) return 'partial';
+  return 'not_received';
+}
+
+/* Returns a colored pill HTML for a given match status */
+function poMatchBadge(matchStatus){
+  const ar = currentLang === 'ar';
+  const map = {
+    not_applicable:   {bg:'#f3f4f6', fg:'#6b7280', ar:'—',           en:'—',                icon:''},
+    not_received:     {bg:'#dbeafe', fg:'#1e40af', ar:'بانتظار الاستلام', en:'Awaiting receipt', icon:'⏳'},
+    partial:          {bg:'#fef3c7', fg:'#92400e', ar:'جزئي',         en:'Partial',          icon:'◐'},
+    matched:          {bg:'#dcfce7', fg:'#166534', ar:'مطابق',        en:'Matched',          icon:'✓'},
+    awaiting_invoice: {bg:'#fef9c3', fg:'#854d0e', ar:'بانتظار الفاتورة', en:'Needs invoice #', icon:'🧾'},
+    price_variance:   {bg:'#ffedd5', fg:'#9a3412', ar:'فرق سعري',     en:'Price variance',   icon:'⚠'},
+    over_received:    {bg:'#fee2e2', fg:'#991b1b', ar:'استلام زائد',  en:'Over-received',    icon:'⚠'}
+  };
+  const m = map[matchStatus] || map.not_applicable;
+  const label = ar ? m.ar : m.en;
+  return `<span style="background:${m.bg};color:${m.fg};padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;display:inline-block;white-space:nowrap;" title="${escHTML(label)}">${m.icon ? m.icon + ' ' : ''}${escHTML(label)}</span>`;
+}
+
+/* Whether a PO needs human attention (used by 'Needs attention' filter pill) */
+function poNeedsAttention(matchStatus){
+  return ['over_received','price_variance','awaiting_invoice'].includes(matchStatus);
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -1842,7 +2051,55 @@ async function openPODetail(id){
     const {data: s} = await sb.from('suppliers').select('*').eq('id', header.supplier_id).maybeSingle();
     supplier = s;
   }
-  _currentPO = { header, lines: lines||[], supplier };
+
+  /* Round 4s: receipts against this PO + receipt items for per-line cost/variance */
+  const {data: receipts} = await sb.from('stock_receipts')
+    .select('id, receipt_number, receipt_date, supplier_invoice_number, status, total, created_at')
+    .eq('po_id', id)
+    .order('receipt_date', {ascending: true});
+  const activeReceipts = (receipts || []).filter(r => r.status !== 'voided');
+  const receiptIds = activeReceipts.map(r => r.id);
+
+  /* Per-line max receipt unit_cost for variance flag */
+  const maxCostByPOItemId = {};
+  if(receiptIds.length){
+    const {data: rcpItems} = await sb.from('stock_receipt_items')
+      .select('receipt_id, po_item_id, unit_cost, quantity')
+      .in('receipt_id', receiptIds);
+    (rcpItems || []).forEach(ri => {
+      if(!ri.po_item_id) return;
+      const cost = parseFloat(ri.unit_cost) || 0;
+      if(!maxCostByPOItemId[ri.po_item_id] || cost > maxCostByPOItemId[ri.po_item_id]){
+        maxCostByPOItemId[ri.po_item_id] = cost;
+      }
+    });
+  }
+
+  _currentPO = { header, lines: lines||[], supplier, receipts: activeReceipts };
+
+  /* Round 4s: compute overall match status for header badge.
+     Mirror the loadPOs aggregate shape so computePOMatchStatus() works the same. */
+  const lineAgg = {};
+  let totalOrdered = 0, totalReceived = 0;
+  (lines||[]).forEach(l => {
+    const ord = parseFloat(l.quantity) || 0;
+    const rec = parseFloat(l.qty_received) || 0;
+    totalOrdered += ord;
+    totalReceived += rec;
+    lineAgg[l.id] = {
+      ordered: ord,
+      received: rec,
+      unit_price: parseFloat(l.unit_price) || 0,
+      max_receipt_cost: maxCostByPOItemId[l.id] || 0
+    };
+  });
+  const matchStatus = computePOMatchStatus({
+    status: header.status,
+    _qty_ordered: totalOrdered,
+    _qty_received: totalReceived,
+    _po_lines_agg: lineAgg,
+    _any_missing_supplier_invoice: activeReceipts.some(r => !(r.supplier_invoice_number || '').trim())
+  });
 
   /* Render the modal */
   const status = header.status || 'draft';
@@ -1851,12 +2108,34 @@ async function openPODetail(id){
     ? `<span style="color:var(--muted);font-size:12px;">${ar?'أُرسل':'Sent'} ${formatDateTime(header.sent_at)} ${ar?'عبر':'via'} ${escHTML(header.sent_method||'—')} → ${escHTML(header.sent_to||'—')}</span>`
     : '';
 
+  const threshold = getPOVarianceThreshold();
   const linesHtml = (lines||[]).map((l, i) => {
     const received = parseFloat(l.qty_received)||0;
     const ordered = parseFloat(l.quantity)||0;
     const remaining = ordered - received;
     const pct = ordered > 0 ? (received/ordered*100) : 0;
-    return `<tr>
+    /* Round 4s: per-line variance & over-receipt flags */
+    const rcpCost = maxCostByPOItemId[l.id] || 0;
+    const poPrice = parseFloat(l.unit_price) || 0;
+    let varPct = 0, hasVariance = false;
+    if(poPrice > 0 && rcpCost > 0){
+      varPct = (rcpCost - poPrice) / poPrice;
+      if(Math.abs(varPct) > threshold) hasVariance = true;
+    }
+    const overReceived = received > ordered + 0.001;
+
+    /* Match cell content */
+    let matchCell = '<span style="color:var(--muted);font-size:11px;">—</span>';
+    if(overReceived){
+      matchCell = `<span style="color:var(--red);font-size:11px;font-weight:700;" title="${ar?'استلام زائد':'Over-received'} ${fmt(received - ordered)}">⚠ ${ar?'زائد':'Over'} ${fmt(received - ordered)}</span>`;
+    } else if(hasVariance){
+      const sign = varPct > 0 ? '+' : '';
+      matchCell = `<span style="color:#9a3412;font-size:11px;font-weight:700;" title="${ar?'فرق سعري — استلام':'Receipt cost'} SAR ${fmt(rcpCost)}">⚠ ${sign}${(varPct*100).toFixed(1)}%</span>`;
+    } else if(rcpCost > 0 && poPrice > 0){
+      matchCell = `<span style="color:var(--green);font-size:11px;font-weight:700;">✓</span>`;
+    }
+
+    return `<tr${(overReceived||hasVariance)?' style="background:#fff7ed;"':''}>
       <td>${i+1}</td>
       <td><strong>${escHTML(l.description||'')}</strong></td>
       <td class="num">${ordered}</td>
@@ -1864,6 +2143,7 @@ async function openPODetail(id){
       <td class="num">${remaining}</td>
       <td class="num">SAR ${fmt(l.unit_price)}</td>
       <td class="num">SAR ${fmt(l.total)}</td>
+      <td class="center">${matchCell}</td>
       <td>
         <div style="background:var(--tint);height:6px;border-radius:3px;overflow:hidden;width:80px;">
           <div style="background:${pct>=100?'var(--green)':'var(--amber)'};height:100%;width:${Math.min(pct,100)}%;"></div>
@@ -1872,17 +2152,52 @@ async function openPODetail(id){
     </tr>`;
   }).join('');
 
-  const totalReceived = (lines||[]).reduce((s,l) => s + (parseFloat(l.qty_received)||0), 0);
-  const totalOrdered = (lines||[]).reduce((s,l) => s + (parseFloat(l.quantity)||0), 0);
+  /* Round 4s: reconciliation panel — receipts list with supplier invoice # status */
+  const reconciliationHtml = activeReceipts.length === 0
+    ? ''
+    : `<div style="margin-top:18px;padding:14px 16px;background:var(--bg);border:1px solid var(--border);border-radius:10px;">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:8px;flex-wrap:wrap;">
+          <div style="font-size:13px;font-weight:700;color:var(--ink);">
+            🧾 <span data-ar="الاستلامات المرتبطة" data-en="Linked Receipts">${ar?'الاستلامات المرتبطة':'Linked Receipts'}</span>
+            <span style="color:var(--muted);font-weight:500;">· ${activeReceipts.length}</span>
+          </div>
+          ${poMatchBadge(matchStatus)}
+        </div>
+        <table class="tbl" style="font-size:13px;">
+          <thead>
+            <tr>
+              <th>${ar?'رقم الاستلام':'Receipt #'}</th>
+              <th>${ar?'التاريخ':'Date'}</th>
+              <th>${ar?'رقم فاتورة المورد':'Supplier Invoice #'}</th>
+              <th class="num">${ar?'الإجمالي':'Total'}</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${activeReceipts.map(r => {
+              const hasInv = (r.supplier_invoice_number || '').trim();
+              const invCell = hasInv
+                ? `<span class="mono" style="font-weight:600;">${escHTML(r.supplier_invoice_number)}</span>`
+                : `<span style="color:var(--amber);font-size:12px;font-weight:600;">⚠ ${ar?'ناقص':'missing'}</span>`;
+              return `<tr>
+                <td><strong class="mono">${escHTML(r.receipt_number||'—')}</strong></td>
+                <td class="mono">${escHTML(r.receipt_date||'—')}</td>
+                <td>${invCell}</td>
+                <td class="num">SAR ${fmt(r.total||0)}</td>
+              </tr>`;
+            }).join('')}
+          </tbody>
+        </table>
+      </div>`;
 
   const modal = document.getElementById('po-detail-modal') || createPODetailModal();
   modal.innerHTML = `
-    <div class="modal" style="max-width:900px;">
+    <div class="modal" style="max-width:960px;">
       <div class="modal-head">
         <div class="modal-title">
           📋 <strong>${escHTML(header.po_number || '—')}</strong>
           ${poStatusBadge(status)}
-          ${isOverdue ? `<span class="badge" style="background:#fee2e2;color:#991b1b;font-size:11px;padding:3px 10px;border-radius:6px;font-weight:700;margin-inline-start:8px;">⏰ ${ar?'متأخر':'Overdue'}</span>` : ''}
+          ${poMatchBadge(matchStatus)}
+          ${isOverdue ? `<span class="badge" style="background:#fee2e2;color:#991b1b;font-size:11px;padding:3px 10px;border-radius:6px;font-weight:700;margin-inline-start:4px;">⏰ ${ar?'متأخر':'Overdue'}</span>` : ''}
         </div>
         <button class="modal-close" onclick="closePODetail()">×</button>
       </div>
@@ -1919,6 +2234,7 @@ async function openPODetail(id){
                 <th class="num">${ar?'متبقي':'Remaining'}</th>
                 <th class="num">${ar?'السعر':'Unit Price'}</th>
                 <th class="num">${ar?'الإجمالي':'Total'}</th>
+                <th class="center">${ar?'المطابقة':'Match'}</th>
                 <th>${ar?'التقدم':'Progress'}</th>
               </tr>
             </thead>
@@ -1932,13 +2248,17 @@ async function openPODetail(id){
                 <td class="num"></td>
                 <td class="num">SAR ${fmt(header.total||0)}</td>
                 <td></td>
+                <td></td>
               </tr>
             </tfoot>
           </table>
         </div>
 
+        ${reconciliationHtml}
+
         ${header.notes ? `<div style="margin-top:14px;padding:12px;background:var(--bg);border-radius:8px;font-size:13px;"><strong>${ar?'ملاحظات':'Notes'}:</strong> ${escHTML(header.notes)}</div>` : ''}
         ${header.cancelled_reason ? `<div style="margin-top:14px;padding:12px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:13px;"><strong style="color:var(--red);">${ar?'سبب الإلغاء':'Cancel reason'}:</strong> ${escHTML(header.cancelled_reason)}</div>` : ''}
+        ${header.closed_with_reason ? `<div style="margin-top:14px;padding:12px;background:#fff7ed;border:1px solid #fed7aa;border-radius:8px;font-size:13px;"><strong style="color:#9a3412;">${ar?'إغلاق مبكر':'Closed short'}:</strong> ${escHTML(header.closed_with_reason)}</div>` : ''}
       </div>
     </div>
   `;

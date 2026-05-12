@@ -4409,7 +4409,13 @@ function renderPOProgressPanel(){
 
 /* Round 4r: Check the current receipt rows for cost variance (>5%) and over-receipt vs PO.
    Returns {variances:[...], overReceipts:[...]} for banner rendering and pre-save confirm. */
-const RCP_VARIANCE_THRESHOLD = 0.05;   /* 5% */
+/* Round 4r threshold, Round 4s made configurable per-business via Settings.
+   Returns a 0..1 ratio (e.g. 0.05 for 5%). Falls back to 5% if not set. */
+function getVarianceThreshold(){
+  const pct = parseFloat(currentBiz?.po_variance_pct_threshold);
+  if(Number.isFinite(pct) && pct > 0) return pct / 100;
+  return 0.05;
+}
 function checkVarianceAndOverReceipt(){
   const variances = [];
   const overReceipts = [];
@@ -4434,7 +4440,7 @@ function checkVarianceAndOverReceipt(){
     if(pl.unit_price > 0 && cost > 0){
       const diff = cost - pl.unit_price;
       const pctDiff = Math.abs(diff / pl.unit_price);
-      if(pctDiff > RCP_VARIANCE_THRESHOLD){
+      if(pctDiff > getVarianceThreshold()){
         const item = pl.item_id ? allItems.find(it => it.id === pl.item_id) : null;
         variances.push({
           label: item ? displayName(item) : (pl.description || ''),
