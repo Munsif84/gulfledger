@@ -110,13 +110,18 @@ a{color:var(--blue);text-decoration:none;}
 .btn-ghost:hover{background:var(--bg);color:var(--ink);}
 .btn-sm{padding:5px 10px;font-size:12px;}
 
-/* Filter pills (canonical — same as inventory.html val-filter-pill / purchasing.html filter-pill) */
-.filter-pill{transition:all .15s;}
-.filter-pill .count-badge{display:inline-block;background:var(--tint);color:var(--muted);padding:1px 7px;border-radius:8px;font-size:11px;font-weight:700;font-family:'DM Mono',monospace;margin-inline-start:4px;}
-.filter-pill.active{background:var(--blue);color:#fff;border-color:var(--blue);}
-.filter-pill.active .count-badge{background:rgba(255,255,255,0.25);color:#fff;}
-.filter-row{display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:14px;}
-.filter-row-label{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-inline-end:4px;}
+/* Filter group + filter button — canonical segmented-control pattern from invoices.html.
+   Used for inline single-axis filters next to a search box. */
+.filter-group{display:inline-flex;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:2px;flex-wrap:wrap;}
+.filter-btn{padding:6px 12px;border:none;border-radius:6px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:var(--muted);transition:all .15s;display:inline-flex;align-items:center;gap:6px;}
+.filter-btn:hover{color:var(--ink);}
+.filter-btn.active{background:#fff;color:var(--navy);box-shadow:0 1px 3px rgba(0,0,0,0.06);}
+.filter-btn .count-badge{display:inline-block;background:var(--tint);color:var(--muted);padding:1px 6px;border-radius:6px;font-size:10px;font-weight:700;font-family:'DM Mono',monospace;}
+.filter-btn.active .count-badge{background:var(--tint);color:var(--blue);}
+
+/* Filter select dropdown (canonical, matches finance.html) */
+.filter-select{padding:8px 11px;border:1.5px solid var(--border);border-radius:10px;font-family:inherit;font-size:13px;background:#fff;color:var(--ink);cursor:pointer;}
+.filter-select:focus{outline:none;border-color:var(--blue);}
 
 /* Date range row */
 .date-range{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px;}
@@ -302,13 +307,31 @@ a{color:var(--blue);text-decoration:none;}
     </div>
   </div>
 
-  <!-- Toolbar: search + date range + user (row 1) -->
+  <!-- Toolbar (row 1): search + entity filter-group + action select + user select.
+       Matches the inline-controls pattern from invoices.html. -->
   <div class="toolbar">
     <div class="toolbar-left">
       <div class="search-wrap">
         <span class="search-icon">🔍</span>
         <input type="text" class="search-input" id="flt-search" placeholder="">
       </div>
+      <!-- Entity filter pills (filter-group, populated by renderEntityPills) -->
+      <div id="entity-pills"></div>
+      <!-- Action filter as select dropdown (many values; select is cleaner than pills) -->
+      <select id="flt-action" class="filter-select" onchange="onActionSelectChange()">
+        <option value="" data-ar="كل الإجراءات" data-en="All actions">كل الإجراءات</option>
+      </select>
+      <!-- User filter as select dropdown -->
+      <select id="flt-user" class="filter-select">
+        <option value="" data-ar="كل المستخدمين" data-en="All users">كل المستخدمين</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Toolbar (row 2): date range + period preset filter-group. Two complementary
+       inputs on the time axis (precise date pickers + quick preset shortcuts). -->
+  <div class="toolbar">
+    <div class="toolbar-left">
       <div class="date-range">
         <div class="field">
           <label data-ar="من" data-en="From">من</label>
@@ -318,32 +341,16 @@ a{color:var(--blue);text-decoration:none;}
           <label data-ar="إلى" data-en="To">إلى</label>
           <input type="date" id="flt-to">
         </div>
-        <div class="field">
-          <label data-ar="المستخدم" data-en="User">المستخدم</label>
-          <select id="flt-user">
-            <option value="" data-ar="— الكل —" data-en="— All —">— الكل —</option>
-          </select>
-        </div>
       </div>
-    </div>
-  </div>
-
-  <!-- Toolbar: filter pills (row 2) — period preset + entity + action grouped together -->
-  <div class="toolbar">
-    <div class="toolbar-left" id="audit-pills-host">
-      <!-- Period preset pills -->
-      <button class="btn btn-secondary btn-sm filter-pill" data-preset="today" onclick="applyPreset('today')" data-ar="اليوم" data-en="Today">اليوم</button>
-      <button class="btn btn-secondary btn-sm filter-pill" data-preset="7d" onclick="applyPreset('7d')" data-ar="7 أيام" data-en="7d">7 أيام</button>
-      <button class="btn btn-secondary btn-sm filter-pill active" data-preset="30d" onclick="applyPreset('30d')" data-ar="30 يوم" data-en="30d">30 يوم</button>
-      <button class="btn btn-secondary btn-sm filter-pill" data-preset="90d" onclick="applyPreset('90d')" data-ar="90 يوم" data-en="90d">90 يوم</button>
-      <button class="btn btn-secondary btn-sm filter-pill" data-preset="year" onclick="applyPreset('year')" data-ar="هذا العام" data-en="Year">هذا العام</button>
-      <button class="btn btn-secondary btn-sm filter-pill" data-preset="all" onclick="applyPreset('all')" data-ar="الكل" data-en="All">الكل</button>
-
-      <!-- Entity-type filter pills (filled by renderEntityPills) -->
-      <span id="entity-pills" style="display:contents;"></span>
-
-      <!-- Action filter pills (filled by renderActionPills) -->
-      <span id="action-pills" style="display:contents;"></span>
+      <!-- Period preset filter-group -->
+      <div class="filter-group">
+        <button class="filter-btn" data-preset="today" onclick="applyPreset('today')" data-ar="اليوم" data-en="Today">اليوم</button>
+        <button class="filter-btn" data-preset="7d" onclick="applyPreset('7d')" data-ar="7 أيام" data-en="7d">7 أيام</button>
+        <button class="filter-btn active" data-preset="30d" onclick="applyPreset('30d')" data-ar="30 يوم" data-en="30d">30 يوم</button>
+        <button class="filter-btn" data-preset="90d" onclick="applyPreset('90d')" data-ar="90 يوم" data-en="90d">90 يوم</button>
+        <button class="filter-btn" data-preset="year" onclick="applyPreset('year')" data-ar="هذا العام" data-en="Year">هذا العام</button>
+        <button class="filter-btn" data-preset="all" onclick="applyPreset('all')" data-ar="الكل" data-en="All">الكل</button>
+      </div>
     </div>
   </div>
 
@@ -665,7 +672,7 @@ function populateUserDropdown(){
     if(e.user_email && !users.has(e.user_email)) users.set(e.user_email, e.user_id);
   });
   const current = activeFilters.user_id;
-  let html = `<option value="">${ar?'— الكل —':'— All —'}</option>`;
+  let html = `<option value="">${ar?'كل المستخدمين':'All users'}</option>`;
   for(const [email, id] of users){
     const selAttr = (id === current || email === current) ? ' selected' : '';
     html += `<option value="${escHTML(email)}"${selAttr}>${escHTML(email)}</option>`;
@@ -720,13 +727,6 @@ function setEntityFilter(type){
   renderStats();
 }
 
-function setActionFilter(act){
-  activeFilters.action = activeFilters.action === act ? '' : act;
-  renderActionPills();
-  renderTimeline();
-  renderStats();
-}
-
 /* ═════════ FILTERED ENTRIES ═════════ */
 function getFilteredEntries(){
   return allEntries.filter(e => {
@@ -752,23 +752,29 @@ function getFilteredEntries(){
 function renderEntityPills(){
   const wrap = document.getElementById('entity-pills');
   if(!wrap) return;
+  const ar = currentLang === 'ar';
   const counts = {};
   allEntries.forEach(e => { counts[e.entity_type] = (counts[e.entity_type] || 0) + 1; });
   const types = Object.keys(counts).sort();
-  /* Render only entity-type pills (no "All" row — period range already handles the all-or-nothing axis).
-     Inline in shared toolbar row, no group label needed. */
-  wrap.innerHTML = types.map(t => {
-    const active = activeFilters.entity_type === t;
-    const safeKey = t.replace(/'/g, '');
-    const cls = 'btn btn-secondary btn-sm filter-pill' + (active ? ' active' : '');
-    const label = entityIcon(t) + ' ' + entityLabel(t);
-    return `<button class="${cls}" onclick="setEntityFilter('${safeKey}')">${escHTML(label)}<span class="count-badge">${counts[t]}</span></button>`;
-  }).join('');
+  /* Use the canonical filter-group + filter-btn segmented control (matches invoices.html).
+     Include an "All" first option that clears the entity filter. */
+  const buttons = [['', ar?'الكل':'All', allEntries.length]]
+    .concat(types.map(t => [t, entityIcon(t) + ' ' + entityLabel(t), counts[t]]));
+  wrap.innerHTML = `<div class="filter-group">` + buttons.map(([key,label,count]) => {
+    const active = activeFilters.entity_type === key;
+    const safeKey = key.replace(/'/g, '');
+    const cls = 'filter-btn' + (active ? ' active' : '');
+    return `<button class="${cls}" onclick="setEntityFilter('${safeKey}')">${escHTML(label)}${count > 0 ? `<span class="count-badge">${count}</span>` : ''}</button>`;
+  }).join('') + `</div>`;
 }
 
+/* Action filter is rendered as a <select> dropdown rather than pills because
+   action vocabularies are open-ended (created/edited/voided/deleted/paid/close_short...).
+   Mirrors the filter-select pattern used in finance.html for expense category. */
 function renderActionPills(){
-  const wrap = document.getElementById('action-pills');
-  if(!wrap) return;
+  const sel = document.getElementById('flt-action');
+  if(!sel) return;
+  const ar = currentLang === 'ar';
   const counts = {};
   const filteredByOther = allEntries.filter(e => {
     if(activeFilters.entity_type && e.entity_type !== activeFilters.entity_type) return false;
@@ -777,12 +783,21 @@ function renderActionPills(){
   });
   filteredByOther.forEach(e => { counts[e.action] = (counts[e.action] || 0) + 1; });
   const actions = Object.keys(counts).sort();
-  wrap.innerHTML = actions.map(a => {
-    const active = activeFilters.action === a;
-    const safeKey = a.replace(/'/g, '');
-    const cls = 'btn btn-secondary btn-sm filter-pill' + (active ? ' active' : '');
-    return `<button class="${cls}" onclick="setActionFilter('${safeKey}')">${escHTML(actionLabel(a))}<span class="count-badge">${counts[a]}</span></button>`;
-  }).join('');
+  const current = activeFilters.action || '';
+  let html = `<option value="">${ar?'كل الإجراءات':'All actions'} (${filteredByOther.length})</option>`;
+  actions.forEach(a => {
+    const selected = (a === current) ? ' selected' : '';
+    html += `<option value="${escHTML(a)}"${selected}>${escHTML(actionLabel(a))} (${counts[a]})</option>`;
+  });
+  sel.innerHTML = html;
+}
+
+function onActionSelectChange(){
+  activeFilters.action = document.getElementById('flt-action').value || '';
+  renderEntityPills();
+  renderActionPills();
+  renderTimeline();
+  renderStats();
 }
 
 /* ═════════ ENTITY HREF ═════════ */
