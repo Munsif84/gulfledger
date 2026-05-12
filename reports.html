@@ -93,6 +93,9 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .sidebar-link:hover{background:var(--tint);color:var(--blue);}
 .sidebar-link.active{background:var(--tint);color:var(--blue);font-weight:700;border-inline-start-color:var(--blue);}
 .sidebar-link .icon{font-size:15px;flex-shrink:0;}
+.sidebar-link .badge-soon{margin-inline-start:auto;font-size:9px;font-weight:700;padding:2px 6px;border-radius:4px;background:#fef3c7;color:#92400e;text-transform:uppercase;letter-spacing:.04em;}
+.sidebar-link.disabled{opacity:0.55;cursor:not-allowed;}
+.sidebar-link.disabled:hover{background:transparent;color:var(--ink);}
 
 /* Main content area (mirrors .section-card from settings.html) */
 .reports-main{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden;}
@@ -159,7 +162,18 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .r-row-grandtotal td{padding:14px 14px;border-top:2px solid var(--blue);color:var(--navy);}
 .r-account-code{display:inline-block;background:var(--bg);color:var(--muted);padding:2px 7px;border-radius:4px;font-size:10px;font-weight:700;margin-inline-end:8px;font-family:'DM Mono',monospace;}
 
-/* Aging buckets coloring */
+/* Parameter panel — sits inside section-body above the report table.
+   Configurable inputs that define what the report shows (group by, filters, etc). */
+.param-panel{background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:14px;margin-bottom:18px;}
+.param-row{display:flex;gap:14px;flex-wrap:wrap;align-items:flex-end;}
+.param-row + .param-row{margin-top:12px;}
+.param-row .field-label{flex:1;min-width:160px;}
+
+/* Compare column — small delta % indicator */
+.compare-delta{display:inline-block;font-size:11px;font-weight:700;padding:1px 6px;border-radius:4px;margin-inline-start:6px;font-family:'DM Mono',monospace;}
+.compare-delta.up{background:#dcfce7;color:#166534;}
+.compare-delta.down{background:#fee2e2;color:#991b1b;}
+.compare-delta.flat{background:var(--tint);color:var(--muted);}
 .aging-current{color:var(--green);font-weight:700;}
 .aging-30{color:var(--amber);font-weight:700;}
 .aging-60{color:var(--red);font-weight:700;}
@@ -332,43 +346,86 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
       <div class="sidebar-sub" data-ar="استعرض أداء عملك بالتفصيل" data-en="Explore your business performance in detail">استعرض أداء عملك بالتفصيل</div>
     </div>
 
+    <!-- SALES — Sales Analysis is the configurable engine. Shortcuts pre-load it with a group-by. -->
     <div class="sidebar-group">
-      <div class="sidebar-group-label" data-ar="المبيعات والذمم المدينة" data-en="Sales & Receivables">المبيعات والذمم المدينة</div>
-      <button class="sidebar-link active" onclick="showReport('customer', this)">
-        <span class="icon">👤</span>
-        <span data-ar="كشف حساب عميل" data-en="Customer Statement">كشف حساب عميل</span>
+      <div class="sidebar-group-label" data-ar="المبيعات" data-en="Sales">المبيعات</div>
+      <button class="sidebar-link active" onclick="showReport('sales_analysis', this)">
+        <span class="icon">📈</span>
+        <span data-ar="تحليل المبيعات" data-en="Sales Analysis">تحليل المبيعات</span>
       </button>
-      <button class="sidebar-link" onclick="showReport('sales_by_customer', this)">
-        <span class="icon">💰</span>
-        <span data-ar="المبيعات حسب العميل" data-en="Sales by Customer">المبيعات حسب العميل</span>
+      <button class="sidebar-link" onclick="showReport('sales_analysis', this, {groupBy:'customer'})">
+        <span class="icon">👥</span>
+        <span data-ar="حسب العميل" data-en="By Customer">حسب العميل</span>
       </button>
-      <button class="sidebar-link" onclick="showReport('sales_by_product', this)">
+      <button class="sidebar-link" onclick="showReport('sales_analysis', this, {groupBy:'product'})">
         <span class="icon">🏷️</span>
-        <span data-ar="المبيعات حسب المنتج" data-en="Sales by Product">المبيعات حسب المنتج</span>
+        <span data-ar="حسب المنتج" data-en="By Product">حسب المنتج</span>
       </button>
+      <button class="sidebar-link" onclick="showReport('sales_analysis', this, {groupBy:'category'})">
+        <span class="icon">📁</span>
+        <span data-ar="حسب الفئة" data-en="By Category">حسب الفئة</span>
+      </button>
+      <button class="sidebar-link disabled" title="Coming soon">
+        <span class="icon">📄</span>
+        <span data-ar="سجل الفواتير" data-en="Invoice Register">سجل الفواتير</span>
+        <span class="badge-soon" data-ar="قريباً" data-en="Soon">Soon</span>
+      </button>
+    </div>
+
+    <!-- INVENTORY — Inventory Valuation + Movement coming next round -->
+    <div class="sidebar-group">
+      <div class="sidebar-group-label" data-ar="المخزون" data-en="Inventory">المخزون</div>
+      <button class="sidebar-link disabled" title="Coming soon">
+        <span class="icon">💎</span>
+        <span data-ar="تقييم المخزون" data-en="Inventory Valuation">تقييم المخزون</span>
+        <span class="badge-soon" data-ar="قريباً" data-en="Soon">Soon</span>
+      </button>
+      <button class="sidebar-link disabled" title="Coming soon">
+        <span class="icon">🔄</span>
+        <span data-ar="حركة المخزون" data-en="Inventory Movement">حركة المخزون</span>
+        <span class="badge-soon" data-ar="قريباً" data-en="Soon">Soon</span>
+      </button>
+    </div>
+
+    <!-- PURCHASING — mirror of Sales when built; placeholders for now -->
+    <div class="sidebar-group">
+      <div class="sidebar-group-label" data-ar="المشتريات" data-en="Purchasing">المشتريات</div>
+      <button class="sidebar-link disabled" title="Coming soon">
+        <span class="icon">📊</span>
+        <span data-ar="تحليل المشتريات" data-en="Purchases Analysis">تحليل المشتريات</span>
+        <span class="badge-soon" data-ar="قريباً" data-en="Soon">Soon</span>
+      </button>
+      <button class="sidebar-link disabled" title="Coming soon">
+        <span class="icon">📋</span>
+        <span data-ar="سجل أوامر الشراء" data-en="PO Register">سجل أوامر الشراء</span>
+        <span class="badge-soon" data-ar="قريباً" data-en="Soon">Soon</span>
+      </button>
+    </div>
+
+    <!-- FINANCIALS — operational money reports -->
+    <div class="sidebar-group">
+      <div class="sidebar-group-label" data-ar="الماليات" data-en="Financials">الماليات</div>
       <button class="sidebar-link" onclick="showReport('aging', this)">
         <span class="icon">⏳</span>
         <span data-ar="أعمار الذمم المدينة" data-en="AR Aging">أعمار الذمم المدينة</span>
       </button>
-    </div>
-
-    <div class="sidebar-group">
-      <div class="sidebar-group-label" data-ar="المشتريات والذمم الدائنة" data-en="Purchasing & Payables">المشتريات والذمم الدائنة</div>
       <button class="sidebar-link" onclick="showReport('grni_aging', this)">
         <span class="icon">📥</span>
-        <span data-ar="بضاعة مستلمة لم تُفوتر" data-en="GRNI Aging">بضاعة مستلمة لم تُفوتر</span>
+        <span data-ar="أعمار البضاعة المستلمة" data-en="GRNI Aging">أعمار البضاعة المستلمة</span>
       </button>
-    </div>
-
-    <div class="sidebar-group">
-      <div class="sidebar-group-label" data-ar="المخزون" data-en="Inventory">المخزون</div>
-      <button class="sidebar-link" onclick="showReport('stock_valuation', this)">
-        <span class="icon">📊</span>
-        <span data-ar="تقييم المخزون" data-en="Stock Valuation">تقييم المخزون</span>
+      <button class="sidebar-link" onclick="showReport('customer', this)">
+        <span class="icon">👤</span>
+        <span data-ar="كشف حساب عميل" data-en="Customer Statement">كشف حساب عميل</span>
       </button>
-      <button class="sidebar-link" onclick="showReport('low_stock', this)">
-        <span class="icon">⚠️</span>
-        <span data-ar="المخزون المنخفض" data-en="Low Stock">المخزون المنخفض</span>
+      <button class="sidebar-link disabled" title="Coming soon">
+        <span class="icon">🏭</span>
+        <span data-ar="كشف حساب مورد" data-en="Supplier Statement">كشف حساب مورد</span>
+        <span class="badge-soon" data-ar="قريباً" data-en="Soon">Soon</span>
+      </button>
+      <button class="sidebar-link disabled" title="Coming soon">
+        <span class="icon">⌛</span>
+        <span data-ar="أعمار الذمم الدائنة" data-en="AP Aging">أعمار الذمم الدائنة</span>
+        <span class="badge-soon" data-ar="قريباً" data-en="Soon">Soon</span>
       </button>
     </div>
   </aside>
@@ -444,8 +501,93 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         <div class="print-period" id="print-period">—</div>
       </div>
 
+      <!-- Sales Analysis — configurable report with parameter panel.
+           Active by default; shortcuts pre-load it with a group-by preset. -->
+      <section class="report-section" id="report-sales_analysis">
+        <div class="report-period" id="report-sales_analysis-period" style="font-size:12px;color:var(--muted);margin-bottom:14px;font-weight:600;">—</div>
+
+        <!-- Parameter panel — sits above the result table inside the section body -->
+        <div class="param-panel">
+          <div class="param-row">
+            <!-- Group by primary -->
+            <label class="field-label">
+              <span data-ar="تجميع حسب" data-en="Group by">تجميع حسب</span>
+              <select id="sa-group-by" class="filter-select" onchange="onSalesAnalysisParamChange()">
+                <option value="customer" data-ar="العميل" data-en="Customer">العميل</option>
+                <option value="product" data-ar="المنتج" data-en="Product">المنتج</option>
+                <option value="category" data-ar="الفئة" data-en="Category">الفئة</option>
+                <option value="tier" data-ar="نوع العميل (B2B/B2C)" data-en="Customer Type (B2B/B2C)">نوع العميل (B2B/B2C)</option>
+                <option value="none" data-ar="الإجمالي فقط" data-en="Grand Total Only">الإجمالي فقط</option>
+              </select>
+            </label>
+            <!-- Time bucket -->
+            <label class="field-label">
+              <span data-ar="فترة زمنية" data-en="Time bucket">فترة زمنية</span>
+              <select id="sa-time-bucket" class="filter-select" onchange="onSalesAnalysisParamChange()">
+                <option value="none" data-ar="بدون" data-en="None">بدون</option>
+                <option value="month" data-ar="شهري" data-en="Month">شهري</option>
+                <option value="week" data-ar="أسبوعي" data-en="Week">أسبوعي</option>
+                <option value="quarter" data-ar="ربع سنوي" data-en="Quarter">ربع سنوي</option>
+              </select>
+            </label>
+            <!-- Compare period -->
+            <label class="field-label">
+              <span data-ar="مقارنة" data-en="Compare">مقارنة</span>
+              <select id="sa-compare" class="filter-select" onchange="onSalesAnalysisParamChange()">
+                <option value="none" data-ar="بدون" data-en="None">بدون</option>
+                <option value="prev_period" data-ar="الفترة السابقة" data-en="Previous Period">الفترة السابقة</option>
+                <option value="prev_year" data-ar="نفس الفترة العام الماضي" data-en="Same Period Last Year">نفس الفترة العام الماضي</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="param-row">
+            <!-- Customer tier filter -->
+            <label class="field-label">
+              <span data-ar="فئة العميل" data-en="Customer tier">فئة العميل</span>
+              <select id="sa-filter-tier" class="filter-select" onchange="onSalesAnalysisParamChange()">
+                <option value="all" data-ar="الكل" data-en="All">الكل</option>
+                <option value="b2b" data-ar="شركات (B2B)" data-en="B2B">شركات (B2B)</option>
+                <option value="b2c" data-ar="أفراد (B2C)" data-en="B2C">أفراد (B2C)</option>
+              </select>
+            </label>
+            <!-- Category filter -->
+            <label class="field-label">
+              <span data-ar="الفئة" data-en="Category">الفئة</span>
+              <select id="sa-filter-category" class="filter-select" onchange="onSalesAnalysisParamChange()">
+                <option value="all" data-ar="كل الفئات" data-en="All categories">كل الفئات</option>
+                <!-- Populated by populateSalesAnalysisFilters() -->
+              </select>
+            </label>
+            <!-- Customer filter -->
+            <label class="field-label">
+              <span data-ar="العميل" data-en="Customer">العميل</span>
+              <select id="sa-filter-customer" class="filter-select" onchange="onSalesAnalysisParamChange()">
+                <option value="all" data-ar="كل العملاء" data-en="All customers">كل العملاء</option>
+                <!-- Populated by populateSalesAnalysisFilters() -->
+              </select>
+            </label>
+            <!-- Top N limit -->
+            <label class="field-label">
+              <span data-ar="عدد الصفوف" data-en="Show top">عدد الصفوف</span>
+              <select id="sa-limit" class="filter-select" onchange="onSalesAnalysisParamChange()">
+                <option value="0" data-ar="الكل" data-en="All">الكل</option>
+                <option value="10">10</option>
+                <option value="25">25</option>
+                <option value="50">50</option>
+                <option value="100">100</option>
+              </select>
+            </label>
+          </div>
+        </div>
+
+        <div class="report-content" id="report-sales_analysis-content">
+          <div class="report-empty" data-ar="اختر معايير التحليل ثم اضغط «عرض»" data-en="Choose your analysis options and click 'Run'">اختر معايير التحليل ثم اضغط «عرض»</div>
+        </div>
+      </section>
+
       <!-- Customer Statement -->
-      <section class="report-section" id="report-customer">
+      <section class="report-section" id="report-customer" style="display:none;">
         <div class="report-period" id="report-customer-period" style="font-size:12px;color:var(--muted);margin-bottom:14px;font-weight:600;">—</div>
         <div class="report-content" id="report-customer-content">
           <div class="report-empty" data-ar="اختر عميلاً ثم اضغط «عرض»" data-en="Select a customer then click 'Run'">اختر عميلاً ثم اضغط «عرض»</div>
@@ -456,38 +598,6 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
       <section class="report-section" id="report-aging" style="display:none;">
         <div class="report-period" id="report-aging-period" style="font-size:12px;color:var(--muted);margin-bottom:14px;font-weight:600;">—</div>
         <div class="report-content" id="report-aging-content">
-          <div class="report-empty" data-ar="اضغط «عرض» لتوليد التقرير" data-en="Click 'Run' to generate the report">اضغط «عرض» لتوليد التقرير</div>
-        </div>
-      </section>
-
-      <!-- Sales by Customer -->
-      <section class="report-section" id="report-sales_by_customer" style="display:none;">
-        <div class="report-period" id="report-sales_by_customer-period" style="font-size:12px;color:var(--muted);margin-bottom:14px;font-weight:600;">—</div>
-        <div class="report-content" id="report-sales_by_customer-content">
-          <div class="report-empty" data-ar="اضغط «عرض» لتوليد التقرير" data-en="Click 'Run' to generate the report">اضغط «عرض» لتوليد التقرير</div>
-        </div>
-      </section>
-
-      <!-- Sales by Product -->
-      <section class="report-section" id="report-sales_by_product" style="display:none;">
-        <div class="report-period" id="report-sales_by_product-period" style="font-size:12px;color:var(--muted);margin-bottom:14px;font-weight:600;">—</div>
-        <div class="report-content" id="report-sales_by_product-content">
-          <div class="report-empty" data-ar="اضغط «عرض» لتوليد التقرير" data-en="Click 'Run' to generate the report">اضغط «عرض» لتوليد التقرير</div>
-        </div>
-      </section>
-
-      <!-- Stock Valuation -->
-      <section class="report-section" id="report-stock_valuation" style="display:none;">
-        <div class="report-period" id="report-stock_valuation-period" style="font-size:12px;color:var(--muted);margin-bottom:14px;font-weight:600;">—</div>
-        <div class="report-content" id="report-stock_valuation-content">
-          <div class="report-empty" data-ar="اضغط «عرض» لتوليد التقرير" data-en="Click 'Run' to generate the report">اضغط «عرض» لتوليد التقرير</div>
-        </div>
-      </section>
-
-      <!-- Low Stock -->
-      <section class="report-section" id="report-low_stock" style="display:none;">
-        <div class="report-period" id="report-low_stock-period" style="font-size:12px;color:var(--muted);margin-bottom:14px;font-weight:600;">—</div>
-        <div class="report-content" id="report-low_stock-content">
           <div class="report-empty" data-ar="اضغط «عرض» لتوليد التقرير" data-en="Click 'Run' to generate the report">اضغط «عرض» لتوليد التقرير</div>
         </div>
       </section>
@@ -573,16 +683,38 @@ async function loadCurrentBusiness(sb, user){
 /* ═══════════════════════════════════════════════════════
    STATE
 ═══════════════════════════════════════════════════════ */
-let currentReport = 'customer';  // 'customer' | 'aging' | 'sales_by_customer' | 'sales_by_product' | 'stock_valuation' | 'low_stock'
+let currentReport = 'sales_analysis';  // 'sales_analysis' | 'customer' | 'aging' | 'grni_aging'
 let allCustomers = [];     // for customer statement dropdown
 
+/* Category labels — mirrors inventory.html CATEGORY_LABELS.
+   Keep in sync if inventory.html adds new categories. */
+const CATEGORY_LABELS = {
+  food_beverage:  { ar: '🍽 طعام ومشروبات',  en: '🍽 Food & Beverage' },
+  grocery:        { ar: '🛒 بقالة',           en: '🛒 Grocery' },
+  clothing:       { ar: '👕 ملابس',           en: '👕 Clothing' },
+  electronics:    { ar: '📱 إلكترونيات',     en: '📱 Electronics' },
+  home_appliance: { ar: '🏠 أجهزة منزلية',   en: '🏠 Home Appliances' },
+  furniture:      { ar: '🪑 أثاث',            en: '🪑 Furniture' },
+  cosmetics:      { ar: '💄 تجميل وعطور',     en: '💄 Cosmetics' },
+  pharmacy:       { ar: '💊 صيدلية',          en: '💊 Pharmacy' },
+  stationery:     { ar: '✏️ قرطاسية',         en: '✏️ Stationery' },
+  hardware:       { ar: '🔧 عدد ومواد بناء',  en: '🔧 Hardware' },
+  auto_parts:     { ar: '🚗 قطع غيار',        en: '🚗 Auto Parts' },
+  services:       { ar: '🛠 خدمات',           en: '🛠 Services' },
+  raw_materials:  { ar: '📦 مواد خام',        en: '📦 Raw Materials' },
+  other:          { ar: '📋 أخرى',            en: '📋 Other' },
+  uncategorized:  { ar: '— غير مصنّف',        en: '— Uncategorized' }
+};
+function categoryLabel(code){
+  const c = CATEGORY_LABELS[code];
+  if(!c) return code || (currentLang === 'ar' ? '— غير مصنّف' : '— Uncategorized');
+  return currentLang === 'ar' ? c.ar : c.en;
+}
+
 const REPORT_TITLES = {
+  sales_analysis:    {icon: '📈', ar: 'تحليل المبيعات',                     en: 'Sales Analysis',     sub_ar: 'حلّل مبيعاتك من أي زاوية: عميل، منتج، فئة، أو فترة زمنية',          sub_en: 'Slice your sales any way: by customer, product, category, or time period'},
   customer:          {icon: '👤', ar: 'كشف حساب عميل',                     en: 'Customer Statement', sub_ar: 'حركة المعاملات والرصيد لعميل محدد خلال الفترة',                    sub_en: 'Transaction activity and balance for a specific customer over the period'},
   aging:             {icon: '⏳', ar: 'أعمار الذمم المدينة',                en: 'AR Aging',           sub_ar: 'الفواتير غير المسددة مجمّعة بحسب عمر التأخر',                       sub_en: 'Unpaid invoices grouped by how overdue they are'},
-  sales_by_customer: {icon: '💰', ar: 'المبيعات حسب العميل',                en: 'Sales by Customer',  sub_ar: 'مجموع المبيعات لكل عميل خلال الفترة المختارة',                      sub_en: 'Total sales per customer over the selected period'},
-  sales_by_product:  {icon: '🏷️', ar: 'المبيعات حسب المنتج',                en: 'Sales by Product',   sub_ar: 'مجموع المبيعات لكل صنف خلال الفترة المختارة',                      sub_en: 'Total sales per product over the selected period'},
-  stock_valuation:   {icon: '📊', ar: 'تقييم المخزون',                       en: 'Stock Valuation',    sub_ar: 'قيمة المخزون الحالي حسب طريقة التقييم المعتمدة',                    sub_en: 'Current inventory value by your costing method'},
-  low_stock:         {icon: '⚠️', ar: 'المخزون المنخفض',                    en: 'Low Stock',          sub_ar: 'الأصناف التي وصلت أو اقتربت من حد إعادة الطلب',                    sub_en: 'Items at or near their reorder threshold'},
   grni_aging:        {icon: '📥', ar: 'أعمار البضاعة المستلمة لم تُفوتر',    en: 'GRNI Aging',         sub_ar: 'الاستلامات الائتمانية التي لم تتحول بعد إلى فاتورة موردين',         sub_en: 'Credit receipts not yet converted to supplier bills'}
 };
 
@@ -650,7 +782,7 @@ function applyPreset(preset){
     to = `${y}-${String(m+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
   }
 
-  if(currentReport === 'aging' || currentReport === 'stock_valuation' || currentReport === 'low_stock' || currentReport === 'grni_aging'){
+  if(currentReport === 'aging' || currentReport === 'grni_aging'){
     document.getElementById('rt-asofdate').value = to;
   } else {
     document.getElementById('rt-from').value = from;
@@ -671,8 +803,14 @@ function setDefaultDates(){
 
 /* ═══════════════════════════════════════════════════════
    REPORT SWITCHING
+
+   Sidebar shortcuts pass an optional preset config, e.g.:
+     showReport('sales_analysis', this, {groupBy: 'customer'})
+   This lets multiple sidebar entries route to the same configurable
+   report engine with different default parameters (Approach C).
 ═══════════════════════════════════════════════════════ */
-function showReport(name, btn){
+function showReport(name, btn, preset){
+  if(btn && btn.classList.contains('disabled')) return;
   currentReport = name;
   const ar = currentLang === 'ar';
 
@@ -693,11 +831,23 @@ function showReport(name, btn){
   }
 
   /* Toolbar fields: range vs asof vs customer */
-  const isAsOf = (name === 'aging' || name === 'stock_valuation' || name === 'low_stock' || name === 'grni_aging');
+  const isAsOf = (name === 'aging' || name === 'grni_aging');
   const isCustomer = (name === 'customer');
   document.getElementById('rt-daterange').style.display = isAsOf ? 'none' : '';
   document.getElementById('rt-asof').style.display = isAsOf ? '' : 'none';
   document.getElementById('rt-customer').style.display = isCustomer ? '' : 'none';
+
+  /* Sales Analysis: apply preset if provided (from sidebar shortcut) */
+  if(name === 'sales_analysis' && preset && preset.groupBy){
+    const sel = document.getElementById('sa-group-by');
+    if(sel) sel.value = preset.groupBy;
+  }
+
+  /* Lazy-populate Sales Analysis filter dropdowns once it's the active report */
+  if(name === 'sales_analysis' && !window._salesAnalysisFiltersReady){
+    populateSalesAnalysisFilters();
+    window._salesAnalysisFiltersReady = true;
+  }
 
   /* Update URL hash */
   history.replaceState(null, '', '#' + name);
@@ -983,109 +1133,229 @@ async function runReportAging(){
 }
 
 /* ═══════════════════════════════════════════════════════
-   REPORT: SALES BY CUSTOMER
+   REPORT: SALES ANALYSIS — the configurable sales engine.
+
+   Pivots invoice line-item data along user-selected axes:
+     • groupBy:    customer | product | category | tier | none
+     • timeBucket: none | week | month | quarter
+     • compare:    none | prev_period | prev_year
+     • filters:    tier, category, customer
+
+   Returns subtotal / VAT / total / qty per group, sorted by total desc,
+   optionally limited to top N, with grand totals and (optionally) a
+   compare-period delta column.
 ═══════════════════════════════════════════════════════ */
-async function runReportSalesByCustomer(){
-  const from = document.getElementById('rt-from').value;
-  const to = document.getElementById('rt-to').value;
+
+/* Lazy-populated dropdowns for the filter row (categories from inventory,
+   customers from the existing dropdown data). */
+async function populateSalesAnalysisFilters(){
   const ar = currentLang === 'ar';
-  const content = document.getElementById('report-sales_by_customer-content');
-  const periodEl = document.getElementById('report-sales_by_customer-period');
 
-  if(!from || !to){
-    content.innerHTML = '<div class="report-error">' + (ar ? 'الرجاء تحديد نطاق التاريخ' : 'Please select a date range') + '</div>';
-    return;
+  /* Category options — same set as inventory.html, plus an 'all' option */
+  const catSelect = document.getElementById('sa-filter-category');
+  if(catSelect){
+    const opts = [`<option value="all">${ar ? 'كل الفئات' : 'All categories'}</option>`];
+    Object.keys(CATEGORY_LABELS).forEach(code => {
+      opts.push(`<option value="${escHTML(code)}">${escHTML(categoryLabel(code))}</option>`);
+    });
+    catSelect.innerHTML = opts.join('');
   }
-  periodEl.textContent = periodLabel(from, to);
-  content.innerHTML = '<div class="report-loading">' + (ar ? 'جارٍ التحميل...' : 'Loading...') + '</div>';
 
-  /* Fetch invoices in range. Exclude voided. */
-  const {data: invoices, error} = await sb.from('invoices')
-    .select('id, customer_id, buyer_name, subtotal, vat_amount, total, status')
+  /* Customer options — reuse the dropdown data already loaded for Customer Statement */
+  const custSelect = document.getElementById('sa-filter-customer');
+  if(custSelect && Array.isArray(allCustomers)){
+    const opts = [`<option value="all">${ar ? 'كل العملاء' : 'All customers'}</option>`];
+    allCustomers.forEach(c => {
+      const name = pickLang(c, 'name') || c.name || '—';
+      opts.push(`<option value="${escHTML(c.id)}">${escHTML(name)}</option>`);
+    });
+    custSelect.innerHTML = opts.join('');
+  }
+}
+
+/* onChange wiring for the parameter panel — currently a no-op (user must click Run).
+   Hook left in place so we can switch to auto-rerun later if desired. */
+function onSalesAnalysisParamChange(){ /* intentional no-op */ }
+
+/* Time bucket key generator — returns a sortable string key for a given date+bucket */
+function timeBucketKey(dateStr, bucket){
+  if(!dateStr || bucket === 'none') return '';
+  const d = new Date(dateStr);
+  const y = d.getFullYear();
+  const m = d.getMonth();
+  if(bucket === 'month') return `${y}-${String(m+1).padStart(2,'0')}`;
+  if(bucket === 'quarter') return `${y}-Q${Math.floor(m/3)+1}`;
+  if(bucket === 'week'){
+    /* ISO-ish week: take Monday of the week containing this date */
+    const dt = new Date(d);
+    const day = (dt.getDay() + 6) % 7;        /* Mon=0 ... Sun=6 */
+    dt.setDate(dt.getDate() - day);
+    return `${dt.getFullYear()}-W${String(Math.ceil(((dt - new Date(dt.getFullYear(),0,1))/86400000 + 1)/7)).padStart(2,'0')}`;
+  }
+  return '';
+}
+
+/* Compute the comparison-period [from, to] for a given current range + mode */
+function comparePeriod(fromStr, toStr, mode){
+  if(mode === 'none' || !fromStr || !toStr) return null;
+  const from = new Date(fromStr), to = new Date(toStr);
+  if(mode === 'prev_period'){
+    const days = Math.round((to - from)/86400000) + 1;
+    const prevTo = new Date(from); prevTo.setDate(prevTo.getDate() - 1);
+    const prevFrom = new Date(prevTo); prevFrom.setDate(prevFrom.getDate() - days + 1);
+    return [prevFrom.toISOString().slice(0,10), prevTo.toISOString().slice(0,10)];
+  }
+  if(mode === 'prev_year'){
+    const prevFrom = new Date(from); prevFrom.setFullYear(prevFrom.getFullYear()-1);
+    const prevTo = new Date(to); prevTo.setFullYear(prevTo.getFullYear()-1);
+    return [prevFrom.toISOString().slice(0,10), prevTo.toISOString().slice(0,10)];
+  }
+  return null;
+}
+
+/* Aggregate invoice items into rows keyed by (groupKey + optional timeBucket).
+   Returns { rows: Map<key, agg>, gtSubtotal, gtVat, gtTotal, gtQty }. */
+async function fetchSalesAggregates({fromISO, toISO, groupBy, timeBucket, filterTier, filterCategory, filterCustomer}){
+  const ar = currentLang === 'ar';
+
+  /* 1. Get valid invoice IDs in range, with customer metadata for tier/customer filters + group keys */
+  const {data: invoices, error: invErr} = await sb.from('invoices')
+    .select('id, issue_date, customer_id, buyer_name, status')
     .eq('business_id', currentBiz.id)
-    .gte('issue_date', from)
-    .lte('issue_date', to)
-    .order('total', {ascending: false});
+    .gte('issue_date', fromISO)
+    .lte('issue_date', toISO);
+  if(invErr) throw invErr;
 
-  if(error){
-    content.innerHTML = '<div class="report-error">' + escHTML(error.message || 'Error') + '</div>';
-    return;
-  }
-
-  /* Filter out voided/cancelled invoices */
   const valid = (invoices || []).filter(inv => {
     const s = (inv.status || '').toLowerCase();
     return s !== 'voided' && s !== 'cancelled' && s !== 'canceled';
   });
+  if(valid.length === 0) return {rows: new Map(), gtSubtotal:0, gtVat:0, gtTotal:0, gtQty:0};
 
-  if(valid.length === 0){
-    content.innerHTML = '<div class="report-no-data"><div class="report-no-data-icon">💰</div><div class="report-no-data-msg">' + (ar ? 'لا توجد فواتير في النطاق المحدد.' : 'No invoices in the selected range.') + '</div></div>';
-    return;
+  /* 2. Build customer_id → {name, tier} map (used for tier filter and customer/tier group keys) */
+  const customerMeta = {};
+  const customerIds = [...new Set(valid.map(inv => inv.customer_id).filter(Boolean))];
+  if(customerIds.length){
+    const {data: custs} = await sb.from('customers')
+      .select('id, name, name_ar, name_en, customer_type')
+      .in('id', customerIds);
+    (custs || []).forEach(c => {
+      customerMeta[c.id] = {
+        name: ar ? (c.name_ar || c.name || c.name_en) : (c.name || c.name_en || c.name_ar),
+        tier: (c.customer_type || 'b2c').toLowerCase()
+      };
+    });
   }
 
-  /* Aggregate by customer (use customer_id when available, fall back to buyer_name for free-text customers) */
-  const byCustomer = {};
-  valid.forEach(inv => {
-    const key = inv.customer_id || ('name:' + (inv.buyer_name || (ar ? 'بدون اسم' : 'Unknown')));
-    if(!byCustomer[key]){
-      byCustomer[key] = {
-        name: inv.buyer_name || (ar ? 'عميل غير محدد' : 'Unknown'),
-        count: 0, subtotal: 0, vat: 0, total: 0
-      };
+  /* 3. Filter invoices by tier and customer */
+  let filteredInvoices = valid;
+  if(filterTier && filterTier !== 'all'){
+    filteredInvoices = filteredInvoices.filter(inv => {
+      const t = (customerMeta[inv.customer_id]?.tier) || 'b2c';
+      return t === filterTier;
+    });
+  }
+  if(filterCustomer && filterCustomer !== 'all'){
+    filteredInvoices = filteredInvoices.filter(inv => inv.customer_id === filterCustomer);
+  }
+  if(filteredInvoices.length === 0) return {rows: new Map(), gtSubtotal:0, gtVat:0, gtTotal:0, gtQty:0};
+
+  const invoiceIndex = {};
+  filteredInvoices.forEach(inv => { invoiceIndex[inv.id] = inv; });
+  const filteredIds = filteredInvoices.map(inv => inv.id);
+
+  /* 4. Fetch all line items for the surviving invoices */
+  const {data: items, error: itemsErr} = await sb.from('invoice_items')
+    .select('invoice_id, item_id, description, description_ar, quantity, subtotal, vat_amount, total')
+    .in('invoice_id', filteredIds);
+  if(itemsErr) throw itemsErr;
+  if(!items || items.length === 0) return {rows: new Map(), gtSubtotal:0, gtVat:0, gtTotal:0, gtQty:0};
+
+  /* 5. Build item_id → category map (only when we need category info: groupBy='category' or filtering by category) */
+  const itemCategoryMap = {};
+  if(groupBy === 'category' || (filterCategory && filterCategory !== 'all')){
+    const itemIds = [...new Set(items.map(it => it.item_id).filter(Boolean))];
+    if(itemIds.length){
+      const {data: inv} = await sb.from('inventory_items')
+        .select('id, category')
+        .in('id', itemIds);
+      (inv || []).forEach(it => { itemCategoryMap[it.id] = it.category || 'uncategorized'; });
     }
-    byCustomer[key].count++;
-    byCustomer[key].subtotal += parseFloat(inv.subtotal) || 0;
-    byCustomer[key].vat += parseFloat(inv.vat_amount) || 0;
-    byCustomer[key].total += parseFloat(inv.total) || 0;
+  }
+
+  /* 6. Apply category filter */
+  let filteredItems = items;
+  if(filterCategory && filterCategory !== 'all'){
+    filteredItems = filteredItems.filter(it => {
+      const cat = it.item_id ? (itemCategoryMap[it.item_id] || 'uncategorized') : 'uncategorized';
+      return cat === filterCategory;
+    });
+  }
+  if(filteredItems.length === 0) return {rows: new Map(), gtSubtotal:0, gtVat:0, gtTotal:0, gtQty:0};
+
+  /* 7. Aggregate by (groupKey, optional timeBucketKey) */
+  const rows = new Map();
+  let gtSubtotal = 0, gtVat = 0, gtTotal = 0, gtQty = 0;
+
+  filteredItems.forEach(it => {
+    const inv = invoiceIndex[it.invoice_id];
+    if(!inv) return;
+
+    /* Determine the primary group key + display name */
+    let key, displayName;
+    if(groupBy === 'customer'){
+      key = inv.customer_id || ('name:' + (inv.buyer_name || 'unknown'));
+      displayName = customerMeta[inv.customer_id]?.name || inv.buyer_name || (ar ? 'عميل غير محدد' : 'Unknown');
+    } else if(groupBy === 'product'){
+      const rawName = it.description || it.description_ar || (ar ? 'بدون وصف' : 'No description');
+      key = (rawName || '').trim().toLowerCase();
+      displayName = ar ? (it.description_ar || it.description || rawName) : (it.description || it.description_ar || rawName);
+    } else if(groupBy === 'category'){
+      const cat = it.item_id ? (itemCategoryMap[it.item_id] || 'uncategorized') : 'uncategorized';
+      key = cat;
+      displayName = categoryLabel(cat);
+    } else if(groupBy === 'tier'){
+      const tier = (customerMeta[inv.customer_id]?.tier) || 'b2c';
+      key = tier;
+      displayName = tier === 'b2b' ? (ar ? 'شركات (B2B)' : 'B2B') : (ar ? 'أفراد (B2C)' : 'B2C');
+    } else {
+      key = '__total__';
+      displayName = ar ? 'الإجمالي' : 'Total';
+    }
+
+    /* Append time bucket suffix if active */
+    const bkt = timeBucketKey(inv.issue_date, timeBucket);
+    const fullKey = bkt ? `${key}||${bkt}` : key;
+
+    if(!rows.has(fullKey)){
+      rows.set(fullKey, {
+        key, displayName,
+        bucket: bkt,
+        qty: 0, subtotal: 0, vat: 0, total: 0, lineCount: 0
+      });
+    }
+    const r = rows.get(fullKey);
+    r.qty += parseFloat(it.quantity) || 0;
+    r.subtotal += parseFloat(it.subtotal) || 0;
+    r.vat += parseFloat(it.vat_amount) || 0;
+    r.total += parseFloat(it.total) || 0;
+    r.lineCount += 1;
+
+    gtQty += parseFloat(it.quantity) || 0;
+    gtSubtotal += parseFloat(it.subtotal) || 0;
+    gtVat += parseFloat(it.vat_amount) || 0;
+    gtTotal += parseFloat(it.total) || 0;
   });
 
-  /* Sort descending by total */
-  const rows = Object.values(byCustomer).sort((a, b) => b.total - a.total);
-  let gtCount = 0, gtSubtotal = 0, gtVat = 0, gtTotal = 0;
-
-  let html = '<table class="r-table"><thead><tr>';
-  html += '<th>' + (ar?'العميل':'Customer') + '</th>';
-  html += '<th class="r-num">' + (ar?'عدد الفواتير':'# Invoices') + '</th>';
-  html += '<th class="r-num">' + (ar?'الصافي':'Subtotal') + '</th>';
-  html += '<th class="r-num">' + (ar?'ض.ق.م':'VAT') + '</th>';
-  html += '<th class="r-num">' + (ar?'الإجمالي':'Total') + '</th>';
-  html += '</tr></thead><tbody>';
-
-  rows.forEach(r => {
-    gtCount += r.count;
-    gtSubtotal += r.subtotal;
-    gtVat += r.vat;
-    gtTotal += r.total;
-    html += '<tr>';
-    html += '<td>' + escHTML(r.name) + '</td>';
-    html += '<td class="r-num">' + r.count + '</td>';
-    html += '<td class="r-num">' + fmtMoney(r.subtotal) + '</td>';
-    html += '<td class="r-num">' + fmtMoney(r.vat) + '</td>';
-    html += '<td class="r-num"><strong>' + fmtMoney(r.total) + '</strong></td>';
-    html += '</tr>';
-  });
-
-  html += '<tr class="r-row-grandtotal">';
-  html += '<td>' + (ar?'الإجمالي':'Total') + '</td>';
-  html += '<td class="r-num">' + gtCount + '</td>';
-  html += '<td class="r-num">' + fmtMoney(gtSubtotal) + '</td>';
-  html += '<td class="r-num">' + fmtMoney(gtVat) + '</td>';
-  html += '<td class="r-num">' + fmtSar(gtTotal) + '</td>';
-  html += '</tr>';
-  html += '</tbody></table>';
-
-  content.innerHTML = html;
+  return {rows, gtSubtotal, gtVat, gtTotal, gtQty};
 }
 
-/* ═══════════════════════════════════════════════════════
-   REPORT: SALES BY PRODUCT
-═══════════════════════════════════════════════════════ */
-async function runReportSalesByProduct(){
+async function runReportSalesAnalysis(){
   const from = document.getElementById('rt-from').value;
   const to = document.getElementById('rt-to').value;
   const ar = currentLang === 'ar';
-  const content = document.getElementById('report-sales_by_product-content');
-  const periodEl = document.getElementById('report-sales_by_product-period');
+  const content = document.getElementById('report-sales_analysis-content');
+  const periodEl = document.getElementById('report-sales_analysis-period');
 
   if(!from || !to){
     content.innerHTML = '<div class="report-error">' + (ar ? 'الرجاء تحديد نطاق التاريخ' : 'Please select a date range') + '</div>';
@@ -1094,300 +1364,137 @@ async function runReportSalesByProduct(){
   periodEl.textContent = periodLabel(from, to);
   content.innerHTML = '<div class="report-loading">' + (ar ? 'جارٍ التحميل...' : 'Loading...') + '</div>';
 
-  /* Fetch valid invoice IDs in range */
-  const {data: invoices, error: invErr} = await sb.from('invoices')
-    .select('id, status')
-    .eq('business_id', currentBiz.id)
-    .gte('issue_date', from)
-    .lte('issue_date', to);
+  const groupBy = document.getElementById('sa-group-by').value;
+  const timeBucket = document.getElementById('sa-time-bucket').value;
+  const compareMode = document.getElementById('sa-compare').value;
+  const filterTier = document.getElementById('sa-filter-tier').value;
+  const filterCategory = document.getElementById('sa-filter-category').value;
+  const filterCustomer = document.getElementById('sa-filter-customer').value;
+  const limit = parseInt(document.getElementById('sa-limit').value, 10) || 0;
 
-  if(invErr){
-    content.innerHTML = '<div class="report-error">' + escHTML(invErr.message || 'Error') + '</div>';
-    return;
-  }
+  try {
+    /* Current period aggregates */
+    const cur = await fetchSalesAggregates({
+      fromISO: from, toISO: to,
+      groupBy, timeBucket,
+      filterTier, filterCategory, filterCustomer
+    });
 
-  const validIds = (invoices || [])
-    .filter(inv => {
-      const s = (inv.status || '').toLowerCase();
-      return s !== 'voided' && s !== 'cancelled' && s !== 'canceled';
-    })
-    .map(inv => inv.id);
-
-  if(validIds.length === 0){
-    content.innerHTML = '<div class="report-no-data"><div class="report-no-data-icon">🏷️</div><div class="report-no-data-msg">' + (ar ? 'لا توجد فواتير في النطاق المحدد.' : 'No invoices in the selected range.') + '</div></div>';
-    return;
-  }
-
-  /* Fetch all line items for these invoices */
-  const {data: items, error: itemsErr} = await sb.from('invoice_items')
-    .select('description, description_ar, quantity, unit_price, subtotal, vat_amount, total')
-    .in('invoice_id', validIds);
-
-  if(itemsErr){
-    content.innerHTML = '<div class="report-error">' + escHTML(itemsErr.message || 'Error') + '</div>';
-    return;
-  }
-
-  if(!items || items.length === 0){
-    content.innerHTML = '<div class="report-no-data"><div class="report-no-data-icon">🏷️</div><div class="report-no-data-msg">' + (ar ? 'لا توجد عناصر في الفواتير.' : 'No items in invoices.') + '</div></div>';
-    return;
-  }
-
-  /* Aggregate by product description (Arabic-first when available).
-     Group key is lowercased + trimmed so "Sugar 1kg" and "sugar 1kg" merge.
-     Display name uses the first occurrence's casing. */
-  const byProduct = {};
-  items.forEach(it => {
-    const rawKey = (it.description || it.description_ar || (ar ? 'بدون وصف' : 'No description'));
-    const key = rawKey.trim().toLowerCase();
-    if(!byProduct[key]){
-      byProduct[key] = {
-        name: ar ? (it.description_ar || it.description || rawKey) : (it.description || it.description_ar || rawKey),
-        qty: 0, subtotal: 0, vat: 0, total: 0, lineCount: 0
-      };
+    if(cur.rows.size === 0){
+      content.innerHTML = `<div class="report-no-data">
+        <div class="report-no-data-icon">📈</div>
+        <div class="report-no-data-msg">${ar ? 'لا توجد فواتير تطابق معايير التحليل المختارة.' : 'No invoices match the selected analysis criteria.'}</div>
+      </div>`;
+      return;
     }
-    byProduct[key].qty += parseFloat(it.quantity) || 0;
-    byProduct[key].subtotal += parseFloat(it.subtotal) || 0;
-    byProduct[key].vat += parseFloat(it.vat_amount) || 0;
-    byProduct[key].total += parseFloat(it.total) || 0;
-    byProduct[key].lineCount++;
-  });
 
-  const rows = Object.values(byProduct).sort((a, b) => b.total - a.total);
-  let gtQty = 0, gtSubtotal = 0, gtVat = 0, gtTotal = 0;
+    /* Compare-period aggregates if requested. Use same group axes, but DON'T re-filter
+       by customer (a current customer might be absent in prior; we want totals to compare). */
+    let prev = null;
+    const compareRange = comparePeriod(from, to, compareMode);
+    if(compareRange){
+      prev = await fetchSalesAggregates({
+        fromISO: compareRange[0], toISO: compareRange[1],
+        groupBy, timeBucket: 'none',   /* compare mode collapses time-buckets for now */
+        filterTier, filterCategory, filterCustomer
+      });
+    }
 
-  let html = '<table class="r-table"><thead><tr>';
-  html += '<th>' + (ar?'المنتج':'Product') + '</th>';
-  html += '<th class="r-num">' + (ar?'الكمية':'Quantity') + '</th>';
-  html += '<th class="r-num">' + (ar?'متوسط السعر':'Avg Price') + '</th>';
-  html += '<th class="r-num">' + (ar?'الصافي':'Subtotal') + '</th>';
-  html += '<th class="r-num">' + (ar?'ض.ق.م':'VAT') + '</th>';
-  html += '<th class="r-num">' + (ar?'الإجمالي':'Total') + '</th>';
-  html += '</tr></thead><tbody>';
+    /* Sort rows by total desc; apply limit */
+    let rowsArr = Array.from(cur.rows.values()).sort((a,b) => b.total - a.total);
+    if(limit > 0) rowsArr = rowsArr.slice(0, limit);
 
-  rows.forEach(r => {
-    gtQty += r.qty;
-    gtSubtotal += r.subtotal;
-    gtVat += r.vat;
-    gtTotal += r.total;
-    const avgPrice = r.qty > 0 ? r.subtotal / r.qty : 0;
-    html += '<tr>';
-    html += '<td>' + escHTML(r.name) + '</td>';
-    html += '<td class="r-num">' + fmtMoney(r.qty) + '</td>';
-    html += '<td class="r-num">' + fmtMoney(avgPrice) + '</td>';
-    html += '<td class="r-num">' + fmtMoney(r.subtotal) + '</td>';
-    html += '<td class="r-num">' + fmtMoney(r.vat) + '</td>';
-    html += '<td class="r-num"><strong>' + fmtMoney(r.total) + '</strong></td>';
+    /* Compute compare deltas per row key (ignoring time bucket) */
+    const prevTotalByKey = new Map();
+    if(prev){
+      prev.rows.forEach((r) => {
+        const cur = prevTotalByKey.get(r.key) || 0;
+        prevTotalByKey.set(r.key, cur + r.total);
+      });
+    }
+    const prevGrandTotal = prev ? prev.gtTotal : 0;
+
+    /* Render */
+    const showQtyCol = (groupBy === 'product' || groupBy === 'category');
+    const showCompareCol = !!prev;
+    const showTimeCol = timeBucket && timeBucket !== 'none';
+
+    let html = '<table class="r-table"><thead><tr>';
+    html += '<th>' + groupByHeaderLabel(groupBy, ar) + '</th>';
+    if(showTimeCol) html += '<th>' + (ar?'الفترة':'Period') + '</th>';
+    if(showQtyCol)  html += '<th class="r-num">' + (ar?'الكمية':'Quantity') + '</th>';
+    html += '<th class="r-num">' + (ar?'عدد البنود':'Line items') + '</th>';
+    html += '<th class="r-num">' + (ar?'الصافي':'Subtotal') + '</th>';
+    html += '<th class="r-num">' + (ar?'الضريبة':'VAT') + '</th>';
+    html += '<th class="r-num">' + (ar?'الإجمالي':'Total') + '</th>';
+    if(showCompareCol) html += '<th class="r-num">' + (ar?'مقارنة':'vs Prior') + '</th>';
+    html += '</tr></thead><tbody>';
+
+    rowsArr.forEach(r => {
+      html += '<tr>';
+      html += '<td>' + escHTML(r.displayName) + '</td>';
+      if(showTimeCol) html += '<td><span class="r-num-sm">' + escHTML(r.bucket) + '</span></td>';
+      if(showQtyCol)  html += '<td class="r-num">' + fmtMoney(r.qty) + '</td>';
+      html += '<td class="r-num"><span class="r-num-sm">' + r.lineCount + '</span></td>';
+      html += '<td class="r-num">' + fmtMoney(r.subtotal) + '</td>';
+      html += '<td class="r-num">' + fmtMoney(r.vat) + '</td>';
+      html += '<td class="r-num"><strong>' + fmtMoney(r.total) + '</strong></td>';
+      if(showCompareCol){
+        const prevVal = prevTotalByKey.get(r.key) || 0;
+        html += '<td class="r-num">' + compareDeltaHTML(r.total, prevVal, ar) + '</td>';
+      }
+      html += '</tr>';
+    });
+
+    /* Grand total row */
+    html += '<tr class="r-row-grandtotal">';
+    html += '<td>' + (ar?'الإجمالي':'Total') + '</td>';
+    if(showTimeCol) html += '<td></td>';
+    if(showQtyCol)  html += '<td class="r-num">' + fmtMoney(cur.gtQty) + '</td>';
+    html += '<td class="r-num"></td>';
+    html += '<td class="r-num">' + fmtMoney(cur.gtSubtotal) + '</td>';
+    html += '<td class="r-num">' + fmtMoney(cur.gtVat) + '</td>';
+    html += '<td class="r-num">' + fmtSar(cur.gtTotal) + '</td>';
+    if(showCompareCol) html += '<td class="r-num">' + compareDeltaHTML(cur.gtTotal, prevGrandTotal, ar) + '</td>';
     html += '</tr>';
-  });
+    html += '</tbody></table>';
 
-  html += '<tr class="r-row-grandtotal">';
-  html += '<td>' + (ar?'الإجمالي':'Total') + '</td>';
-  html += '<td class="r-num">' + fmtMoney(gtQty) + '</td>';
-  html += '<td class="r-num">—</td>';
-  html += '<td class="r-num">' + fmtMoney(gtSubtotal) + '</td>';
-  html += '<td class="r-num">' + fmtMoney(gtVat) + '</td>';
-  html += '<td class="r-num">' + fmtSar(gtTotal) + '</td>';
-  html += '</tr>';
-  html += '</tbody></table>';
+    /* Note if Top-N limit truncated */
+    if(limit > 0 && cur.rows.size > limit){
+      html += `<div style="margin-top:10px;font-size:12px;color:var(--muted);">${ar
+        ? `يعرض أعلى ${limit} من إجمالي ${cur.rows.size} صف.`
+        : `Showing top ${limit} of ${cur.rows.size} rows.`}</div>`;
+    }
 
-  content.innerHTML = html;
+    content.innerHTML = html;
+
+  } catch(err){
+    console.error('[GL] Sales Analysis failed:', err);
+    content.innerHTML = '<div class="report-error">' + escHTML(err.message || 'Error') + '</div>';
+  }
 }
 
-/* ═══════════════════════════════════════════════════════
-   REPORT: STOCK VALUATION
-═══════════════════════════════════════════════════════ */
-async function runReportStockValuation(){
-  const asOf = document.getElementById('rt-asofdate').value;
-  const ar = currentLang === 'ar';
-  const content = document.getElementById('report-stock_valuation-content');
-  const periodEl = document.getElementById('report-stock_valuation-period');
-
-  if(!asOf){
-    content.innerHTML = '<div class="report-error">' + (ar ? 'الرجاء تحديد التاريخ' : 'Please select a date') + '</div>';
-    return;
-  }
-  periodEl.textContent = asOfLabel(asOf);
-  content.innerHTML = '<div class="report-loading">' + (ar ? 'جارٍ التحميل...' : 'Loading...') + '</div>';
-
-  /* NOTE: This uses CURRENT quantity (not historical at as-of date).
-     Strict historical valuation would require replaying movements — deferred. */
-  const {data: items, error} = await sb.from('inventory_items')
-    .select('id, name, name_ar, sku, current_qty, unit_cost, cost_price, category, is_active')
-    .eq('business_id', currentBiz.id);
-
-  if(error){
-    content.innerHTML = '<div class="report-error">' + escHTML(error.message || 'Error') + '</div>';
-    return;
-  }
-
-  /* Filter to items with positive qty AND active */
-  const stocked = (items || []).filter(it => {
-    const qty = parseFloat(it.current_qty) || 0;
-    if(qty <= 0) return false;
-    if(it.is_active === false) return false;
-    return true;
-  });
-
-  if(stocked.length === 0){
-    content.innerHTML = '<div class="report-no-data"><div class="report-no-data-icon">📊</div><div class="report-no-data-msg">' + (ar ? 'لا يوجد مخزون حالياً. أضف منتجات واستلم بضاعة أولاً.' : 'No stock currently. Add products and receive stock first.') + '</div></div>';
-    return;
-  }
-
-  /* Compute total value per item: prefer unit_cost, fall back to cost_price */
-  const rows = stocked.map(it => {
-    const qty = parseFloat(it.current_qty) || 0;
-    const cost = parseFloat(it.unit_cost) || parseFloat(it.cost_price) || 0;
-    const value = qty * cost;
-    return {
-      name: ar ? (it.name_ar || it.name || '—') : (it.name || it.name_ar || '—'),
-      sku: it.sku || '—',
-      category: it.category || '',
-      qty, cost, value
-    };
-  }).sort((a, b) => b.value - a.value);
-
-  let gtQty = 0, gtValue = 0;
-  let itemsWithoutCost = 0;
-
-  let html = '<table class="r-table"><thead><tr>';
-  html += '<th>' + (ar?'المنتج':'Product') + '</th>';
-  html += '<th>' + (ar?'الكود':'SKU') + '</th>';
-  html += '<th>' + (ar?'التصنيف':'Category') + '</th>';
-  html += '<th class="r-num">' + (ar?'الكمية':'Qty') + '</th>';
-  html += '<th class="r-num">' + (ar?'تكلفة الوحدة':'Unit Cost') + '</th>';
-  html += '<th class="r-num">' + (ar?'القيمة':'Value') + '</th>';
-  html += '</tr></thead><tbody>';
-
-  rows.forEach(r => {
-    gtQty += r.qty;
-    gtValue += r.value;
-    if(r.cost === 0) itemsWithoutCost++;
-    html += '<tr>';
-    html += '<td>' + escHTML(r.name) + '</td>';
-    html += '<td><span class="r-num-sm">' + escHTML(r.sku) + '</span></td>';
-    html += '<td>' + escHTML(r.category) + '</td>';
-    html += '<td class="r-num">' + fmtMoney(r.qty) + '</td>';
-    html += '<td class="r-num">' + (r.cost > 0 ? fmtMoney(r.cost) : '<span style="color:#dc2626;">—</span>') + '</td>';
-    html += '<td class="r-num"><strong>' + fmtMoney(r.value) + '</strong></td>';
-    html += '</tr>';
-  });
-
-  html += '<tr class="r-row-grandtotal">';
-  html += '<td colspan="3">' + (ar?'إجمالي قيمة المخزون':'Total Stock Value') + '</td>';
-  html += '<td class="r-num">' + fmtMoney(gtQty) + '</td>';
-  html += '<td class="r-num">—</td>';
-  html += '<td class="r-num">' + fmtSar(gtValue) + '</td>';
-  html += '</tr>';
-  html += '</tbody></table>';
-
-  /* Notes / warnings */
-  if(itemsWithoutCost > 0){
-    html += '<div style="margin-top:14px;padding:11px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:12px;color:#991b1b;line-height:1.5;">';
-    html += '⚠️ ' + (ar
-      ? `${itemsWithoutCost} منتج/منتجات بدون تكلفة محددة. القيمة الإجمالية لا تشمل هذه الأصناف. حدّث تكلفة الوحدة في صفحة المخزون.`
-      : `${itemsWithoutCost} item(s) have no cost set. Total value excludes these. Update unit cost on the Inventory page.`);
-    html += '</div>';
-  }
-
-  /* Limitation note */
-  html += '<div style="margin-top:14px;padding:11px;background:#fefce8;border:1px solid #fde047;border-radius:8px;font-size:12px;color:#713f12;line-height:1.5;">';
-  html += 'ℹ️ ' + (ar
-    ? 'ملاحظة: يستخدم هذا التقرير الكميات الحالية، ليس الكميات في التاريخ المحدد. للتقييم التاريخي الدقيق، نخطط لتطوير ميزة استرجاع الحركات.'
-    : 'Note: This report uses current quantities, not quantities at the specified as-of date. Strict historical valuation requires movement replay — planned enhancement.');
-  html += '</div>';
-
-  content.innerHTML = html;
+function groupByHeaderLabel(groupBy, ar){
+  return ({
+    customer: ar?'العميل':'Customer',
+    product:  ar?'المنتج':'Product',
+    category: ar?'الفئة':'Category',
+    tier:     ar?'نوع العميل':'Customer Type',
+    none:     ar?'الإجمالي':'Total'
+  })[groupBy] || (ar?'المجموعة':'Group');
 }
 
-/* ═══════════════════════════════════════════════════════
-   REPORT: LOW STOCK
-═══════════════════════════════════════════════════════ */
-async function runReportLowStock(){
-  const asOf = document.getElementById('rt-asofdate').value;
-  const ar = currentLang === 'ar';
-  const content = document.getElementById('report-low_stock-content');
-  const periodEl = document.getElementById('report-low_stock-period');
-
-  if(!asOf){
-    content.innerHTML = '<div class="report-error">' + (ar ? 'الرجاء تحديد التاريخ' : 'Please select a date') + '</div>';
-    return;
+function compareDeltaHTML(curVal, prevVal, ar){
+  if(prevVal <= 0.005 && curVal <= 0.005){
+    return '<span class="compare-delta flat">—</span>';
   }
-  periodEl.textContent = asOfLabel(asOf);
-  content.innerHTML = '<div class="report-loading">' + (ar ? 'جارٍ التحميل...' : 'Loading...') + '</div>';
-
-  const {data: items, error} = await sb.from('inventory_items')
-    .select('id, name, name_ar, sku, current_qty, reorder_point, alert_level, preferred_supplier_id, supplier_id, is_active')
-    .eq('business_id', currentBiz.id);
-
-  if(error){
-    content.innerHTML = '<div class="report-error">' + escHTML(error.message || 'Error') + '</div>';
-    return;
+  if(prevVal <= 0.005){
+    return '<span class="compare-delta up">' + (ar?'جديد':'new') + '</span>';
   }
-
-  /* Low stock rule: prefer reorder_point, fall back to alert_level. Skip items with no threshold set. */
-  const low = (items || []).filter(it => {
-    if(it.is_active === false) return false;
-    const qty = parseFloat(it.current_qty) || 0;
-    const threshold = parseFloat(it.reorder_point) || parseFloat(it.alert_level) || 0;
-    if(threshold <= 0) return false;  /* No threshold set → not in low-stock view */
-    return qty <= threshold;
-  });
-
-  if(low.length === 0){
-    content.innerHTML = '<div class="report-no-data"><div class="report-no-data-icon">✅</div><div class="report-no-data-msg">' + (ar ? 'لا توجد أصناف منخفضة المخزون. كل شيء فوق حد إعادة الطلب.' : 'No items below reorder threshold. All stock levels healthy.') + '</div></div>';
-    return;
-  }
-
-  /* Sort: most-shorted first (qty deficit relative to threshold) */
-  const rows = low.map(it => {
-    const qty = parseFloat(it.current_qty) || 0;
-    const threshold = parseFloat(it.reorder_point) || parseFloat(it.alert_level) || 0;
-    const shortage = threshold - qty;
-    return {
-      name: ar ? (it.name_ar || it.name || '—') : (it.name || it.name_ar || '—'),
-      sku: it.sku || '—',
-      qty, threshold, shortage,
-      isOutOfStock: qty <= 0
-    };
-  }).sort((a, b) => b.shortage - a.shortage);
-
-  let outCount = 0;
-  rows.forEach(r => { if(r.isOutOfStock) outCount++; });
-
-  let html = '';
-  if(outCount > 0){
-    html += '<div style="margin-bottom:14px;padding:11px 14px;background:#fef2f2;border:1px solid #fecaca;border-radius:8px;font-size:13px;color:#991b1b;font-weight:700;">';
-    html += '🚨 ' + (ar ? `${outCount} صنف نفد من المخزون!` : `${outCount} item(s) out of stock!`);
-    html += '</div>';
-  }
-
-  html += '<table class="r-table"><thead><tr>';
-  html += '<th>' + (ar?'المنتج':'Product') + '</th>';
-  html += '<th>' + (ar?'الكود':'SKU') + '</th>';
-  html += '<th class="r-num">' + (ar?'الكمية الحالية':'Current Qty') + '</th>';
-  html += '<th class="r-num">' + (ar?'حد إعادة الطلب':'Reorder Point') + '</th>';
-  html += '<th class="r-num">' + (ar?'النقص':'Shortage') + '</th>';
-  html += '<th>' + (ar?'الحالة':'Status') + '</th>';
-  html += '</tr></thead><tbody>';
-
-  rows.forEach(r => {
-    const statusBadge = r.isOutOfStock
-      ? `<span style="background:#fee2e2;color:#991b1b;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;">${ar?'نفد':'OUT'}</span>`
-      : `<span style="background:#fef3c7;color:#92400e;padding:3px 8px;border-radius:10px;font-size:10px;font-weight:700;">${ar?'منخفض':'LOW'}</span>`;
-    html += '<tr>';
-    html += '<td>' + escHTML(r.name) + '</td>';
-    html += '<td><span class="r-num-sm">' + escHTML(r.sku) + '</span></td>';
-    html += '<td class="r-num">' + (r.isOutOfStock ? '<strong style="color:#991b1b;">' + fmtMoney(r.qty) + '</strong>' : fmtMoney(r.qty)) + '</td>';
-    html += '<td class="r-num">' + fmtMoney(r.threshold) + '</td>';
-    html += '<td class="r-num"><strong>' + fmtMoney(r.shortage) + '</strong></td>';
-    html += '<td>' + statusBadge + '</td>';
-    html += '</tr>';
-  });
-
-  html += '</tbody></table>';
-
-  content.innerHTML = html;
+  const pct = ((curVal - prevVal) / prevVal) * 100;
+  const sign = pct > 0 ? '+' : '';
+  const cls = pct > 0.5 ? 'up' : (pct < -0.5 ? 'down' : 'flat');
+  return `<span class="compare-delta ${cls}">${sign}${pct.toFixed(1)}%</span>`;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -1536,18 +1643,15 @@ async function runCurrentReport(){
   const t = REPORT_TITLES[currentReport];
   document.getElementById('print-biz-name').textContent = pickLang(currentBiz, 'name');
   document.getElementById('print-report-title').textContent = ar ? t.ar : t.en;
-  if(currentReport === 'aging' || currentReport === 'stock_valuation' || currentReport === 'low_stock' || currentReport === 'grni_aging'){
+  if(currentReport === 'aging' || currentReport === 'grni_aging'){
     document.getElementById('print-period').textContent = asOfLabel(document.getElementById('rt-asofdate').value);
   } else {
     document.getElementById('print-period').textContent = periodLabel(document.getElementById('rt-from').value, document.getElementById('rt-to').value);
   }
 
+  if(currentReport === 'sales_analysis') return runReportSalesAnalysis();
   if(currentReport === 'customer') return runReportCustomer();
   if(currentReport === 'aging') return runReportAging();
-  if(currentReport === 'sales_by_customer') return runReportSalesByCustomer();
-  if(currentReport === 'sales_by_product') return runReportSalesByProduct();
-  if(currentReport === 'stock_valuation') return runReportStockValuation();
-  if(currentReport === 'low_stock') return runReportLowStock();
   if(currentReport === 'grni_aging') return runReportGRNIAging();
 }
 
@@ -1597,14 +1701,14 @@ async function init(){
   document.getElementById('reports-loading').style.display = 'none';
   document.getElementById('reports-page').style.display = 'grid';
 
-  /* Apply hash if present, otherwise initialize the default (customer statement) header */
+  /* Apply hash if present, otherwise initialize the default (Sales Analysis) header */
   const hash = window.location.hash.replace('#', '');
-  if(['customer','aging','sales_by_customer','sales_by_product','stock_valuation','low_stock','grni_aging'].includes(hash)){
+  if(['sales_analysis','customer','aging','grni_aging'].includes(hash)){
     const btn = document.querySelector(`.sidebar-link[onclick*="'${hash}'"]`);
     showReport(hash, btn);
   } else {
-    /* Default: customer statement — ensure header reflects it */
-    showReport('customer', document.querySelector('.sidebar-link.active'));
+    /* Default: Sales Analysis (the first sidebar entry, marked active in HTML) */
+    showReport('sales_analysis', document.querySelector('.sidebar-link.active'));
   }
 
   setLang(currentLang);
