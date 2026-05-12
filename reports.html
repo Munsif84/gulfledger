@@ -336,6 +336,13 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
       <span data-ar="المخزون المنخفض" data-en="Low Stock">المخزون المنخفض</span>
     </button>
 
+    <!-- Round 5a phase 3: Purchasing reports group -->
+    <div class="reports-sidebar-title" data-ar="تقارير المشتريات" data-en="Purchasing Reports" style="margin-top:14px;">تقارير المشتريات</div>
+    <button class="reports-link" onclick="showReport('grni_aging', this)">
+      <span class="reports-icon">📥</span>
+      <span data-ar="بضاعة مستلمة لم تُفوتر" data-en="GRNI Aging">بضاعة مستلمة لم تُفوتر</span>
+    </button>
+
     <!-- Cross-link to Accounting for financial statements -->
     <div style="margin-top:18px;padding:11px 12px;background:rgba(0,108,53,0.05);border-radius:8px;font-size:11px;color:var(--muted);line-height:1.5;border-inline-start:3px solid var(--green);">
       <div style="font-weight:700;color:var(--green);margin-bottom:4px;" data-ar="القوائم المالية" data-en="Financial Statements">القوائم المالية</div>
@@ -455,6 +462,15 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           <div class="report-empty" data-ar="اضغط «عرض» لتوليد التقرير" data-en="Click 'Run' to generate the report">اضغط «عرض» لتوليد التقرير</div>
         </div>
       </section>
+
+      <!-- Round 5a phase 3: GRNI Aging — unbilled supplier receipts bucketed by age -->
+      <section class="report-section" id="report-grni_aging" style="display:none;">
+        <h2 class="report-title" data-ar="أعمار البضاعة المستلمة لم تُفوتر (GRNI)" data-en="GRNI Aging — Goods Received Not Invoiced">أعمار البضاعة المستلمة لم تُفوتر (GRNI)</h2>
+        <div class="report-period" id="report-grni_aging-period">—</div>
+        <div class="report-content" id="report-grni_aging-content">
+          <div class="report-empty" data-ar="اضغط «عرض» لتوليد التقرير" data-en="Click 'Run' to generate the report">اضغط «عرض» لتوليد التقرير</div>
+        </div>
+      </section>
     </div>
   </main>
 </div>
@@ -538,7 +554,8 @@ const REPORT_TITLES = {
   sales_by_customer: {ar: 'المبيعات حسب العميل', en: 'Sales by Customer'},
   sales_by_product: {ar: 'المبيعات حسب المنتج', en: 'Sales by Product'},
   stock_valuation: {ar: 'تقييم المخزون', en: 'Stock Valuation'},
-  low_stock: {ar: 'المخزون المنخفض', en: 'Low Stock'}
+  low_stock: {ar: 'المخزون المنخفض', en: 'Low Stock'},
+  grni_aging: {ar: 'أعمار البضاعة المستلمة لم تُفوتر', en: 'GRNI Aging'}
 };
 
 /* ═══════════════════════════════════════════════════════
@@ -605,7 +622,7 @@ function applyPreset(preset){
     to = `${y}-${String(m+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
   }
 
-  if(currentReport === 'aging' || currentReport === 'stock_valuation' || currentReport === 'low_stock'){
+  if(currentReport === 'aging' || currentReport === 'stock_valuation' || currentReport === 'low_stock' || currentReport === 'grni_aging'){
     document.getElementById('rt-asofdate').value = to;
   } else {
     document.getElementById('rt-from').value = from;
@@ -639,7 +656,7 @@ function showReport(name, btn){
   document.getElementById('report-' + name).style.display = '';
 
   /* Toolbar fields: range vs asof vs customer */
-  const isAsOf = (name === 'aging' || name === 'stock_valuation' || name === 'low_stock');
+  const isAsOf = (name === 'aging' || name === 'stock_valuation' || name === 'low_stock' || name === 'grni_aging');
   const isCustomer = (name === 'customer');
   document.getElementById('rt-daterange').style.display = isAsOf ? 'none' : '';
   document.getElementById('rt-asof').style.display = isAsOf ? '' : 'none';
@@ -1337,6 +1354,143 @@ async function runReportLowStock(){
 }
 
 /* ═══════════════════════════════════════════════════════
+   REPORT: GRNI AGING (Round 5a phase 3)
+   Unbilled stock receipts bucketed by days-since-receipt at the as-of date.
+   Sum per supplier, with grand totals row.
+═══════════════════════════════════════════════════════ */
+async function runReportGRNIAging(){
+  const asOf = document.getElementById('rt-asofdate').value;
+  const ar = currentLang === 'ar';
+  const content = document.getElementById('report-grni_aging-content');
+  const periodEl = document.getElementById('report-grni_aging-period');
+
+  if(!asOf){
+    content.innerHTML = '<div class="report-error">' + (ar ? 'الرجاء تحديد التاريخ' : 'Please select a date') + '</div>';
+    return;
+  }
+  periodEl.textContent = asOfLabel(asOf);
+  content.innerHTML = '<div class="report-loading">' + (ar ? 'جارٍ التحميل...' : 'Loading...') + '</div>';
+
+  /* Fetch all credit stock_receipts that are not voided and have no bill_id
+     (i.e., still sitting in GRNI) AND were received on/before the as-of date. */
+  const {data: receipts, error} = await sb.from('stock_receipts')
+    .select('id, receipt_number, receipt_date, supplier_id, supplier_name, total, payment_method, status, bill_id')
+    .eq('business_id', currentBiz.id)
+    .lte('receipt_date', asOf);
+
+  if(error){
+    content.innerHTML = '<div class="report-error">' + escHTML(error.message || 'Error') + '</div>';
+    return;
+  }
+
+  /* Filter in JS: posted, credit (not cash/bank), and no bill_id yet.
+     Doing it in JS instead of supabase chained .neq is cleaner — payment_method
+     allows NULL for legacy rows and chained .neq doesn't fold NULLs in. */
+  const unbilled = (receipts || []).filter(r =>
+    r.status === 'posted' &&
+    r.payment_method !== 'cash' &&
+    r.payment_method !== 'bank' &&
+    !r.bill_id
+  );
+
+  if(unbilled.length === 0){
+    content.innerHTML = '<div class="report-no-data"><div class="report-no-data-icon">✅</div><div class="report-no-data-msg">' +
+      (ar ? 'لا توجد بضاعة مستلمة لم تُفوتر. كل الاستلامات لها فواتير موردين.'
+          : 'No goods received without invoices. Every receipt has been billed.') +
+      '</div></div>';
+    return;
+  }
+
+  /* Resolve supplier names: prefer the receipt's supplier_name snapshot,
+     fall back to looking up suppliers table for the Arabic/English names. */
+  const supplierIds = [...new Set(unbilled.map(r => r.supplier_id).filter(Boolean))];
+  let supplierNameMap = {};
+  if(supplierIds.length){
+    const {data: suppliers} = await sb.from('suppliers')
+      .select('id, name, name_ar, name_en').in('id', supplierIds);
+    (suppliers || []).forEach(s => {
+      supplierNameMap[s.id] = ar ? (s.name_ar || s.name_en || s.name || '—')
+                                  : (s.name_en || s.name_ar || s.name || '—');
+    });
+  }
+
+  /* Bucket: per supplier × aging bucket. */
+  const asOfDate = new Date(asOf);
+  const buckets = {};   /* supplierKey → {name, current, b30, b60, b90, total, count} */
+  unbilled.forEach(r => {
+    const supKey = r.supplier_id || '__unknown__';
+    const supName = supplierNameMap[r.supplier_id] || r.supplier_name || (ar ? 'مورد غير محدد' : 'Unknown supplier');
+    const ageDays = Math.floor((asOfDate - new Date(r.receipt_date)) / (1000*60*60*24));
+    const amount = parseFloat(r.total) || 0;
+
+    if(!buckets[supKey]) buckets[supKey] = {name: supName, current:0, b30:0, b60:0, b90:0, total:0, count:0};
+    if(ageDays <= 30)      buckets[supKey].current += amount;
+    else if(ageDays <= 60) buckets[supKey].b30 += amount;
+    else if(ageDays <= 90) buckets[supKey].b60 += amount;
+    else                   buckets[supKey].b90 += amount;
+    buckets[supKey].total += amount;
+    buckets[supKey].count += 1;
+  });
+
+  /* Render */
+  let html = '<table class="r-table"><thead><tr>';
+  html += '<th>' + (ar?'المورد':'Supplier') + '</th>';
+  html += '<th class="r-num-sm">' + (ar?'استلامات':'Receipts') + '</th>';
+  html += '<th class="r-num"><span class="aging-current">' + (ar?'0-30 يوم':'0-30 days') + '</span></th>';
+  html += '<th class="r-num"><span class="aging-30">31-60 ' + (ar?'يوم':'days') + '</span></th>';
+  html += '<th class="r-num"><span class="aging-60">61-90 ' + (ar?'يوم':'days') + '</span></th>';
+  html += '<th class="r-num"><span class="aging-90">90+ ' + (ar?'يوم':'days') + '</span></th>';
+  html += '<th class="r-num">' + (ar?'الإجمالي':'Total') + '</th>';
+  html += '</tr></thead><tbody>';
+
+  /* Sort suppliers by total descending (largest unbilled balance first). */
+  const supEntries = Object.entries(buckets).sort((a,b) => b[1].total - a[1].total);
+
+  let gtCurrent = 0, gt30 = 0, gt60 = 0, gt90 = 0, gtTotal = 0, gtCount = 0;
+  supEntries.forEach(([_, b]) => {
+    if(b.total < 0.005) return;
+    gtCurrent += b.current;
+    gt30 += b.b30;
+    gt60 += b.b60;
+    gt90 += b.b90;
+    gtTotal += b.total;
+    gtCount += b.count;
+    /* Row highlight when 90+ bucket carries the bulk — these need follow-up */
+    const isStale = b.b90 > b.total * 0.5;
+    html += '<tr' + (isStale ? ' style="background:#fef9c3;"' : '') + '>';
+    html += '<td>' + escHTML(b.name) + (isStale ? ' <span style="color:var(--amber);font-size:11px;font-weight:700;" title="' + (ar?'استلامات قديمة — تحقق مع المورد':'Stale receipts — follow up') + '">⚠</span>' : '') + '</td>';
+    html += '<td class="r-num-sm">' + b.count + '</td>';
+    html += '<td class="r-num">' + (b.current > 0 ? fmtMoney(b.current) : '—') + '</td>';
+    html += '<td class="r-num">' + (b.b30 > 0 ? fmtMoney(b.b30) : '—') + '</td>';
+    html += '<td class="r-num">' + (b.b60 > 0 ? fmtMoney(b.b60) : '—') + '</td>';
+    html += '<td class="r-num">' + (b.b90 > 0 ? '<strong style="color:var(--amber);">' + fmtMoney(b.b90) + '</strong>' : '—') + '</td>';
+    html += '<td class="r-num"><strong>' + fmtMoney(b.total) + '</strong></td>';
+    html += '</tr>';
+  });
+
+  html += '<tr class="r-row-grandtotal">';
+  html += '<td>' + (ar?'الإجمالي':'Total') + '</td>';
+  html += '<td class="r-num-sm">' + gtCount + '</td>';
+  html += '<td class="r-num">' + fmtMoney(gtCurrent) + '</td>';
+  html += '<td class="r-num">' + fmtMoney(gt30) + '</td>';
+  html += '<td class="r-num">' + fmtMoney(gt60) + '</td>';
+  html += '<td class="r-num">' + fmtMoney(gt90) + '</td>';
+  html += '<td class="r-num">' + fmtSar(gtTotal) + '</td>';
+  html += '</tr>';
+  html += '</tbody></table>';
+
+  /* Footnote: explain what GRNI means in plain language */
+  html += '<div style="margin-top:18px;padding:12px 14px;background:var(--tint);border-inline-start:3px solid var(--green);border-radius:0 8px 8px 0;font-size:12.5px;color:var(--ink);line-height:1.6;">' +
+    '<strong>' + (ar?'ما هذا التقرير؟ ':'What is this report? ') + '</strong>' +
+    (ar
+      ? 'يعرض البضاعة التي استلمتها من الموردين ولكن لم تُصدر لها فاتورة موردين (Bill) بعد. هذه التزامات حقيقية ستتحول إلى ذمم دائنة (AP) عند وصول فواتير الموردين. الأرصدة الأقدم من 90 يوماً تحتاج متابعة — إما فاتورة المورد متأخرة، أو الاستلام يحتاج مراجعة.'
+      : 'Shows goods received from suppliers that haven&apos;t been converted to a supplier Bill yet. These are real liabilities that will move to Accounts Payable once the supplier invoices arrive. Balances over 90 days need follow-up — either the supplier invoice is late, or the receipt itself needs review.') +
+    '</div>';
+
+  content.innerHTML = html;
+}
+
+/* ═══════════════════════════════════════════════════════
    RUNNER
 ═══════════════════════════════════════════════════════ */
 async function runCurrentReport(){
@@ -1345,7 +1499,7 @@ async function runCurrentReport(){
   const t = REPORT_TITLES[currentReport];
   document.getElementById('print-biz-name').textContent = pickLang(currentBiz, 'name');
   document.getElementById('print-report-title').textContent = ar ? t.ar : t.en;
-  if(currentReport === 'aging' || currentReport === 'stock_valuation' || currentReport === 'low_stock'){
+  if(currentReport === 'aging' || currentReport === 'stock_valuation' || currentReport === 'low_stock' || currentReport === 'grni_aging'){
     document.getElementById('print-period').textContent = asOfLabel(document.getElementById('rt-asofdate').value);
   } else {
     document.getElementById('print-period').textContent = periodLabel(document.getElementById('rt-from').value, document.getElementById('rt-to').value);
@@ -1357,6 +1511,7 @@ async function runCurrentReport(){
   if(currentReport === 'sales_by_product') return runReportSalesByProduct();
   if(currentReport === 'stock_valuation') return runReportStockValuation();
   if(currentReport === 'low_stock') return runReportLowStock();
+  if(currentReport === 'grni_aging') return runReportGRNIAging();
 }
 
 /* ═══════════════════════════════════════════════════════

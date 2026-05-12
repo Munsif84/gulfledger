@@ -1612,19 +1612,38 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
                                 data-en="Tick every receipt this supplier invoice covers. Must all be from the same supplier.">حدد جميع الاستلامات التي تغطيها فاتورة المورد. يجب أن تكون من نفس المورد.</div>
       </div>
 
-      <!-- Totals summary -->
+      <!-- Totals summary (computed from selected receipts) -->
       <div style="background:#f0f7f2;border:1px solid #86efac;border-radius:8px;padding:12px 16px;margin:10px 0;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;font-size:13px;">
         <div>
-          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700;">${''/* Subtotal */}<span data-ar="المجموع" data-en="Subtotal">المجموع</span></div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700;"><span data-ar="مجموع الاستلامات" data-en="Receipts subtotal">مجموع الاستلامات</span></div>
           <div class="mono" style="font-weight:700;color:var(--ink);" id="bill-sum-subtotal">SAR 0.00</div>
         </div>
         <div>
-          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700;"><span data-ar="ضريبة" data-en="VAT">ضريبة</span></div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700;"><span data-ar="ضريبة الاستلامات" data-en="Receipts VAT">ضريبة الاستلامات</span></div>
           <div class="mono" style="font-weight:700;color:var(--ink);" id="bill-sum-vat">SAR 0.00</div>
         </div>
         <div>
-          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700;"><span data-ar="الإجمالي" data-en="Total">الإجمالي</span></div>
+          <div style="font-size:11px;color:var(--muted);text-transform:uppercase;font-weight:700;"><span data-ar="إجمالي الاستلامات" data-en="Receipts total">إجمالي الاستلامات</span></div>
           <div class="mono" style="font-weight:800;color:var(--green);font-size:15px;" id="bill-sum-total">SAR 0.00</div>
+        </div>
+      </div>
+
+      <!-- Round 5a phase 3: editable Supplier Invoice Total + variance indicator -->
+      <div class="field-row double">
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="إجمالي فاتورة المورد" data-en="Supplier invoice total">إجمالي فاتورة المورد</span>
+            <span class="req">*</span>
+          </div>
+          <input type="number" id="bill-invoice-total" class="mono" dir="ltr" step="0.01" min="0" oninput="updateBillVariance()">
+          <div class="field-hint" data-ar="المبلغ المكتوب على فاتورة المورد فعلياً. إذا اختلف عن إجمالي الاستلامات سيُعرض تنبيه."
+                                  data-en="The actual amount on the supplier's invoice. If it differs from the receipts total, you'll see a variance warning.">المبلغ المكتوب على فاتورة المورد فعلياً. إذا اختلف عن إجمالي الاستلامات سيُعرض تنبيه.</div>
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="الفرق" data-en="Variance">الفرق</span>
+          </div>
+          <div id="bill-variance-display" class="mono" style="padding:9px 12px;background:#fafafa;border:1.5px solid var(--border);border-radius:10px;font-weight:700;color:var(--muted);">—</div>
         </div>
       </div>
 
@@ -4591,6 +4610,13 @@ async function openBillModal({receiptId, supplierId}){
   setVal('bill-notes', '');
   renderBillReceiptsList();
   updateBillTotals();
+  /* Round 5a phase 3: default supplier-invoice-total to receipts sum.
+     User can edit; we'll compare and flag variance. */
+  const initialSum = _billState.receipts
+    .filter(r => _billState.selectedReceiptIds.has(r.id))
+    .reduce((s, r) => s + (parseFloat(r.total) || 0), 0);
+  setVal('bill-invoice-total', initialSum.toFixed(2));
+  updateBillVariance();
 
   document.getElementById('bill-modal').classList.add('open');
 }
@@ -4638,6 +4664,59 @@ function updateBillTotals(){
   setText('bill-sum-subtotal', 'SAR ' + fmt(subtotal));
   setText('bill-sum-vat', 'SAR ' + fmt(vat));
   setText('bill-sum-total', 'SAR ' + fmt(total));
+  /* Round 5a phase 3: keep the editable invoice-total in sync when user toggles receipts.
+     The user can override afterward to capture the supplier's actual amount. */
+  const invField = document.getElementById('bill-invoice-total');
+  if(invField){
+    invField.value = total.toFixed(2);
+    updateBillVariance();
+  }
+}
+
+/* Round 5a phase 3: variance display + threshold-based warning.
+   Receipts total = sum of selected receipts.total.
+   Invoice total  = user-entered (supplier's actual invoice amount).
+   Variance       = invoice_total - receipts_total.
+   Threshold uses currentBiz.po_variance_pct_threshold (the same setting that
+   drives Round 4r receive-side warning and Round 4s match logic). */
+function getBillVarianceThreshold(){
+  const pct = parseFloat(currentBiz?.po_variance_pct_threshold);
+  if(Number.isFinite(pct) && pct > 0) return pct / 100;
+  return 0.05;
+}
+function updateBillVariance(){
+  const ar = currentLang === 'ar';
+  const receiptsTotal = _billState.receipts
+    .filter(r => _billState.selectedReceiptIds.has(r.id))
+    .reduce((s, r) => s + (parseFloat(r.total) || 0), 0);
+  const invoiceTotal = parseFloat(v('bill-invoice-total')) || 0;
+  const diff = invoiceTotal - receiptsTotal;
+  const display = document.getElementById('bill-variance-display');
+  if(!display) return;
+
+  /* Within rounding tolerance — no variance */
+  if(Math.abs(diff) < 0.01){
+    display.style.background = '#fafafa';
+    display.style.borderColor = 'var(--border)';
+    display.style.color = 'var(--muted)';
+    display.textContent = ar ? '— لا فرق' : '— No variance';
+    return;
+  }
+
+  const sign = diff > 0 ? '+' : '−';
+  const pct = receiptsTotal > 0 ? Math.abs(diff) / receiptsTotal : 0;
+  const threshold = getBillVarianceThreshold();
+  const exceeds = pct > threshold;
+
+  /* Show: ± SAR X.XX (Y.Y%). Color = amber within threshold, red beyond. */
+  const color = exceeds ? '#991b1b' : '#92400e';
+  const bg    = exceeds ? '#fee2e2' : '#fef3c7';
+  const bd    = exceeds ? '#fca5a5' : '#fde68a';
+  display.style.background = bg;
+  display.style.borderColor = bd;
+  display.style.color = color;
+  display.textContent = `${sign} SAR ${fmt(Math.abs(diff))}  (${sign}${(pct*100).toFixed(1)}%)` +
+    (exceeds ? (ar ? '  ⚠ تجاوز الحد' : '  ⚠ exceeds threshold') : '');
 }
 
 async function saveBillFromReceipts(){
@@ -4656,19 +4735,47 @@ async function saveBillFromReceipts(){
 
   const selectedIds = Array.from(_billState.selectedReceiptIds);
   const selected = _billState.receipts.filter(r => _billState.selectedReceiptIds.has(r.id));
-  const subtotal = selected.reduce((s,r) => s + (parseFloat(r.subtotal)||0), 0);
-  const vatAmount = selected.reduce((s,r) => s + (parseFloat(r.vat_amount)||0), 0);
-  const total = selected.reduce((s,r) => s + (parseFloat(r.total)||0), 0);
+  /* Sum from the receipts (what's sitting in GRNI for these specific receipts) */
+  const receiptsSubtotal = selected.reduce((s,r) => s + (parseFloat(r.subtotal)||0), 0);
+  const receiptsVat      = selected.reduce((s,r) => s + (parseFloat(r.vat_amount)||0), 0);
+  const receiptsTotal    = selected.reduce((s,r) => s + (parseFloat(r.total)||0), 0);
+
+  /* Round 5a phase 3: user-entered supplier invoice total (what the supplier actually billed).
+     Falls back to receipts total if blank. Variance = invoice total − receipts total;
+     posts to 1300 Inventory as a cost adjustment. */
+  const enteredInvoiceTotal = parseFloat(v('bill-invoice-total'));
+  const invoiceTotal = Number.isFinite(enteredInvoiceTotal) && enteredInvoiceTotal > 0
+    ? enteredInvoiceTotal
+    : receiptsTotal;
+  const variance = invoiceTotal - receiptsTotal;
+  const variancePct = receiptsTotal > 0 ? Math.abs(variance) / receiptsTotal : 0;
+  const threshold = getBillVarianceThreshold();
+  const exceedsThreshold = variancePct > threshold;
+
+  /* If variance exceeds threshold, require explicit confirmation */
+  if(exceedsThreshold){
+    const msg = ar
+      ? `⚠️ الفرق ${(variancePct*100).toFixed(1)}% بين فاتورة المورد (SAR ${fmt(invoiceTotal)}) وإجمالي الاستلامات (SAR ${fmt(receiptsTotal)}) يتجاوز الحد المسموح (${(threshold*100).toFixed(1)}%). سيتم تسجيل الفرق كتعديل على تكلفة المخزون. متابعة؟`
+      : `⚠️ The ${(variancePct*100).toFixed(1)}% variance between supplier invoice (SAR ${fmt(invoiceTotal)}) and receipts total (SAR ${fmt(receiptsTotal)}) exceeds the threshold (${(threshold*100).toFixed(1)}%). The difference will be posted as an inventory cost adjustment. Continue?`;
+    if(!confirm(msg)) return;
+  }
 
   const btn = document.getElementById('btn-save-bill');
   if(btn){ btn.disabled = true; btn.textContent = ar?'جارٍ الحفظ...':'Saving...'; }
 
   try {
-    /* 1. Build expense (Bill) payload */
+    /* 1. Build expense (Bill) payload — uses INVOICE total (what we actually owe) */
     let expenseNumber = await fetchNextExpenseNumber();
     const vendorTrnSnap = ((allVendors || []).find(v => v.id === supplierId) || {}).trn || null;
     const desc = (ar ? 'فاتورة موردين — استلامات: ' : 'Supplier Bill — receipts: ') +
                  selected.map(r => r.receipt_number).join(', ');
+
+    /* Recompute subtotal/vat to match invoice total proportionally so the Bill
+       row sums correctly. The variance is captured separately on the expense
+       and posted as a separate journal line. */
+    const scaleFactor = receiptsTotal > 0 ? invoiceTotal / receiptsTotal : 1;
+    const billSubtotal = +(receiptsSubtotal * scaleFactor).toFixed(2);
+    const billVat = +(invoiceTotal - billSubtotal).toFixed(2);
 
     const payload = {
       user_id: currentUser.id,
@@ -4683,17 +4790,17 @@ async function saveBillFromReceipts(){
       vendor_invoice_date: invoiceDate,
       description: desc,
       notes: notes || null,
-      subtotal: subtotal,
-      vat_pct: subtotal > 0 ? Math.round(vatAmount * 100 / subtotal) : 0,
-      vat_amount: vatAmount,
-      total: total,
+      subtotal: billSubtotal,
+      vat_pct: billSubtotal > 0 ? Math.round(billVat * 100 / billSubtotal) : 0,
+      vat_amount: billVat,
+      total: invoiceTotal,           /* user-entered invoice total */
       vat_recoverable: true,
       vat_block_reason: null,
       payment_method: 'credit',
       payment_status: 'unpaid',
       amount_paid: 0,
       due_date: invoiceDate,
-      account_code: '1300',   /* DR Inventory but we override with GRNI custom journal below */
+      account_code: '1300',
       status: 'posted',
       grni_cleared_at: new Date().toISOString(),
       receipt_ids: selectedIds,
@@ -4726,20 +4833,37 @@ async function saveBillFromReceipts(){
     }).select().single();
     if(entryErr) throw new Error(entryErr.message);
 
-    /* DR 2150 GRNI for total (clear the receipts' GRNI sitting) */
+    /* DR 2150 GRNI for receiptsTotal (clear the receipts' GRNI sitting) */
     const lines = [{
       entry_id: entry.id, user_id: currentUser.id,
       account_code: '2150',
       account_name: ar?'بضاعة مستلمة لم تُفوتر':'Goods Received Not Invoiced',
-      debit: total, credit: 0,
+      debit: receiptsTotal, credit: 0,
       description: (ar?'تصفية GRNI — ':'Clear GRNI — ') + expenseNumber
     }];
-    /* CR 2100 AP for total */
+
+    /* Round 5a phase 3: if there's variance, post it to 1300 Inventory.
+       variance > 0 → supplier billed MORE than receipts → DR 1300 (inventory cost up)
+       variance < 0 → supplier billed LESS than receipts → CR 1300 (inventory cost down)
+       This is a cost adjustment to inventory: the goods were worth what the supplier
+       actually billed, not what we initially recorded at receipt time. */
+    if(Math.abs(variance) >= 0.01){
+      lines.push({
+        entry_id: entry.id, user_id: currentUser.id,
+        account_code: '1300',
+        account_name: ar?'المخزون':'Inventory',
+        debit: variance > 0 ? variance : 0,
+        credit: variance < 0 ? Math.abs(variance) : 0,
+        description: (ar?'تعديل تكلفة المخزون (فرق فاتورة المورد) — ':'Inventory cost adjustment (supplier invoice variance) — ') + expenseNumber
+      });
+    }
+
+    /* CR 2100 AP for invoiceTotal (the actual liability per supplier's invoice) */
     lines.push({
       entry_id: entry.id, user_id: currentUser.id,
       account_code: '2100',
       account_name: ar?'موردون - حسابات دائنة':'Accounts Payable',
-      debit: 0, credit: total,
+      debit: 0, credit: invoiceTotal,
       description: (ar?'فاتورة موردين — ':'Supplier Bill — ') + expenseNumber
     });
     const {error: linesErr} = await sb.from('journal_lines').insert(lines);
@@ -4761,13 +4885,25 @@ async function saveBillFromReceipts(){
         category: 'inventory_purchase',
         supplier_invoice_number: supplierInvoice,
         receipt_ids: selectedIds,
-        total: total,
+        receipts_total: receiptsTotal,
+        invoice_total: invoiceTotal,
+        variance: variance,
+        variance_pct: +(variancePct * 100).toFixed(2),
+        exceeds_threshold: exceedsThreshold,
         grni_cleared: true
       },
-      reason: ar?'فاتورة من استلامات (GRNI)':'Bill from receipts (GRNI)'
+      reason: exceedsThreshold
+        ? (ar?'فاتورة من استلامات (GRNI) — فرق يتجاوز الحد':'Bill from receipts (GRNI) — variance exceeds threshold')
+        : (ar?'فاتورة من استلامات (GRNI)':'Bill from receipts (GRNI)')
     });
 
-    notify(ar?`✅ تم حفظ الفاتورة ${expenseNumber}`:`✅ Bill ${expenseNumber} saved`,'success');
+    let okMsg = ar?`✅ تم حفظ الفاتورة ${expenseNumber}`:`✅ Bill ${expenseNumber} saved`;
+    if(Math.abs(variance) >= 0.01){
+      okMsg += (ar
+        ? `. فرق SAR ${fmt(Math.abs(variance))} سُجِّل كتعديل على المخزون.`
+        : `. SAR ${fmt(Math.abs(variance))} variance posted as inventory adjustment.`);
+    }
+    notify(okMsg, 'success');
     closeBillModal();
 
     /* Reload data */

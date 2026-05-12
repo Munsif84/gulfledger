@@ -1135,7 +1135,8 @@ async function loadPOs(){
         any_supplier_invoice: false,
         any_missing_supplier_invoice: false,
         any_bill: false,                  /* Round 5a: at least one receipt has bill_id set */
-        any_unbilled_receipt: false       /* Round 5a: at least one receipt has bill_id NULL */
+        any_unbilled_receipt: false,      /* Round 5a: at least one receipt has bill_id NULL */
+        any_bill_mismatch: false          /* Round 5a phase 3: a linked Bill's total varies from receipts total beyond threshold */
       };
       agg[l.po_id].line_count += 1;
       agg[l.po_id].qty_ordered_total  += parseFloat(l.quantity) || 0;
@@ -1149,9 +1150,10 @@ async function loadPOs(){
     });
 
     /* Round 4s + 5a: Receipts against these POs.
-       Round 5a: also fetch bill_id to distinguish bill_pending vs matched. */
+       Round 5a: also fetch bill_id + total to distinguish bill_pending vs matched
+       vs bill_mismatch (the bill total differs from receipts total beyond threshold). */
     const {data: rcps} = await sb.from('stock_receipts')
-      .select('id, po_id, supplier_invoice_number, status, bill_id')
+      .select('id, po_id, supplier_invoice_number, status, bill_id, total')
       .in('po_id', ids);
     const receiptById = {};
     (rcps || []).forEach(r => {
@@ -1172,6 +1174,43 @@ async function loadPOs(){
         a.any_unbilled_receipt = true;
       }
     });
+
+    /* Round 5a phase 3: Check for bill_mismatch.
+       For each unique bill_id referenced by these receipts, load the expense (Bill)
+       and compare its total to the sum of its linked receipts' totals. If the variance
+       exceeds the configured threshold, mark every PO whose receipts contributed to
+       that Bill as having any_bill_mismatch=true. */
+    const billIds = [...new Set((rcps || [])
+      .filter(r => r.status !== 'voided' && r.bill_id)
+      .map(r => r.bill_id))];
+    if(billIds.length){
+      const {data: bills} = await sb.from('expenses')
+        .select('id, total, receipt_ids')
+        .in('id', billIds);
+      const threshold = getPOVarianceThreshold();   /* same threshold used by 4s price variance */
+      (bills || []).forEach(bill => {
+        /* Sum receipts.total for the receipts this bill claims to cover */
+        const linkedIds = bill.receipt_ids || [];
+        let sumOfReceipts = 0;
+        linkedIds.forEach(rid => {
+          const r = receiptById[rid];
+          if(r) sumOfReceipts += parseFloat(r.total) || 0;
+        });
+        const billTotal = parseFloat(bill.total) || 0;
+        if(sumOfReceipts <= 0) return;
+        const diff = Math.abs(billTotal - sumOfReceipts);
+        const pct = diff / sumOfReceipts;
+        if(pct > threshold){
+          /* Mark the PO(s) of every linked receipt */
+          linkedIds.forEach(rid => {
+            const r = receiptById[rid];
+            if(!r) return;
+            const a = agg[r.po_id];
+            if(a) a.any_bill_mismatch = true;
+          });
+        }
+      });
+    }
 
     /* Round 4s: per-line receipt cost — pick the max cost across all receipts on each po_item_id.
        We use max (not avg) to flag any variance occurrence; matches the receive-side warning logic. */
@@ -1195,7 +1234,7 @@ async function loadPOs(){
   }
 
   allPOs = (data || []).map(p => {
-    const a = agg[p.id] || {line_count:0, qty_ordered_total:0, qty_received_total:0, lines:{}, any_receipt:false, any_supplier_invoice:false, any_missing_supplier_invoice:false, any_bill:false, any_unbilled_receipt:false};
+    const a = agg[p.id] || {line_count:0, qty_ordered_total:0, qty_received_total:0, lines:{}, any_receipt:false, any_supplier_invoice:false, any_missing_supplier_invoice:false, any_bill:false, any_unbilled_receipt:false, any_bill_mismatch:false};
     return {
       ...p,
       _line_count: a.line_count,
@@ -1206,7 +1245,8 @@ async function loadPOs(){
       _any_supplier_invoice: a.any_supplier_invoice,
       _any_missing_supplier_invoice: a.any_missing_supplier_invoice,
       _any_bill: a.any_bill,
-      _any_unbilled_receipt: a.any_unbilled_receipt
+      _any_unbilled_receipt: a.any_unbilled_receipt,
+      _any_bill_mismatch: a.any_bill_mismatch
     };
   });
 }
@@ -1256,7 +1296,9 @@ function renderPOs(){
     /* Round 5a: matches both new (bill_pending) and legacy (awaiting_invoice) state */
     pos = pos.filter(p => p._match_status === 'bill_pending' || p._match_status === 'awaiting_invoice');
   } else if(_poMatchFilter === 'variance'){
-    pos = pos.filter(p => p._match_status === 'price_variance' || p._match_status === 'over_received');
+    /* Round 5a phase 3: variance pill covers all "money doesn't reconcile" cases:
+       price_variance (Round 4s), over_received (Round 4r), bill_mismatch (Round 5a-3). */
+    pos = pos.filter(p => p._match_status === 'price_variance' || p._match_status === 'over_received' || p._match_status === 'bill_mismatch');
   } else if(_poMatchFilter === 'open'){
     pos = pos.filter(p => p._match_status === 'partial' || p._match_status === 'not_received');
   }
@@ -1265,12 +1307,13 @@ function renderPOs(){
      segmented-control pattern from invoices.html. Mounted into the toolbar host
      so they sit immediately to the left of the search box. */
   const billPendingCount = allPOs.filter(p => p._match_status==='bill_pending' || p._match_status==='awaiting_invoice').length;
+  const varianceCount = allPOs.filter(p => p._match_status==='price_variance' || p._match_status==='over_received' || p._match_status==='bill_mismatch').length;
   const filterDefs = [
     ['',                 ar?'الكل':'All',                            allPOs.length],
     ['needs_attention',  ar?'يحتاج اهتماماً':'Needs attention',      attentionCount],
     ['open',             ar?'مفتوح':'Open',                          allPOs.filter(p => p._match_status==='partial'||p._match_status==='not_received').length],
     ['bill_pending',     ar?'بحاجة فاتورة':'Needs Bill',             billPendingCount],
-    ['variance',         ar?'فرق/زائد':'Variance / over',            allPOs.filter(p => p._match_status==='price_variance'||p._match_status==='over_received').length],
+    ['variance',         ar?'فرق/زائد':'Variance / over',            varianceCount],
     ['matched',          ar?'مطابق':'Matched',                       allPOs.filter(p => p._match_status==='matched').length]
   ];
   const pillsHtml = `<div class="filter-group">` + filterDefs.map(([key,label,count]) => {
@@ -1409,7 +1452,12 @@ function computePOMatchStatus(p){
   if(overReceived) return 'over_received';
   if(priceVariance) return 'price_variance';
 
-  /* Round 5a: Fully received — bill_id is now the canonical "is this billed?" signal.
+  /* Round 5a phase 3: bill_mismatch — a Bill linked to this PO's receipts has a
+     total that differs from the receipts' sum beyond the variance threshold.
+     This is detected at load-time in loadPOs(). */
+  if(p._any_bill_mismatch) return 'bill_mismatch';
+
+  /* Round 5a: Fully received — bill_id is the canonical "is this billed?" signal.
      If any receipt is missing bill_id → bill_pending (the user needs to convert it).
      Otherwise (all receipts have bills) → matched. */
   const fullyReceived = ordered > 0 && received >= ordered;
@@ -1434,6 +1482,8 @@ function poMatchBadge(matchStatus){
     /* Round 5a: bill_pending replaces awaiting_invoice as the canonical "fully received, needs Bill" state */
     bill_pending:     {bg:'#fef9c3', fg:'#854d0e', ar:'بحاجة فاتورة (Bill)', en:'Needs Bill', icon:'🧾'},
     awaiting_invoice: {bg:'#fef9c3', fg:'#854d0e', ar:'بانتظار الفاتورة', en:'Needs invoice #', icon:'🧾'},
+    /* Round 5a phase 3: bill_mismatch — Bill total differs from receipts total beyond threshold */
+    bill_mismatch:    {bg:'#fee2e2', fg:'#991b1b', ar:'فاتورة غير مطابقة', en:'Bill mismatch', icon:'⚠'},
     price_variance:   {bg:'#ffedd5', fg:'#9a3412', ar:'فرق سعري',     en:'Price variance',   icon:'⚠'},
     over_received:    {bg:'#fee2e2', fg:'#991b1b', ar:'استلام زائد',  en:'Over-received',    icon:'⚠'}
   };
@@ -1444,7 +1494,7 @@ function poMatchBadge(matchStatus){
 
 /* Whether a PO needs human attention (used by 'Needs attention' filter pill) */
 function poNeedsAttention(matchStatus){
-  return ['over_received','price_variance','bill_pending','awaiting_invoice'].includes(matchStatus);
+  return ['over_received','price_variance','bill_mismatch','bill_pending','awaiting_invoice'].includes(matchStatus);
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -2129,6 +2179,29 @@ async function openPODetail(id){
       max_receipt_cost: maxCostByPOItemId[l.id] || 0
     };
   });
+  /* Round 5a phase 3: detect bill_mismatch — load the Bills referenced by these
+     receipts and check their totals against the receipts they cover. */
+  let anyBillMismatch = false;
+  const drawerBillIds = [...new Set(activeReceipts.filter(r => r.bill_id).map(r => r.bill_id))];
+  if(drawerBillIds.length){
+    const {data: bills} = await sb.from('expenses')
+      .select('id, total, receipt_ids').in('id', drawerBillIds);
+    const thresholdForBill = getPOVarianceThreshold();
+    const rcpById = {};
+    activeReceipts.forEach(r => { rcpById[r.id] = r; });
+    (bills || []).forEach(bill => {
+      const linkedIds = bill.receipt_ids || [];
+      let sumReceipts = 0;
+      linkedIds.forEach(rid => {
+        const r = rcpById[rid];
+        if(r) sumReceipts += parseFloat(r.total) || 0;
+      });
+      if(sumReceipts <= 0) return;
+      const pct = Math.abs((parseFloat(bill.total) || 0) - sumReceipts) / sumReceipts;
+      if(pct > thresholdForBill) anyBillMismatch = true;
+    });
+  }
+
   const matchStatus = computePOMatchStatus({
     status: header.status,
     _qty_ordered: totalOrdered,
@@ -2136,7 +2209,8 @@ async function openPODetail(id){
     _po_lines_agg: lineAgg,
     _any_missing_supplier_invoice: activeReceipts.some(r => !(r.supplier_invoice_number || '').trim()),
     _any_bill: activeReceipts.some(r => !!r.bill_id),
-    _any_unbilled_receipt: activeReceipts.some(r => !r.bill_id)
+    _any_unbilled_receipt: activeReceipts.some(r => !r.bill_id),
+    _any_bill_mismatch: anyBillMismatch
   });
 
   /* Render the modal */
