@@ -92,6 +92,7 @@ a{color:var(--blue);text-decoration:none;}
 
 /* Toolbar (canonical) */
 .toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap;}
+.toolbar-left{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;}
 .search-wrap{position:relative;flex:1;max-width:340px;min-width:200px;}
 .search-input{width:100%;padding:9px 12px 9px 36px;border:1.5px solid var(--border);border-radius:10px;font-family:inherit;font-size:14px;background:#fff;}
 .search-input:focus{outline:none;border-color:var(--blue);}
@@ -301,51 +302,49 @@ a{color:var(--blue);text-decoration:none;}
     </div>
   </div>
 
-  <!-- Toolbar: search + date range -->
+  <!-- Toolbar: search + date range + user (row 1) -->
   <div class="toolbar">
-    <div class="search-wrap">
-      <span class="search-icon">🔍</span>
-      <input type="text" class="search-input" id="flt-search" placeholder="">
+    <div class="toolbar-left">
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" class="search-input" id="flt-search" placeholder="">
+      </div>
+      <div class="date-range">
+        <div class="field">
+          <label data-ar="من" data-en="From">من</label>
+          <input type="date" id="flt-from">
+        </div>
+        <div class="field">
+          <label data-ar="إلى" data-en="To">إلى</label>
+          <input type="date" id="flt-to">
+        </div>
+        <div class="field">
+          <label data-ar="المستخدم" data-en="User">المستخدم</label>
+          <select id="flt-user">
+            <option value="" data-ar="— الكل —" data-en="— All —">— الكل —</option>
+          </select>
+        </div>
+      </div>
     </div>
-    <div class="date-range">
-      <div class="field">
-        <label data-ar="من" data-en="From">من</label>
-        <input type="date" id="flt-from">
-      </div>
-      <div class="field">
-        <label data-ar="إلى" data-en="To">إلى</label>
-        <input type="date" id="flt-to">
-      </div>
-      <div class="field">
-        <label data-ar="المستخدم" data-en="User">المستخدم</label>
-        <select id="flt-user">
-          <option value="" data-ar="— الكل —" data-en="— All —">— الكل —</option>
-        </select>
-      </div>
+  </div>
+
+  <!-- Toolbar: filter pills (row 2) — period preset + entity + action grouped together -->
+  <div class="toolbar">
+    <div class="toolbar-left" id="audit-pills-host">
+      <!-- Period preset pills -->
+      <button class="btn btn-secondary btn-sm filter-pill" data-preset="today" onclick="applyPreset('today')" data-ar="اليوم" data-en="Today">اليوم</button>
+      <button class="btn btn-secondary btn-sm filter-pill" data-preset="7d" onclick="applyPreset('7d')" data-ar="7 أيام" data-en="7d">7 أيام</button>
+      <button class="btn btn-secondary btn-sm filter-pill active" data-preset="30d" onclick="applyPreset('30d')" data-ar="30 يوم" data-en="30d">30 يوم</button>
+      <button class="btn btn-secondary btn-sm filter-pill" data-preset="90d" onclick="applyPreset('90d')" data-ar="90 يوم" data-en="90d">90 يوم</button>
+      <button class="btn btn-secondary btn-sm filter-pill" data-preset="year" onclick="applyPreset('year')" data-ar="هذا العام" data-en="Year">هذا العام</button>
+      <button class="btn btn-secondary btn-sm filter-pill" data-preset="all" onclick="applyPreset('all')" data-ar="الكل" data-en="All">الكل</button>
+
+      <!-- Entity-type filter pills (filled by renderEntityPills) -->
+      <span id="entity-pills" style="display:contents;"></span>
+
+      <!-- Action filter pills (filled by renderActionPills) -->
+      <span id="action-pills" style="display:contents;"></span>
     </div>
-  </div>
-
-  <!-- Period preset pills -->
-  <div class="filter-row">
-    <span class="filter-row-label" data-ar="فترة سريعة" data-en="Quick range">فترة سريعة</span>
-    <button class="btn btn-secondary btn-sm filter-pill" data-preset="today" onclick="applyPreset('today')" data-ar="اليوم" data-en="Today">اليوم</button>
-    <button class="btn btn-secondary btn-sm filter-pill" data-preset="7d" onclick="applyPreset('7d')" data-ar="7 أيام" data-en="7 days">7 أيام</button>
-    <button class="btn btn-secondary btn-sm filter-pill active" data-preset="30d" onclick="applyPreset('30d')" data-ar="30 يوم" data-en="30 days">30 يوم</button>
-    <button class="btn btn-secondary btn-sm filter-pill" data-preset="90d" onclick="applyPreset('90d')" data-ar="90 يوم" data-en="90 days">90 يوم</button>
-    <button class="btn btn-secondary btn-sm filter-pill" data-preset="year" onclick="applyPreset('year')" data-ar="هذا العام" data-en="This year">هذا العام</button>
-    <button class="btn btn-secondary btn-sm filter-pill" data-preset="all" onclick="applyPreset('all')" data-ar="الكل" data-en="All">الكل</button>
-  </div>
-
-  <!-- Entity-type filter pills -->
-  <div class="filter-row" id="entity-pills">
-    <span class="filter-row-label" data-ar="النوع" data-en="Type">النوع</span>
-    <!-- filled by renderEntityPills() -->
-  </div>
-
-  <!-- Action filter pills -->
-  <div class="filter-row" id="action-pills">
-    <span class="filter-row-label" data-ar="الإجراء" data-en="Action">الإجراء</span>
-    <!-- filled by renderActionPills() -->
   </div>
 
   <!-- Timeline (rendered as a series of day-grouped table-wraps) -->
@@ -753,27 +752,23 @@ function getFilteredEntries(){
 function renderEntityPills(){
   const wrap = document.getElementById('entity-pills');
   if(!wrap) return;
-  const ar = currentLang === 'ar';
   const counts = {};
   allEntries.forEach(e => { counts[e.entity_type] = (counts[e.entity_type] || 0) + 1; });
   const types = Object.keys(counts).sort();
-  const pills = [['', ar?'الكل':'All', allEntries.length]];
-  types.forEach(t => pills.push([t, entityIcon(t) + ' ' + entityLabel(t), counts[t]]));
-
-  wrap.innerHTML = `<span class="filter-row-label">${ar?'النوع':'Type'}</span>` +
-    pills.map(([key, label, count]) => {
-      const active = activeFilters.entity_type === key;
-      const safeKey = key.replace(/'/g, '');
-      const cls = 'btn btn-secondary btn-sm filter-pill' + (active ? ' active' : '');
-      const onclick = `setEntityFilter('${safeKey}')`;
-      return `<button class="${cls}" onclick="${onclick}">${escHTML(label)}<span class="count-badge">${count}</span></button>`;
-    }).join('');
+  /* Render only entity-type pills (no "All" row — period range already handles the all-or-nothing axis).
+     Inline in shared toolbar row, no group label needed. */
+  wrap.innerHTML = types.map(t => {
+    const active = activeFilters.entity_type === t;
+    const safeKey = t.replace(/'/g, '');
+    const cls = 'btn btn-secondary btn-sm filter-pill' + (active ? ' active' : '');
+    const label = entityIcon(t) + ' ' + entityLabel(t);
+    return `<button class="${cls}" onclick="setEntityFilter('${safeKey}')">${escHTML(label)}<span class="count-badge">${counts[t]}</span></button>`;
+  }).join('');
 }
 
 function renderActionPills(){
   const wrap = document.getElementById('action-pills');
   if(!wrap) return;
-  const ar = currentLang === 'ar';
   const counts = {};
   const filteredByOther = allEntries.filter(e => {
     if(activeFilters.entity_type && e.entity_type !== activeFilters.entity_type) return false;
@@ -782,16 +777,12 @@ function renderActionPills(){
   });
   filteredByOther.forEach(e => { counts[e.action] = (counts[e.action] || 0) + 1; });
   const actions = Object.keys(counts).sort();
-  const pills = [['', ar?'الكل':'All', filteredByOther.length]];
-  actions.forEach(a => pills.push([a, actionLabel(a), counts[a]]));
-  wrap.innerHTML = `<span class="filter-row-label">${ar?'الإجراء':'Action'}</span>` +
-    pills.map(([key, label, count]) => {
-      const active = activeFilters.action === key;
-      const safeKey = key.replace(/'/g, '');
-      const cls = 'btn btn-secondary btn-sm filter-pill' + (active ? ' active' : '');
-      const onclick = `setActionFilter('${safeKey}')`;
-      return `<button class="${cls}" onclick="${onclick}">${escHTML(label)}<span class="count-badge">${count}</span></button>`;
-    }).join('');
+  wrap.innerHTML = actions.map(a => {
+    const active = activeFilters.action === a;
+    const safeKey = a.replace(/'/g, '');
+    const cls = 'btn btn-secondary btn-sm filter-pill' + (active ? ' active' : '');
+    return `<button class="${cls}" onclick="setActionFilter('${safeKey}')">${escHTML(actionLabel(a))}<span class="count-badge">${counts[a]}</span></button>`;
+  }).join('');
 }
 
 /* ═════════ ENTITY HREF ═════════ */

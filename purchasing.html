@@ -126,6 +126,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 
 /* Toolbar */
 .toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap;}
+.toolbar-left{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;}
 .search-wrap{position:relative;flex:1;max-width:340px;min-width:200px;}
 .search-input{width:100%;padding:9px 12px 9px 36px;border:1.5px solid var(--border);border-radius:10px;font-family:inherit;font-size:14px;background:#fff;}
 .search-input:focus{outline:none;border-color:var(--blue);}
@@ -553,9 +554,13 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
     </div>
 
     <div class="toolbar">
-      <div class="search-wrap">
-        <span class="search-icon">🔍</span>
-        <input type="text" class="search-input" id="search-pos" placeholder="البحث برقم الطلب أو المورد..." oninput="renderPOs()">
+      <div class="toolbar-left">
+        <div class="search-wrap">
+          <span class="search-icon">🔍</span>
+          <input type="text" class="search-input" id="search-pos" placeholder="البحث برقم الطلب أو المورد..." oninput="renderPOs()">
+        </div>
+        <!-- Filter pills mounted here by renderPOs() (Round 4s + 5a) -->
+        <div id="po-filter-pills-host" style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;"></div>
       </div>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-secondary" onclick="loadAll()" data-ar="↻ تحديث" data-en="↻ Refresh">↻ تحديث</button>
@@ -1256,27 +1261,28 @@ function renderPOs(){
     pos = pos.filter(p => p._match_status === 'partial' || p._match_status === 'not_received');
   }
 
-  /* Round 4s + 5a: filter-pills row (rendered above the table).
-     Uses canonical .filter-pill pattern matching val-filter-pill in inventory.html. */
+  /* Round 4s + 5a: filter pills — rendered into the toolbar host element
+     (.toolbar-left > #po-filter-pills-host) so they sit next to the search box,
+     matching the canonical layout used in finance.html. */
   const billPendingCount = allPOs.filter(p => p._match_status==='bill_pending' || p._match_status==='awaiting_invoice').length;
-  const pillsHtml = `
-    <div class="filter-row">
-      <span class="filter-row-label">${ar?'تصفية':'Filter'}</span>
-      ${[
-        ['',                 ar?'الكل':'All',                            allPOs.length],
-        ['needs_attention',  ar?'يحتاج اهتماماً':'Needs attention',      attentionCount],
-        ['open',             ar?'مفتوح':'Open',                          allPOs.filter(p => p._match_status==='partial'||p._match_status==='not_received').length],
-        ['bill_pending',     ar?'بحاجة فاتورة':'Needs Bill',             billPendingCount],
-        ['variance',         ar?'فرق/زائد':'Variance / over',            allPOs.filter(p => p._match_status==='price_variance'||p._match_status==='over_received').length],
-        ['matched',          ar?'مطابق':'Matched',                       allPOs.filter(p => p._match_status==='matched').length]
-      ].map(([key,label,count]) => {
-        const active = (_poMatchFilter || '') === key;
-        const safeKey = key.replace(/'/g, '');
-        const cls = 'btn btn-secondary btn-sm filter-pill' + (active ? ' active' : '');
-        const onclick = key ? `setPOMatchFilter('${safeKey}')` : 'setPOMatchFilter(null)';
-        return `<button class="${cls}" onclick="${onclick}">${escHTML(label)}<span class="count-badge">${count}</span></button>`;
-      }).join('')}
-    </div>`;
+  const pillsHtml = [
+    ['',                 ar?'الكل':'All',                            allPOs.length],
+    ['needs_attention',  ar?'يحتاج اهتماماً':'Needs attention',      attentionCount],
+    ['open',             ar?'مفتوح':'Open',                          allPOs.filter(p => p._match_status==='partial'||p._match_status==='not_received').length],
+    ['bill_pending',     ar?'بحاجة فاتورة':'Needs Bill',             billPendingCount],
+    ['variance',         ar?'فرق/زائد':'Variance / over',            allPOs.filter(p => p._match_status==='price_variance'||p._match_status==='over_received').length],
+    ['matched',          ar?'مطابق':'Matched',                       allPOs.filter(p => p._match_status==='matched').length]
+  ].map(([key,label,count]) => {
+    const active = (_poMatchFilter || '') === key;
+    const safeKey = key.replace(/'/g, '');
+    const cls = 'btn btn-secondary btn-sm filter-pill' + (active ? ' active' : '');
+    const onclick = key ? `setPOMatchFilter('${safeKey}')` : 'setPOMatchFilter(null)';
+    return `<button class="${cls}" onclick="${onclick}">${escHTML(label)}<span class="count-badge">${count}</span></button>`;
+  }).join('');
+
+  /* Mount the pills into the toolbar host — keeps them inline with the search box */
+  const pillsHost = document.getElementById('po-filter-pills-host');
+  if(pillsHost) pillsHost.innerHTML = pillsHtml;
 
   if(allPOs.length === 0){
     wrap.innerHTML = `
@@ -1292,7 +1298,7 @@ function renderPOs(){
   }
 
   if(pos.length === 0){
-    wrap.innerHTML = pillsHtml + `
+    wrap.innerHTML = `
       <div class="empty-state">
         <div class="icon">🔍</div>
         <div class="title">${ar?'لا توجد نتائج':'No results'}</div>
@@ -1301,7 +1307,7 @@ function renderPOs(){
     return;
   }
 
-  wrap.innerHTML = pillsHtml + `
+  wrap.innerHTML = `
     <table class="tbl">
       <thead>
         <tr>
