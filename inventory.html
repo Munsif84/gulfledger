@@ -3642,6 +3642,12 @@ function renderReceipts(){
                   <button class="row-actions-btn" onclick="event.stopPropagation();toggleRowMenu(this)" title="${arHeaders?'إجراءات':'Actions'}">⋮</button>
                   <div class="row-actions-menu" onclick="event.stopPropagation()">
                     <button class="row-action-item" onclick="closeAllMenus();openReceiptDrawer('${r.id}')">📋 ${arHeaders?'عرض التفاصيل':'View details'}</button>
+                    ${!isVoided && !r.bill_id && r.payment_method !== 'cash' && r.payment_method !== 'bank'
+                      ? `<button class="row-action-item" onclick="closeAllMenus();convertReceiptToBill('${r.id}')">🧾 ${arHeaders?'تحويل إلى فاتورة':'Convert to Bill'}</button>`
+                      : ''}
+                    ${!isVoided && r.bill_id
+                      ? `<button class="row-action-item" onclick="closeAllMenus();window.location.href='finance.html?tab=expenses&expense=${r.bill_id}'">🔗 ${arHeaders?'عرض الفاتورة':'View Bill'}</button>`
+                      : ''}
                     ${!isVoided ? `<button class="row-action-item danger" onclick="closeAllMenus();voidReceipt('${r.id}')">🚫 ${arHeaders?'إلغاء الاستلام':'Void receipt'}</button>` : ''}
                   </div>
                 </div>
@@ -5334,9 +5340,11 @@ async function saveSupInvoicePrompt(){
    JOURNAL POSTING — receipts
 ═══════════════════════════════════════════════════════ */
 async function postReceiptJournal(receipt, items, subtotal, vatAmount, total, paymentMethod, amountPaid){
-  /* Determine the credit account based on payment */
-  let creditAccount = '2100'; /* Accounts Payable */
-  let creditAccountName = currentLang==='ar' ? 'موردون - حسابات دائنة' : 'Accounts Payable';
+  /* Round 5a: credit receipts now go to GRNI (2150), not AP (2100).
+     Cash/bank receipts unchanged — they bypass the AP/GRNI flow entirely.
+     GRNI is later cleared via the Convert-to-Bill flow (finance.html). */
+  let creditAccount = '2150'; /* GRNI — was 2100 before Round 5a */
+  let creditAccountName = currentLang==='ar' ? 'بضاعة مستلمة لم تُفوتر' : 'Goods Received Not Invoiced';
   if(paymentMethod === 'cash'){
     creditAccount = '1100';
     creditAccountName = currentLang==='ar' ? 'الصندوق' : 'Cash';
@@ -6082,6 +6090,25 @@ async function refreshDrawerIfOpen(itemId){
 /* ═══════════════════════════════════════════════════════
    RECEIPT VOID — reverse a posted receipt
 ═══════════════════════════════════════════════════════ */
+/* Round 5a: Convert a stock receipt to a Bill (expense).
+   Navigates to finance.html which has the actual modal + post logic. */
+function convertReceiptToBill(receiptId){
+  const r = allReceipts.find(x => x.id === receiptId);
+  if(!r){ notify(currentLang==='ar'?'الاستلام غير موجود':'Receipt not found','error'); return; }
+  if(r.bill_id){
+    notify(currentLang==='ar'?'لهذا الاستلام فاتورة بالفعل':'This receipt already has a Bill','error');
+    return;
+  }
+  /* Pass the receipt id and supplier id so finance.html knows which receipts to offer */
+  const params = new URLSearchParams({
+    tab: 'expenses',
+    action: 'new_bill_from_receipt',
+    receipt_id: receiptId,
+    supplier_id: r.supplier_id || ''
+  });
+  window.location.href = 'finance.html?' + params.toString();
+}
+
 async function voidReceipt(receiptId){
   const receipt = allReceipts.find(r => r.id === receiptId);
   if(!receipt){ notify(currentLang==='ar'?'الاستلام غير موجود':'Receipt not found','error'); return; }
@@ -6103,6 +6130,17 @@ async function voidReceipt(receiptId){
     notify(currentLang==='ar'
       ? `❌ لا يمكن الإلغاء: تم استهلاك ${consumed.length} دفعة من هذا الاستلام في فواتير المبيعات. أنشئ مذكرة دائنة بدلاً من ذلك.`
       : `❌ Cannot void: ${consumed.length} batch(es) from this receipt have been consumed by sales. Create a credit note instead.`,
+      'error');
+    return;
+  }
+
+  /* Round 5a: block if a Bill has been posted against this receipt.
+     The Bill needs to be reversed/deleted from finance.html first to keep
+     GRNI ↔ AP ↔ supplier balances consistent. */
+  if(receipt.bill_id){
+    notify(currentLang==='ar'
+      ? '❌ لا يمكن الإلغاء: تم إصدار فاتورة (Bill) لهذا الاستلام. احذف الفاتورة من صفحة المالية أولاً.'
+      : '❌ Cannot void: a Bill has been posted against this receipt. Delete the Bill from Finance first, then void.',
       'error');
     return;
   }
@@ -6186,9 +6224,22 @@ async function postReceiptVoidJournal(receipt){
   const total = parseFloat(receipt.total) || 0;
   if(total <= 0) return;
 
-  let debitAccount = '2100'; let debitName = currentLang==='ar' ? 'موردون - حسابات دائنة' : 'Accounts Payable';
-  if(receipt.payment_method === 'cash'){ debitAccount = '1100'; debitName = currentLang==='ar' ? 'الصندوق' : 'Cash'; }
-  else if(receipt.payment_method === 'bank'){ debitAccount = '1101'; debitName = currentLang==='ar' ? 'البنك' : 'Bank'; }
+  /* Round 5a: for credit receipts, the liability sits in GRNI (2150) unless
+     a Bill has already cleared it to AP (2100). Choose the debit account
+     based on receipt.bill_id presence:
+       - bill_id NULL → GRNI 2150 (still in clearing)
+       - bill_id set  → AP 2100 (Bill posted, so original liability is in AP)
+     For cash/bank receipts, debit Cash/Bank as before. */
+  let debitAccount, debitName;
+  if(receipt.payment_method === 'cash'){
+    debitAccount = '1100'; debitName = currentLang==='ar' ? 'الصندوق' : 'Cash';
+  } else if(receipt.payment_method === 'bank'){
+    debitAccount = '1101'; debitName = currentLang==='ar' ? 'البنك' : 'Bank';
+  } else if(receipt.bill_id){
+    debitAccount = '2100'; debitName = currentLang==='ar' ? 'موردون - حسابات دائنة' : 'Accounts Payable';
+  } else {
+    debitAccount = '2150'; debitName = currentLang==='ar' ? 'بضاعة مستلمة لم تُفوتر' : 'Goods Received Not Invoiced';
+  }
 
   const ref = receipt.receipt_number + ' (VOID)';
   const desc = (currentLang==='ar'?'إلغاء استلام — ':'Void receipt — ') + receipt.receipt_number;

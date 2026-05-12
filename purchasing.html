@@ -1119,7 +1119,9 @@ async function loadPOs(){
         lines: {},                /* po_item_id -> {ordered, received, unit_price, max_receipt_cost} */
         any_receipt: false,
         any_supplier_invoice: false,
-        any_missing_supplier_invoice: false
+        any_missing_supplier_invoice: false,
+        any_bill: false,                  /* Round 5a: at least one receipt has bill_id set */
+        any_unbilled_receipt: false       /* Round 5a: at least one receipt has bill_id NULL */
       };
       agg[l.po_id].line_count += 1;
       agg[l.po_id].qty_ordered_total  += parseFloat(l.quantity) || 0;
@@ -1132,10 +1134,10 @@ async function loadPOs(){
       };
     });
 
-    /* Round 4s: Receipts against these POs — supplier_invoice_number presence,
-       and receipt items' unit_cost per po_item_id for variance check */
+    /* Round 4s + 5a: Receipts against these POs.
+       Round 5a: also fetch bill_id to distinguish bill_pending vs matched. */
     const {data: rcps} = await sb.from('stock_receipts')
-      .select('id, po_id, supplier_invoice_number, status')
+      .select('id, po_id, supplier_invoice_number, status, bill_id')
       .in('po_id', ids);
     const receiptById = {};
     (rcps || []).forEach(r => {
@@ -1148,6 +1150,12 @@ async function loadPOs(){
         a.any_supplier_invoice = true;
       } else {
         a.any_missing_supplier_invoice = true;
+      }
+      /* Round 5a: track per-PO bill state */
+      if(r.bill_id){
+        a.any_bill = true;
+      } else {
+        a.any_unbilled_receipt = true;
       }
     });
 
@@ -1173,7 +1181,7 @@ async function loadPOs(){
   }
 
   allPOs = (data || []).map(p => {
-    const a = agg[p.id] || {line_count:0, qty_ordered_total:0, qty_received_total:0, lines:{}, any_receipt:false, any_supplier_invoice:false, any_missing_supplier_invoice:false};
+    const a = agg[p.id] || {line_count:0, qty_ordered_total:0, qty_received_total:0, lines:{}, any_receipt:false, any_supplier_invoice:false, any_missing_supplier_invoice:false, any_bill:false, any_unbilled_receipt:false};
     return {
       ...p,
       _line_count: a.line_count,
@@ -1182,7 +1190,9 @@ async function loadPOs(){
       _po_lines_agg: a.lines,
       _any_receipt: a.any_receipt,
       _any_supplier_invoice: a.any_supplier_invoice,
-      _any_missing_supplier_invoice: a.any_missing_supplier_invoice
+      _any_missing_supplier_invoice: a.any_missing_supplier_invoice,
+      _any_bill: a.any_bill,
+      _any_unbilled_receipt: a.any_unbilled_receipt
     };
   });
 }
@@ -1228,15 +1238,17 @@ function renderPOs(){
     pos = pos.filter(p => poNeedsAttention(p._match_status));
   } else if(_poMatchFilter === 'matched'){
     pos = pos.filter(p => p._match_status === 'matched');
-  } else if(_poMatchFilter === 'awaiting_invoice'){
-    pos = pos.filter(p => p._match_status === 'awaiting_invoice');
+  } else if(_poMatchFilter === 'bill_pending'){
+    /* Round 5a: matches both new (bill_pending) and legacy (awaiting_invoice) state */
+    pos = pos.filter(p => p._match_status === 'bill_pending' || p._match_status === 'awaiting_invoice');
   } else if(_poMatchFilter === 'variance'){
     pos = pos.filter(p => p._match_status === 'price_variance' || p._match_status === 'over_received');
   } else if(_poMatchFilter === 'open'){
     pos = pos.filter(p => p._match_status === 'partial' || p._match_status === 'not_received');
   }
 
-  /* Round 4s: filter-pills row (rendered above the table) */
+  /* Round 4s + 5a: filter-pills row (rendered above the table) */
+  const billPendingCount = allPOs.filter(p => p._match_status==='bill_pending' || p._match_status==='awaiting_invoice').length;
   const pillsHtml = `
     <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;align-items:center;">
       <span style="font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em;margin-inline-end:4px;">${ar?'تصفية':'Filter'}:</span>
@@ -1244,7 +1256,7 @@ function renderPOs(){
         ['',                 ar?'الكل':'All',                            allPOs.length],
         ['needs_attention',  ar?'يحتاج اهتماماً':'Needs attention',      attentionCount],
         ['open',             ar?'مفتوح':'Open',                           allPOs.filter(p => p._match_status==='partial'||p._match_status==='not_received').length],
-        ['awaiting_invoice', ar?'بانتظار الفاتورة':'Awaiting invoice #', allPOs.filter(p => p._match_status==='awaiting_invoice').length],
+        ['bill_pending',     ar?'بحاجة فاتورة':'Needs Bill',              billPendingCount],
         ['variance',         ar?'فرق سعري/زائد':'Variance / over',       allPOs.filter(p => p._match_status==='price_variance'||p._match_status==='over_received').length],
         ['matched',          ar?'مطابق':'Matched',                       allPOs.filter(p => p._match_status==='matched').length]
       ].map(([key,label,count]) => {
@@ -1382,10 +1394,12 @@ function computePOMatchStatus(p){
   if(overReceived) return 'over_received';
   if(priceVariance) return 'price_variance';
 
-  /* Fully received: check supplier invoice presence on all receipts */
+  /* Round 5a: Fully received — bill_id is now the canonical "is this billed?" signal.
+     If any receipt is missing bill_id → bill_pending (the user needs to convert it).
+     Otherwise (all receipts have bills) → matched. */
   const fullyReceived = ordered > 0 && received >= ordered;
   if(fullyReceived){
-    if(p._any_missing_supplier_invoice) return 'awaiting_invoice';
+    if(p._any_unbilled_receipt) return 'bill_pending';
     return 'matched';
   }
 
@@ -1402,6 +1416,8 @@ function poMatchBadge(matchStatus){
     not_received:     {bg:'#dbeafe', fg:'#1e40af', ar:'بانتظار الاستلام', en:'Awaiting receipt', icon:'⏳'},
     partial:          {bg:'#fef3c7', fg:'#92400e', ar:'جزئي',         en:'Partial',          icon:'◐'},
     matched:          {bg:'#dcfce7', fg:'#166534', ar:'مطابق',        en:'Matched',          icon:'✓'},
+    /* Round 5a: bill_pending replaces awaiting_invoice as the canonical "fully received, needs Bill" state */
+    bill_pending:     {bg:'#fef9c3', fg:'#854d0e', ar:'بحاجة فاتورة (Bill)', en:'Needs Bill', icon:'🧾'},
     awaiting_invoice: {bg:'#fef9c3', fg:'#854d0e', ar:'بانتظار الفاتورة', en:'Needs invoice #', icon:'🧾'},
     price_variance:   {bg:'#ffedd5', fg:'#9a3412', ar:'فرق سعري',     en:'Price variance',   icon:'⚠'},
     over_received:    {bg:'#fee2e2', fg:'#991b1b', ar:'استلام زائد',  en:'Over-received',    icon:'⚠'}
@@ -1413,7 +1429,7 @@ function poMatchBadge(matchStatus){
 
 /* Whether a PO needs human attention (used by 'Needs attention' filter pill) */
 function poNeedsAttention(matchStatus){
-  return ['over_received','price_variance','awaiting_invoice'].includes(matchStatus);
+  return ['over_received','price_variance','bill_pending','awaiting_invoice'].includes(matchStatus);
 }
 
 /* ─────────────────────────────────────────────────────────
@@ -2056,9 +2072,10 @@ async function openPODetail(id){
     supplier = s;
   }
 
-  /* Round 4s: receipts against this PO + receipt items for per-line cost/variance */
+  /* Round 4s + 5a: receipts against this PO + receipt items for per-line cost/variance.
+     Round 5a: also fetch bill_id to compute bill_pending state. */
   const {data: receipts} = await sb.from('stock_receipts')
-    .select('id, receipt_number, receipt_date, supplier_invoice_number, status, total, created_at')
+    .select('id, receipt_number, receipt_date, supplier_invoice_number, status, total, created_at, bill_id')
     .eq('po_id', id)
     .order('receipt_date', {ascending: true});
   const activeReceipts = (receipts || []).filter(r => r.status !== 'voided');
@@ -2081,7 +2098,7 @@ async function openPODetail(id){
 
   _currentPO = { header, lines: lines||[], supplier, receipts: activeReceipts };
 
-  /* Round 4s: compute overall match status for header badge.
+  /* Round 4s + 5a: compute overall match status for header badge.
      Mirror the loadPOs aggregate shape so computePOMatchStatus() works the same. */
   const lineAgg = {};
   let totalOrdered = 0, totalReceived = 0;
@@ -2102,7 +2119,9 @@ async function openPODetail(id){
     _qty_ordered: totalOrdered,
     _qty_received: totalReceived,
     _po_lines_agg: lineAgg,
-    _any_missing_supplier_invoice: activeReceipts.some(r => !(r.supplier_invoice_number || '').trim())
+    _any_missing_supplier_invoice: activeReceipts.some(r => !(r.supplier_invoice_number || '').trim()),
+    _any_bill: activeReceipts.some(r => !!r.bill_id),
+    _any_unbilled_receipt: activeReceipts.some(r => !r.bill_id)
   });
 
   /* Render the modal */
@@ -2173,6 +2192,7 @@ async function openPODetail(id){
               <th>${ar?'رقم الاستلام':'Receipt #'}</th>
               <th>${ar?'التاريخ':'Date'}</th>
               <th>${ar?'رقم فاتورة المورد':'Supplier Invoice #'}</th>
+              <th>${ar?'الفاتورة (Bill)':'Bill'}</th>
               <th class="num">${ar?'الإجمالي':'Total'}</th>
             </tr>
           </thead>
@@ -2181,11 +2201,16 @@ async function openPODetail(id){
               const hasInv = (r.supplier_invoice_number || '').trim();
               const invCell = hasInv
                 ? `<span class="mono" style="font-weight:600;">${escHTML(r.supplier_invoice_number)}</span>`
-                : `<span style="color:var(--amber);font-size:12px;font-weight:600;">⚠ ${ar?'ناقص':'missing'}</span>`;
+                : `<span style="color:var(--muted);font-size:12px;">—</span>`;
+              /* Round 5a: Bill column */
+              const billCell = r.bill_id
+                ? `<a href="finance.html?tab=expenses&expense=${escHTML(r.bill_id)}" style="color:var(--green);font-weight:600;font-size:12px;text-decoration:none;border-bottom:1px dashed var(--green);">✓ ${ar?'مفوترة':'Billed'}</a>`
+                : `<span style="color:var(--amber);font-size:12px;font-weight:600;">⚠ ${ar?'بحاجة فاتورة':'Needs Bill'}</span>`;
               return `<tr>
                 <td><strong class="mono">${escHTML(r.receipt_number||'—')}</strong></td>
                 <td class="mono">${escHTML(r.receipt_date||'—')}</td>
                 <td>${invCell}</td>
+                <td>${billCell}</td>
                 <td class="num">SAR ${fmt(r.total||0)}</td>
               </tr>`;
             }).join('')}
