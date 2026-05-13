@@ -711,11 +711,23 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           </div>
         </div>
         <div class="report-toolbar-right">
-          <button class="btn btn-primary btn-sm" onclick="runCurrentReport()">
-            <span data-ar="عرض" data-en="Run">عرض</span>
+          <!-- Action buttons — order/labels mirror the Data Builder toolbar so
+               users see the same shape everywhere.
+               عرض (Generate) is primary. The rest unlock after first Run. -->
+          <button class="btn btn-primary btn-sm" onclick="runCurrentReport()" id="bi-btn-run">
+            <span data-ar="عرض" data-en="Generate">عرض</span>
           </button>
-          <button class="btn btn-secondary btn-sm" onclick="dbPrint()">
-            🖨️ <span data-ar="طباعة" data-en="Print">طباعة</span>
+          <button class="btn btn-secondary btn-sm" onclick="runCurrentReport()" id="bi-btn-refresh" disabled title="Refresh">
+            <span>↻</span>
+            <span data-ar="تحديث" data-en="Refresh">تحديث</span>
+          </button>
+          <button class="btn btn-secondary btn-sm" onclick="exportCurrentReportCSV()" id="bi-btn-export" disabled title="Export to CSV">
+            <span>⬇</span>
+            <span data-ar="تصدير" data-en="Export">تصدير</span>
+          </button>
+          <button class="btn btn-ghost btn-sm" onclick="dbPrint()" id="bi-btn-print" disabled title="Print">
+            <span>🖨</span>
+            <span data-ar="طباعة" data-en="Print">طباعة</span>
           </button>
         </div>
       </div>
@@ -1292,6 +1304,9 @@ function showReport(name, btn, preset){
   document.querySelectorAll('.report-section').forEach(s => s.style.display = 'none');
   const section = document.getElementById('report-' + name);
   if(section) section.style.display = '';
+
+  /* Reset post-Run buttons in the Built-in toolbar — they unlock after a Run */
+  if(typeof biSetPostRunButtons === 'function') biSetPostRunButtons(false);
 
   /* Inject report identity into the shared section-header */
   const meta = REPORT_TITLES[name];
@@ -3793,9 +3808,11 @@ async function runReportGRNIAging(){
   content.innerHTML = '<div class="report-loading">' + (ar ? 'جارٍ التحميل...' : 'Loading...') + '</div>';
 
   /* Fetch all credit stock_receipts that are not voided and have no bill_id
-     (i.e., still sitting in GRNI) AND were received on/before the as-of date. */
+     (i.e., still sitting in GRNI) AND were received on/before the as-of date.
+     Using select('*') for schema tolerance — some pilot installs may not have
+     every column (e.g., supplier_name was a legacy snapshot that's optional). */
   const {data: receipts, error} = await sb.from('stock_receipts')
-    .select('id, receipt_number, receipt_date, supplier_id, supplier_name, total, payment_method, status, bill_id')
+    .select('*')
     .eq('business_id', currentBiz.id)
     .lte('receipt_date', asOf);
 
@@ -3929,13 +3946,74 @@ async function runCurrentReport(){
     document.getElementById('print-period').textContent = periodLabel(document.getElementById('rt-from').value, document.getElementById('rt-to').value);
   }
 
-  if(currentReport === 'customer') return runReportCustomer();
-  if(currentReport === 'supplier_statement') return runReportSupplierStatement();
-  if(currentReport === 'aging') return runReportAging();
-  if(currentReport === 'grni_aging') return runReportGRNIAging();
-  if(currentReport === 'stock_valuation') return runReportStockValuation();
-  /* data_builder doesn't use runCurrentReport — it auto-runs on source/column/filter
-     changes via the engine. The global Run button is hidden when it's active. */
+  /* Run the chosen report runner. Whichever one runs, after it returns the
+     post-Run buttons unlock (Refresh, Export, Print). They stay locked until
+     a first successful Run, matching the Data Builder convention. */
+  if(currentReport === 'customer') await runReportCustomer();
+  else if(currentReport === 'supplier_statement') await runReportSupplierStatement();
+  else if(currentReport === 'aging') await runReportAging();
+  else if(currentReport === 'grni_aging') await runReportGRNIAging();
+  else if(currentReport === 'stock_valuation') await runReportStockValuation();
+  /* data_builder doesn't use runCurrentReport — engine handles its own buttons */
+
+  /* Unlock post-Run buttons (Built-in toolbar only) */
+  biSetPostRunButtons(true);
+}
+
+/* Toggle the Refresh / Export / Print buttons in the Built-in toolbar.
+   Called from runCurrentReport after a successful run. */
+function biSetPostRunButtons(enabled){
+  ['bi-btn-refresh','bi-btn-export','bi-btn-print'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.disabled = !enabled;
+  });
+}
+
+/* Universal CSV export for Built-in reports.
+   Strategy: scrape the rendered table from the active section. Works for any
+   Built-in that renders an HTML table — Customer Statement, Supplier Statement,
+   AR Aging, GRNI Aging. Stock Valuation has its own export function (already
+   wired through its own Export button inside the section), so we delegate to
+   it when active. */
+function exportCurrentReportCSV(){
+  const ar = currentLang === 'ar';
+  /* Stock Valuation has a richer export (per-item columns including computed
+     fields like days_of_stock) — call its dedicated function. */
+  if(currentReport === 'stock_valuation' && typeof exportValuationCSV === 'function'){
+    return exportValuationCSV();
+  }
+
+  /* Generic table-scrape for other built-ins */
+  const section = document.getElementById('report-' + currentReport);
+  if(!section){ notify(ar?'لا يوجد تقرير نشط':'No active report','error'); return; }
+  const table = section.querySelector('table');
+  if(!table){
+    notify(ar?'اضغط «عرض» أولاً':'Click Generate first','error');
+    return;
+  }
+
+  /* Convert HTML table → CSV. Headers from <thead th>, body from <tbody tr td>. */
+  const csvEsc = (s) => {
+    const str = String(s||'').replace(/"/g,'""').trim();
+    return '"' + str + '"';
+  };
+  const rows = [];
+  const headerCells = table.querySelectorAll('thead th');
+  rows.push(Array.from(headerCells).map(th => csvEsc(th.textContent)).join(','));
+  table.querySelectorAll('tbody tr').forEach(tr => {
+    const cells = tr.querySelectorAll('td');
+    rows.push(Array.from(cells).map(td => csvEsc(td.textContent)).join(','));
+  });
+
+  const csv = rows.join('\n');
+  const blob = new Blob(['\uFEFF' + csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = currentReport + '-' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+  notify(ar?'📥 تم تصدير الملف':'📥 CSV exported', 'success');
 }
 
 /* ═══════════════════════════════════════════════════════
