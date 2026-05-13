@@ -268,6 +268,25 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .aging-60{color:var(--red);font-weight:700;}
 .aging-90{color:#991b1b;font-weight:800;}
 
+/* Stats row (used by Stock Valuation and other dashboard-style reports) */
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
+@media (max-width:760px){.stats-row{grid-template-columns:repeat(2,1fr);}}
+.stat-card{background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px;}
+.stat-card .label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px;}
+.stat-card .value{font-family:'DM Mono',monospace;font-size:20px;font-weight:700;color:var(--ink);line-height:1.1;}
+.stat-card .sub{font-size:11px;color:var(--muted);margin-top:2px;}
+.stat-card.amber{border-color:#fde68a;background:#fffbeb;}
+.stat-card.amber .value{color:var(--amber);}
+.stat-card.red{border-color:#fca5a5;background:#fef2f2;}
+.stat-card.red .value{color:var(--red);}
+.stat-card.green{border-color:#86efac;background:#f0fdf4;}
+.stat-card.green .value{color:var(--green);}
+
+/* Valuation filter pills */
+.val-filter-pill .count-badge{display:inline-block;background:var(--tint);color:var(--muted);padding:1px 7px;border-radius:8px;font-size:11px;font-weight:700;font-family:'DM Mono',monospace;margin-inline-start:4px;}
+.val-filter-pill.active{background:var(--blue);color:#fff;border-color:var(--blue);}
+.val-filter-pill.active .count-badge{background:rgba(255,255,255,0.25);color:#fff;}
+
 /* Balance sheet two-column layout (kept for future use, harmless if unused) */
 .bs-grid{display:grid;grid-template-columns:1fr 1fr;gap:24px;}
 @media (max-width:768px){.bs-grid{grid-template-columns:1fr;}}
@@ -574,6 +593,10 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         <span class="icon">📥</span>
         <span data-ar="أعمار البضاعة المستلمة" data-en="GRNI Aging">أعمار البضاعة المستلمة</span>
       </button>
+      <button class="sidebar-link" onclick="showReport('stock_valuation', this)">
+        <span class="icon">💎</span>
+        <span data-ar="تقييم المخزون" data-en="Stock Valuation">تقييم المخزون</span>
+      </button>
     </div>
   </aside>
 
@@ -786,6 +809,95 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           <div class="report-empty" data-ar="اضغط «عرض» لتوليد التقرير" data-en="Click 'Run' to generate the report">اضغط «عرض» لتوليد التقرير</div>
         </div>
       </section>
+
+      <!-- Stock Valuation — moved from inventory.html. Fixed-template Built-in report.
+           4 KPI stat cards + 6 filter pills + 4 breakdown cards + detailed per-item table.
+           Uses real FIFO costing via inventory_batches. Slow-moving/dead thresholds come
+           from business settings. -->
+      <section class="report-section" id="report-stock_valuation" style="display:none;">
+        <div class="stats-row">
+          <div class="stat-card green">
+            <div class="label" data-ar="القيمة الإجمالية للمخزون" data-en="Total Stock Value">القيمة الإجمالية للمخزون</div>
+            <div class="value" id="stat-val-total">SAR 0</div>
+            <div class="sub" id="stat-val-method" data-ar="حسب طريقة التقييم" data-en="per costing method">حسب طريقة التقييم</div>
+          </div>
+          <div class="stat-card">
+            <div class="label" data-ar="عدد الأصناف بمخزون" data-en="Items in Stock">عدد الأصناف بمخزون</div>
+            <div class="value" id="stat-val-items">0</div>
+          </div>
+          <div class="stat-card amber">
+            <div class="label" data-ar="متحرك ببطء" data-en="Slow-moving">متحرك ببطء</div>
+            <div class="value" id="stat-val-slow">0</div>
+            <div class="sub" id="stat-val-slow-sub">—</div>
+          </div>
+          <div class="stat-card red">
+            <div class="label" data-ar="راكد" data-en="Dead stock">راكد</div>
+            <div class="value" id="stat-val-dead">0</div>
+            <div class="sub" id="stat-val-dead-sub">—</div>
+          </div>
+        </div>
+
+        <!-- Filter pills + thresholds info -->
+        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
+          <div style="display:flex;gap:6px;flex-wrap:wrap;" id="val-filter-pills">
+            <button class="btn btn-secondary btn-sm val-filter-pill active" data-filter="all" onclick="setValuationFilter('all')">
+              <span data-ar="الكل" data-en="All">الكل</span>
+              <span class="count-badge" id="val-count-all">0</span>
+            </button>
+            <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="active" onclick="setValuationFilter('active')">
+              <span data-ar="نشطة" data-en="Active">نشطة</span>
+              <span class="count-badge" id="val-count-active">0</span>
+            </button>
+            <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="slow" onclick="setValuationFilter('slow')">
+              ⏳ <span data-ar="متحرك ببطء" data-en="Slow-moving">متحرك ببطء</span>
+              <span class="count-badge" id="val-count-slow">0</span>
+            </button>
+            <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="dead" onclick="setValuationFilter('dead')">
+              💀 <span data-ar="راكد" data-en="Dead">راكد</span>
+              <span class="count-badge" id="val-count-dead">0</span>
+            </button>
+            <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="overstock" onclick="setValuationFilter('overstock')">
+              📦 <span data-ar="فائض" data-en="Overstock">فائض</span>
+              <span class="count-badge" id="val-count-overstock">0</span>
+            </button>
+            <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="reorder" onclick="setValuationFilter('reorder')">
+              ⚠️ <span data-ar="إعادة طلب" data-en="Reorder">إعادة طلب</span>
+              <span class="count-badge" id="val-count-reorder">0</span>
+            </button>
+          </div>
+          <div style="display:flex;gap:6px;align-items:center;">
+            <a class="btn btn-ghost btn-sm" href="settings.html#inventory-analytics" title="Adjust thresholds">⚙️</a>
+            <button class="btn btn-secondary btn-sm" onclick="exportValuationCSV()">📥 <span data-ar="تصدير" data-en="Export">تصدير</span></button>
+          </div>
+        </div>
+
+        <!-- Four breakdown cards: by location, by category, batch aging, top items -->
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;" id="val-grid">
+          <div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;">
+            <h3 style="margin:0 0 10px;font-size:14px;font-weight:700;color:var(--navy);" data-ar="القيمة حسب الموقع" data-en="Value by Location">القيمة حسب الموقع</h3>
+            <div id="val-by-location">—</div>
+          </div>
+          <div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;">
+            <h3 style="margin:0 0 10px;font-size:14px;font-weight:700;color:var(--navy);" data-ar="القيمة حسب الفئة" data-en="Value by Category">القيمة حسب الفئة</h3>
+            <div id="val-by-category">—</div>
+          </div>
+          <div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;">
+            <h3 style="margin:0 0 10px;font-size:14px;font-weight:700;color:var(--navy);" data-ar="أعمار الدفعات" data-en="Batch Aging">أعمار الدفعات</h3>
+            <div id="val-batch-aging">—</div>
+          </div>
+          <div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;">
+            <h3 style="margin:0 0 10px;font-size:14px;font-weight:700;color:var(--navy);" data-ar="أعلى 10 أصناف بالقيمة" data-en="Top 10 Items by Value">أعلى 10 أصناف بالقيمة</h3>
+            <div id="val-top-items">—</div>
+          </div>
+        </div>
+
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
+          <div style="font-size:13px;color:var(--muted);" id="val-table-caption" data-ar="تقرير تفصيلي لكل صنف" data-en="Detailed per-item valuation">تقرير تفصيلي لكل صنف</div>
+        </div>
+        <div class="table-wrap" id="valuation-table-wrap">
+          <div class="report-empty" data-ar="اضغط «عرض» لتوليد التقرير" data-en="Click 'Run' to generate the report">اضغط «عرض» لتوليد التقرير</div>
+        </div>
+      </section>
     </div>
   </main>
 </div>
@@ -969,7 +1081,8 @@ const REPORT_TITLES = {
   data_builder:      {icon: '📊', ar: 'منشئ التقارير',                       en: 'Data Builder',       sub_ar: 'اختر مصدر بيانات وخصّص الخانات والفلترة',                              sub_en: 'Pick a data source and customize columns, filters, and sort'},
   customer:          {icon: '👤', ar: 'كشف حساب عميل',                     en: 'Customer Statement', sub_ar: 'حركة المعاملات والرصيد لعميل محدد خلال الفترة',                    sub_en: 'Transaction activity and balance for a specific customer over the period'},
   aging:             {icon: '⏳', ar: 'أعمار الذمم المدينة',                en: 'AR Aging',           sub_ar: 'الفواتير غير المسددة مجمّعة بحسب عمر التأخر',                       sub_en: 'Unpaid invoices grouped by how overdue they are'},
-  grni_aging:        {icon: '📥', ar: 'أعمار البضاعة المستلمة لم تُفوتر',    en: 'GRNI Aging',         sub_ar: 'الاستلامات الائتمانية التي لم تتحول بعد إلى فاتورة موردين',         sub_en: 'Credit receipts not yet converted to supplier bills'}
+  grni_aging:        {icon: '📥', ar: 'أعمار البضاعة المستلمة لم تُفوتر',    en: 'GRNI Aging',         sub_ar: 'الاستلامات الائتمانية التي لم تتحول بعد إلى فاتورة موردين',         sub_en: 'Credit receipts not yet converted to supplier bills'},
+  stock_valuation:   {icon: '💎', ar: 'تقييم المخزون',                       en: 'Stock Valuation',    sub_ar: 'القيمة الحالية للمخزون مع تحليل الأصناف الراكدة والمتحركة ببطء',     sub_en: 'Current inventory value with slow-moving and dead-stock analysis'}
 };
 
 /* ═══════════════════════════════════════════════════════
@@ -1120,17 +1233,20 @@ function showReport(name, btn, preset){
   }
 
   /* Top toolbar config:
-     • data_builder: hide the global date toolbar — the engine has its own controls
+     • data_builder: hide the global date toolbar — engine has its own controls
      • aging / grni_aging: as-of date picker
      • customer: range + customer picker
+     • stock_valuation: no date inputs needed (snapshot of current state); Run button still shown
      • otherwise: range only */
   const isDataBuilder = (name === 'data_builder');
   const isAsOf = (name === 'aging' || name === 'grni_aging');
   const isCustomer = (name === 'customer');
-  document.getElementById('rt-daterange').style.display = (isDataBuilder || isAsOf) ? 'none' : '';
+  const isStockValuation = (name === 'stock_valuation');
+  /* Hide all toolbar input groups for stock_valuation since it has no date scope */
+  document.getElementById('rt-daterange').style.display = (isDataBuilder || isAsOf || isStockValuation) ? 'none' : '';
   document.getElementById('rt-asof').style.display = isAsOf ? '' : 'none';
   document.getElementById('rt-customer').style.display = isCustomer ? '' : 'none';
-  document.getElementById('rt-presets').style.display = isDataBuilder ? 'none' : '';
+  document.getElementById('rt-presets').style.display = (isDataBuilder || isStockValuation) ? 'none' : '';
   /* Hide the entire global toolbar-right (Run + Print) for the Data Builder —
      the engine has its own toolbar with its own Generate and Print buttons. */
   const globalToolbarRight = document.querySelector('.report-toolbar-right');
@@ -1417,6 +1533,508 @@ async function runReportAging(){
   html += '</tbody></table>';
 
   content.innerHTML = html;
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   REPORT: STOCK VALUATION (moved from inventory.html Round 4o)
+
+   Fixed-template Built-in report. Computes per-item:
+     • Real FIFO value via inventory_batches (sum of qty_remaining × unit_cost)
+     • Last sold date + 30-day consumption rate from inventory_movements
+     • Days-of-stock projection
+     • Slow / dead / overstock / reorder classification using business thresholds
+
+   Render: 4 KPI cards + 6 filter pills + 4 breakdown cards + per-item table.
+═══════════════════════════════════════════════════════════════════════════ */
+
+/* Local helpers — lifted from inventory.html. Kept self-contained so the
+   Stock Valuation block can be moved/copied without external deps. */
+const _valSetText = (id, val) => { const e = document.getElementById(id); if(e) e.textContent = val ?? ''; };
+const _valFmt = n => Number(n||0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+function _valGetNameAr(obj){ return obj?.name_ar || obj?.name || ''; }
+function _valGetNameEn(obj){ return obj?.name_en || ''; }
+function _valDisplayName(obj){
+  if(currentLang === 'ar') return _valGetNameAr(obj) || _valGetNameEn(obj) || '—';
+  return _valGetNameEn(obj) || _valGetNameAr(obj) || '—';
+}
+
+/* Cached data for the report. Re-fetched on each Generate. */
+let _valBatches = [];           /* live batches with location info */
+let _valLastSold = {};          /* itemId → { last_out_date, qty_last30 } */
+let _valFilter = 'all';         /* current filter pill */
+let _valItems = [];             /* enriched items with all computed fields */
+let _valAllItems = [];          /* raw items list — fetched at Generate time */
+let _valAllLocations = [];      /* locations list — fetched at Generate time */
+
+function setValuationFilter(f){
+  _valFilter = f;
+  document.querySelectorAll('.val-filter-pill').forEach(el => {
+    el.classList.toggle('active', el.dataset.filter === f);
+  });
+  renderValuationTable();
+}
+
+async function loadValuationData(){
+  if(!currentBiz?.id) return;
+  /* 1. All active items (the universe to enrich) */
+  const {data: items} = await sb.from('inventory_items')
+    .select('*')
+    .eq('business_id', currentBiz.id)
+    .eq('is_active', true);
+  _valAllItems = items || [];
+
+  /* 2. Locations (for the by-location breakdown card) */
+  const {data: locs} = await sb.from('locations')
+    .select('id, name, name_ar, is_default')
+    .eq('business_id', currentBiz.id);
+  _valAllLocations = locs || [];
+
+  /* 3. Live batches with FIFO cost */
+  const {data: batches} = await sb.from('inventory_batches')
+    .select('id, item_id, location_id, qty_remaining, unit_cost, received_date')
+    .eq('business_id', currentBiz.id)
+    .eq('is_depleted', false)
+    .gt('qty_remaining', 0);
+  _valBatches = batches || [];
+
+  /* 4. Last-out movements per item + last 30 days consumption */
+  const since30 = new Date(Date.now() - 30*24*60*60*1000).toISOString().slice(0,10);
+  const {data: lastOuts} = await sb.from('inventory_movements')
+    .select('item_id, quantity, movement_date')
+    .eq('business_id', currentBiz.id)
+    .in('movement_type', ['out','transfer_out'])
+    .order('movement_date', {ascending: false})
+    .limit(5000);
+
+  _valLastSold = {};
+  for(const m of (lastOuts||[])){
+    if(!_valLastSold[m.item_id]) _valLastSold[m.item_id] = { last_out_date: null, qty_last30: 0 };
+    if(!_valLastSold[m.item_id].last_out_date || m.movement_date > _valLastSold[m.item_id].last_out_date){
+      _valLastSold[m.item_id].last_out_date = m.movement_date;
+    }
+    if(m.movement_date >= since30){
+      _valLastSold[m.item_id].qty_last30 += parseFloat(m.quantity)||0;
+    }
+  }
+}
+
+async function runReportStockValuation(){
+  const ar = currentLang === 'ar';
+  const wrap = document.getElementById('valuation-table-wrap');
+  if(wrap) wrap.innerHTML = '<div class="report-loading">' + (ar?'جارٍ التحميل...':'Loading...') + '</div>';
+
+  try {
+    await loadValuationData();
+  } catch(err){
+    console.error('[GL] Valuation load failed', err);
+    if(wrap) wrap.innerHTML = '<div class="report-error">' + escHTML(err.message || 'Error') + '</div>';
+    return;
+  }
+
+  /* Thresholds from business config — fall back to sensible defaults */
+  const slowDays = parseInt(currentBiz?.slow_moving_days)  || 60;
+  const deadDays = parseInt(currentBiz?.dead_stock_days)   || 90;
+  const overstockDays = parseInt(currentBiz?.overstock_days) || 180;
+  const reorderDays = parseInt(currentBiz?.reorder_urgency_days) || 7;
+  const today = new Date(); today.setHours(0,0,0,0);
+
+  /* Build per-item enriched record */
+  _valItems = _valAllItems.map(it => {
+    const itemBatches = _valBatches.filter(b => b.item_id === it.id);
+    const qty = itemBatches.reduce((s,b) => s + parseFloat(b.qty_remaining||0), 0);
+    const value = itemBatches.reduce((s,b) => s + parseFloat(b.qty_remaining||0) * parseFloat(b.unit_cost||0), 0);
+    const avgCost = qty > 0 ? value/qty : parseFloat(it.cost_price)||0;
+
+    const ls = _valLastSold[it.id] || {};
+    const daysSinceSold = ls.last_out_date
+      ? Math.floor((today - new Date(ls.last_out_date)) / (24*60*60*1000))
+      : 99999;
+    const qtyLast30 = parseFloat(ls.qty_last30)||0;
+    const dailyConsumption = qtyLast30 / 30;
+    const daysOfStock = dailyConsumption > 0 ? qty/dailyConsumption : (qty > 0 ? 99999 : 0);
+
+    let status;
+    if(qty <= 0) status = 'empty';
+    else if(daysSinceSold >= deadDays) status = 'dead';
+    else if(daysSinceSold >= slowDays) status = 'slow';
+    else status = 'active';
+
+    const isOverstock = daysOfStock > overstockDays && qty > 0;
+    const needsReorder = daysOfStock < reorderDays && dailyConsumption > 0;
+
+    return {
+      ...it,
+      _qty: qty, _avgCost: avgCost, _value: value,
+      _batchCount: itemBatches.length,
+      _daysSinceSold: daysSinceSold,
+      _qtyLast30: qtyLast30,
+      _dailyConsumption: dailyConsumption,
+      _daysOfStock: daysOfStock,
+      _status: status,
+      _isOverstock: isOverstock,
+      _needsReorder: needsReorder
+    };
+  });
+
+  /* Stats */
+  let totalValue = 0;
+  let itemsWithStock = 0;
+  for(const it of _valItems){
+    if(it._qty > 0){
+      itemsWithStock++;
+      totalValue += it._value;
+    }
+  }
+  const countAll = _valItems.filter(x => x._qty > 0).length;
+  const countActive = _valItems.filter(x => x._status === 'active').length;
+  const countSlow = _valItems.filter(x => x._status === 'slow').length;
+  const countDead = _valItems.filter(x => x._status === 'dead').length;
+  const countOverstock = _valItems.filter(x => x._isOverstock).length;
+  const countReorder = _valItems.filter(x => x._needsReorder).length;
+  const valueSlow = _valItems.filter(x => x._status === 'slow').reduce((s,x) => s + x._value, 0);
+  const valueDead = _valItems.filter(x => x._status === 'dead').reduce((s,x) => s + x._value, 0);
+
+  _valSetText('stat-val-total', 'SAR ' + _valFmt(totalValue));
+  _valSetText('stat-val-method', (currentLang==='ar'?'بطريقة ':'using ') + ((currentBiz?.costing_method||'wac') === 'fifo' ? 'FIFO' : 'WAC'));
+  _valSetText('stat-val-items', itemsWithStock);
+  _valSetText('stat-val-slow', countSlow);
+  _valSetText('stat-val-slow-sub', valueSlow > 0 ? ('SAR ' + _valFmt(valueSlow)) : '—');
+  _valSetText('stat-val-dead', countDead);
+  _valSetText('stat-val-dead-sub', valueDead > 0 ? ('SAR ' + _valFmt(valueDead)) : '—');
+
+  _valSetText('val-count-all', countAll);
+  _valSetText('val-count-active', countActive);
+  _valSetText('val-count-slow', countSlow);
+  _valSetText('val-count-dead', countDead);
+  _valSetText('val-count-overstock', countOverstock);
+  _valSetText('val-count-reorder', countReorder);
+
+  renderValuationByLocation(totalValue);
+  renderValuationByCategory(totalValue);
+  renderValuationBatchAging();
+  renderValuationTop10();
+  renderValuationTable();
+}
+
+function renderValuationByLocation(totalValue){
+  const ar = currentLang === 'ar';
+  const wrap = document.getElementById('val-by-location');
+  if(!wrap) return;
+  const byLoc = {};
+  for(const b of _valBatches){
+    const v = parseFloat(b.qty_remaining||0) * parseFloat(b.unit_cost||0);
+    byLoc[b.location_id||'__none__'] = (byLoc[b.location_id||'__none__']||0) + v;
+  }
+  const entries = Object.entries(byLoc).sort((a,b) => b[1]-a[1]);
+  if(entries.length === 0){
+    wrap.innerHTML = `<div style="color:var(--muted);text-align:center;padding:20px;">${ar?'لا توجد بيانات':'No data'}</div>`;
+    return;
+  }
+  wrap.innerHTML = entries.map(([locId, val]) => {
+    const loc = (_valAllLocations||[]).find(l => l.id === locId);
+    const name = loc ? (loc.name_ar || loc.name || '—') : (ar?'بدون موقع':'No location');
+    const pct = totalValue > 0 ? (val/totalValue*100) : 0;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+      <div style="flex:1;min-width:0;">
+        <div>📍 ${escHTML(name)}${loc?.is_default?' ⭐':''}</div>
+        <div style="background:var(--tint);height:4px;border-radius:2px;margin-top:3px;overflow:hidden;">
+          <div style="background:var(--blue);height:100%;width:${pct.toFixed(1)}%;"></div>
+        </div>
+      </div>
+      <div style="text-align:end;margin-inline-start:10px;font-family:'DM Mono',monospace;font-size:12px;">
+        <div style="font-weight:700;">SAR ${_valFmt(val)}</div>
+        <div style="color:var(--muted);font-size:10px;">${pct.toFixed(1)}%</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderValuationByCategory(totalValue){
+  const ar = currentLang === 'ar';
+  const wrap = document.getElementById('val-by-category');
+  if(!wrap) return;
+  const byCat = {};
+  for(const it of _valItems){
+    if(it._qty <= 0) continue;
+    const cat = it.category || 'uncategorized';
+    byCat[cat] = (byCat[cat]||0) + it._value;
+  }
+  const entries = Object.entries(byCat).sort((a,b) => b[1]-a[1]);
+  if(entries.length === 0){
+    wrap.innerHTML = `<div style="color:var(--muted);text-align:center;padding:20px;">${ar?'لا توجد بيانات':'No data'}</div>`;
+    return;
+  }
+  wrap.innerHTML = entries.map(([cat, val]) => {
+    const pct = totalValue > 0 ? (val/totalValue*100) : 0;
+    const label = (typeof categoryLabel === 'function' ? categoryLabel(cat) : cat);
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+      <div style="flex:1;min-width:0;">
+        <div>${escHTML(label)}</div>
+        <div style="background:var(--tint);height:4px;border-radius:2px;margin-top:3px;overflow:hidden;">
+          <div style="background:var(--blue);height:100%;width:${pct.toFixed(1)}%;"></div>
+        </div>
+      </div>
+      <div style="text-align:end;margin-inline-start:10px;font-family:'DM Mono',monospace;font-size:12px;">
+        <div style="font-weight:700;">SAR ${_valFmt(val)}</div>
+        <div style="color:var(--muted);font-size:10px;">${pct.toFixed(1)}%</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderValuationBatchAging(){
+  const ar = currentLang === 'ar';
+  const wrap = document.getElementById('val-batch-aging');
+  if(!wrap) return;
+  const today = new Date(); today.setHours(0,0,0,0);
+  const buckets = [
+    { ar:'0-30 يوم',   en:'0-30 days',   min:0,   max:30,   value:0, batches:0, color:'var(--green)' },
+    { ar:'31-60 يوم',  en:'31-60 days',  min:31,  max:60,   value:0, batches:0, color:'var(--blue)' },
+    { ar:'61-90 يوم',  en:'61-90 days',  min:61,  max:90,   value:0, batches:0, color:'var(--amber)' },
+    { ar:'91-180 يوم', en:'91-180 days', min:91,  max:180,  value:0, batches:0, color:'#d97706' },
+    { ar:'+180 يوم',   en:'180+ days',   min:181, max:99999, value:0, batches:0, color:'var(--red)' }
+  ];
+  let totalAged = 0;
+  for(const b of _valBatches){
+    if(!b.received_date) continue;
+    const age = Math.floor((today - new Date(b.received_date))/(24*60*60*1000));
+    const v = parseFloat(b.qty_remaining||0)*parseFloat(b.unit_cost||0);
+    const bucket = buckets.find(x => age >= x.min && age <= x.max);
+    if(bucket){ bucket.value += v; bucket.batches += 1; totalAged += v; }
+  }
+  if(totalAged === 0){
+    wrap.innerHTML = `<div style="color:var(--muted);text-align:center;padding:20px;">${ar?'لا توجد دفعات':'No batches'}</div>`;
+    return;
+  }
+  wrap.innerHTML = buckets.map(bk => {
+    const pct = totalAged > 0 ? (bk.value/totalAged*100) : 0;
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+      <div style="flex:1;min-width:0;">
+        <div>${ar?bk.ar:bk.en} <span style="color:var(--muted);font-size:11px;">(${bk.batches})</span></div>
+        <div style="background:var(--tint);height:4px;border-radius:2px;margin-top:3px;overflow:hidden;">
+          <div style="background:${bk.color};height:100%;width:${pct.toFixed(1)}%;"></div>
+        </div>
+      </div>
+      <div style="text-align:end;margin-inline-start:10px;font-family:'DM Mono',monospace;font-size:12px;">
+        <div style="font-weight:700;">SAR ${_valFmt(bk.value)}</div>
+        <div style="color:var(--muted);font-size:10px;">${pct.toFixed(1)}%</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+function renderValuationTop10(){
+  const ar = currentLang === 'ar';
+  const wrap = document.getElementById('val-top-items');
+  if(!wrap) return;
+  const top = _valItems.filter(x => x._qty > 0).sort((a,b) => b._value-a._value).slice(0,10);
+  if(top.length === 0){
+    wrap.innerHTML = `<div style="color:var(--muted);text-align:center;padding:20px;">${ar?'لا توجد بيانات':'No data'}</div>`;
+    return;
+  }
+  wrap.innerHTML = top.map((it, idx) => {
+    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
+      <div style="flex:1;min-width:0;">
+        <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${idx+1}. ${escHTML(_valDisplayName(it))}</div>
+        <div style="font-size:11px;color:var(--muted);">${_valFmt(it._qty)} × SAR ${_valFmt(it._avgCost)}</div>
+      </div>
+      <div style="font-family:'DM Mono',monospace;font-weight:700;font-size:12px;">SAR ${_valFmt(it._value)}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderValuationTable(){
+  const ar = currentLang === 'ar';
+  const wrap = document.getElementById('valuation-table-wrap');
+  if(!wrap) return;
+
+  /* Filter by active pill. The 'reorder' filter is special — it includes items
+     at qty=0 because those need urgent replenishment too. */
+  let list;
+  if(_valFilter === 'reorder'){
+    list = _valItems.filter(x => x._needsReorder);
+  } else {
+    list = _valItems.filter(x => x._qty > 0);
+    if(_valFilter === 'active')    list = list.filter(x => x._status === 'active');
+    else if(_valFilter === 'slow') list = list.filter(x => x._status === 'slow');
+    else if(_valFilter === 'dead') list = list.filter(x => x._status === 'dead');
+    else if(_valFilter === 'overstock') list = list.filter(x => x._isOverstock);
+  }
+  list.sort((a,b) => b._value - a._value);
+  const totalValueShown = list.reduce((s,x) => s + x._value, 0);
+
+  if(list.length === 0){
+    wrap.innerHTML = `<div class="db-empty-state">
+      <div class="db-empty-state-icon">💰</div>
+      <div class="db-empty-state-msg">${ar?'لا توجد أصناف لهذا التصنيف. جرّب فلتراً آخر.':'No items in this category. Try another filter pill above.'}</div>
+    </div>`;
+    return;
+  }
+
+  /* Bulk "Create PO" only when the Reorder filter is active */
+  const bulkActionHtml = (_valFilter === 'reorder' && list.length > 0)
+    ? `<button class="btn btn-primary btn-sm" onclick="createPOFromReorderList()" style="margin-inline-start:auto;">📋 ${ar?'إنشاء طلب شراء لهذه الأصناف':'Create PO for these items'}</button>`
+    : '';
+
+  const statusBadge = (it) => {
+    const badges = [];
+    if(it._status === 'dead') badges.push(`<span style="background:#fee2e2;color:#991b1b;font-size:10px;padding:2px 6px;border-radius:5px;font-weight:700;">💀 ${ar?'راكد':'Dead'}</span>`);
+    else if(it._status === 'slow') badges.push(`<span style="background:#fef3c7;color:#78350f;font-size:10px;padding:2px 6px;border-radius:5px;font-weight:700;">⏳ ${ar?'بطيء':'Slow'}</span>`);
+    if(it._needsReorder) badges.push(`<span style="background:#fee2e2;color:#991b1b;font-size:10px;padding:2px 6px;border-radius:5px;font-weight:700;">⚠️ ${ar?'إعادة طلب':'Reorder'}</span>`);
+    if(it._isOverstock) badges.push(`<span style="background:#e0e7ff;color:#3730a3;font-size:10px;padding:2px 6px;border-radius:5px;font-weight:700;">📦 ${ar?'فائض':'Overstock'}</span>`);
+    return badges.join(' ');
+  };
+
+  const daysOfStockDisplay = (d) => {
+    if(d <= 0 || !isFinite(d)) return '—';
+    if(d >= 9999) return '∞';
+    if(d >= 365) return Math.round(d/30) + ' ' + (ar?'شهر':'mo');
+    return Math.round(d) + ' ' + (ar?'يوم':'d');
+  };
+
+  const lastSoldDisplay = (d) => {
+    if(!d || d >= 99999) return ar?'لم يُبع':'Never';
+    if(d === 0) return ar?'اليوم':'Today';
+    return d + ' ' + (ar?'يوم':'d');
+  };
+
+  wrap.innerHTML = `
+    <div style="padding:8px 14px;color:var(--muted);font-size:12px;background:var(--tint);border:1px solid var(--border);border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <span>${list.length} ${ar?'صنف':'items'}</span>
+      <span style="font-family:'DM Mono',monospace;font-weight:700;color:var(--ink);">SAR ${_valFmt(totalValueShown)}</span>
+      ${bulkActionHtml}
+    </div>
+    <table class="r-table" style="border-radius:0 0 8px 8px;">
+      <thead>
+        <tr>
+          <th>${ar?'الصنف':'Item'}</th>
+          <th class="r-num">${ar?'الكمية':'Qty'}</th>
+          <th class="r-num">${ar?'متوسط التكلفة':'Avg Cost'}</th>
+          <th class="r-num">${ar?'القيمة':'Value'}</th>
+          <th class="r-num">${ar?'آخر بيع':'Last Sold'}</th>
+          <th class="r-num">${ar?'أيام مخزون':'Days Stock'}</th>
+          <th>${ar?'الحالة':'Status'}</th>
+        </tr>
+      </thead>
+      <tbody>
+        ${list.map(it => `<tr>
+          <td>
+            <div><strong>${escHTML(_valDisplayName(it))}</strong></div>
+            ${it.sku ? `<div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;">${escHTML(it.sku)}</div>` : ''}
+          </td>
+          <td class="r-num">${_valFmt(it._qty)}</td>
+          <td class="r-num" style="color:var(--muted);">SAR ${_valFmt(it._avgCost)}</td>
+          <td class="r-num" style="font-weight:700;">SAR ${_valFmt(it._value)}</td>
+          <td class="r-num" style="color:var(--muted);font-size:12px;">${lastSoldDisplay(it._daysSinceSold)}</td>
+          <td class="r-num" style="color:var(--muted);font-size:12px;">${daysOfStockDisplay(it._daysOfStock)}</td>
+          <td>${statusBadge(it)}</td>
+        </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+function exportValuationCSV(){
+  const ar = currentLang === 'ar';
+  if(!_valItems || _valItems.length === 0){
+    notify(ar?'اضغط «عرض» أولاً':'Click Generate first','error');
+    return;
+  }
+  const csvEsc = (s) => '"' + String(s||'').replace(/"/g,'""') + '"';
+  const lines = [[
+    'SKU','Name (AR)','Name (EN)','Category','Qty','Avg Cost (SAR)','Value (SAR)',
+    'Last Sold (days ago)','Qty Last 30 days','Daily Consumption','Days of Stock',
+    'Status','Reorder','Overstock'
+  ].join(',')];
+  for(const it of _valItems){
+    if(it._qty <= 0) continue;
+    lines.push([
+      csvEsc(it.sku || ''),
+      csvEsc(it.name_ar || ''),
+      csvEsc(it.name_en || it.name || ''),
+      csvEsc(it.category || ''),
+      it._qty,
+      it._avgCost.toFixed(4),
+      it._value.toFixed(2),
+      it._daysSinceSold >= 99999 ? 'never' : it._daysSinceSold,
+      it._qtyLast30.toFixed(2),
+      it._dailyConsumption.toFixed(2),
+      it._daysOfStock >= 9999 ? 'infinity' : it._daysOfStock.toFixed(1),
+      it._status,
+      it._needsReorder ? 'yes' : 'no',
+      it._isOverstock ? 'yes' : 'no'
+    ].join(','));
+  }
+  const csv = lines.join('\n');
+  const blob = new Blob(['\uFEFF' + csv], {type:'text/csv;charset=utf-8;'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'stock-valuation-' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+  URL.revokeObjectURL(url);
+  notify(ar?'📥 تم تصدير الملف':'📥 CSV exported', 'success');
+}
+
+/* Reorder → Create PO bridge.
+   Persists the chosen item IDs to sessionStorage and redirects to purchasing.html
+   which reads them on load and pre-populates a draft PO. */
+function createPOFromReorderList(){
+  const ar = currentLang === 'ar';
+  const reorderItems = (_valItems || []).filter(x => x._needsReorder);
+  if(reorderItems.length === 0){
+    notify(ar?'لا توجد أصناف تحتاج إعادة طلب':'No items need reorder', 'error');
+    return;
+  }
+
+  /* Group by preferred supplier */
+  const bySupplier = {};
+  for(const it of reorderItems){
+    const sup = it.preferred_supplier_id || it.supplier_id || '_no_supplier_';
+    if(!bySupplier[sup]) bySupplier[sup] = [];
+    const targetDays = Math.max(30, (parseInt(currentBiz?.overstock_days)||180) / 2);
+    const dailyCons = parseFloat(it._dailyConsumption)||0;
+    const suggestedQty = Math.max(
+      Math.ceil(dailyCons * targetDays),
+      parseFloat(it.reorder_point)||0,
+      1
+    );
+    bySupplier[sup].push({
+      item_id: it.id,
+      description: _valDisplayName(it),
+      description_ar: it.name_ar || it.name || '',
+      quantity: suggestedQty,
+      unit_price: parseFloat(it.cost_price) || 0,
+      vat_rate: 15
+    });
+  }
+
+  const supplierIds = Object.keys(bySupplier);
+  let chosenSupplier = supplierIds[0];
+  if(supplierIds.length > 1){
+    if(!confirm(ar
+      ? `هناك ${supplierIds.length} موردين مختلفين. سيتم إنشاء أمر شراء واحد للمجموعة الأكبر فقط. للأخرى أنشئها يدوياً. متابعة؟`
+      : `${supplierIds.length} different suppliers found. We'll create a PO for the largest group only — others must be created manually. Continue?`)){
+      return;
+    }
+    chosenSupplier = supplierIds.sort((a,b) => bySupplier[b].length - bySupplier[a].length)[0];
+  }
+
+  const itemsForPO = bySupplier[chosenSupplier];
+  const payload = {
+    supplier_id: chosenSupplier === '_no_supplier_' ? null : chosenSupplier,
+    items: itemsForPO,
+    source: 'reorder',
+    note: ar?'تم الإنشاء من قائمة إعادة الطلب':'Generated from reorder list'
+  };
+
+  try {
+    sessionStorage.setItem('gl_po_prefill', JSON.stringify(payload));
+  } catch(e){
+    console.error('[GL] sessionStorage failed:', e);
+    notify(ar?'فشل التخزين المؤقت':'sessionStorage failed','error');
+    return;
+  }
+  window.location.href = 'purchasing.html?tab=orders&action=new_po';
 }
 
 /* ═══════════════════════════════════════════════════════════════════════════
@@ -3075,6 +3693,9 @@ async function runCurrentReport(){
   document.getElementById('print-report-title').textContent = ar ? t.ar : t.en;
   if(currentReport === 'aging' || currentReport === 'grni_aging'){
     document.getElementById('print-period').textContent = asOfLabel(document.getElementById('rt-asofdate').value);
+  } else if(currentReport === 'stock_valuation'){
+    /* Snapshot report — period is just today */
+    document.getElementById('print-period').textContent = asOfLabel(new Date().toISOString().slice(0,10));
   } else {
     document.getElementById('print-period').textContent = periodLabel(document.getElementById('rt-from').value, document.getElementById('rt-to').value);
   }
@@ -3082,6 +3703,7 @@ async function runCurrentReport(){
   if(currentReport === 'customer') return runReportCustomer();
   if(currentReport === 'aging') return runReportAging();
   if(currentReport === 'grni_aging') return runReportGRNIAging();
+  if(currentReport === 'stock_valuation') return runReportStockValuation();
   /* data_builder doesn't use runCurrentReport — it auto-runs on source/column/filter
      changes via the engine. The global Run button is hidden when it's active. */
 }
