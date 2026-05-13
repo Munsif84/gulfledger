@@ -137,7 +137,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   padding:10px 0;
   position:sticky;
   top:90px;
-  max-height:calc(100vh - 90px - 36px);
+  height:calc(100vh - 90px - 36px);
   overflow-y:auto;
   overflow-x:hidden;
 }
@@ -154,8 +154,9 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .sidebar-link:hover{background:var(--tint);color:var(--blue);}
 .sidebar-link.active{background:var(--tint);color:var(--blue);font-weight:700;border-inline-start-color:var(--blue);}
 .sidebar-link .icon{font-size:15px;flex-shrink:0;}
-.sidebar-link .count-badge{margin-inline-start:auto;background:var(--tint);color:var(--muted);padding:1px 7px;border-radius:8px;font-size:11px;font-weight:700;font-family:'DM Mono',monospace;}
-.sidebar-link.active .count-badge{background:rgba(29,158,117,0.15);color:var(--blue);}
+/* Sidebar count badges hidden — kept in DOM so JS that updates them
+   doesn't throw on null. Page stats already show these numbers as KPI cards. */
+.sidebar-link .count-badge{display:none;}
 .tab-btn{padding:8px 18px;font-family:inherit;font-size:14px;font-weight:600;border:none;background:transparent;color:var(--muted);border-radius:10px;cursor:pointer;display:flex;align-items:center;gap:6px;transition:all .15s;white-space:nowrap;}
 .tab-btn:hover{background:var(--tint);color:var(--blue);}
 .tab-btn.active{background:var(--blue);color:#fff;}
@@ -1071,6 +1072,11 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
       <div class="stat-card green">
         <div class="label" data-ar="جرود مكتملة" data-en="Completed">جرود مكتملة</div>
         <div class="value" id="stat-st-done">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="label" data-ar="آخر جرد" data-en="Last Count">آخر جرد</div>
+        <div class="value" id="stat-st-last">—</div>
+        <div class="sub" id="stat-st-last-sub" data-ar="لم يُجرى بعد" data-en="not yet">لم يُجرى بعد</div>
       </div>
     </div>
 
@@ -2037,6 +2043,29 @@ function renderStockTakes(){
   setText('stat-st-open', allStockTakes.filter(t => t.status === 'open').length);
   setText('stat-st-done', allStockTakes.filter(t => t.status === 'completed').length);
   setText('count-stocktake', allStockTakes.length);
+
+  /* Last Count — find the most recent completed stock take (or latest of any status
+     if none completed). Show as "X days ago" or "today". Updates the 4th KPI card. */
+  const completedTakes = allStockTakes.filter(t => t.status === 'completed');
+  const ranked = (completedTakes.length ? completedTakes : allStockTakes)
+    .slice()
+    .sort((a, b) => new Date(b.created_at || 0) - new Date(a.created_at || 0));
+  if(ranked.length > 0){
+    const latest = ranked[0];
+    const days = Math.floor((Date.now() - new Date(latest.created_at).getTime()) / (1000 * 60 * 60 * 24));
+    const ar = currentLang === 'ar';
+    let valueLabel, subLabel;
+    if(days === 0)      { valueLabel = ar ? 'اليوم'        : 'Today';        subLabel = ar ? 'تم اليوم'         : 'today';        }
+    else if(days === 1) { valueLabel = ar ? 'أمس'          : 'Yesterday';    subLabel = ar ? 'منذ يوم'          : '1 day ago';    }
+    else if(days < 30)  { valueLabel = String(days);                          subLabel = ar ? 'أيام مضت'         : 'days ago';     }
+    else if(days < 365) { valueLabel = String(Math.floor(days / 30));         subLabel = ar ? 'أشهر مضت'         : 'months ago';   }
+    else                { valueLabel = String(Math.floor(days / 365));        subLabel = ar ? 'سنوات مضت'        : 'years ago';    }
+    setText('stat-st-last', valueLabel);
+    setText('stat-st-last-sub', subLabel);
+  } else {
+    setText('stat-st-last', '—');
+    /* Leave the sub as the default "not yet" markup */
+  }
 
   if(allStockTakes.length === 0){
     wrap.innerHTML = `
