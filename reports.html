@@ -186,7 +186,8 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
    with the cell rule and produced visually-misaligned columns. */
 .r-table th.r-num{text-align:end;letter-spacing:0;}
 .r-table td.r-num{text-align:end;font-family:'DM Mono',monospace;font-weight:600;}
-/* Smaller numeric variant — used for compact counts (e.g., GRNI "Receipts" column).
+/* Smaller numeric variant — used for compact count columns (small numbers that
+   benefit from a lighter visual weight than money totals).
    Same right-alignment as .r-num but smaller and lighter. Letter-spacing reset
    when applied to headers, same as .r-num. */
 .r-num-sm{text-align:end;font-size:11px;color:var(--muted);font-weight:500;font-family:'DM Mono',monospace;}
@@ -689,19 +690,11 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         <span class="icon">⏳</span>
         <span data-ar="أعمار الذمم الدائنة" data-en="AP Aging">أعمار الذمم الدائنة</span>
       </button>
-      <button class="sidebar-link" onclick="showReport('grni_aging', this)">
-        <span class="icon">📥</span>
-        <span data-ar="أعمار البضاعة المستلمة" data-en="GRNI Aging">أعمار البضاعة المستلمة</span>
-      </button>
     </div>
 
     <!-- ── INVENTORY ── -->
     <div class="sidebar-group">
       <div class="sidebar-group-label" data-ar="📦 المخزون" data-en="📦 Inventory">📦 المخزون</div>
-      <button class="sidebar-link" onclick="dbOpenSource('products', this)">
-        <span class="icon">🧱</span>
-        <span data-ar="المنتجات" data-en="Products">المنتجات</span>
-      </button>
       <button class="sidebar-link" onclick="dbOpenSource('stock_movements', this)">
         <span class="icon">🔄</span>
         <span data-ar="حركة المخزون" data-en="Stock Movements">حركة المخزون</span>
@@ -1008,14 +1001,6 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         </div>
       </section>
 
-      <!-- GRNI Aging -->
-      <section class="report-section" id="report-grni_aging" style="display:none;">
-        <div class="report-period" id="report-grni_aging-period" style="font-size:12px;color:var(--muted);margin-bottom:14px;font-weight:600;">—</div>
-        <div class="report-content" id="report-grni_aging-content">
-          <div class="report-empty" data-ar="اضغط «عرض» لتوليد التقرير" data-en="Click 'Run' to generate the report">اضغط «عرض» لتوليد التقرير</div>
-        </div>
-      </section>
-
       <!-- Stock Valuation — moved from inventory.html. Fixed-template Built-in report.
            4 KPI stat cards + 6 filter pills + 4 breakdown cards + detailed per-item table.
            Uses real FIFO costing via inventory_batches. Slow-moving/dead thresholds come
@@ -1278,7 +1263,7 @@ async function loadCurrentBusiness(sb, user){
 /* ═══════════════════════════════════════════════════════
    STATE
 ═══════════════════════════════════════════════════════ */
-let currentReport = 'data_builder';  // 'data_builder' | 'customer' | 'aging' | 'grni_aging'
+let currentReport = 'data_builder';  // 'data_builder' | 'customer' | 'supplier_statement' | 'aging' | 'ap_aging' | 'stock_valuation'
 let allCustomers = [];     // for customer statement dropdown
 let allSuppliers = [];     // for supplier statement dropdown (Phase B)
 
@@ -1313,7 +1298,6 @@ const REPORT_TITLES = {
   supplier_statement:{icon: '🧾', ar: 'كشف حساب مورد',                     en: 'Supplier Statement', sub_ar: 'حركة الفواتير والرصيد لمورد محدد خلال الفترة',                       sub_en: 'Bill activity and balance for a specific supplier over the period'},
   aging:             {icon: '⏳', ar: 'أعمار الذمم المدينة',                en: 'AR Aging',           sub_ar: 'الفواتير غير المسددة مجمّعة بحسب عمر التأخر',                       sub_en: 'Unpaid invoices grouped by how overdue they are'},
   ap_aging:          {icon: '⏳', ar: 'أعمار الذمم الدائنة',                en: 'AP Aging',           sub_ar: 'فواتير الموردين غير المسددة مجمّعة بحسب عمر التأخر',                  sub_en: 'Unpaid supplier bills grouped by how overdue they are'},
-  grni_aging:        {icon: '📥', ar: 'أعمار البضاعة المستلمة لم تُفوتر',    en: 'GRNI Aging',         sub_ar: 'الاستلامات الائتمانية التي لم تتحول بعد إلى فاتورة موردين',         sub_en: 'Credit receipts not yet converted to supplier bills'},
   stock_valuation:   {icon: '💎', ar: 'تقييم المخزون',                       en: 'Stock Valuation',    sub_ar: 'القيمة الحالية للمخزون مع تحليل الأصناف الراكدة والمتحركة ببطء',     sub_en: 'Current inventory value with slow-moving and dead-stock analysis'}
 };
 
@@ -1416,7 +1400,7 @@ function applyPreset(preset){
     to = `${y}-${String(m+1).padStart(2,'0')}-${String(today.getDate()).padStart(2,'0')}`;
   }
 
-  if(currentReport === 'aging' || currentReport === 'grni_aging'){
+  if(currentReport === 'aging' || currentReport === 'ap_aging'){
     document.getElementById('rt-asofdate').value = to;
   } else {
     document.getElementById('rt-from').value = from;
@@ -1438,8 +1422,9 @@ function setDefaultDates(){
 /* ═══════════════════════════════════════════════════════
    REPORT SWITCHING
 
-   For built-in reports (customer, aging, grni_aging), shows the relevant
-   section and configures the top toolbar (date range vs as-of vs customer).
+   For built-in reports (customer, supplier_statement, aging, ap_aging,
+   stock_valuation), shows the relevant section and configures the top toolbar
+   (date range vs as-of vs customer/supplier picker).
    For 'data_builder', shows the data-builder section; the engine takes over.
 ═══════════════════════════════════════════════════════ */
 function showReport(name, btn, preset){
@@ -1493,7 +1478,7 @@ function showReport(name, btn, preset){
      Data Builder mode delegates: dbOpenSource will overwrite this configuration
      based on the active source's `dateColumn` field. */
   const isDataBuilder = (name === 'data_builder');
-  const isAsOf = (name === 'aging' || name === 'grni_aging' || name === 'ap_aging');
+  const isAsOf = (name === 'aging' || name === 'ap_aging');
   const isCustomer = (name === 'customer');
   const isSupplierStatement = (name === 'supplier_statement');
   const isStockValuation = (name === 'stock_valuation');
@@ -2819,32 +2804,9 @@ const DATA_SOURCES = {
     ]
   },
 
-  /* ────────────────────────────────────────────────────────────────────────
-     PRODUCTS — analytical list of inventory items. Attribute columns + the
-     two transaction-derived fields (current_qty, current value). Not date-
-     scoped because Products are master data, not transactions. */
-  products: {
-    icon: '🧱',
-    label_ar: 'المنتجات', label_en: 'Products',
-    table: 'inventory_items',
-    select: '*',
-    activeFilter: { column: 'is_active', value: true },
-    orderBy: { column: 'name_ar', ascending: true },
-    columns: [
-      { key: 'name_ar',         type: 'text',   label_ar: 'الاسم بالعربية',    label_en: 'Name (Arabic)',  defaultShow: true },
-      { key: 'name_en',         type: 'text',   label_ar: 'الاسم بالإنجليزية', label_en: 'Name (English)', defaultShow: false },
-      { key: 'sku',             type: 'text',   label_ar: 'الرمز SKU',         label_en: 'SKU',            defaultShow: true },
-      { key: 'barcode',         type: 'text',   label_ar: 'الباركود',          label_en: 'Barcode',        defaultShow: false },
-      { key: 'category',        type: 'text',   label_ar: 'الفئة',             label_en: 'Category',       defaultShow: true },
-      { key: 'unit',            type: 'text',   label_ar: 'الوحدة',            label_en: 'Unit',           defaultShow: false },
-      { key: 'cost_price',      type: 'money',  label_ar: 'سعر التكلفة',       label_en: 'Cost Price',     defaultShow: true },
-      { key: 'sale_price',      type: 'money',  label_ar: 'سعر البيع',         label_en: 'Sale Price',     defaultShow: true },
-      { key: 'current_qty',     type: 'number', label_ar: 'الكمية الحالية',    label_en: 'Current Qty',    defaultShow: true },
-      { key: 'reorder_point',   type: 'number', label_ar: 'نقطة إعادة الطلب',  label_en: 'Reorder Point',  defaultShow: false },
-      { key: 'notes',           type: 'text',   label_ar: 'ملاحظات',           label_en: 'Notes',          defaultShow: false },
-      { key: 'created_at',      type: 'datetime', label_ar: 'تاريخ الإضافة',   label_en: 'Added',          defaultShow: false }
-    ]
-  },
+  /* (Products source removed — replaced by the richer Stock Items source which
+     covers all the same attribute columns plus supplier/value/status analytics.
+     Avoids duplicate item-level entry points in the Inventory sidebar group.) */
 
   /* ────────────────────────────────────────────────────────────────────────
      BILLS — supplier bills (expenses). Date-scoped by expense_date. Money
@@ -3235,7 +3197,8 @@ const _dbState = {
   activeLayoutId: null,        /* id of the saved layout currently loaded (null = unsaved) */
   isModified: false,           /* true if current state differs from active layout */
   popoverEl: null,             /* the active popover element (single instance) */
-  popoverType: null            /* 'columns' | 'filters' | null */
+  popoverType: null,           /* 'columns' | 'filters' | null */
+  popoverAnchor: null          /* the trigger button — used to re-position on page scroll */
 };
 
 /* ─────────────────────────────────────────
@@ -3650,15 +3613,33 @@ function dbTogglePopover(type, anchorBtn){
     return;
   }
   _dbState.popoverType = type;
+  _dbState.popoverAnchor = anchorBtn;
   const pop = document.getElementById('db-popover');
   pop.innerHTML = (type === 'columns') ? dbBuildColumnsPopover() : dbBuildFiltersPopover();
   pop.style.display = '';
   _dbState.popoverEl = pop;
 
-  /* Position below-left of anchor (RTL-aware below) */
+  /* Initial positioning */
+  dbPositionPopover();
+
+  /* Click-outside-to-close + reposition on scroll/resize so the popover
+     stays anchored to its trigger button as the user scrolls the page. */
+  setTimeout(() => {
+    document.addEventListener('click', dbOnDocumentClickForPopover, { capture: true });
+  }, 0);
+  window.addEventListener('scroll', dbPositionPopover, { passive: true, capture: true });
+  window.addEventListener('resize', dbPositionPopover, { passive: true });
+}
+
+/* Compute and apply the popover's screen position based on the live anchor
+   button rect. Called at open time AND on every page scroll/resize so the
+   popover follows its trigger button visually instead of detaching from it. */
+function dbPositionPopover(){
+  const pop = document.getElementById('db-popover');
+  const anchorBtn = _dbState.popoverAnchor;
+  if(!pop || !anchorBtn || pop.style.display === 'none') return;
   const rect = anchorBtn.getBoundingClientRect();
   pop.style.top = (rect.bottom + 6) + 'px';
-  /* In LTR: align left edge with anchor. In RTL: align right edge with anchor. */
   const isRTL = document.documentElement.dir === 'rtl';
   if(isRTL){
     pop.style.right = (window.innerWidth - rect.right) + 'px';
@@ -3667,11 +3648,6 @@ function dbTogglePopover(type, anchorBtn){
     pop.style.left = rect.left + 'px';
     pop.style.right = 'auto';
   }
-
-  /* Click-outside-to-close */
-  setTimeout(() => {
-    document.addEventListener('click', dbOnDocumentClickForPopover, { capture: true });
-  }, 0);
 }
 
 function dbClosePopover(){
@@ -3679,7 +3655,10 @@ function dbClosePopover(){
   if(pop) pop.style.display = 'none';
   _dbState.popoverType = null;
   _dbState.popoverEl = null;
+  _dbState.popoverAnchor = null;
   document.removeEventListener('click', dbOnDocumentClickForPopover, { capture: true });
+  window.removeEventListener('scroll', dbPositionPopover, { capture: true });
+  window.removeEventListener('resize', dbPositionPopover);
 }
 
 function dbOnDocumentClickForPopover(ev){
@@ -3696,6 +3675,34 @@ function dbOnDocumentClickForPopover(ev){
    ───────────────────────────────────────── */
 function dbBuildColumnsPopover(){
   const ar = currentLang === 'ar';
+  return `
+    <div class="db-popover-header">
+      <div class="db-popover-title">${ar ? 'الخانات' : 'Columns'}</div>
+      <button class="db-modal-close" onclick="dbClosePopover()" aria-label="Close">×</button>
+    </div>
+    <div class="db-popover-search">
+      <input type="search" placeholder="${ar?'ابحث في الخانات...':'Search columns...'}" oninput="dbFilterColumnList(this.value)">
+    </div>
+    <div class="db-popover-body" id="db-columns-body">
+      ${dbBuildColumnsBody()}
+    </div>
+    <div class="db-popover-footer">
+      <button class="btn btn-ghost btn-sm" onclick="dbResetColumnsToDefault()">${ar?'استعادة الافتراضي':'Reset to default'}</button>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-secondary btn-sm" onclick="dbOpenSaveDialog()" title="${ar?'حفظ التخطيط الحالي':'Save this layout'}">
+          <span>💾</span>
+          <span>${ar?'حفظ التخطيط':'Save layout'}</span>
+        </button>
+        <button class="btn btn-primary btn-sm" onclick="dbClosePopover()">${ar?'تم':'Done'}</button>
+      </div>
+    </div>`;
+}
+
+/* Just the body content — the shown/available column rows. Used by both the
+   full popover build and the in-place body refresh that runs after every
+   checkbox toggle (so the scroll position is preserved across re-renders). */
+function dbBuildColumnsBody(){
+  const ar = currentLang === 'ar';
   const src = DATA_SOURCES[_dbState.source];
   if(!src) return '';
   const visibleSet = new Set(_dbState.visibleColumns);
@@ -3711,29 +3718,10 @@ function dbBuildColumnsPopover(){
     </label>`;
 
   return `
-    <div class="db-popover-header">
-      <div class="db-popover-title">${ar ? 'الخانات' : 'Columns'}</div>
-      <button class="db-modal-close" onclick="dbClosePopover()" aria-label="Close">×</button>
-    </div>
-    <div class="db-popover-search">
-      <input type="search" placeholder="${ar?'ابحث في الخانات...':'Search columns...'}" oninput="dbFilterColumnList(this.value)">
-    </div>
-    <div class="db-popover-body" id="db-columns-body">
-      <div class="db-popover-section-label">${ar ? `معروضة (${shown.length})` : `Shown (${shown.length})`}</div>
-      ${shown.map(rowFor).join('')}
-      <div class="db-popover-section-label">${ar ? `متاحة (${available.length})` : `Available (${available.length})`}</div>
-      ${available.map(rowFor).join('')}
-    </div>
-    <div class="db-popover-footer">
-      <button class="btn btn-ghost btn-sm" onclick="dbResetColumnsToDefault()">${ar?'استعادة الافتراضي':'Reset to default'}</button>
-      <div style="display:flex;gap:6px;">
-        <button class="btn btn-secondary btn-sm" onclick="dbOpenSaveDialog()" title="${ar?'حفظ التخطيط الحالي':'Save this layout'}">
-          <span>💾</span>
-          <span>${ar?'حفظ التخطيط':'Save layout'}</span>
-        </button>
-        <button class="btn btn-primary btn-sm" onclick="dbClosePopover()">${ar?'تم':'Done'}</button>
-      </div>
-    </div>`;
+    <div class="db-popover-section-label">${ar ? `معروضة (${shown.length})` : `Shown (${shown.length})`}</div>
+    ${shown.map(rowFor).join('')}
+    <div class="db-popover-section-label">${ar ? `متاحة (${available.length})` : `Available (${available.length})`}</div>
+    ${available.map(rowFor).join('')}`;
 }
 
 function dbToggleColumn(key, checked){
@@ -3748,10 +3736,13 @@ function dbToggleColumn(key, checked){
   dbUpdateModifiedIndicator();
   dbRenderTable();
   dbUpdateToolbarCounts();
-  /* Re-render popover body to reflect new shown/available sections */
-  const pop = document.getElementById('db-popover');
-  if(pop && _dbState.popoverType === 'columns'){
-    pop.innerHTML = dbBuildColumnsPopover();
+  /* Re-render only the popover body — the container element stays in place so
+     its scrollTop is preserved across the update. Replacing pop.innerHTML
+     entirely would destroy and recreate the scrolling container, snapping the
+     user back to the top after every checkbox click. */
+  if(_dbState.popoverType === 'columns'){
+    const body = document.getElementById('db-columns-body');
+    if(body) body.innerHTML = dbBuildColumnsBody();
   }
 }
 
@@ -3763,9 +3754,10 @@ function dbResetColumnsToDefault(){
   dbUpdateModifiedIndicator();
   dbRenderTable();
   dbUpdateToolbarCounts();
-  const pop = document.getElementById('db-popover');
-  if(pop && _dbState.popoverType === 'columns'){
-    pop.innerHTML = dbBuildColumnsPopover();
+  /* Body-only refresh — preserves popover scroll position. */
+  if(_dbState.popoverType === 'columns'){
+    const body = document.getElementById('db-columns-body');
+    if(body) body.innerHTML = dbBuildColumnsBody();
   }
 }
 
@@ -3784,24 +3776,29 @@ function dbFilterColumnList(query){
    ───────────────────────────────────────── */
 function dbBuildFiltersPopover(){
   const ar = currentLang === 'ar';
-  const src = DATA_SOURCES[_dbState.source];
-  if(!src) return '';
-
-  const rows = _dbState.filters.map((f, idx) => dbBuildFilterRow(f, idx, src)).join('');
-
   return `
     <div class="db-popover-header">
       <div class="db-popover-title">${ar ? 'فلترة' : 'Filter'}</div>
       <button class="db-modal-close" onclick="dbClosePopover()" aria-label="Close">×</button>
     </div>
     <div class="db-popover-body" id="db-filters-body">
-      ${rows}
-      <button class="db-filter-add" onclick="dbAddFilter()">+ ${ar?'إضافة فلتر':'Add filter'}</button>
+      ${dbBuildFiltersBody()}
     </div>
     <div class="db-popover-footer">
       <button class="btn btn-ghost btn-sm" onclick="dbClearFilters()">${ar?'مسح الكل':'Clear all'}</button>
       <button class="btn btn-primary btn-sm" onclick="dbClosePopover()">${ar?'تم':'Done'}</button>
     </div>`;
+}
+
+/* Just the body content — filter rows + add-filter button. Used by both the
+   full popover build and the in-place body refresh after mutations, so the
+   container element stays and its scrollTop is preserved. */
+function dbBuildFiltersBody(){
+  const ar = currentLang === 'ar';
+  const src = DATA_SOURCES[_dbState.source];
+  if(!src) return '';
+  const rows = _dbState.filters.map((f, idx) => dbBuildFilterRow(f, idx, src)).join('');
+  return rows + `<button class="db-filter-add" onclick="dbAddFilter()">+ ${ar?'إضافة فلتر':'Add filter'}</button>`;
 }
 
 function dbBuildFilterRow(f, idx, src){
@@ -3856,9 +3853,10 @@ function dbAddFilter(){
   _dbState.filters.push({ column: firstCol.key, op: '=', value: '' });
   _dbState.isModified = true;
   dbUpdateModifiedIndicator();
-  const pop = document.getElementById('db-popover');
-  if(pop && _dbState.popoverType === 'filters'){
-    pop.innerHTML = dbBuildFiltersPopover();
+  /* Body-only refresh preserves popover scrollTop */
+  if(_dbState.popoverType === 'filters'){
+    const body = document.getElementById('db-filters-body');
+    if(body) body.innerHTML = dbBuildFiltersBody();
   }
   dbRenderTable();
   dbUpdateToolbarCounts();
@@ -3874,10 +3872,10 @@ function dbUpdateFilter(idx, prop, value){
     _dbState.filters[idx].op = (col?.type === 'number' || col?.type === 'money') ? '=' :
                                 (col?.type === 'date' || col?.type === 'datetime') ? '>=' : 'contains';
     _dbState.filters[idx].value = '';
-    /* Re-render popover for the new operator list and value input type */
-    const pop = document.getElementById('db-popover');
-    if(pop && _dbState.popoverType === 'filters'){
-      pop.innerHTML = dbBuildFiltersPopover();
+    /* Body-only refresh — new operator list and value input type */
+    if(_dbState.popoverType === 'filters'){
+      const body = document.getElementById('db-filters-body');
+      if(body) body.innerHTML = dbBuildFiltersBody();
     }
   }
   _dbState.isModified = true;
@@ -3890,9 +3888,9 @@ function dbRemoveFilter(idx){
   _dbState.filters.splice(idx, 1);
   _dbState.isModified = true;
   dbUpdateModifiedIndicator();
-  const pop = document.getElementById('db-popover');
-  if(pop && _dbState.popoverType === 'filters'){
-    pop.innerHTML = dbBuildFiltersPopover();
+  if(_dbState.popoverType === 'filters'){
+    const body = document.getElementById('db-filters-body');
+    if(body) body.innerHTML = dbBuildFiltersBody();
   }
   dbRenderTable();
   dbUpdateToolbarCounts();
@@ -3902,9 +3900,9 @@ function dbClearFilters(){
   _dbState.filters = [];
   _dbState.isModified = true;
   dbUpdateModifiedIndicator();
-  const pop = document.getElementById('db-popover');
-  if(pop && _dbState.popoverType === 'filters'){
-    pop.innerHTML = dbBuildFiltersPopover();
+  if(_dbState.popoverType === 'filters'){
+    const body = document.getElementById('db-filters-body');
+    if(body) body.innerHTML = dbBuildFiltersBody();
   }
   dbRenderTable();
   dbUpdateToolbarCounts();
@@ -4375,12 +4373,10 @@ function dbSetupPrintState(){
     if(meta) printTitle = ar ? meta.ar : meta.en;
 
     /* Period for built-ins:
-       • aging / grni_aging / ap_aging — as-of date from the toolbar
+       • aging / ap_aging — as-of date from the toolbar
        • customer / supplier_statement — from/to range from the toolbar
-       • trial_balance / bs — point-in-time period subtitle
-       • pl / cf — range period subtitle
        • stock_valuation — printed today */
-    if(reportKey === 'aging' || reportKey === 'grni_aging' || reportKey === 'ap_aging'){
+    if(reportKey === 'aging' || reportKey === 'ap_aging'){
       const asOf = document.getElementById('rt-asofdate')?.value;
       if(asOf){
         printPeriod = (ar ? 'كما في ' : 'As of ') + asOf;
@@ -4498,139 +4494,6 @@ function loadScript(src){
   });
 }
 
-/* ═══════════════════════════════════════════════════════ */
-
-/* ═══════════════════════════════════════════════════════
-   REPORT: GRNI AGING (Round 5a phase 3)
-   Unbilled stock receipts bucketed by days-since-receipt at the as-of date.
-   Sum per supplier, with grand totals row.
-═══════════════════════════════════════════════════════ */
-async function runReportGRNIAging(){
-  const asOf = document.getElementById('rt-asofdate').value;
-  const ar = currentLang === 'ar';
-  const content = document.getElementById('report-grni_aging-content');
-  const periodEl = document.getElementById('report-grni_aging-period');
-
-  if(!asOf){
-    content.innerHTML = '<div class="report-error">' + (ar ? 'الرجاء تحديد التاريخ' : 'Please select a date') + '</div>';
-    return;
-  }
-  periodEl.textContent = asOfLabel(asOf);
-  content.innerHTML = '<div class="report-loading">' + (ar ? 'جارٍ التحميل...' : 'Loading...') + '</div>';
-
-  /* Fetch all credit stock_receipts that are not voided and have no bill_id
-     (i.e., still sitting in GRNI) AND were received on/before the as-of date.
-     Using select('*') for schema tolerance — some pilot installs may not have
-     every column (e.g., supplier_name was a legacy snapshot that's optional). */
-  const {data: receipts, error} = await sb.from('stock_receipts')
-    .select('*')
-    .eq('business_id', currentBiz.id)
-    .lte('receipt_date', asOf);
-
-  if(error){
-    content.innerHTML = '<div class="report-error">' + escHTML(error.message || 'Error') + '</div>';
-    return;
-  }
-
-  /* Filter in JS: posted, credit (not cash/bank), and no bill_id yet.
-     Doing it in JS instead of supabase chained .neq is cleaner — payment_method
-     allows NULL for legacy rows and chained .neq doesn't fold NULLs in. */
-  const unbilled = (receipts || []).filter(r =>
-    r.status === 'posted' &&
-    r.payment_method !== 'cash' &&
-    r.payment_method !== 'bank' &&
-    !r.bill_id
-  );
-
-  if(unbilled.length === 0){
-    content.innerHTML = '<div class="report-no-data"><div class="report-no-data-icon">✅</div><div class="report-no-data-msg">' +
-      (ar ? 'لا توجد بضاعة مستلمة لم تُفوتر. كل الاستلامات لها فواتير موردين.'
-          : 'No goods received without invoices. Every receipt has been billed.') +
-      '</div></div>';
-    return;
-  }
-
-  /* Resolve supplier names: prefer the receipt's supplier_name snapshot,
-     fall back to looking up suppliers table for the Arabic/English names. */
-  const supplierIds = [...new Set(unbilled.map(r => r.supplier_id).filter(Boolean))];
-  let supplierNameMap = {};
-  if(supplierIds.length){
-    const {data: suppliers} = await sb.from('suppliers')
-      .select('id, name, name_ar, name_en').in('id', supplierIds);
-    (suppliers || []).forEach(s => {
-      supplierNameMap[s.id] = ar ? (s.name_ar || s.name_en || s.name || '—')
-                                  : (s.name_en || s.name_ar || s.name || '—');
-    });
-  }
-
-  /* Bucket: per supplier × aging bucket. */
-  const asOfDate = new Date(asOf);
-  const buckets = {};   /* supplierKey → {name, current, b30, b60, b90, total, count} */
-  unbilled.forEach(r => {
-    const supKey = r.supplier_id || '__unknown__';
-    const supName = supplierNameMap[r.supplier_id] || r.supplier_name || (ar ? 'مورد غير محدد' : 'Unknown supplier');
-    const ageDays = Math.floor((asOfDate - new Date(r.receipt_date)) / (1000*60*60*24));
-    const amount = parseFloat(r.total) || 0;
-
-    if(!buckets[supKey]) buckets[supKey] = {name: supName, current:0, b30:0, b60:0, b90:0, total:0, count:0};
-    if(ageDays <= 30)      buckets[supKey].current += amount;
-    else if(ageDays <= 60) buckets[supKey].b30 += amount;
-    else if(ageDays <= 90) buckets[supKey].b60 += amount;
-    else                   buckets[supKey].b90 += amount;
-    buckets[supKey].total += amount;
-    buckets[supKey].count += 1;
-  });
-
-  /* Render */
-  let html = '<table class="r-table"><thead><tr>';
-  html += '<th>' + (ar?'المورد':'Supplier') + '</th>';
-  html += '<th class="r-num-sm">' + (ar?'استلامات':'Receipts') + '</th>';
-  html += '<th class="r-num"><span class="aging-current">' + (ar?'0-30 يوم':'0-30 days') + '</span></th>';
-  html += '<th class="r-num"><span class="aging-30">31-60 ' + (ar?'يوم':'days') + '</span></th>';
-  html += '<th class="r-num"><span class="aging-60">61-90 ' + (ar?'يوم':'days') + '</span></th>';
-  html += '<th class="r-num"><span class="aging-90">90+ ' + (ar?'يوم':'days') + '</span></th>';
-  html += '<th class="r-num">' + (ar?'الإجمالي':'Total') + '</th>';
-  html += '</tr></thead><tbody>';
-
-  /* Sort suppliers by total descending (largest unbilled balance first). */
-  const supEntries = Object.entries(buckets).sort((a,b) => b[1].total - a[1].total);
-
-  let gtCurrent = 0, gt30 = 0, gt60 = 0, gt90 = 0, gtTotal = 0, gtCount = 0;
-  supEntries.forEach(([_, b]) => {
-    if(b.total < 0.005) return;
-    gtCurrent += b.current;
-    gt30 += b.b30;
-    gt60 += b.b60;
-    gt90 += b.b90;
-    gtTotal += b.total;
-    gtCount += b.count;
-    /* Row highlight when 90+ bucket carries the bulk — these need follow-up */
-    const isStale = b.b90 > b.total * 0.5;
-    html += '<tr' + (isStale ? ' style="background:#fef9c3;"' : '') + '>';
-    html += '<td>' + escHTML(b.name) + (isStale ? ' <span style="color:var(--amber);font-size:11px;font-weight:700;" title="' + (ar?'استلامات قديمة — تحقق مع المورد':'Stale receipts — follow up') + '">⚠</span>' : '') + '</td>';
-    html += '<td class="r-num-sm">' + b.count + '</td>';
-    html += '<td class="r-num">' + (b.current > 0 ? fmtMoney(b.current) : '—') + '</td>';
-    html += '<td class="r-num">' + (b.b30 > 0 ? fmtMoney(b.b30) : '—') + '</td>';
-    html += '<td class="r-num">' + (b.b60 > 0 ? fmtMoney(b.b60) : '—') + '</td>';
-    html += '<td class="r-num">' + (b.b90 > 0 ? '<strong style="color:var(--amber);">' + fmtMoney(b.b90) + '</strong>' : '—') + '</td>';
-    html += '<td class="r-num"><strong>' + fmtMoney(b.total) + '</strong></td>';
-    html += '</tr>';
-  });
-
-  html += '<tr class="r-row-grandtotal">';
-  html += '<td>' + (ar?'الإجمالي':'Total') + '</td>';
-  html += '<td class="r-num-sm">' + gtCount + '</td>';
-  html += '<td class="r-num">' + fmtMoney(gtCurrent) + '</td>';
-  html += '<td class="r-num">' + fmtMoney(gt30) + '</td>';
-  html += '<td class="r-num">' + fmtMoney(gt60) + '</td>';
-  html += '<td class="r-num">' + fmtMoney(gt90) + '</td>';
-  html += '<td class="r-num">' + fmtSar(gtTotal) + '</td>';
-  html += '</tr>';
-  html += '</tbody></table>';
-
-  content.innerHTML = html;
-}
-
 /* ═══════════════════════════════════════════════════════
    RUNNER
 ═══════════════════════════════════════════════════════ */
@@ -4649,7 +4512,7 @@ async function runCurrentReport(){
   document.getElementById('print-biz-name').textContent = pickLang(currentBiz, 'name');
   document.getElementById('print-report-title').textContent = ar ? t.ar : t.en;
 
-  if(currentReport === 'aging' || currentReport === 'grni_aging' || currentReport === 'ap_aging'){
+  if(currentReport === 'aging' || currentReport === 'ap_aging'){
     document.getElementById('print-period').textContent = asOfLabel(document.getElementById('rt-asofdate').value);
   } else if(currentReport === 'stock_valuation'){
     document.getElementById('print-period').textContent = asOfLabel(new Date().toISOString().slice(0,10));
@@ -4664,7 +4527,6 @@ async function runCurrentReport(){
   else if(currentReport === 'supplier_statement') await runReportSupplierStatement();
   else if(currentReport === 'aging') await runReportAging();
   else if(currentReport === 'ap_aging') await runReportAPAging();
-  else if(currentReport === 'grni_aging') await runReportGRNIAging();
   else if(currentReport === 'stock_valuation') await runReportStockValuation();
 
   /* Unlock post-Run buttons */
@@ -4820,7 +4682,7 @@ async function init(){
   /* Default landing: Data Builder with the Customers data source.
      If a URL hash matches a built-in report, jump to it instead. */
   const hash = window.location.hash.replace('#', '');
-  if(['customer','aging','grni_aging'].includes(hash)){
+  if(['customer','supplier_statement','aging','ap_aging','stock_valuation'].includes(hash)){
     const btn = document.querySelector(`.sidebar-link[onclick*="'${hash}'"]`);
     showReport(hash, btn);
   } else {
