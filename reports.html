@@ -228,6 +228,11 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .db-modal-input:focus{outline:none;border-color:var(--blue);}
 .db-modal-footer{padding:12px 20px;border-top:1px solid var(--tint);display:flex;justify-content:flex-end;gap:8px;}
 
+/* Export menu — small dropdown anchored to its trigger */
+.db-export-menu{position:absolute;top:calc(100% + 4px);inset-inline-end:0;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 4px 12px rgba(0,0,0,0.1);min-width:180px;z-index:900;overflow:hidden;}
+.db-export-item{display:flex;align-items:center;gap:10px;width:100%;padding:9px 14px;border:none;background:transparent;font-family:inherit;font-size:13px;color:var(--ink);cursor:pointer;text-align:start;}
+.db-export-item:hover{background:var(--tint);color:var(--blue);}
+
 /* Data Builder column-sort indicators in headers */
 .r-table th.sortable{cursor:pointer;user-select:none;}
 .r-table th.sortable:hover{background:var(--light);}
@@ -428,10 +433,9 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         <span data-ar="المنتجات" data-en="Products">المنتجات</span>
         <span class="badge-soon" data-ar="قريباً" data-en="Soon">Soon</span>
       </button>
-      <button class="sidebar-link disabled" title="Coming next session">
+      <button class="sidebar-link" onclick="dbOpenSource('invoice_lines', this)">
         <span class="icon">🧾</span>
         <span data-ar="بنود الفواتير" data-en="Invoice Lines">بنود الفواتير</span>
-        <span class="badge-soon" data-ar="قريباً" data-en="Soon">Soon</span>
       </button>
       <button class="sidebar-link disabled" title="Coming next session">
         <span class="icon">💸</span>
@@ -562,7 +566,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
             </button>
             <button class="btn btn-secondary btn-sm db-popover-trigger" id="db-btn-filters" onclick="dbTogglePopover('filters', this)">
               <span style="font-size:14px;">⛓</span>
-              <span data-ar="عوامل التصفية" data-en="Filters">عوامل التصفية</span>
+              <span data-ar="تصفية" data-en="Filter">تصفية</span>
               <span class="db-count-badge" id="db-filters-count"></span>
             </button>
             <input type="search" class="db-search" id="db-row-search" oninput="dbApplyRowSearch()"
@@ -570,6 +574,24 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           </div>
           <div class="db-toolbar-right">
             <span class="db-layout-name" id="db-layout-name-display"></span>
+            <!-- Export menu — anchored popover with CSV + Excel options -->
+            <div style="position:relative;">
+              <button class="btn btn-secondary btn-sm" id="db-btn-export" onclick="dbToggleExportMenu(this)">
+                <span>↓</span>
+                <span data-ar="تصدير" data-en="Export">تصدير</span>
+                <span style="font-size:9px;opacity:.6;">▾</span>
+              </button>
+              <div class="db-export-menu" id="db-export-menu" style="display:none;">
+                <button class="db-export-item" onclick="dbExport('csv')">
+                  <span style="font-size:14px;">📄</span>
+                  <span data-ar="تصدير CSV" data-en="Export as CSV">تصدير CSV</span>
+                </button>
+                <button class="db-export-item" onclick="dbExport('excel')">
+                  <span style="font-size:14px;">📊</span>
+                  <span data-ar="تصدير Excel" data-en="Export as Excel">تصدير Excel</span>
+                </button>
+              </div>
+            </div>
             <button class="btn btn-secondary btn-sm" id="db-btn-save" onclick="dbOpenSaveDialog()" title="Save current layout">
               <span>💾</span>
               <span data-ar="حفظ" data-en="Save">حفظ</span>
@@ -663,6 +685,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 let currentLang = localStorage.getItem('gl_lang') || 'ar';
 let currentBiz = null;
+let currentUser = null;
 
 function setLang(lang){
   currentLang = lang;
@@ -753,6 +776,41 @@ const REPORT_TITLES = {
   aging:             {icon: '⏳', ar: 'أعمار الذمم المدينة',                en: 'AR Aging',           sub_ar: 'الفواتير غير المسددة مجمّعة بحسب عمر التأخر',                       sub_en: 'Unpaid invoices grouped by how overdue they are'},
   grni_aging:        {icon: '📥', ar: 'أعمار البضاعة المستلمة لم تُفوتر',    en: 'GRNI Aging',         sub_ar: 'الاستلامات الائتمانية التي لم تتحول بعد إلى فاتورة موردين',         sub_en: 'Credit receipts not yet converted to supplier bills'}
 };
+
+/* ═══════════════════════════════════════════════════════
+   NOTIFY — small toast for save/error feedback.
+   Self-contained: appends a div to body, auto-dismisses.
+═══════════════════════════════════════════════════════ */
+function notify(msg, type){
+  type = type || 'info';
+  const colors = {
+    success: { bg: '#dcfce7', fg: '#166534', border: '#86efac' },
+    error:   { bg: '#fee2e2', fg: '#991b1b', border: '#fca5a5' },
+    info:    { bg: '#dbeafe', fg: '#1e40af', border: '#93c5fd' }
+  };
+  const c = colors[type] || colors.info;
+  const el = document.createElement('div');
+  el.style.cssText = `position:fixed;top:80px;${document.documentElement.dir==='rtl'?'left':'right'}:24px;
+    background:${c.bg};color:${c.fg};border:1px solid ${c.border};
+    padding:12px 18px;border-radius:10px;font-size:13px;font-weight:600;
+    box-shadow:0 4px 16px rgba(0,0,0,0.12);z-index:2000;max-width:360px;
+    font-family:inherit;line-height:1.4;
+    animation:gl-notify-in .25s ease-out;`;
+  el.textContent = msg;
+  if(!document.getElementById('gl-notify-style')){
+    const style = document.createElement('style');
+    style.id = 'gl-notify-style';
+    style.textContent = '@keyframes gl-notify-in { from { opacity:0; transform:translateY(-8px); } to { opacity:1; transform:translateY(0); } }';
+    document.head.appendChild(style);
+  }
+  document.body.appendChild(el);
+  setTimeout(() => {
+    el.style.transition = 'opacity .25s, transform .25s';
+    el.style.opacity = '0';
+    el.style.transform = 'translateY(-8px)';
+    setTimeout(() => el.remove(), 280);
+  }, type === 'error' ? 4500 : 3000);
+}
 
 /* ═══════════════════════════════════════════════════════
    FORMATTERS
@@ -1224,8 +1282,133 @@ const DATA_SOURCES = {
       { key: 'notes',           type: 'text',     label_ar: 'ملاحظات',               label_en: 'Notes',               defaultShow: false },
       { key: 'created_at',      type: 'datetime', label_ar: 'تاريخ الإنشاء',         label_en: 'Created at',          defaultShow: false }
     ]
+  },
+
+  /* Invoice Lines — sales analysis source.
+     Joins invoice_items + invoices + customers + inventory_items into flat rows.
+     Each row = one line item on one invoice, with all related dimensions exposed
+     as columns. The user can sort/filter/group by any of them. */
+  invoice_lines: {
+    icon: '🧾',
+    label_ar: 'بنود الفواتير', label_en: 'Invoice Lines',
+    /* Custom fetch: handles the join. Returns flat rows. */
+    fetchOverride: async () => {
+      const ar = currentLang === 'ar';
+      /* 1. Pull all non-voided invoices for this business with header data */
+      const {data: invoices, error: invErr} = await sb.from('invoices')
+        .select('id, invoice_number, issue_date, due_date, customer_id, buyer_name, buyer_trn, status, payment_status, payment_method, total')
+        .eq('business_id', currentBiz.id)
+        .order('issue_date', { ascending: false })
+        .limit(2000);
+      if(invErr) throw invErr;
+      const valid = (invoices || []).filter(inv => {
+        const s = (inv.status || '').toLowerCase();
+        return s !== 'voided' && s !== 'cancelled' && s !== 'canceled';
+      });
+      if(valid.length === 0) return [];
+
+      /* 2. Build customer_id -> {name, tier, city} map */
+      const customerIds = [...new Set(valid.map(i => i.customer_id).filter(Boolean))];
+      const customerMap = {};
+      if(customerIds.length){
+        const {data: custs} = await sb.from('customers')
+          .select('id, name, name_ar, name_en, customer_type, city, phone')
+          .in('id', customerIds);
+        (custs || []).forEach(c => { customerMap[c.id] = c; });
+      }
+
+      /* 3. Fetch all line items for these invoices */
+      const invIds = valid.map(i => i.id);
+      const itemsAll = [];
+      /* Chunk into batches of 200 to avoid URL length limits */
+      for(let i = 0; i < invIds.length; i += 200){
+        const batch = invIds.slice(i, i + 200);
+        const {data: items, error: itemsErr} = await sb.from('invoice_items')
+          .select('invoice_id, item_id, description, description_ar, quantity, unit_price, subtotal, vat_amount, vat_pct, total')
+          .in('invoice_id', batch);
+        if(itemsErr) throw itemsErr;
+        if(items) itemsAll.push(...items);
+      }
+      if(itemsAll.length === 0) return [];
+
+      /* 4. Build inventory_item_id -> category map */
+      const itemIds = [...new Set(itemsAll.map(it => it.item_id).filter(Boolean))];
+      const itemMap = {};
+      if(itemIds.length){
+        for(let i = 0; i < itemIds.length; i += 200){
+          const batch = itemIds.slice(i, i + 200);
+          const {data: invs} = await sb.from('inventory_items')
+            .select('id, name, name_ar, category, sku')
+            .in('id', batch);
+          (invs || []).forEach(it => { itemMap[it.id] = it; });
+        }
+      }
+
+      /* 5. Build the flat rows: one per line item, with all dimensions joined */
+      const invoiceMap = {};
+      valid.forEach(i => { invoiceMap[i.id] = i; });
+      return itemsAll.map(it => {
+        const inv = invoiceMap[it.invoice_id] || {};
+        const cust = customerMap[inv.customer_id] || {};
+        const item = it.item_id ? (itemMap[it.item_id] || {}) : {};
+        const custName = cust.name_ar || cust.name || cust.name_en || inv.buyer_name || '';
+        return {
+          /* identifier so each row is unique even when same product appears twice */
+          _id: it.invoice_id + ':' + (it.item_id || it.description || Math.random()),
+          /* Invoice header columns */
+          issue_date: inv.issue_date || null,
+          due_date: inv.due_date || null,
+          invoice_number: inv.invoice_number || '',
+          invoice_status: (inv.status || '').toLowerCase(),
+          payment_status: (inv.payment_status || '').toLowerCase(),
+          payment_method: inv.payment_method || '',
+          /* Customer columns */
+          customer_name: custName,
+          customer_type: (cust.customer_type || '').toLowerCase(),
+          customer_city: cust.city || '',
+          customer_phone: cust.phone || '',
+          customer_trn: inv.buyer_trn || '',
+          /* Product columns */
+          product: item.name_ar || item.name || it.description_ar || it.description || '',
+          product_sku: item.sku || '',
+          product_category: item.category || 'uncategorized',
+          /* Quantities + money */
+          quantity: parseFloat(it.quantity) || 0,
+          unit_price: parseFloat(it.unit_price) || 0,
+          subtotal: parseFloat(it.subtotal) || 0,
+          vat_pct: parseFloat(it.vat_pct) || 0,
+          vat_amount: parseFloat(it.vat_amount) || 0,
+          total: parseFloat(it.total) || 0
+        };
+      });
+    },
+    columns: [
+      { key: 'issue_date',       type: 'date',     label_ar: 'تاريخ الفاتورة',        label_en: 'Invoice Date',        defaultShow: true },
+      { key: 'invoice_number',   type: 'text',     label_ar: 'رقم الفاتورة',          label_en: 'Invoice #',           defaultShow: true },
+      { key: 'customer_name',    type: 'text',     label_ar: 'العميل',                label_en: 'Customer',            defaultShow: true },
+      { key: 'customer_type',    type: 'enum',     label_ar: 'نوع العميل',            label_en: 'Type',                defaultShow: true,
+        enumValues: { b2b: {ar:'شركات', en:'B2B'}, b2c: {ar:'أفراد', en:'B2C'} } },
+      { key: 'customer_city',    type: 'text',     label_ar: 'المدينة',               label_en: 'City',                defaultShow: false },
+      { key: 'customer_phone',   type: 'text',     label_ar: 'هاتف العميل',           label_en: 'Customer Phone',      defaultShow: false },
+      { key: 'customer_trn',     type: 'text',     label_ar: 'الرقم الضريبي للعميل',  label_en: 'Customer TRN',        defaultShow: false },
+      { key: 'product',          type: 'text',     label_ar: 'المنتج',                label_en: 'Product',             defaultShow: true },
+      { key: 'product_sku',      type: 'text',     label_ar: 'SKU',                  label_en: 'SKU',                 defaultShow: false },
+      { key: 'product_category', type: 'text',     label_ar: 'الفئة',                 label_en: 'Category',            defaultShow: true },
+      { key: 'quantity',         type: 'number',   label_ar: 'الكمية',                label_en: 'Quantity',            defaultShow: true, total: true },
+      { key: 'unit_price',       type: 'money',    label_ar: 'سعر الوحدة',            label_en: 'Unit Price',          defaultShow: true },
+      { key: 'subtotal',         type: 'money',    label_ar: 'الصافي',                label_en: 'Subtotal',            defaultShow: true, total: true },
+      { key: 'vat_pct',          type: 'number',   label_ar: 'نسبة الضريبة %',        label_en: 'VAT %',               defaultShow: false },
+      { key: 'vat_amount',       type: 'money',    label_ar: 'مبلغ الضريبة',          label_en: 'VAT',                 defaultShow: true, total: true },
+      { key: 'total',            type: 'money',    label_ar: 'الإجمالي',              label_en: 'Total',               defaultShow: true, total: true },
+      { key: 'invoice_status',   type: 'enum',     label_ar: 'حالة الفاتورة',         label_en: 'Status',              defaultShow: false,
+        enumValues: { issued: {ar:'صادرة', en:'Issued'}, draft: {ar:'مسودة', en:'Draft'} } },
+      { key: 'payment_status',   type: 'enum',     label_ar: 'حالة السداد',           label_en: 'Payment',             defaultShow: false,
+        enumValues: { paid: {ar:'مدفوعة', en:'Paid'}, unpaid: {ar:'غير مدفوعة', en:'Unpaid'}, partial: {ar:'جزئي', en:'Partial'} } },
+      { key: 'payment_method',   type: 'text',     label_ar: 'طريقة الدفع',           label_en: 'Payment Method',      defaultShow: false },
+      { key: 'due_date',         type: 'date',     label_ar: 'تاريخ الاستحقاق',       label_en: 'Due Date',            defaultShow: false }
+    ]
   }
-  /* Add more sources here: suppliers, products, invoices, invoice_lines, bills, stock_movements, etc.
+  /* Add more sources here: suppliers, products, bills, stock_movements, etc.
      Each follows the same shape. No engine changes required. */
 };
 
@@ -1306,11 +1489,19 @@ async function dbFetchRows(){
   content.innerHTML = '<div class="report-loading">' + (currentLang === 'ar' ? 'جارٍ التحميل...' : 'Loading...') + '</div>';
 
   try {
-    let q = sb.from(src.table).select(src.select).eq('business_id', currentBiz.id);
-    if(src.orderBy) q = q.order(src.orderBy.column, { ascending: !!src.orderBy.ascending });
-    const {data, error} = await q.limit(1000);
-    if(error) throw error;
-    _dbState.rows = data || [];
+    let rows;
+    if(typeof src.fetchOverride === 'function'){
+      /* Custom fetch — used by sources that need joins (e.g., Invoice Lines) */
+      rows = await src.fetchOverride();
+    } else {
+      /* Standard fetch — flat single-table query */
+      let q = sb.from(src.table).select(src.select).eq('business_id', currentBiz.id);
+      if(src.orderBy) q = q.order(src.orderBy.column, { ascending: !!src.orderBy.ascending });
+      const {data, error} = await q.limit(1000);
+      if(error) throw error;
+      rows = data || [];
+    }
+    _dbState.rows = rows || [];
   } catch(err){
     console.error('[GL] dbFetchRows', err);
     content.innerHTML = '<div class="report-error">' + escHTML(err.message || 'Error loading data') + '</div>';
@@ -1672,7 +1863,7 @@ function dbBuildFiltersPopover(){
 
   return `
     <div class="db-popover-header">
-      <div class="db-popover-title">${ar ? 'عوامل التصفية' : 'Filters'}</div>
+      <div class="db-popover-title">${ar ? 'تصفية' : 'Filter'}</div>
       <button class="db-modal-close" onclick="dbClosePopover()" aria-label="Close">×</button>
     </div>
     <div class="db-popover-body" id="db-filters-body">
@@ -1964,6 +2155,180 @@ async function dbOpenLayout(layoutId, btn){
   dbUpdateToolbarCounts();
 }
 
+/* ─────────────────────────────────────────
+   EXPORT MENU + CSV/EXCEL EXPORTERS
+
+   Two formats:
+   • CSV — pure JS, no library, UTF-8 BOM for Arabic correctness in Excel
+   • Excel — SheetJS loaded from CDN on first use, supports Arabic + formatting
+   ───────────────────────────────────────── */
+function dbToggleExportMenu(btn){
+  const menu = document.getElementById('db-export-menu');
+  if(menu.style.display === 'none' || !menu.style.display){
+    menu.style.display = '';
+    setTimeout(() => {
+      document.addEventListener('click', dbOnExportMenuOutsideClick, { capture: true });
+    }, 0);
+  } else {
+    dbCloseExportMenu();
+  }
+}
+function dbCloseExportMenu(){
+  const menu = document.getElementById('db-export-menu');
+  if(menu) menu.style.display = 'none';
+  document.removeEventListener('click', dbOnExportMenuOutsideClick, { capture: true });
+}
+function dbOnExportMenuOutsideClick(ev){
+  if(ev.target.closest('#db-btn-export') || ev.target.closest('#db-export-menu')) return;
+  dbCloseExportMenu();
+}
+
+async function dbExport(format){
+  dbCloseExportMenu();
+  if(!_dbState.source){
+    notify(currentLang === 'ar' ? 'افتح مصدر بيانات أولاً' : 'Open a data source first', 'error');
+    return;
+  }
+  /* Ensure filteredRows is fresh */
+  dbApplyFiltersAndSearch();
+  const src = DATA_SOURCES[_dbState.source];
+  const ar = currentLang === 'ar';
+  const visibleSet = new Set(_dbState.visibleColumns);
+  const cols = src.columns.filter(c => visibleSet.has(c.key));
+  const rows = _dbState.filteredRows;
+
+  if(rows.length === 0){
+    notify(ar ? 'لا توجد بيانات للتصدير' : 'No data to export', 'error');
+    return;
+  }
+
+  /* Filename: <source>-<YYYY-MM-DD>.csv|xlsx */
+  const today = new Date().toISOString().slice(0, 10);
+  const safeSourceName = (ar ? src.label_ar : src.label_en).replace(/[^a-zA-Z0-9\u0600-\u06FF_-]+/g, '_');
+  const baseFilename = `${safeSourceName}-${today}`;
+
+  if(format === 'csv'){
+    dbExportCSV(rows, cols, baseFilename, ar);
+  } else if(format === 'excel'){
+    await dbExportExcel(rows, cols, baseFilename, ar);
+  }
+}
+
+function dbExportCSV(rows, cols, baseFilename, ar){
+  /* CSV escape: wrap in quotes if value contains comma/quote/newline; double internal quotes */
+  const esc = (v) => {
+    if(v == null) return '';
+    const s = String(v);
+    if(/[",\n\r]/.test(s)) return '"' + s.replace(/"/g, '""') + '"';
+    return s;
+  };
+  /* Header row uses display labels */
+  const headers = cols.map(c => esc(ar ? c.label_ar : c.label_en));
+  /* Data rows use raw values (so numbers stay numbers, dates stay ISO) */
+  const lines = [headers.join(',')];
+  rows.forEach(r => {
+    const row = cols.map(c => {
+      const v = r[c.key];
+      if(c.type === 'date' && v) return esc(String(v).slice(0, 10));
+      if(c.type === 'enum' && c.enumValues){
+        const enumVal = c.enumValues[String(v).toLowerCase()];
+        if(enumVal) return esc(ar ? enumVal.ar : enumVal.en);
+      }
+      return esc(v);
+    });
+    lines.push(row.join(','));
+  });
+  /* UTF-8 BOM prefix so Excel opens Arabic text correctly */
+  const csvText = '\uFEFF' + lines.join('\r\n');
+  const blob = new Blob([csvText], { type: 'text/csv;charset=utf-8' });
+  triggerDownload(blob, `${baseFilename}.csv`);
+  notify(ar ? '✅ تم تصدير CSV' : '✅ CSV exported', 'success');
+}
+
+async function dbExportExcel(rows, cols, baseFilename, ar){
+  /* Lazy-load SheetJS from CDN on first export */
+  try {
+    if(typeof XLSX === 'undefined'){
+      await loadScript('https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js');
+    }
+  } catch(err){
+    console.error('[GL] SheetJS load failed', err);
+    notify(ar ? 'فشل تحميل مكتبة Excel، جرّب CSV' : 'Excel library failed to load, try CSV instead', 'error');
+    return;
+  }
+
+  /* Build a 2D array: header row + data rows */
+  const headers = cols.map(c => ar ? c.label_ar : c.label_en);
+  const data = rows.map(r => cols.map(c => {
+    const v = r[c.key];
+    if(v == null) return '';
+    if(c.type === 'number' || c.type === 'money'){
+      const n = parseFloat(v);
+      return Number.isFinite(n) ? n : v;   /* keep as number so Excel formats it */
+    }
+    if(c.type === 'date'){
+      return String(v).slice(0, 10);
+    }
+    if(c.type === 'enum' && c.enumValues){
+      const enumVal = c.enumValues[String(v).toLowerCase()];
+      if(enumVal) return ar ? enumVal.ar : enumVal.en;
+    }
+    return String(v);
+  }));
+
+  const aoa = [headers, ...data];
+  const ws = XLSX.utils.aoa_to_sheet(aoa);
+
+  /* Set column widths heuristically — wider for text, narrower for numbers/dates */
+  ws['!cols'] = cols.map(c => {
+    if(c.type === 'money' || c.type === 'number') return { wch: 12 };
+    if(c.type === 'date' || c.type === 'datetime') return { wch: 12 };
+    return { wch: 20 };
+  });
+
+  /* RTL layout when Arabic */
+  if(ar){
+    ws['!views'] = [{ RTL: true }];
+  }
+
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, ar ? 'التقرير' : 'Report');
+  const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+  const blob = new Blob([wbout], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+  triggerDownload(blob, `${baseFilename}.xlsx`);
+  notify(ar ? '✅ تم تصدير Excel' : '✅ Excel exported', 'success');
+}
+
+function triggerDownload(blob, filename){
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  setTimeout(() => {
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  }, 100);
+}
+
+/* Lazy-load a script tag; resolves when loaded or rejects on error */
+function loadScript(src){
+  return new Promise((resolve, reject) => {
+    /* Check if already loaded */
+    if(document.querySelector(`script[src="${src}"]`)){
+      resolve();
+      return;
+    }
+    const s = document.createElement('script');
+    s.src = src;
+    s.async = true;
+    s.onload = resolve;
+    s.onerror = () => reject(new Error('Failed to load ' + src));
+    document.head.appendChild(s);
+  });
+}
+
 /* ═══════════════════════════════════════════════════════ */
 
 /* ═══════════════════════════════════════════════════════
@@ -2148,6 +2513,7 @@ async function loadCustomersForDropdown(){
 async function init(){
   const {data:{session}} = await sb.auth.getSession();
   if(!session){ window.location.href = 'login.html'; return; }
+  currentUser = session.user;
   const {biz, role, reason} = await loadCurrentBusiness(sb, session.user);
   if(!biz){
     if(reason === 'revoked'){
