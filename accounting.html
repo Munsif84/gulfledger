@@ -1493,20 +1493,28 @@ async function init(){
   setLang(currentLang);
   await loadCoreData();
 
-  /* Sub-tab from URL */
+  /* Sub-tab from URL. Also capture optional ?view= now, because switchSubtab
+     calls history.replaceState which strips the URL down to just ?sub=. */
   const sub = (window.location.search.match(/sub=([a-z]+)/)?.[1]) || 'health';
+  const urlView = (window.location.search.match(/view=([a-z]+)/)?.[1]) || '';
   if(['health','ledger','reports','vat'].includes(sub)) switchSubtab(sub);
 
-  /* Report view from URL: ?view=pl|bs|cf|tb (when sub=reports).
-     Deep-links from reports.html land here and select the correct view. */
-  if(sub === 'reports'){
-    const view = (window.location.search.match(/view=([a-z]+)/)?.[1]) || '';
-    if(['pl','bs','cf','tb'].includes(view)){
-      /* setReportView calls loadAndRenderReport; wait briefly for chart of accounts */
-      setTimeout(() => {
-        if(typeof setReportView === 'function') setReportView(view);
-      }, 600);
-    }
+  /* Report view: if we landed here via reports.html deep-link with ?view=,
+     switch to that report once the reports tab has had time to init. */
+  if(sub === 'reports' && ['pl','bs','cf','tb'].includes(urlView)){
+    /* Poll for setReportView availability + a non-empty chart of accounts.
+       More robust than a fixed timeout — works whether the load takes 100ms
+       or 2 seconds. Gives up after ~5s. */
+    let tries = 0;
+    const tryActivate = () => {
+      tries++;
+      if(typeof setReportView === 'function'){
+        setReportView(urlView);
+        return;
+      }
+      if(tries < 50) setTimeout(tryActivate, 100);
+    };
+    setTimeout(tryActivate, 100);
   }
 
   /* URL filter for ledger: ?filter=unbalanced */

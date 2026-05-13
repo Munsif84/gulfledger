@@ -615,7 +615,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
       </button>
       <button class="sidebar-link" onclick="dbOpenSource('invoice_lines', this)">
         <span class="icon">📊</span>
-        <span data-ar="بنود الفواتير" data-en="Invoice Lines">بنود الفواتير</span>
+        <span data-ar="تقرير المبيعات" data-en="Sales Report">تقرير المبيعات</span>
       </button>
       <button class="sidebar-link" onclick="showReport('customer', this)">
         <span class="icon">👤</span>
@@ -685,22 +685,22 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
          the closed-period system, account-map cache, and snapshot mechanism. -->
     <div class="sidebar-group">
       <div class="sidebar-group-label" data-ar="💰 التقارير المالية" data-en="💰 Financials">💰 التقارير المالية</div>
-      <a class="sidebar-link" href="accounting.html?sub=reports&view=tb">
+      <a class="sidebar-link" href="accounting.html?sub=reports&amp;view=tb">
         <span class="icon">📒</span>
         <span data-ar="ميزان المراجعة" data-en="Trial Balance">ميزان المراجعة</span>
         <span class="link-out" title="Opens in Accounting">↗</span>
       </a>
-      <a class="sidebar-link" href="accounting.html?sub=reports&view=pl">
+      <a class="sidebar-link" href="accounting.html?sub=reports&amp;view=pl">
         <span class="icon">📈</span>
         <span data-ar="قائمة الدخل" data-en="Profit & Loss">قائمة الدخل</span>
         <span class="link-out" title="Opens in Accounting">↗</span>
       </a>
-      <a class="sidebar-link" href="accounting.html?sub=reports&view=bs">
+      <a class="sidebar-link" href="accounting.html?sub=reports&amp;view=bs">
         <span class="icon">⚖</span>
         <span data-ar="الميزانية العمومية" data-en="Balance Sheet">الميزانية العمومية</span>
         <span class="link-out" title="Opens in Accounting">↗</span>
       </a>
-      <a class="sidebar-link" href="accounting.html?sub=reports&view=cf">
+      <a class="sidebar-link" href="accounting.html?sub=reports&amp;view=cf">
         <span class="icon">💵</span>
         <span data-ar="التدفقات النقدية" data-en="Cash Flow">التدفقات النقدية</span>
         <span class="link-out" title="Opens in Accounting">↗</span>
@@ -2532,19 +2532,23 @@ const DATA_SOURCES = {
     ]
   },
 
-  /* Invoice Lines — sales analysis source.
-     Joins invoice_items + invoices + customers + inventory_items into flat rows.
-     Each row = one line item on one invoice, with all related dimensions exposed
-     as columns. The user can sort/filter/group by any of them. */
+  /* Sales Report — the canonical sales-detail analysis. Each row is one invoice
+     line item with customer, product, category, dates, and totals joined together.
+     This is the workhorse for "what did we sell" questions:
+       • By customer, by product, by category, by date range
+       • Top performers, slow sellers, B2B vs B2C breakdown
+       • Filterable to any combination, exportable to Excel.
+     Internal key stays 'invoice_lines' since the underlying table is invoice_items. */
   invoice_lines: {
-    icon: '🧾',
-    label_ar: 'بنود الفواتير', label_en: 'Invoice Lines',
+    icon: '📊',
+    label_ar: 'تقرير المبيعات', label_en: 'Sales Report',
     /* Custom fetch: handles the join. Returns flat rows. */
     fetchOverride: async () => {
       const ar = currentLang === 'ar';
-      /* 1. Pull all non-voided invoices for this business with header data */
+      /* 1. Pull all non-voided invoices for this business with header data.
+         select('*') for schema tolerance — same pattern invoices.html uses. */
       const {data: invoices, error: invErr} = await sb.from('invoices')
-        .select('id, invoice_number, issue_date, due_date, customer_id, buyer_name, buyer_trn, status, payment_status, payment_method, total')
+        .select('*')
         .eq('business_id', currentBiz.id)
         .order('issue_date', { ascending: false })
         .limit(2000);
@@ -2555,12 +2559,14 @@ const DATA_SOURCES = {
       });
       if(valid.length === 0) return [];
 
-      /* 2. Build customer_id -> {name, tier, city} map */
+      /* 2. Build customer_id -> {name, tier, city} map.
+         Using select('*') for schema tolerance — some installs may not have
+         every column we'd like. Missing fields just render as empty. */
       const customerIds = [...new Set(valid.map(i => i.customer_id).filter(Boolean))];
       const customerMap = {};
       if(customerIds.length){
         const {data: custs} = await sb.from('customers')
-          .select('id, name, name_ar, name_en, customer_type, city, phone')
+          .select('*')
           .in('id', customerIds);
         (custs || []).forEach(c => { customerMap[c.id] = c; });
       }
@@ -4106,14 +4112,6 @@ async function runReportGRNIAging(){
   html += '<td class="r-num">' + fmtSar(gtTotal) + '</td>';
   html += '</tr>';
   html += '</tbody></table>';
-
-  /* Footnote: explain what GRNI means in plain language */
-  html += '<div style="margin-top:18px;padding:12px 14px;background:var(--tint);border-inline-start:3px solid var(--green);border-radius:0 8px 8px 0;font-size:12.5px;color:var(--ink);line-height:1.6;">' +
-    '<strong>' + (ar?'ما هذا التقرير؟ ':'What is this report? ') + '</strong>' +
-    (ar
-      ? 'يعرض البضاعة التي استلمتها من الموردين ولكن لم تُصدر لها فاتورة موردين (Bill) بعد. هذه التزامات حقيقية ستتحول إلى ذمم دائنة (AP) عند وصول فواتير الموردين. الأرصدة الأقدم من 90 يوماً تحتاج متابعة — إما فاتورة المورد متأخرة، أو الاستلام يحتاج مراجعة.'
-      : 'Shows goods received from suppliers that haven&apos;t been converted to a supplier Bill yet. These are real liabilities that will move to Accounts Payable once the supplier invoices arrive. Balances over 90 days need follow-up — either the supplier invoice is late, or the receipt itself needs review.') +
-    '</div>';
 
   content.innerHTML = html;
 }
