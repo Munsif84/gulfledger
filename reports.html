@@ -706,6 +706,10 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         <span class="icon">🔄</span>
         <span data-ar="حركة المخزون" data-en="Stock Movements">حركة المخزون</span>
       </button>
+      <button class="sidebar-link" onclick="dbOpenSource('stock_items', this)">
+        <span class="icon">📋</span>
+        <span data-ar="تقييم الأصناف" data-en="Stock Items">تقييم الأصناف</span>
+      </button>
       <button class="sidebar-link" onclick="showReport('stock_valuation', this)">
         <span class="icon">💎</span>
         <span data-ar="تقييم المخزون" data-en="Stock Valuation">تقييم المخزون</span>
@@ -1017,6 +1021,10 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
            Uses real FIFO costing via inventory_batches. Slow-moving/dead thresholds come
            from business settings. -->
       <section class="report-section" id="report-stock_valuation" style="display:none;">
+        <!-- Stock Valuation — executive summary view.
+             KPI cards (4) → status filter pills → per-item table.
+             For deeper slicing (by supplier, category, SKU), use the "Stock Items"
+             Data Builder source instead — every dimension becomes filterable. -->
         <div class="stats-row">
           <div class="stat-card green">
             <div class="label" data-ar="القيمة الإجمالية للمخزون" data-en="Total Stock Value">القيمة الإجمالية للمخزون</div>
@@ -1039,65 +1047,41 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           </div>
         </div>
 
-        <!-- Filter pills + thresholds info -->
-        <div style="display:flex;justify-content:space-between;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:12px;">
-          <div style="display:flex;gap:6px;flex-wrap:wrap;" id="val-filter-pills">
-            <button class="btn btn-secondary btn-sm val-filter-pill active" data-filter="all" onclick="setValuationFilter('all')">
-              <span data-ar="الكل" data-en="All">الكل</span>
-              <span class="count-badge" id="val-count-all">0</span>
-            </button>
-            <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="active" onclick="setValuationFilter('active')">
-              <span data-ar="نشطة" data-en="Active">نشطة</span>
-              <span class="count-badge" id="val-count-active">0</span>
-            </button>
-            <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="slow" onclick="setValuationFilter('slow')">
-              ⏳ <span data-ar="متحرك ببطء" data-en="Slow-moving">متحرك ببطء</span>
-              <span class="count-badge" id="val-count-slow">0</span>
-            </button>
-            <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="dead" onclick="setValuationFilter('dead')">
-              💀 <span data-ar="راكد" data-en="Dead">راكد</span>
-              <span class="count-badge" id="val-count-dead">0</span>
-            </button>
-            <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="overstock" onclick="setValuationFilter('overstock')">
-              📦 <span data-ar="فائض" data-en="Overstock">فائض</span>
-              <span class="count-badge" id="val-count-overstock">0</span>
-            </button>
-            <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="reorder" onclick="setValuationFilter('reorder')">
-              ⚠️ <span data-ar="إعادة طلب" data-en="Reorder">إعادة طلب</span>
-              <span class="count-badge" id="val-count-reorder">0</span>
-            </button>
-          </div>
-          <div style="display:flex;gap:6px;align-items:center;">
-            <a class="btn btn-ghost btn-sm" href="settings.html#inventory-analytics" title="Adjust thresholds">⚙️</a>
-            <button class="btn btn-secondary btn-sm" onclick="exportValuationCSV()">📥 <span data-ar="تصدير" data-en="Export">تصدير</span></button>
-          </div>
+        <!-- Status filter pills (operational triage tool — unique to this report). -->
+        <div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:12px;" id="val-filter-pills">
+          <button class="btn btn-secondary btn-sm val-filter-pill active" data-filter="all" onclick="setValuationFilter('all')">
+            <span data-ar="الكل" data-en="All">الكل</span>
+            <span class="count-badge" id="val-count-all">0</span>
+          </button>
+          <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="active" onclick="setValuationFilter('active')">
+            <span data-ar="نشطة" data-en="Active">نشطة</span>
+            <span class="count-badge" id="val-count-active">0</span>
+          </button>
+          <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="slow" onclick="setValuationFilter('slow')">
+            ⏳ <span data-ar="متحرك ببطء" data-en="Slow-moving">متحرك ببطء</span>
+            <span class="count-badge" id="val-count-slow">0</span>
+          </button>
+          <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="dead" onclick="setValuationFilter('dead')">
+            💀 <span data-ar="راكد" data-en="Dead">راكد</span>
+            <span class="count-badge" id="val-count-dead">0</span>
+          </button>
+          <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="overstock" onclick="setValuationFilter('overstock')">
+            📦 <span data-ar="فائض" data-en="Overstock">فائض</span>
+            <span class="count-badge" id="val-count-overstock">0</span>
+          </button>
+          <button class="btn btn-secondary btn-sm val-filter-pill" data-filter="reorder" onclick="setValuationFilter('reorder')">
+            ⚠️ <span data-ar="إعادة طلب" data-en="Reorder">إعادة طلب</span>
+            <span class="count-badge" id="val-count-reorder">0</span>
+          </button>
         </div>
 
-        <!-- Four breakdown cards: by location, by category, batch aging, top items -->
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px;" id="val-grid">
-          <div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;">
-            <h3 style="margin:0 0 10px;font-size:14px;font-weight:700;color:var(--navy);" data-ar="القيمة حسب الموقع" data-en="Value by Location">القيمة حسب الموقع</h3>
-            <div id="val-by-location">—</div>
-          </div>
-          <div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;">
-            <h3 style="margin:0 0 10px;font-size:14px;font-weight:700;color:var(--navy);" data-ar="القيمة حسب الفئة" data-en="Value by Category">القيمة حسب الفئة</h3>
-            <div id="val-by-category">—</div>
-          </div>
-          <div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;">
-            <h3 style="margin:0 0 10px;font-size:14px;font-weight:700;color:var(--navy);" data-ar="أعمار الدفعات" data-en="Batch Aging">أعمار الدفعات</h3>
-            <div id="val-batch-aging">—</div>
-          </div>
-          <div style="background:#fff;border:1px solid var(--border);border-radius:10px;padding:14px;">
-            <h3 style="margin:0 0 10px;font-size:14px;font-weight:700;color:var(--navy);" data-ar="أعلى 10 أصناف بالقيمة" data-en="Top 10 Items by Value">أعلى 10 أصناف بالقيمة</h3>
-            <div id="val-top-items">—</div>
-          </div>
-        </div>
-
+        <!-- Per-item table. Pointer to Stock Items for deeper analysis. -->
         <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;flex-wrap:wrap;gap:8px;">
           <div style="font-size:13px;color:var(--muted);" id="val-table-caption" data-ar="تقرير تفصيلي لكل صنف" data-en="Detailed per-item valuation">تقرير تفصيلي لكل صنف</div>
+          <div style="font-size:12px;color:var(--muted);" data-ar="للتحليل المتقدم (بالمورد، الفئة): استخدم «تقييم الأصناف»" data-en="For deeper slicing (by supplier, category): use Stock Items">للتحليل المتقدم (بالمورد، الفئة): استخدم «تقييم الأصناف»</div>
         </div>
         <div class="table-wrap" id="valuation-table-wrap">
-          <div class="report-empty" data-ar="اضغط «عرض» لتوليد التقرير" data-en="Click 'Run' to generate the report">اضغط «عرض» لتوليد التقرير</div>
+          <div class="report-empty" data-ar="اضغط «عرض» لتوليد التقرير" data-en="Click 'Generate' to load the report">اضغط «عرض» لتوليد التقرير</div>
         </div>
       </section>
 
@@ -1213,6 +1197,41 @@ function setLang(lang){
         ? dbBuildColumnsPopover()
         : dbBuildFiltersPopover();
     }
+  }
+
+  /* ─── Built-in reports — re-render on language toggle ───
+     Every Built-in report builds its table HTML in its run function using
+     `currentLang` at render time. When the language changes, that frozen HTML
+     no longer matches. Re-run the active report so headers, totals, and date
+     labels swap to the new language. Fetches the data again — acceptable cost
+     for the much better UX of seeing the report flip languages instantly. */
+  if(typeof currentReport !== 'undefined' && currentReport && currentReport !== 'data_builder'){
+    /* Only re-run if the report has already been generated (content has data,
+       not just an empty-state prompt). Detect by looking for any rendered table. */
+    const section = document.getElementById('report-' + currentReport);
+    const hasRendered = section && section.querySelector('table');
+    if(hasRendered && typeof runCurrentReport === 'function'){
+      runCurrentReport();
+    }
+  }
+
+  /* ─── Customer/Supplier dropdowns — repopulate with localized names ───
+     These dropdowns are loaded once at init with names in whatever language was
+     active. On language toggle, repopulate so options show the right-language
+     name. Preserves the user's current selection if possible. */
+  if(typeof loadCustomersForDropdown === 'function'){
+    const custSel = document.getElementById('rt-customer-select');
+    const prevCust = custSel ? custSel.value : '';
+    loadCustomersForDropdown().then(() => {
+      if(prevCust && custSel) custSel.value = prevCust;
+    });
+  }
+  if(typeof loadSuppliersForDropdown === 'function'){
+    const supSel = document.getElementById('rt-supplier-select');
+    const prevSup = supSel ? supSel.value : '';
+    loadSuppliersForDropdown().then(() => {
+      if(prevSup && supSel) supSel.value = prevSup;
+    });
   }
 }
 
@@ -1440,12 +1459,26 @@ function showReport(name, btn, preset){
   /* Reset post-Run buttons in the Built-in toolbar — they unlock after a Run */
   if(typeof biSetPostRunButtons === 'function') biSetPostRunButtons(false);
 
-  /* Inject report identity into the shared section-header */
+  /* Inject report identity into the shared section-header.
+     Also write the AR/EN values to the dataset so setLang's [data-ar] loop
+     finds the correct strings on language toggle — otherwise the loop would
+     overwrite with the stale Customer-Statement defaults that exist in markup. */
   const meta = REPORT_TITLES[name];
   if(meta){
-    document.getElementById('active-report-icon').textContent = meta.icon || '';
-    document.getElementById('active-report-label').textContent = ar ? meta.ar : meta.en;
-    document.getElementById('active-report-sub').textContent = ar ? (meta.sub_ar || '') : (meta.sub_en || '');
+    const iconEl = document.getElementById('active-report-icon');
+    const labelEl = document.getElementById('active-report-label');
+    const subEl = document.getElementById('active-report-sub');
+    if(iconEl) iconEl.textContent = meta.icon || '';
+    if(labelEl){
+      labelEl.dataset.ar = meta.ar;
+      labelEl.dataset.en = meta.en;
+      labelEl.textContent = ar ? meta.ar : meta.en;
+    }
+    if(subEl){
+      subEl.dataset.ar = meta.sub_ar || '';
+      subEl.dataset.en = meta.sub_en || '';
+      subEl.textContent = ar ? (meta.sub_ar || '') : (meta.sub_en || '');
+    }
   }
 
   /* ════════════════════════════════════════════════════════════════════════
@@ -2224,138 +2257,12 @@ async function runReportStockValuation(){
   _valSetText('val-count-overstock', countOverstock);
   _valSetText('val-count-reorder', countReorder);
 
-  renderValuationByLocation(totalValue);
-  renderValuationByCategory(totalValue);
-  renderValuationBatchAging();
-  renderValuationTop10();
+  /* Breakdown cards (by location, by category, batch aging, top 10) were removed
+     in the Stock Valuation trim — they duplicated what the "Stock Items" Data
+     Builder source now does better (with filtering and saving). The four render
+     functions below are kept (orphaned) in case future iterations want to revive
+     them as collapsible sections; they no-op safely on missing DOM. */
   renderValuationTable();
-}
-
-function renderValuationByLocation(totalValue){
-  const ar = currentLang === 'ar';
-  const wrap = document.getElementById('val-by-location');
-  if(!wrap) return;
-  const byLoc = {};
-  for(const b of _valBatches){
-    const v = parseFloat(b.qty_remaining||0) * parseFloat(b.unit_cost||0);
-    byLoc[b.location_id||'__none__'] = (byLoc[b.location_id||'__none__']||0) + v;
-  }
-  const entries = Object.entries(byLoc).sort((a,b) => b[1]-a[1]);
-  if(entries.length === 0){
-    wrap.innerHTML = `<div style="color:var(--muted);text-align:center;padding:20px;">${ar?'لا توجد بيانات':'No data'}</div>`;
-    return;
-  }
-  wrap.innerHTML = entries.map(([locId, val]) => {
-    const loc = (_valAllLocations||[]).find(l => l.id === locId);
-    const name = loc ? (loc.name_ar || loc.name || '—') : (ar?'بدون موقع':'No location');
-    const pct = totalValue > 0 ? (val/totalValue*100) : 0;
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
-      <div style="flex:1;min-width:0;">
-        <div>📍 ${escHTML(name)}${loc?.is_default?' ⭐':''}</div>
-        <div style="background:var(--tint);height:4px;border-radius:2px;margin-top:3px;overflow:hidden;">
-          <div style="background:var(--blue);height:100%;width:${pct.toFixed(1)}%;"></div>
-        </div>
-      </div>
-      <div style="text-align:end;margin-inline-start:10px;font-family:'DM Mono',monospace;font-size:12px;">
-        <div style="font-weight:700;">SAR ${_valFmt(val)}</div>
-        <div style="color:var(--muted);font-size:10px;">${pct.toFixed(1)}%</div>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-function renderValuationByCategory(totalValue){
-  const ar = currentLang === 'ar';
-  const wrap = document.getElementById('val-by-category');
-  if(!wrap) return;
-  const byCat = {};
-  for(const it of _valItems){
-    if(it._qty <= 0) continue;
-    const cat = it.category || 'uncategorized';
-    byCat[cat] = (byCat[cat]||0) + it._value;
-  }
-  const entries = Object.entries(byCat).sort((a,b) => b[1]-a[1]);
-  if(entries.length === 0){
-    wrap.innerHTML = `<div style="color:var(--muted);text-align:center;padding:20px;">${ar?'لا توجد بيانات':'No data'}</div>`;
-    return;
-  }
-  wrap.innerHTML = entries.map(([cat, val]) => {
-    const pct = totalValue > 0 ? (val/totalValue*100) : 0;
-    const label = (typeof categoryLabel === 'function' ? categoryLabel(cat) : cat);
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
-      <div style="flex:1;min-width:0;">
-        <div>${escHTML(label)}</div>
-        <div style="background:var(--tint);height:4px;border-radius:2px;margin-top:3px;overflow:hidden;">
-          <div style="background:var(--blue);height:100%;width:${pct.toFixed(1)}%;"></div>
-        </div>
-      </div>
-      <div style="text-align:end;margin-inline-start:10px;font-family:'DM Mono',monospace;font-size:12px;">
-        <div style="font-weight:700;">SAR ${_valFmt(val)}</div>
-        <div style="color:var(--muted);font-size:10px;">${pct.toFixed(1)}%</div>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-function renderValuationBatchAging(){
-  const ar = currentLang === 'ar';
-  const wrap = document.getElementById('val-batch-aging');
-  if(!wrap) return;
-  const today = new Date(); today.setHours(0,0,0,0);
-  const buckets = [
-    { ar:'0-30 يوم',   en:'0-30 days',   min:0,   max:30,   value:0, batches:0, color:'var(--green)' },
-    { ar:'31-60 يوم',  en:'31-60 days',  min:31,  max:60,   value:0, batches:0, color:'var(--blue)' },
-    { ar:'61-90 يوم',  en:'61-90 days',  min:61,  max:90,   value:0, batches:0, color:'var(--amber)' },
-    { ar:'91-180 يوم', en:'91-180 days', min:91,  max:180,  value:0, batches:0, color:'#d97706' },
-    { ar:'+180 يوم',   en:'180+ days',   min:181, max:99999, value:0, batches:0, color:'var(--red)' }
-  ];
-  let totalAged = 0;
-  for(const b of _valBatches){
-    if(!b.received_date) continue;
-    const age = Math.floor((today - new Date(b.received_date))/(24*60*60*1000));
-    const v = parseFloat(b.qty_remaining||0)*parseFloat(b.unit_cost||0);
-    const bucket = buckets.find(x => age >= x.min && age <= x.max);
-    if(bucket){ bucket.value += v; bucket.batches += 1; totalAged += v; }
-  }
-  if(totalAged === 0){
-    wrap.innerHTML = `<div style="color:var(--muted);text-align:center;padding:20px;">${ar?'لا توجد دفعات':'No batches'}</div>`;
-    return;
-  }
-  wrap.innerHTML = buckets.map(bk => {
-    const pct = totalAged > 0 ? (bk.value/totalAged*100) : 0;
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
-      <div style="flex:1;min-width:0;">
-        <div>${ar?bk.ar:bk.en} <span style="color:var(--muted);font-size:11px;">(${bk.batches})</span></div>
-        <div style="background:var(--tint);height:4px;border-radius:2px;margin-top:3px;overflow:hidden;">
-          <div style="background:${bk.color};height:100%;width:${pct.toFixed(1)}%;"></div>
-        </div>
-      </div>
-      <div style="text-align:end;margin-inline-start:10px;font-family:'DM Mono',monospace;font-size:12px;">
-        <div style="font-weight:700;">SAR ${_valFmt(bk.value)}</div>
-        <div style="color:var(--muted);font-size:10px;">${pct.toFixed(1)}%</div>
-      </div>
-    </div>`;
-  }).join('');
-}
-
-function renderValuationTop10(){
-  const ar = currentLang === 'ar';
-  const wrap = document.getElementById('val-top-items');
-  if(!wrap) return;
-  const top = _valItems.filter(x => x._qty > 0).sort((a,b) => b._value-a._value).slice(0,10);
-  if(top.length === 0){
-    wrap.innerHTML = `<div style="color:var(--muted);text-align:center;padding:20px;">${ar?'لا توجد بيانات':'No data'}</div>`;
-    return;
-  }
-  wrap.innerHTML = top.map((it, idx) => {
-    return `<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);font-size:13px;">
-      <div style="flex:1;min-width:0;">
-        <div style="font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${idx+1}. ${escHTML(_valDisplayName(it))}</div>
-        <div style="font-size:11px;color:var(--muted);">${_valFmt(it._qty)} × SAR ${_valFmt(it._avgCost)}</div>
-      </div>
-      <div style="font-family:'DM Mono',monospace;font-weight:700;font-size:12px;">SAR ${_valFmt(it._value)}</div>
-    </div>`;
-  }).join('');
 }
 
 function renderValuationTable(){
@@ -3103,6 +3010,211 @@ const DATA_SOURCES = {
       { key: 'total',         type: 'money', label_ar: 'الإجمالي',           label_en: 'Total',           defaultShow: true,  total: true },
       { key: 'notes',         type: 'text',  label_ar: 'ملاحظات',            label_en: 'Notes',           defaultShow: false }
     ]
+  },
+
+  /* ────────────────────────────────────────────────────────────────────────
+     STOCK ITEMS — analytical view of inventory at the SKU level. Each row is
+     one product, enriched with current-stock state from inventory_batches and
+     consumption data from inventory_movements.
+
+     Why this source matters:
+       • Stock by supplier → "what's tied up with vendor X" (return negotiations,
+         vendor consolidation, leverage during slow-payment talks)
+       • Stock by category → "where's working capital concentrated"
+       • Stock by SKU + status → liquidation candidates (dead, slow-moving high-value)
+       • Reorder candidates → days-of-stock < reorder threshold
+
+     Supplier resolution rule: use the supplier of the most recent non-depleted
+     batch (i.e. "where my CURRENT stock came from most recently"). Falls back to
+     inventory_items.preferred_supplier_id when no live batches exist.
+
+     Not date-scoped — this is a SNAPSHOT of current state, same as Stock Valuation.
+     The Built-in Stock Valuation report remains the executive summary view; this
+     source is the slicer/dicer for analytical work. */
+  stock_items: {
+    icon: '📋',
+    label_ar: 'تقييم الأصناف', label_en: 'Stock Items',
+    fetchOverride: async () => {
+      const ar = currentLang === 'ar';
+
+      /* 1. All active items */
+      const {data: items, error: itemsErr} = await sb.from('inventory_items')
+        .select('*')
+        .eq('business_id', currentBiz.id)
+        .eq('is_active', true)
+        .order('name_ar', { ascending: true });
+      if(itemsErr) throw itemsErr;
+      if(!items || items.length === 0){
+        console.warn('[GL] Stock Items: no active items');
+        return [];
+      }
+
+      /* 2. All live batches (non-depleted) — for current qty, avg cost, supplier resolution */
+      const {data: batches, error: batchErr} = await sb.from('inventory_batches')
+        .select('item_id, qty_remaining, unit_cost, supplier_id, received_date')
+        .eq('business_id', currentBiz.id)
+        .gt('qty_remaining', 0);
+      if(batchErr) throw batchErr;
+
+      /* Index batches by item_id, sorted most-recent first (for supplier resolution) */
+      const batchesByItem = {};
+      (batches || []).forEach(b => {
+        const id = b.item_id;
+        if(!batchesByItem[id]) batchesByItem[id] = [];
+        batchesByItem[id].push(b);
+      });
+      Object.values(batchesByItem).forEach(arr => {
+        arr.sort((a, b) => (b.received_date || '').localeCompare(a.received_date || ''));
+      });
+
+      /* 3. Recent movements for last-sold date + 30-day consumption rate */
+      const today = new Date();
+      const thirtyDaysAgo = new Date(today.getTime() - 30*24*60*60*1000).toISOString().slice(0, 10);
+      const {data: movements} = await sb.from('inventory_movements')
+        .select('item_id, movement_type, quantity, movement_date')
+        .eq('business_id', currentBiz.id)
+        .in('movement_type', ['out', 'adjust_out'])
+        .gte('movement_date', thirtyDaysAgo);
+
+      const lastSoldByItem = {};
+      const qty30ByItem = {};
+      (movements || []).forEach(m => {
+        const id = m.item_id;
+        const qty = Math.abs(parseFloat(m.quantity) || 0);
+        qty30ByItem[id] = (qty30ByItem[id] || 0) + qty;
+        const d = m.movement_date || '';
+        if(!lastSoldByItem[id] || d > lastSoldByItem[id]) lastSoldByItem[id] = d;
+      });
+
+      /* Also fetch ALL-time last-sold for items not active in last 30 days */
+      const itemsWithRecentSales = new Set(Object.keys(lastSoldByItem));
+      const itemsWithoutRecent = items.filter(i => !itemsWithRecentSales.has(i.id)).map(i => i.id);
+      if(itemsWithoutRecent.length){
+        /* Batch query for items with no recent sales — find their last-ever sale */
+        for(let i = 0; i < itemsWithoutRecent.length; i += 100){
+          const batch = itemsWithoutRecent.slice(i, i + 100);
+          const {data: oldMovs} = await sb.from('inventory_movements')
+            .select('item_id, movement_date')
+            .eq('business_id', currentBiz.id)
+            .in('item_id', batch)
+            .in('movement_type', ['out', 'adjust_out'])
+            .order('movement_date', { ascending: false })
+            .limit(batch.length * 2); /* rough cap */
+          (oldMovs || []).forEach(m => {
+            if(!lastSoldByItem[m.item_id] || m.movement_date > lastSoldByItem[m.item_id]){
+              lastSoldByItem[m.item_id] = m.movement_date;
+            }
+          });
+        }
+      }
+
+      /* 4. Supplier names for resolved supplier_ids */
+      const supplierIds = new Set();
+      Object.values(batchesByItem).forEach(arr => {
+        if(arr.length && arr[0].supplier_id) supplierIds.add(arr[0].supplier_id);
+      });
+      items.forEach(it => {
+        if(it.preferred_supplier_id) supplierIds.add(it.preferred_supplier_id);
+        if(it.supplier_id) supplierIds.add(it.supplier_id);
+      });
+      const supplierMap = {};
+      if(supplierIds.size){
+        const ids = [...supplierIds];
+        for(let i = 0; i < ids.length; i += 200){
+          const batch = ids.slice(i, i + 200);
+          const {data: sups} = await sb.from('suppliers')
+            .select('id, name_ar, name_en, supplier_code')
+            .in('id', batch);
+          (sups || []).forEach(s => { supplierMap[s.id] = s; });
+        }
+      }
+
+      /* 5. Thresholds for status classification (same logic as Stock Valuation report) */
+      const slowDays = parseInt(currentBiz?.slow_moving_days)  || 60;
+      const deadDays = parseInt(currentBiz?.dead_stock_days)   || 90;
+
+      /* 6. Build enriched rows */
+      return items.map(it => {
+        const itemBatches = batchesByItem[it.id] || [];
+        const currentQty = itemBatches.reduce((s, b) => s + (parseFloat(b.qty_remaining) || 0), 0);
+        const totalValue = itemBatches.reduce((s, b) =>
+          s + (parseFloat(b.qty_remaining) || 0) * (parseFloat(b.unit_cost) || 0), 0);
+        const avgCost = currentQty > 0 ? totalValue / currentQty : (parseFloat(it.cost_price) || 0);
+
+        /* Supplier: most recent batch's supplier → preferred_supplier_id → supplier_id → none */
+        const batchSupplierId = itemBatches.length ? itemBatches[0].supplier_id : null;
+        const supplierId = batchSupplierId || it.preferred_supplier_id || it.supplier_id || null;
+        const sup = supplierId ? supplierMap[supplierId] : null;
+        const supplierName = sup
+          ? (ar ? (sup.name_ar || sup.name_en || sup.supplier_code || '—')
+                : (sup.name_en || sup.name_ar || sup.supplier_code || '—'))
+          : (ar ? 'بدون مورد' : 'No supplier');
+
+        /* Last-sold + consumption */
+        const lastSold = lastSoldByItem[it.id] || null;
+        const daysSinceSold = lastSold
+          ? Math.floor((today - new Date(lastSold)) / (24*60*60*1000))
+          : null;
+        const qty30 = qty30ByItem[it.id] || 0;
+        const dailyConsumption = qty30 / 30;
+        const daysOfStock = dailyConsumption > 0
+          ? currentQty / dailyConsumption
+          : (currentQty > 0 ? null : 0);
+
+        /* Status classification */
+        let status;
+        if(currentQty <= 0) status = 'empty';
+        else if(daysSinceSold === null || daysSinceSold >= deadDays) status = 'dead';
+        else if(daysSinceSold >= slowDays) status = 'slow';
+        else status = 'active';
+
+        return {
+          _id: it.id,
+          sku: it.sku || '',
+          name_ar: it.name_ar || it.name || '',
+          name_en: it.name_en || it.name || '',
+          category: it.category || '',
+          unit: it.unit || '',
+          supplier_name: supplierName,
+          current_qty: currentQty,
+          avg_cost: avgCost,
+          total_value: totalValue,
+          cost_price: parseFloat(it.cost_price) || 0,
+          sale_price: parseFloat(it.sale_price) || 0,
+          reorder_point: parseFloat(it.reorder_point) || 0,
+          last_sold_date: lastSold,
+          daily_consumption: dailyConsumption,
+          days_of_stock: daysOfStock,
+          status: status,
+          batch_count: itemBatches.length
+        };
+      });
+    },
+    columns: [
+      { key: 'sku',               type: 'text',   label_ar: 'الرمز SKU',         label_en: 'SKU',             defaultShow: true },
+      { key: 'name_ar',           type: 'text',   label_ar: 'الاسم بالعربية',    label_en: 'Name (Arabic)',   defaultShow: true },
+      { key: 'name_en',           type: 'text',   label_ar: 'الاسم بالإنجليزية', label_en: 'Name (English)',  defaultShow: false },
+      { key: 'category',          type: 'text',   label_ar: 'الفئة',             label_en: 'Category',        defaultShow: true },
+      { key: 'supplier_name',     type: 'text',   label_ar: 'المورد',            label_en: 'Supplier',        defaultShow: true },
+      { key: 'unit',              type: 'text',   label_ar: 'الوحدة',            label_en: 'Unit',            defaultShow: false },
+      { key: 'current_qty',       type: 'number', label_ar: 'الكمية الحالية',    label_en: 'Current Qty',     defaultShow: true,  total: true },
+      { key: 'avg_cost',          type: 'money',  label_ar: 'متوسط التكلفة',     label_en: 'Avg Cost',        defaultShow: false },
+      { key: 'total_value',       type: 'money',  label_ar: 'القيمة الإجمالية',  label_en: 'Total Value',     defaultShow: true,  total: true },
+      { key: 'cost_price',        type: 'money',  label_ar: 'سعر التكلفة',       label_en: 'Cost Price',      defaultShow: false },
+      { key: 'sale_price',        type: 'money',  label_ar: 'سعر البيع',         label_en: 'Sale Price',      defaultShow: false },
+      { key: 'reorder_point',     type: 'number', label_ar: 'نقطة إعادة الطلب',  label_en: 'Reorder Point',   defaultShow: false },
+      { key: 'last_sold_date',    type: 'date',   label_ar: 'آخر بيع',           label_en: 'Last Sold',       defaultShow: true },
+      { key: 'daily_consumption', type: 'number', label_ar: 'الاستهلاك اليومي',  label_en: 'Daily Use',       defaultShow: false },
+      { key: 'days_of_stock',     type: 'number', label_ar: 'أيام مخزون متبقية', label_en: 'Days of Stock',   defaultShow: true },
+      { key: 'status',            type: 'enum',   label_ar: 'الحالة',            label_en: 'Status',          defaultShow: true,
+        enumValues: {
+          active: {ar:'نشط',     en:'Active'},
+          slow:   {ar:'بطيء',    en:'Slow-moving'},
+          dead:   {ar:'راكد',    en:'Dead stock'},
+          empty:  {ar:'منتهي',   en:'Out of stock'}
+        } },
+      { key: 'batch_count',       type: 'number', label_ar: 'عدد الدفعات',       label_en: 'Batches',         defaultShow: false }
+    ]
   }
   /* All planned data sources delivered. Add more sources here as new entities
      come online. Each follows the same shape. No engine changes required. */
@@ -3199,12 +3311,25 @@ async function dbOpenSource(sourceName, btn){
     if(scopeRow)  scopeRow.classList.add('collapsed');
   }
 
-  /* Update the report header to reflect this source */
+  /* Update the report header to reflect this source.
+     Sync dataset.ar/en so setLang's data-attribute loop finds the right strings
+     (otherwise toggling language would revert to the stale Customer-Statement
+     default values that ship in markup). */
   document.getElementById('active-report-icon').textContent = src.icon;
-  document.getElementById('active-report-label').textContent = ar ? src.label_ar : src.label_en;
-  document.getElementById('active-report-sub').textContent = ar
-    ? `كل البيانات في «${src.label_ar}». اضبط الخانات والفلترة ثم اضغط «عرض».`
-    : `All data in ${src.label_en}. Configure columns and filters, then click Generate.`;
+  const labelEl = document.getElementById('active-report-label');
+  if(labelEl){
+    labelEl.dataset.ar = src.label_ar;
+    labelEl.dataset.en = src.label_en;
+    labelEl.textContent = ar ? src.label_ar : src.label_en;
+  }
+  const subEl = document.getElementById('active-report-sub');
+  if(subEl){
+    const subAr = `كل البيانات في «${src.label_ar}». اضبط الخانات والفلترة ثم اضغط «عرض».`;
+    const subEn = `All data in ${src.label_en}. Configure columns and filters, then click Generate.`;
+    subEl.dataset.ar = subAr;
+    subEl.dataset.en = subEn;
+    subEl.textContent = ar ? subAr : subEn;
+  }
 
   /* Clear UI bits */
   const search = document.getElementById('db-row-search');
@@ -4610,13 +4735,21 @@ function exportCurrentReportCSV(){
 /* ═══════════════════════════════════════════════════════
    LOAD CUSTOMERS for dropdown
 ═══════════════════════════════════════════════════════ */
-async function loadCustomersForDropdown(){
-  const {data} = await sb.from('customers')
-    .select('id, name, name_ar, name_en')
-    .eq('business_id', currentBiz.id)
-    .order('name_ar', {ascending: true});
-  allCustomers = data || [];
+async function loadCustomersForDropdown(forceRefetch){
+  /* Skip the DB fetch when called purely for a language re-render — the cached
+     `allCustomers` list still has both name_ar/name_en for each row. The caller
+     can pass forceRefetch=true to bypass the cache. */
+  if(!forceRefetch && allCustomers && allCustomers.length){
+    /* Use cached data */
+  } else {
+    const {data} = await sb.from('customers')
+      .select('id, name, name_ar, name_en')
+      .eq('business_id', currentBiz.id)
+      .order('name_ar', {ascending: true});
+    allCustomers = data || [];
+  }
   const sel = document.getElementById('rt-customer-select');
+  if(!sel) return;
   sel.innerHTML = '<option value="">' + (currentLang === 'ar' ? '— اختر —' : '— Select —') + '</option>';
   allCustomers.forEach(c => {
     const name = currentLang === 'ar' ? (c.name_ar || c.name_en || c.name || '—') : (c.name_en || c.name_ar || c.name || '—');
@@ -4630,13 +4763,17 @@ async function loadCustomersForDropdown(){
 /* ═══════════════════════════════════════════════════════
    LOAD SUPPLIERS for dropdown (Phase B — Supplier Statement)
 ═══════════════════════════════════════════════════════ */
-async function loadSuppliersForDropdown(){
-  const {data} = await sb.from('suppliers')
-    .select('id, name_ar, name_en, supplier_code')
-    .eq('business_id', currentBiz.id)
-    .eq('is_active', true)
-    .order('name_ar', {ascending: true});
-  allSuppliers = data || [];
+async function loadSuppliersForDropdown(forceRefetch){
+  if(!forceRefetch && allSuppliers && allSuppliers.length){
+    /* Use cached data */
+  } else {
+    const {data} = await sb.from('suppliers')
+      .select('id, name_ar, name_en, supplier_code')
+      .eq('business_id', currentBiz.id)
+      .eq('is_active', true)
+      .order('name_ar', {ascending: true});
+    allSuppliers = data || [];
+  }
   const sel = document.getElementById('rt-supplier-select');
   if(!sel) return;
   sel.innerHTML = '<option value="">' + (currentLang === 'ar' ? '— اختر —' : '— Select —') + '</option>';
