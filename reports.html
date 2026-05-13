@@ -553,10 +553,9 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         <span data-ar="فواتير الموردين" data-en="Bills">فواتير الموردين</span>
         <span class="badge-soon" data-ar="قريباً" data-en="Soon">Soon</span>
       </button>
-      <button class="sidebar-link disabled" title="Coming next session">
+      <button class="sidebar-link" onclick="dbOpenSource('stock_movements', this)">
         <span class="icon">🔄</span>
         <span data-ar="حركة المخزون" data-en="Stock Movements">حركة المخزون</span>
-        <span class="badge-soon" data-ar="قريباً" data-en="Soon">Soon</span>
       </button>
     </div>
 
@@ -1607,8 +1606,107 @@ const DATA_SOURCES = {
       { key: 'payment_method',   type: 'text',     label_ar: 'طريقة الدفع',           label_en: 'Payment Method',      defaultShow: false },
       { key: 'due_date',         type: 'date',     label_ar: 'تاريخ الاستحقاق',       label_en: 'Due Date',            defaultShow: false }
     ]
+  },
+
+  /* Stock Movements — every inventory in/out/adjustment event.
+     Joins inventory_movements + inventory_items (for item name + sku) +
+     suppliers (for receipts). Capped at 1000 most recent rows. */
+  stock_movements: {
+    icon: '🔄',
+    label_ar: 'حركة المخزون', label_en: 'Stock Movements',
+    fetchOverride: async () => {
+      const ar = currentLang === 'ar';
+      /* 1. Fetch movements */
+      const {data: movs, error: movErr} = await sb.from('inventory_movements')
+        .select('id, item_id, movement_type, quantity, balance_after, unit_cost, reference, note, reference_type, reference_id, supplier_id, batch_number, movement_date, created_at')
+        .eq('business_id', currentBiz.id)
+        .order('created_at', { ascending: false })
+        .limit(1000);
+      if(movErr) throw movErr;
+      if(!movs || movs.length === 0) return [];
+
+      /* 2. Item lookup (batched) */
+      const itemIds = [...new Set(movs.map(m => m.item_id).filter(Boolean))];
+      const itemMap = {};
+      if(itemIds.length){
+        for(let i = 0; i < itemIds.length; i += 200){
+          const batch = itemIds.slice(i, i + 200);
+          const {data: items} = await sb.from('inventory_items')
+            .select('id, name, name_ar, sku, category')
+            .in('id', batch);
+          (items || []).forEach(it => { itemMap[it.id] = it; });
+        }
+      }
+
+      /* 3. Supplier lookup (batched) — only for receipts */
+      const supplierIds = [...new Set(movs.map(m => m.supplier_id).filter(Boolean))];
+      const supplierMap = {};
+      if(supplierIds.length){
+        for(let i = 0; i < supplierIds.length; i += 200){
+          const batch = supplierIds.slice(i, i + 200);
+          const {data: sups} = await sb.from('suppliers')
+            .select('id, name_ar, name_en, supplier_code')
+            .in('id', batch);
+          (sups || []).forEach(s => { supplierMap[s.id] = s; });
+        }
+      }
+
+      /* 4. Build flat rows. Quantity is signed: in/adjust_in → positive,
+         out/adjust_out → negative. This makes totals meaningful (net change).
+         The 'movement_type' enum keeps the original type for filtering. */
+      return movs.map(m => {
+        const item = m.item_id ? (itemMap[m.item_id] || {}) : {};
+        const supplier = m.supplier_id ? (supplierMap[m.supplier_id] || {}) : {};
+        const qty = parseFloat(m.quantity) || 0;
+        const signedQty = (m.movement_type === 'out' || m.movement_type === 'adjust_out')
+          ? -Math.abs(qty)
+          : Math.abs(qty);
+        const unitCost = parseFloat(m.unit_cost) || 0;
+        const value = signedQty * unitCost;
+        return {
+          _id: m.id,
+          movement_date: m.movement_date || (m.created_at ? m.created_at.slice(0, 10) : null),
+          movement_type: m.movement_type || '',
+          item_name: item.name_ar || item.name || '—',
+          item_sku: item.sku || '',
+          item_category: item.category || '',
+          quantity: signedQty,
+          unit_cost: unitCost,
+          value: value,
+          balance_after: parseFloat(m.balance_after) || null,
+          reference_type: m.reference_type || '',
+          reference: m.reference || '',
+          supplier_name: ar ? (supplier.name_ar || supplier.name_en) : (supplier.name_en || supplier.name_ar),
+          batch_number: m.batch_number || '',
+          note: m.note || ''
+        };
+      });
+    },
+    columns: [
+      { key: 'movement_date',  type: 'date',   label_ar: 'التاريخ',            label_en: 'Date',           defaultShow: true },
+      { key: 'movement_type',  type: 'enum',   label_ar: 'النوع',              label_en: 'Type',           defaultShow: true,
+        enumValues: {
+          in:          { ar: '📥 استلام',  en: '📥 IN' },
+          out:         { ar: '📤 بيع',     en: '📤 OUT' },
+          adjust_in:   { ar: 'تعديل ↑',    en: 'ADJ ↑' },
+          adjust_out:  { ar: 'تعديل ↓',    en: 'ADJ ↓' }
+        }
+      },
+      { key: 'item_name',      type: 'text',   label_ar: 'الصنف',              label_en: 'Item',           defaultShow: true },
+      { key: 'item_sku',       type: 'text',   label_ar: 'SKU',                label_en: 'SKU',            defaultShow: false },
+      { key: 'item_category',  type: 'text',   label_ar: 'الفئة',              label_en: 'Category',       defaultShow: false },
+      { key: 'quantity',       type: 'number', label_ar: 'الكمية',             label_en: 'Quantity',       defaultShow: true, total: true },
+      { key: 'unit_cost',      type: 'money',  label_ar: 'سعر الوحدة',         label_en: 'Unit Cost',      defaultShow: false },
+      { key: 'value',          type: 'money',  label_ar: 'القيمة',             label_en: 'Value',          defaultShow: true, total: true },
+      { key: 'balance_after',  type: 'number', label_ar: 'الرصيد بعد الحركة',  label_en: 'Balance After',  defaultShow: false },
+      { key: 'reference_type', type: 'text',   label_ar: 'مصدر الحركة',        label_en: 'Source',         defaultShow: false },
+      { key: 'reference',      type: 'text',   label_ar: 'المرجع',             label_en: 'Reference',      defaultShow: true },
+      { key: 'supplier_name',  type: 'text',   label_ar: 'المورد',             label_en: 'Supplier',       defaultShow: false },
+      { key: 'batch_number',   type: 'text',   label_ar: 'رقم الدفعة',         label_en: 'Batch #',        defaultShow: false },
+      { key: 'note',           type: 'text',   label_ar: 'ملاحظة',             label_en: 'Note',           defaultShow: false }
+    ]
   }
-  /* Add more sources here: suppliers, products, bills, stock_movements, etc.
+  /* Add more sources here: suppliers, products, bills, etc.
      Each follows the same shape. No engine changes required. */
 };
 
