@@ -130,9 +130,10 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .btn-sm{padding:5px 10px;font-size:12px;}
 
 /* Field labels for date pickers etc. */
-.field-label{display:flex;flex-direction:column;gap:4px;font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em;}
-.field-label input[type=date]{padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;color:var(--ink);background:#fff;text-transform:none;letter-spacing:normal;font-weight:400;}
+.field-label{display:flex;flex-direction:column;gap:2px;font-size:10px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em;}
+.field-label input[type=date]{padding:6px 8px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:12px;color:var(--ink);background:#fff;text-transform:none;letter-spacing:normal;font-weight:400;max-width:140px;}
 .field-label input[type=date]:focus{outline:none;border-color:var(--blue);}
+.field-label select.filter-select{padding:6px 8px;font-size:12px;max-width:200px;}
 
 /* Toolbar inside section header — holds the date pickers + presets + actions */
 .report-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-top:14px;}
@@ -158,6 +159,9 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .r-table td{padding:11px 14px;border-bottom:1px solid var(--tint);vertical-align:middle;white-space:nowrap;}
 .r-table tr:last-child td{border-bottom:none;}
 .r-table tbody tr:hover{background:#fafbfa;}
+/* Numeric column alignment. In both LTR and RTL modes the document's effective
+   text direction makes `end` resolve to the right side of the column, which is
+   where numbers should sit in accounting tables. Same on both languages. */
 .r-num{text-align:end;font-family:'DM Mono',monospace;font-weight:600;}
 .r-num-sm{font-size:11px;color:var(--muted);font-weight:500;font-family:'DM Mono',monospace;}
 .r-row-section{background:var(--tint);font-weight:700;}
@@ -723,11 +727,14 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         </div>
       </div>
 
-      <!-- Toolbar: date pickers + presets + actions -->
+      <!-- Toolbar: date pickers + presets + actions.
+           Layout: left side stays on one line (date range + optional picker +
+           preset pills), right side has action buttons. Date range is locked
+           against wrapping so From and To always sit side-by-side. -->
       <div class="report-toolbar">
         <div class="report-toolbar-left">
-          <!-- Date range (sales, customer statement) -->
-          <div id="rt-daterange" style="display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;">
+          <!-- Date range (sales, customer statement). nowrap keeps From and To together. -->
+          <div id="rt-daterange" style="display:inline-flex;gap:8px;align-items:flex-end;flex-shrink:0;">
             <label class="field-label">
               <span data-ar="من" data-en="From">من</span>
               <input type="date" id="rt-from" lang="en-SA-u-ca-gregory">
@@ -2542,22 +2549,39 @@ const DATA_SOURCES = {
   invoice_lines: {
     icon: '📊',
     label_ar: 'تقرير المبيعات', label_en: 'Sales Report',
+    /* Date scoping: the toolbar shows a From/To range. Engine filters by issue_date.
+       Default: this month. Without a range, the report is unbounded which is rarely
+       what a user wants for sales analysis. */
+    dateColumn: 'issue_date',
     /* Custom fetch: handles the join. Returns flat rows. */
     fetchOverride: async () => {
       const ar = currentLang === 'ar';
-      /* 1. Pull all non-voided invoices for this business with header data.
+      /* Date range from the global toolbar inputs. When date scoping is active
+         we constrain the invoices fetch to that range; otherwise (defensive,
+         shouldn't happen since dbOpenSource defaults to this-month) we fall
+         back to fetching the most recent 2000. */
+      const fromDate = document.getElementById('rt-from')?.value || '';
+      const toDate   = document.getElementById('rt-to')?.value   || '';
+
+      /* 1. Pull invoices for this business with header data.
          select('*') for schema tolerance — same pattern invoices.html uses. */
-      const {data: invoices, error: invErr} = await sb.from('invoices')
+      let invQuery = sb.from('invoices')
         .select('*')
-        .eq('business_id', currentBiz.id)
-        .order('issue_date', { ascending: false })
-        .limit(2000);
+        .eq('business_id', currentBiz.id);
+      if(fromDate) invQuery = invQuery.gte('issue_date', fromDate);
+      if(toDate)   invQuery = invQuery.lte('issue_date', toDate);
+      invQuery = invQuery.order('issue_date', { ascending: false }).limit(2000);
+
+      const {data: invoices, error: invErr} = await invQuery;
       if(invErr) throw invErr;
       const valid = (invoices || []).filter(inv => {
         const s = (inv.status || '').toLowerCase();
         return s !== 'voided' && s !== 'cancelled' && s !== 'canceled';
       });
-      if(valid.length === 0) return [];
+      if(valid.length === 0){
+        console.warn('[GL] Sales Report: no invoices in range', {fromDate, toDate});
+        return [];
+      }
 
       /* 2. Build customer_id -> {name, tier, city} map.
          Using select('*') for schema tolerance — some installs may not have
@@ -2571,19 +2595,27 @@ const DATA_SOURCES = {
         (custs || []).forEach(c => { customerMap[c.id] = c; });
       }
 
-      /* 3. Fetch all line items for these invoices */
+      /* 3. Fetch all line items for these invoices.
+         select('*') matches invoices.html convention and avoids breakage when
+         optional columns (like discount_pct) are absent on older rows. */
       const invIds = valid.map(i => i.id);
       const itemsAll = [];
       /* Chunk into batches of 200 to avoid URL length limits */
       for(let i = 0; i < invIds.length; i += 200){
         const batch = invIds.slice(i, i + 200);
         const {data: items, error: itemsErr} = await sb.from('invoice_items')
-          .select('invoice_id, item_id, description, description_ar, quantity, unit_price, subtotal, vat_amount, vat_pct, total')
+          .select('*')
           .in('invoice_id', batch);
         if(itemsErr) throw itemsErr;
         if(items) itemsAll.push(...items);
       }
-      if(itemsAll.length === 0) return [];
+      if(itemsAll.length === 0){
+        console.warn('[GL] Sales Report: invoices found but no line items', {
+          invoiceCount: valid.length,
+          firstInvoiceId: valid[0]?.id
+        });
+        return [];
+      }
 
       /* 4. Build inventory_item_id -> category map */
       const itemIds = [...new Set(itemsAll.map(it => it.item_id).filter(Boolean))];
@@ -2669,16 +2701,28 @@ const DATA_SOURCES = {
   stock_movements: {
     icon: '🔄',
     label_ar: 'حركة المخزون', label_en: 'Stock Movements',
+    /* Date scoping by movement_date — users typically want a window like "this week" */
+    dateColumn: 'movement_date',
     fetchOverride: async () => {
       const ar = currentLang === 'ar';
-      /* 1. Fetch movements */
-      const {data: movs, error: movErr} = await sb.from('inventory_movements')
+      /* Date range from the global toolbar inputs (constrains movement_date) */
+      const fromDate = document.getElementById('rt-from')?.value || '';
+      const toDate   = document.getElementById('rt-to')?.value   || '';
+
+      /* 1. Fetch movements within the range */
+      let movQuery = sb.from('inventory_movements')
         .select('id, item_id, movement_type, quantity, balance_after, unit_cost, reference, note, reference_type, reference_id, supplier_id, batch_number, movement_date, created_at')
-        .eq('business_id', currentBiz.id)
-        .order('created_at', { ascending: false })
-        .limit(1000);
+        .eq('business_id', currentBiz.id);
+      if(fromDate) movQuery = movQuery.gte('movement_date', fromDate);
+      if(toDate)   movQuery = movQuery.lte('movement_date', toDate);
+      movQuery = movQuery.order('created_at', { ascending: false }).limit(1000);
+
+      const {data: movs, error: movErr} = await movQuery;
       if(movErr) throw movErr;
-      if(!movs || movs.length === 0) return [];
+      if(!movs || movs.length === 0){
+        console.warn('[GL] Stock Movements: no rows in range', {fromDate, toDate});
+        return [];
+      }
 
       /* 2. Item lookup (batched) */
       const itemIds = [...new Set(movs.map(m => m.item_id).filter(Boolean))];
@@ -2817,6 +2861,31 @@ async function dbOpenSource(sourceName, btn){
   _dbState.activeLayoutId = null;
   _dbState.isModified = false;
   _dbState.generated = false;
+
+  /* Toolbar visibility per source.
+     Sources with a dateColumn get the global From/To range and the preset pills
+     visible above the Data Builder table — same toolbar used by Customer/Supplier
+     Statement. Without a dateColumn (e.g., Customers, Suppliers) the range stays
+     hidden because date scoping doesn't apply to those entities. */
+  const dateRange = document.getElementById('rt-daterange');
+  const presets   = document.getElementById('rt-presets');
+  if(src.dateColumn){
+    if(dateRange) dateRange.style.display = '';
+    if(presets)   presets.style.display = '';
+    /* Default to "this month" if dates aren't set yet */
+    const fromInput = document.getElementById('rt-from');
+    const toInput   = document.getElementById('rt-to');
+    if(fromInput && !fromInput.value){
+      const today = new Date();
+      const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      const lastOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      fromInput.value = firstOfMonth.toISOString().slice(0, 10);
+      if(toInput) toInput.value = lastOfMonth.toISOString().slice(0, 10);
+    }
+  } else {
+    if(dateRange) dateRange.style.display = 'none';
+    if(presets)   presets.style.display = 'none';
+  }
 
   /* Update the report header to reflect this source */
   document.getElementById('active-report-icon').textContent = src.icon;
@@ -3024,15 +3093,16 @@ function dbRenderTable(){
     return;
   }
 
-  /* Build header */
+  /* Build header. Number/money columns get the same .r-num class on both <th>
+     and <td> so alignment and font match exactly (no inline-style hackery). */
   let html = '<div class="table-wrap"><table class="r-table"><thead><tr>';
   cols.forEach(c => {
     const isSorted = _dbState.sort && _dbState.sort.column === c.key;
     const dirCls = isSorted ? ` sort-${_dbState.sort.direction}` : '';
     const arrow = isSorted ? (_dbState.sort.direction === 'asc' ? '▲' : '▼') : '↕';
-    const numClass = (c.type === 'number' || c.type === 'money') ? ' class="r-num"' : '';
-    html += `<th class="sortable${dirCls}"${numClass.replace(/^ class=/, '').includes('r-num') ? ' style="text-align:end;"' : ''}
-              onclick="dbToggleSort('${c.key}')">
+    const isNum = (c.type === 'number' || c.type === 'money');
+    const thClass = 'sortable' + dirCls + (isNum ? ' r-num' : '');
+    html += `<th class="${thClass}" onclick="dbToggleSort('${c.key}')">
       ${escHTML(ar ? c.label_ar : c.label_en)}
       <span class="sort-arrow">${arrow}</span>
     </th>`;
