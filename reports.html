@@ -634,20 +634,17 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
     <!-- ── PURCHASING ── -->
     <div class="sidebar-group">
       <div class="sidebar-group-label" data-ar="🛒 المشتريات" data-en="🛒 Purchasing">🛒 المشتريات</div>
-      <button class="sidebar-link disabled" title="Coming next session">
+      <button class="sidebar-link" onclick="dbOpenSource('suppliers', this)">
         <span class="icon">🏭</span>
         <span data-ar="الموردون" data-en="Suppliers">الموردون</span>
-        <span class="badge-soon" data-ar="قريباً" data-en="Soon">Soon</span>
       </button>
-      <button class="sidebar-link disabled" title="Coming next session">
+      <button class="sidebar-link" onclick="dbOpenSource('bills', this)">
         <span class="icon">💸</span>
         <span data-ar="فواتير الموردين" data-en="Bills">فواتير الموردين</span>
-        <span class="badge-soon" data-ar="قريباً" data-en="Soon">Soon</span>
       </button>
-      <button class="sidebar-link disabled" title="Coming next session">
+      <button class="sidebar-link" onclick="dbOpenSource('purchase_orders', this)">
         <span class="icon">📜</span>
         <span data-ar="أوامر الشراء" data-en="Purchase Orders">أوامر الشراء</span>
-        <span class="badge-soon" data-ar="قريباً" data-en="Soon">Soon</span>
       </button>
       <button class="sidebar-link" onclick="showReport('supplier_statement', this)">
         <span class="icon">🧾</span>
@@ -666,10 +663,9 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
     <!-- ── INVENTORY ── -->
     <div class="sidebar-group">
       <div class="sidebar-group-label" data-ar="📦 المخزون" data-en="📦 Inventory">📦 المخزون</div>
-      <button class="sidebar-link disabled" title="Coming next session">
+      <button class="sidebar-link" onclick="dbOpenSource('products', this)">
         <span class="icon">🧱</span>
         <span data-ar="المنتجات" data-en="Products">المنتجات</span>
-        <span class="badge-soon" data-ar="قريباً" data-en="Soon">Soon</span>
       </button>
       <button class="sidebar-link" onclick="dbOpenSource('stock_movements', this)">
         <span class="icon">🔄</span>
@@ -2804,9 +2800,231 @@ const DATA_SOURCES = {
       { key: 'batch_number',   type: 'text',   label_ar: 'رقم الدفعة',         label_en: 'Batch #',        defaultShow: false },
       { key: 'note',           type: 'text',   label_ar: 'ملاحظة',             label_en: 'Note',           defaultShow: false }
     ]
+  },
+
+  /* ────────────────────────────────────────────────────────────────────────
+     SUPPLIERS — analytical list of all active suppliers. Attribute columns
+     only; no transaction columns are summed (suppliers don't sum meaningfully
+     the way bills do). Mirrors the customers source. */
+  suppliers: {
+    icon: '🏭',
+    label_ar: 'الموردون', label_en: 'Suppliers',
+    table: 'suppliers',
+    select: '*',
+    activeFilter: { column: 'is_active', value: true },
+    orderBy: { column: 'created_at', ascending: false },
+    columns: [
+      { key: 'name_ar',            type: 'text',  label_ar: 'الاسم بالعربية',     label_en: 'Name (Arabic)',   defaultShow: true },
+      { key: 'name_en',            type: 'text',  label_ar: 'الاسم بالإنجليزية',  label_en: 'Name (English)',  defaultShow: false },
+      { key: 'supplier_code',      type: 'text',  label_ar: 'رمز المورد',         label_en: 'Code',            defaultShow: true },
+      { key: 'mobile',             type: 'text',  label_ar: 'الجوال',             label_en: 'Mobile',          defaultShow: true },
+      { key: 'email',              type: 'text',  label_ar: 'البريد الإلكتروني', label_en: 'Email',           defaultShow: false },
+      { key: 'trn',                type: 'text',  label_ar: 'الرقم الضريبي',     label_en: 'TRN',             defaultShow: false },
+      { key: 'cr_number',          type: 'text',  label_ar: 'السجل التجاري',     label_en: 'CR Number',       defaultShow: false },
+      { key: 'contact_person',     type: 'text',  label_ar: 'جهة الاتصال',       label_en: 'Contact',         defaultShow: false },
+      { key: 'street_name',        type: 'text',  label_ar: 'العنوان',           label_en: 'Address',         defaultShow: false },
+      { key: 'payment_terms_days', type: 'number',label_ar: 'مدة السداد (يوم)',  label_en: 'Payment Terms (days)', defaultShow: true },
+      { key: 'total_outstanding',  type: 'money', label_ar: 'الرصيد المستحق',    label_en: 'Outstanding',     defaultShow: true },
+      { key: 'total_purchases',    type: 'money', label_ar: 'إجمالي المشتريات',  label_en: 'Total Purchases', defaultShow: false },
+      { key: 'notes',              type: 'text',  label_ar: 'ملاحظات',           label_en: 'Notes',           defaultShow: false },
+      { key: 'created_at',         type: 'datetime', label_ar: 'تاريخ الإضافة',  label_en: 'Added',           defaultShow: false }
+    ]
+  },
+
+  /* ────────────────────────────────────────────────────────────────────────
+     PRODUCTS — analytical list of inventory items. Attribute columns + the
+     two transaction-derived fields (current_qty, current value). Not date-
+     scoped because Products are master data, not transactions. */
+  products: {
+    icon: '🧱',
+    label_ar: 'المنتجات', label_en: 'Products',
+    table: 'inventory_items',
+    select: '*',
+    activeFilter: { column: 'is_active', value: true },
+    orderBy: { column: 'name_ar', ascending: true },
+    columns: [
+      { key: 'name_ar',         type: 'text',   label_ar: 'الاسم بالعربية',    label_en: 'Name (Arabic)',  defaultShow: true },
+      { key: 'name_en',         type: 'text',   label_ar: 'الاسم بالإنجليزية', label_en: 'Name (English)', defaultShow: false },
+      { key: 'sku',             type: 'text',   label_ar: 'الرمز SKU',         label_en: 'SKU',            defaultShow: true },
+      { key: 'barcode',         type: 'text',   label_ar: 'الباركود',          label_en: 'Barcode',        defaultShow: false },
+      { key: 'category',        type: 'text',   label_ar: 'الفئة',             label_en: 'Category',       defaultShow: true },
+      { key: 'unit',            type: 'text',   label_ar: 'الوحدة',            label_en: 'Unit',           defaultShow: false },
+      { key: 'cost_price',      type: 'money',  label_ar: 'سعر التكلفة',       label_en: 'Cost Price',     defaultShow: true },
+      { key: 'sale_price',      type: 'money',  label_ar: 'سعر البيع',         label_en: 'Sale Price',     defaultShow: true },
+      { key: 'current_qty',     type: 'number', label_ar: 'الكمية الحالية',    label_en: 'Current Qty',    defaultShow: true },
+      { key: 'reorder_point',   type: 'number', label_ar: 'نقطة إعادة الطلب',  label_en: 'Reorder Point',  defaultShow: false },
+      { key: 'notes',           type: 'text',   label_ar: 'ملاحظات',           label_en: 'Notes',          defaultShow: false },
+      { key: 'created_at',      type: 'datetime', label_ar: 'تاريخ الإضافة',   label_en: 'Added',          defaultShow: false }
+    ]
+  },
+
+  /* ────────────────────────────────────────────────────────────────────────
+     BILLS — supplier bills (expenses). Date-scoped by expense_date. Money
+     columns sum meaningfully so they get total:true. */
+  bills: {
+    icon: '💸',
+    label_ar: 'فواتير الموردين', label_en: 'Bills',
+    dateColumn: 'expense_date',
+    /* Custom fetch to join supplier names; the supplier_id column on expenses
+       is what's stored, but for display we want the name. */
+    fetchOverride: async () => {
+      const ar = currentLang === 'ar';
+      const fromDate = document.getElementById('rt-from')?.value || '';
+      const toDate   = document.getElementById('rt-to')?.value   || '';
+
+      let q = sb.from('expenses').select('*').eq('business_id', currentBiz.id);
+      if(fromDate) q = q.gte('expense_date', fromDate);
+      if(toDate)   q = q.lte('expense_date', toDate);
+      q = q.order('expense_date', { ascending: false }).limit(2000);
+
+      const {data: bills, error} = await q;
+      if(error) throw error;
+      if(!bills || bills.length === 0){
+        console.warn('[GL] Bills: no rows in range', {fromDate, toDate});
+        return [];
+      }
+
+      /* Join suppliers for name display */
+      const supplierIds = [...new Set(bills.map(b => b.supplier_id).filter(Boolean))];
+      const supplierMap = {};
+      if(supplierIds.length){
+        for(let i = 0; i < supplierIds.length; i += 200){
+          const batch = supplierIds.slice(i, i + 200);
+          const {data: sups} = await sb.from('suppliers')
+            .select('id, name_ar, name_en, supplier_code')
+            .in('id', batch);
+          (sups || []).forEach(s => { supplierMap[s.id] = s; });
+        }
+      }
+
+      return bills.map(b => {
+        const sup = b.supplier_id ? (supplierMap[b.supplier_id] || {}) : {};
+        const supName = ar
+          ? (sup.name_ar || sup.name_en || b.vendor_name_snapshot || '—')
+          : (sup.name_en || sup.name_ar || b.vendor_name_snapshot || '—');
+        const total = parseFloat(b.total) || 0;
+        const paid = parseFloat(b.amount_paid) || 0;
+        return {
+          _id: b.id,
+          expense_date: b.expense_date,
+          expense_number: b.expense_number || '',
+          vendor_invoice_number: b.vendor_invoice_number || '',
+          supplier_name: supName,
+          category: b.category || '',
+          description: b.description || '',
+          subtotal: parseFloat(b.subtotal) || 0,
+          vat_amount: parseFloat(b.vat_amount) || 0,
+          total: total,
+          amount_paid: paid,
+          remaining: total - paid,
+          payment_status: (b.payment_status || '').toLowerCase(),
+          payment_method: b.payment_method || '',
+          due_date: b.due_date,
+          status: (b.status || '').toLowerCase()
+        };
+      });
+    },
+    columns: [
+      { key: 'expense_date',         type: 'date',   label_ar: 'تاريخ الفاتورة',    label_en: 'Bill Date',       defaultShow: true },
+      { key: 'expense_number',       type: 'text',   label_ar: 'رقم داخلي',          label_en: 'Internal #',      defaultShow: true },
+      { key: 'vendor_invoice_number',type: 'text',   label_ar: 'رقم فاتورة المورد', label_en: 'Vendor Inv #',    defaultShow: false },
+      { key: 'supplier_name',        type: 'text',   label_ar: 'المورد',             label_en: 'Supplier',        defaultShow: true },
+      { key: 'category',             type: 'text',   label_ar: 'الفئة',              label_en: 'Category',        defaultShow: false },
+      { key: 'description',          type: 'text',   label_ar: 'الوصف',              label_en: 'Description',     defaultShow: false },
+      { key: 'subtotal',             type: 'money',  label_ar: 'المبلغ قبل الضريبة', label_en: 'Subtotal',        defaultShow: false, total: true },
+      { key: 'vat_amount',           type: 'money',  label_ar: 'ضريبة القيمة المضافة', label_en: 'VAT',          defaultShow: false, total: true },
+      { key: 'total',                type: 'money',  label_ar: 'الإجمالي',           label_en: 'Total',           defaultShow: true,  total: true },
+      { key: 'amount_paid',          type: 'money',  label_ar: 'المدفوع',            label_en: 'Paid',            defaultShow: true,  total: true },
+      { key: 'remaining',            type: 'money',  label_ar: 'المتبقي',            label_en: 'Remaining',       defaultShow: true,  total: true },
+      { key: 'payment_status',       type: 'enum',   label_ar: 'حالة السداد',        label_en: 'Payment Status',  defaultShow: true,
+        enumValues: { paid: {ar:'مدفوع', en:'Paid'}, unpaid: {ar:'غير مدفوع', en:'Unpaid'}, partial: {ar:'جزئي', en:'Partial'} } },
+      { key: 'payment_method',       type: 'text',   label_ar: 'طريقة الدفع',        label_en: 'Payment Method',  defaultShow: false },
+      { key: 'due_date',             type: 'date',   label_ar: 'تاريخ الاستحقاق',    label_en: 'Due Date',        defaultShow: false },
+      { key: 'status',               type: 'enum',   label_ar: 'الحالة',             label_en: 'Status',          defaultShow: false,
+        enumValues: { posted: {ar:'مرحّل', en:'Posted'}, draft: {ar:'مسودة', en:'Draft'} } }
+    ]
+  },
+
+  /* ────────────────────────────────────────────────────────────────────────
+     PURCHASE ORDERS — PO header list with supplier + totals.
+     Date-scoped by po_date. Money columns sum across selected POs. */
+  purchase_orders: {
+    icon: '📜',
+    label_ar: 'أوامر الشراء', label_en: 'Purchase Orders',
+    dateColumn: 'po_date',
+    fetchOverride: async () => {
+      const ar = currentLang === 'ar';
+      const fromDate = document.getElementById('rt-from')?.value || '';
+      const toDate   = document.getElementById('rt-to')?.value   || '';
+
+      let q = sb.from('purchase_orders').select('*').eq('business_id', currentBiz.id);
+      if(fromDate) q = q.gte('po_date', fromDate);
+      if(toDate)   q = q.lte('po_date', toDate);
+      q = q.order('po_date', { ascending: false }).limit(2000);
+
+      const {data: pos, error} = await q;
+      if(error) throw error;
+      if(!pos || pos.length === 0){
+        console.warn('[GL] Purchase Orders: no rows in range', {fromDate, toDate});
+        return [];
+      }
+
+      /* Join suppliers (the supplier_name snapshot exists on PO but may be stale
+         if the supplier was renamed; prefer the live name when available) */
+      const supplierIds = [...new Set(pos.map(p => p.supplier_id).filter(Boolean))];
+      const supplierMap = {};
+      if(supplierIds.length){
+        for(let i = 0; i < supplierIds.length; i += 200){
+          const batch = supplierIds.slice(i, i + 200);
+          const {data: sups} = await sb.from('suppliers')
+            .select('id, name_ar, name_en')
+            .in('id', batch);
+          (sups || []).forEach(s => { supplierMap[s.id] = s; });
+        }
+      }
+
+      return pos.map(p => {
+        const sup = p.supplier_id ? (supplierMap[p.supplier_id] || {}) : {};
+        const supName = ar
+          ? (sup.name_ar || sup.name_en || p.supplier_name || '—')
+          : (sup.name_en || sup.name_ar || p.supplier_name || '—');
+        return {
+          _id: p.id,
+          po_date: p.po_date,
+          po_number: p.po_number || '',
+          supplier_name: supName,
+          expected_date: p.expected_date,
+          status: (p.status || '').toLowerCase(),
+          subtotal: parseFloat(p.subtotal) || 0,
+          vat_amount: parseFloat(p.vat_amount) || 0,
+          total: parseFloat(p.total) || 0,
+          notes: p.notes || ''
+        };
+      });
+    },
+    columns: [
+      { key: 'po_date',       type: 'date',  label_ar: 'تاريخ الأمر',        label_en: 'PO Date',         defaultShow: true },
+      { key: 'po_number',     type: 'text',  label_ar: 'رقم الأمر',          label_en: 'PO #',            defaultShow: true },
+      { key: 'supplier_name', type: 'text',  label_ar: 'المورد',             label_en: 'Supplier',        defaultShow: true },
+      { key: 'status',        type: 'enum',  label_ar: 'الحالة',             label_en: 'Status',          defaultShow: true,
+        enumValues: {
+          draft:     {ar:'مسودة',     en:'Draft'},
+          submitted: {ar:'مُرسل',     en:'Submitted'},
+          approved:  {ar:'موافق عليه', en:'Approved'},
+          received:  {ar:'مستلم',     en:'Received'},
+          partial:   {ar:'استلام جزئي',en:'Partial'},
+          closed:    {ar:'مغلق',      en:'Closed'},
+          cancelled: {ar:'ملغي',      en:'Cancelled'}
+        } },
+      { key: 'expected_date', type: 'date',  label_ar: 'الاستلام المتوقع',   label_en: 'Expected Date',   defaultShow: false },
+      { key: 'subtotal',      type: 'money', label_ar: 'المبلغ قبل الضريبة', label_en: 'Subtotal',        defaultShow: false, total: true },
+      { key: 'vat_amount',    type: 'money', label_ar: 'الضريبة',            label_en: 'VAT',             defaultShow: false, total: true },
+      { key: 'total',         type: 'money', label_ar: 'الإجمالي',           label_en: 'Total',           defaultShow: true,  total: true },
+      { key: 'notes',         type: 'text',  label_ar: 'ملاحظات',            label_en: 'Notes',           defaultShow: false }
+    ]
   }
-  /* Add more sources here: suppliers, products, bills, etc.
-     Each follows the same shape. No engine changes required. */
+  /* All planned data sources delivered. Add more sources here as new entities
+     come online. Each follows the same shape. No engine changes required. */
 };
 
 /* ───── STATE ─────
