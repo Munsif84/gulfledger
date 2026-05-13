@@ -233,6 +233,10 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .db-export-item{display:flex;align-items:center;gap:10px;width:100%;padding:9px 14px;border:none;background:transparent;font-family:inherit;font-size:13px;color:var(--ink);cursor:pointer;text-align:start;}
 .db-export-item:hover{background:var(--tint);color:var(--blue);}
 
+/* Stale state on the Generate button — indicates config changed since last Generate */
+.btn.stale{position:relative;}
+.btn.stale::after{content:'';position:absolute;top:-3px;inset-inline-end:-3px;width:10px;height:10px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 2px #fff;}
+
 /* Data Builder column-sort indicators in headers */
 .r-table th.sortable{cursor:pointer;user-select:none;}
 .r-table th.sortable:hover{background:var(--light);}
@@ -561,23 +565,31 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           <div class="db-toolbar-left">
             <button class="btn btn-secondary btn-sm db-popover-trigger" id="db-btn-columns" onclick="dbTogglePopover('columns', this)">
               <span style="font-size:14px;">⚙</span>
-              <span data-ar="الأعمدة" data-en="Columns">الأعمدة</span>
+              <span data-ar="الخانات" data-en="Columns">الخانات</span>
               <span class="db-count-badge" id="db-columns-count"></span>
             </button>
             <button class="btn btn-secondary btn-sm db-popover-trigger" id="db-btn-filters" onclick="dbTogglePopover('filters', this)">
-              <span style="font-size:14px;">⛓</span>
-              <span data-ar="تصفية" data-en="Filter">تصفية</span>
+              <span data-ar="فلترة" data-en="Filter">فلترة</span>
               <span class="db-count-badge" id="db-filters-count"></span>
             </button>
             <input type="search" class="db-search" id="db-row-search" oninput="dbApplyRowSearch()"
-              placeholder="🔍 Search rows..." aria-label="Search rows">
+              placeholder="🔍 Search rows..." data-ar-placeholder="🔍 ابحث في الصفوف..." data-en-placeholder="🔍 Search rows..." aria-label="Search rows">
           </div>
           <div class="db-toolbar-right">
-            <span class="db-layout-name" id="db-layout-name-display"></span>
-            <!-- Export menu — anchored popover with CSV + Excel options -->
+            <!-- Generate — primary action. Explicit "go fetch and render" button. -->
+            <button class="btn btn-primary btn-sm" id="db-btn-generate" onclick="dbGenerate()">
+              <span data-ar="عرض" data-en="Generate">عرض</span>
+            </button>
+            <!-- Refresh — same fetch path as Generate but communicates "re-pull" intent.
+                 Disabled until at least one Generate has happened. -->
+            <button class="btn btn-secondary btn-sm" id="db-btn-refresh" onclick="dbGenerate()" disabled title="Refresh data">
+              <span>↻</span>
+              <span data-ar="تحديث" data-en="Refresh">تحديث</span>
+            </button>
+            <!-- Export menu -->
             <div style="position:relative;">
-              <button class="btn btn-secondary btn-sm" id="db-btn-export" onclick="dbToggleExportMenu(this)">
-                <span>↓</span>
+              <button class="btn btn-secondary btn-sm" id="db-btn-export" onclick="dbToggleExportMenu(this)" disabled>
+                <span>⬇</span>
                 <span data-ar="تصدير" data-en="Export">تصدير</span>
                 <span style="font-size:9px;opacity:.6;">▾</span>
               </button>
@@ -592,10 +604,12 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
                 </button>
               </div>
             </div>
-            <button class="btn btn-secondary btn-sm" id="db-btn-save" onclick="dbOpenSaveDialog()" title="Save current layout">
-              <span>💾</span>
-              <span data-ar="حفظ" data-en="Save">حفظ</span>
+            <!-- Print: standard browser print of the rendered table -->
+            <button class="btn btn-ghost btn-sm" onclick="window.print()" disabled id="db-btn-print" title="Print">
+              <span>🖨</span>
+              <span data-ar="طباعة" data-en="Print">طباعة</span>
             </button>
+            <!-- Reset: restore source defaults (does NOT re-fetch; user must click Generate again) -->
             <button class="btn btn-ghost btn-sm" id="db-btn-reset" onclick="dbResetToDefault()" title="Reset to default layout">
               <span>↺</span>
               <span data-ar="استعادة" data-en="Reset">استعادة</span>
@@ -697,6 +711,10 @@ function setLang(lang){
   document.querySelectorAll('[data-ar]').forEach(el => {
     el.textContent = lang === 'ar' ? el.dataset.ar : el.dataset.en;
   });
+  /* Bilingual input placeholders */
+  document.querySelectorAll('[data-ar-placeholder]').forEach(el => {
+    el.placeholder = lang === 'ar' ? el.dataset.arPlaceholder : el.dataset.enPlaceholder;
+  });
 }
 
 async function logout(){
@@ -771,7 +789,7 @@ function categoryLabel(code){
 }
 
 const REPORT_TITLES = {
-  data_builder:      {icon: '📊', ar: 'منشئ التقارير',                       en: 'Data Builder',       sub_ar: 'اختر مصدر بيانات وخصّص الأعمدة والفلاتر',                              sub_en: 'Pick a data source and customize columns, filters, and sort'},
+  data_builder:      {icon: '📊', ar: 'منشئ التقارير',                       en: 'Data Builder',       sub_ar: 'اختر مصدر بيانات وخصّص الخانات والفلترة',                              sub_en: 'Pick a data source and customize columns, filters, and sort'},
   customer:          {icon: '👤', ar: 'كشف حساب عميل',                     en: 'Customer Statement', sub_ar: 'حركة المعاملات والرصيد لعميل محدد خلال الفترة',                    sub_en: 'Transaction activity and balance for a specific customer over the period'},
   aging:             {icon: '⏳', ar: 'أعمار الذمم المدينة',                en: 'AR Aging',           sub_ar: 'الفواتير غير المسددة مجمّعة بحسب عمر التأخر',                       sub_en: 'Unpaid invoices grouped by how overdue they are'},
   grni_aging:        {icon: '📥', ar: 'أعمار البضاعة المستلمة لم تُفوتر',    en: 'GRNI Aging',         sub_ar: 'الاستلامات الائتمانية التي لم تتحول بعد إلى فاتورة موردين',         sub_en: 'Credit receipts not yet converted to supplier bills'}
@@ -1422,6 +1440,7 @@ const _dbState = {
   rowSearch: '',               /* live text search across all string columns */
   rows: [],                    /* fetched rows from the data source */
   filteredRows: [],            /* rows after applying filters + search */
+  generated: false,            /* true after user clicks Generate; controls post-gen buttons */
   savedLayouts: [],            /* array of {id, name, name_ar, config, is_shared, user_id, is_builtin} */
   activeLayoutId: null,        /* id of the saved layout currently loaded (null = unsaved) */
   isModified: false,           /* true if current state differs from active layout */
@@ -1430,7 +1449,9 @@ const _dbState = {
 };
 
 /* ─────────────────────────────────────────
-   ENTRY POINT: open a data source
+   ENTRY POINT: open a data source.
+   Does NOT fetch data — sets state and shows a prompt to click Generate.
+   This is the explicit-action flow: configure first, then Generate.
    ───────────────────────────────────────── */
 async function dbOpenSource(sourceName, btn){
   if(btn?.classList.contains('disabled')) return;
@@ -1456,26 +1477,71 @@ async function dbOpenSource(sourceName, btn){
   _dbState.filters = [];
   _dbState.sort = src.orderBy ? { column: src.orderBy.column, direction: src.orderBy.ascending ? 'asc' : 'desc' } : null;
   _dbState.rowSearch = '';
+  _dbState.rows = [];
+  _dbState.filteredRows = [];
   _dbState.activeLayoutId = null;
   _dbState.isModified = false;
+  _dbState.generated = false;
 
   /* Update the report header to reflect this source */
   document.getElementById('active-report-icon').textContent = src.icon;
   document.getElementById('active-report-label').textContent = ar ? src.label_ar : src.label_en;
   document.getElementById('active-report-sub').textContent = ar
-    ? `كل البيانات في «${src.label_ar}». اختر الأعمدة وعوامل التصفية حسب حاجتك.`
-    : `All data in ${src.label_en}. Pick columns and filters as needed.`;
+    ? `كل البيانات في «${src.label_ar}». اضبط الخانات والفلترة ثم اضغط «عرض».`
+    : `All data in ${src.label_en}. Configure columns and filters, then click Generate.`;
 
   /* Clear UI bits */
   const search = document.getElementById('db-row-search');
   if(search) search.value = '';
-  document.getElementById('db-layout-name-display').textContent = '';
-  document.getElementById('db-layout-name-display').classList.remove('modified');
+  /* Clear summary */
+  document.getElementById('db-summary').innerHTML = '';
 
-  /* Fetch + render */
+  /* Show prompt-to-generate empty state — do NOT fetch yet */
+  document.getElementById('report-data_builder-content').innerHTML = `
+    <div class="db-empty-state">
+      <div class="db-empty-state-icon">${src.icon}</div>
+      <div class="db-empty-state-msg">${ar
+        ? `اضبط الخانات والفلترة حسب حاجتك، ثم اضغط <strong>عرض</strong> لتوليد التقرير.`
+        : `Configure columns and filters, then click <strong>Generate</strong> to load the report.`}</div>
+    </div>`;
+
+  /* Disable export/refresh/print until first Generate */
+  dbSetPostGenerateButtons(false);
+  dbUpdateToolbarCounts();
+}
+
+/* ─────────────────────────────────────────
+   GENERATE — explicit fetch + render. User-triggered.
+   Called by the Generate button, the Refresh button (same fetch), or when
+   loading a saved layout (auto-generate so the user sees data immediately).
+   ───────────────────────────────────────── */
+async function dbGenerate(){
+  if(!_dbState.source){
+    notify(currentLang === 'ar' ? 'اختر مصدر بيانات أولاً' : 'Pick a data source first', 'error');
+    return;
+  }
+  const ar = currentLang === 'ar';
+  const genBtn = document.getElementById('db-btn-generate');
+  const refreshBtn = document.getElementById('db-btn-refresh');
+  if(genBtn){ genBtn.disabled = true; genBtn.classList.remove('stale'); }
+  if(refreshBtn){ refreshBtn.disabled = true; }
+
   await dbFetchRows();
+  _dbState.generated = true;
   dbRenderTable();
   dbUpdateToolbarCounts();
+
+  if(genBtn) genBtn.disabled = false;
+  /* Once generated, post-generate buttons unlock */
+  dbSetPostGenerateButtons(true);
+}
+
+/* Enable/disable buttons that only make sense after data has been generated */
+function dbSetPostGenerateButtons(enabled){
+  ['db-btn-refresh','db-btn-export','db-btn-print'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.disabled = !enabled;
+  });
 }
 
 /* ─────────────────────────────────────────
@@ -1594,6 +1660,9 @@ function dbApplyFiltersAndSearch(){
    RENDER — flat table from registry + filteredRows
    ───────────────────────────────────────── */
 function dbRenderTable(){
+  /* Pre-Generate: silent no-op — the empty state set by dbOpenSource stays in place */
+  if(!_dbState.generated) return;
+
   dbApplyFiltersAndSearch();
 
   const src = DATA_SOURCES[_dbState.source];
@@ -1790,11 +1859,11 @@ function dbBuildColumnsPopover(){
 
   return `
     <div class="db-popover-header">
-      <div class="db-popover-title">${ar ? 'الأعمدة' : 'Columns'}</div>
+      <div class="db-popover-title">${ar ? 'الخانات' : 'Columns'}</div>
       <button class="db-modal-close" onclick="dbClosePopover()" aria-label="Close">×</button>
     </div>
     <div class="db-popover-search">
-      <input type="search" placeholder="${ar?'ابحث في الأعمدة...':'Search columns...'}" oninput="dbFilterColumnList(this.value)">
+      <input type="search" placeholder="${ar?'ابحث في الخانات...':'Search columns...'}" oninput="dbFilterColumnList(this.value)">
     </div>
     <div class="db-popover-body" id="db-columns-body">
       <div class="db-popover-section-label">${ar ? `معروضة (${shown.length})` : `Shown (${shown.length})`}</div>
@@ -1803,8 +1872,14 @@ function dbBuildColumnsPopover(){
       ${available.map(rowFor).join('')}
     </div>
     <div class="db-popover-footer">
-      <button class="btn btn-ghost btn-sm" onclick="dbResetColumnsToDefault()">${ar?'الافتراضي':'Reset to default'}</button>
-      <button class="btn btn-primary btn-sm" onclick="dbClosePopover()">${ar?'تم':'Done'}</button>
+      <button class="btn btn-ghost btn-sm" onclick="dbResetColumnsToDefault()">${ar?'استعادة الافتراضي':'Reset to default'}</button>
+      <div style="display:flex;gap:6px;">
+        <button class="btn btn-secondary btn-sm" onclick="dbOpenSaveDialog()" title="${ar?'حفظ التخطيط الحالي':'Save this layout'}">
+          <span>💾</span>
+          <span>${ar?'حفظ التخطيط':'Save layout'}</span>
+        </button>
+        <button class="btn btn-primary btn-sm" onclick="dbClosePopover()">${ar?'تم':'Done'}</button>
+      </div>
     </div>`;
 }
 
@@ -1863,7 +1938,7 @@ function dbBuildFiltersPopover(){
 
   return `
     <div class="db-popover-header">
-      <div class="db-popover-title">${ar ? 'تصفية' : 'Filter'}</div>
+      <div class="db-popover-title">${ar ? 'فلترة' : 'Filter'}</div>
       <button class="db-modal-close" onclick="dbClosePopover()" aria-label="Close">×</button>
     </div>
     <div class="db-popover-body" id="db-filters-body">
@@ -1995,12 +2070,18 @@ function dbUpdateToolbarCounts(){
 }
 
 function dbUpdateModifiedIndicator(){
-  const el = document.getElementById('db-layout-name-display');
-  if(!el) return;
-  if(_dbState.activeLayoutId && _dbState.isModified){
-    el.classList.add('modified');
-  } else {
-    el.classList.remove('modified');
+  /* When the user changes columns/filters/sort AFTER a Generate, the displayed
+     table no longer reflects the current config. Surface this with a subtle
+     hint on the Generate button: a small dot indicates "regenerate to refresh". */
+  const genBtn = document.getElementById('db-btn-generate');
+  if(!genBtn) return;
+  if(_dbState.generated){
+    /* The "isModified" flag is also used by saved-layout dirty state.
+       For Generate, we hint whenever a config change happens post-Generate.
+       Cheap proxy: just always show the hint after first interaction. */
+    if(!genBtn.classList.contains('stale')){
+      genBtn.classList.add('stale');
+    }
   }
 }
 
@@ -2069,8 +2150,14 @@ async function dbSaveLayout(){
     _dbState.isModified = false;
     _dbState.savedLayouts.unshift(data);
     dbRenderSavedLayoutsSidebar();
-    document.getElementById('db-layout-name-display').textContent = ar ? (data.name_ar || data.name) : data.name;
-    document.getElementById('db-layout-name-display').classList.remove('modified');
+    /* Reflect the saved layout name in the section subtitle */
+    const layoutName = ar ? (data.name_ar || data.name) : data.name;
+    const src = DATA_SOURCES[data.data_source];
+    const sourceLabel = src ? (ar ? src.label_ar : src.label_en) : '';
+    const sub = document.getElementById('active-report-sub');
+    if(sub){
+      sub.textContent = ar ? `${sourceLabel} · «${layoutName}»` : `${sourceLabel} · "${layoutName}"`;
+    }
 
     dbCloseSaveDialog();
     notify(ar ? '✅ تم حفظ التقرير' : '✅ Layout saved', 'success');
@@ -2132,7 +2219,7 @@ async function dbOpenLayout(layoutId, btn){
   if(!layout){ return; }
   const ar = currentLang === 'ar';
 
-  /* Open the underlying source first */
+  /* Open the underlying source first (sets state, shows empty state — doesn't fetch) */
   await dbOpenSource(layout.data_source, btn);
 
   /* Apply the saved config on top */
@@ -2148,11 +2235,17 @@ async function dbOpenLayout(layoutId, btn){
 
   _dbState.activeLayoutId = layoutId;
   _dbState.isModified = false;
-  document.getElementById('db-layout-name-display').textContent = ar ? (layout.name_ar || layout.name) : layout.name;
-  document.getElementById('db-layout-name-display').classList.remove('modified');
 
-  dbRenderTable();
-  dbUpdateToolbarCounts();
+  /* Surface the loaded layout name in the section subtitle */
+  const layoutName = ar ? (layout.name_ar || layout.name) : layout.name;
+  const src = DATA_SOURCES[layout.data_source];
+  const sourceLabel = src ? (ar ? src.label_ar : src.label_en) : '';
+  document.getElementById('active-report-sub').textContent = ar
+    ? `${sourceLabel} · «${layoutName}»`
+    : `${sourceLabel} · "${layoutName}"`;
+
+  /* Saved layouts auto-generate — user expects to see data immediately */
+  await dbGenerate();
 }
 
 /* ─────────────────────────────────────────
