@@ -233,6 +233,17 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .db-export-item{display:flex;align-items:center;gap:10px;width:100%;padding:9px 14px;border:none;background:transparent;font-family:inherit;font-size:13px;color:var(--ink);cursor:pointer;text-align:start;}
 .db-export-item:hover{background:var(--tint);color:var(--blue);}
 
+/* Saved-layouts dropdown rows */
+.db-saved-row{display:flex;align-items:center;gap:0;padding:0;border-bottom:1px solid var(--tint);}
+.db-saved-row:last-child{border-bottom:none;}
+.db-saved-pick{display:flex;align-items:center;gap:10px;flex:1;padding:10px 14px;border:none;background:transparent;cursor:pointer;font-family:inherit;font-size:13px;color:var(--ink);text-align:start;min-width:0;}
+.db-saved-pick:hover{background:var(--tint);color:var(--blue);}
+.db-saved-name{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-weight:600;}
+.db-saved-source{font-size:10px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.04em;flex-shrink:0;}
+.db-saved-delete{background:transparent;color:var(--muted);border:none;width:28px;height:28px;font-size:16px;cursor:pointer;opacity:0;transition:opacity .15s;border-radius:6px;flex-shrink:0;margin-inline-end:6px;}
+.db-saved-row:hover .db-saved-delete{opacity:1;}
+.db-saved-delete:hover{background:#fee2e2;color:#991b1b;}
+
 /* Stale state on the Generate button — indicates config changed since last Generate */
 .btn.stale{position:relative;}
 .btn.stale::after{content:'';position:absolute;top:-3px;inset-inline-end:-3px;width:10px;height:10px;border-radius:50%;background:var(--amber);box-shadow:0 0 0 2px #fff;}
@@ -453,18 +464,6 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
       </button>
     </div>
 
-    <!-- MY SAVED REPORTS — populated from report_layouts table by JS -->
-    <div class="sidebar-group" id="db-my-reports-group" style="display:none;">
-      <div class="sidebar-group-label" data-ar="تقاريري" data-en="My reports">تقاريري</div>
-      <div id="db-my-reports-list"></div>
-    </div>
-
-    <!-- SHARED REPORTS — populated by JS, hidden when empty -->
-    <div class="sidebar-group" id="db-shared-reports-group" style="display:none;">
-      <div class="sidebar-group-label" data-ar="مشاركة" data-en="Shared">مشاركة</div>
-      <div id="db-shared-reports-list"></div>
-    </div>
-
     <!-- BUILT-IN — the canned reports (Customer Statement, AR Aging, GRNI Aging). Stay unchanged for now. -->
     <div class="sidebar-group">
       <div class="sidebar-group-label" data-ar="تقارير جاهزة" data-en="Built-in reports">تقارير جاهزة</div>
@@ -609,6 +608,17 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
               <span>🖨</span>
               <span data-ar="طباعة" data-en="Print">طباعة</span>
             </button>
+            <!-- Saved layouts dropdown — replaces sidebar list -->
+            <div style="position:relative;">
+              <button class="btn btn-ghost btn-sm" id="db-btn-saved" onclick="dbToggleSavedMenu(this)" title="My saved layouts">
+                <span>⭐</span>
+                <span data-ar="المحفوظات" data-en="Saved">المحفوظات</span>
+                <span class="db-count-badge" id="db-saved-count"></span>
+              </button>
+              <div class="db-export-menu" id="db-saved-menu" style="display:none;min-width:260px;max-height:360px;overflow-y:auto;">
+                <!-- Populated by dbRenderSavedMenu() -->
+              </div>
+            </div>
             <!-- Reset: restore source defaults (does NOT re-fetch; user must click Generate again) -->
             <button class="btn btn-ghost btn-sm" id="db-btn-reset" onclick="dbResetToDefault()" title="Reset to default layout">
               <span>↺</span>
@@ -954,10 +964,10 @@ function showReport(name, btn, preset){
   document.getElementById('rt-asof').style.display = isAsOf ? '' : 'none';
   document.getElementById('rt-customer').style.display = isCustomer ? '' : 'none';
   document.getElementById('rt-presets').style.display = isDataBuilder ? 'none' : '';
-  /* Run button is meaningful for the built-in reports; the data builder runs on
-     source-pick / column-change / filter-change without a Run button. */
-  const runBtn = document.querySelector('.report-toolbar-right .btn-primary');
-  if(runBtn) runBtn.style.display = isDataBuilder ? 'none' : '';
+  /* Hide the entire global toolbar-right (Run + Print) for the Data Builder —
+     the engine has its own toolbar with its own Generate and Print buttons. */
+  const globalToolbarRight = document.querySelector('.report-toolbar-right');
+  if(globalToolbarRight) globalToolbarRight.style.display = isDataBuilder ? 'none' : '';
 
   /* Update URL hash */
   history.replaceState(null, '', '#' + name);
@@ -1278,7 +1288,11 @@ const DATA_SOURCES = {
     icon: '👥',
     label_ar: 'العملاء', label_en: 'Customers',
     table: 'customers',
-    select: 'id, name, name_ar, name_en, customer_type, trn, phone, email, contact_name, address, city, country, payment_terms, credit_limit, default_currency, opening_balance, notes, created_at, updated_at',
+    /* Select '*' to be schema-tolerant. The registry below decides what to show;
+       columns that don't exist on the row are simply undefined and render as —. */
+    select: '*',
+    /* Active customers only — matches the convention used by invoices.html */
+    activeFilter: { column: 'is_active', value: true },
     orderBy: { column: 'created_at', ascending: false },
     columns: [
       { key: 'name',            type: 'text',     label_ar: 'الاسم',                 label_en: 'Name',                defaultShow: true },
@@ -1562,6 +1576,9 @@ async function dbFetchRows(){
     } else {
       /* Standard fetch — flat single-table query */
       let q = sb.from(src.table).select(src.select).eq('business_id', currentBiz.id);
+      if(src.activeFilter){
+        q = q.eq(src.activeFilter.column, src.activeFilter.value);
+      }
       if(src.orderBy) q = q.order(src.orderBy.column, { ascending: !!src.orderBy.ascending });
       const {data, error} = await q.limit(1000);
       if(error) throw error;
@@ -2149,7 +2166,7 @@ async function dbSaveLayout(){
     _dbState.activeLayoutId = data.id;
     _dbState.isModified = false;
     _dbState.savedLayouts.unshift(data);
-    dbRenderSavedLayoutsSidebar();
+    dbRenderSavedMenu();
     /* Reflect the saved layout name in the section subtitle */
     const layoutName = ar ? (data.name_ar || data.name) : data.name;
     const src = DATA_SOURCES[data.data_source];
@@ -2180,38 +2197,113 @@ async function dbLoadSavedLayouts(){
       .order('updated_at', { ascending: false });
     if(error) throw error;
     _dbState.savedLayouts = data || [];
-    dbRenderSavedLayoutsSidebar();
+    dbRenderSavedMenu();
   } catch(err){
     console.error('[GL] dbLoadSavedLayouts', err);
     /* Silent failure — saved layouts are nice-to-have. Engine still works without. */
   }
 }
 
-function dbRenderSavedLayoutsSidebar(){
+/* Saved-layouts dropdown in the toolbar. Replaces the old sidebar list.
+   Two sections: 'Mine' (created by current user) and 'Shared' (by other users, is_shared=true).
+   Each row: name, click to open. Hover shows delete on mine. */
+function dbRenderSavedMenu(){
   const ar = currentLang === 'ar';
-  const myList = document.getElementById('db-my-reports-list');
-  const myGroup = document.getElementById('db-my-reports-group');
-  const sharedList = document.getElementById('db-shared-reports-list');
-  const sharedGroup = document.getElementById('db-shared-reports-group');
-  if(!myList || !sharedList) return;
-
-  const myUserId = currentUser.id;
+  const menu = document.getElementById('db-saved-menu');
+  if(!menu) return;
+  const myUserId = currentUser?.id;
   const mine = _dbState.savedLayouts.filter(l => l.user_id === myUserId && !l.is_builtin);
   const shared = _dbState.savedLayouts.filter(l => l.user_id !== myUserId && l.is_shared);
 
-  const renderRow = (l) => {
+  /* Update the toolbar count badge */
+  const countEl = document.getElementById('db-saved-count');
+  if(countEl) countEl.textContent = mine.length > 0 ? String(mine.length) : '';
+
+  if(mine.length === 0 && shared.length === 0){
+    menu.innerHTML = `<div style="padding:18px 14px;text-align:center;color:var(--muted);font-size:12px;line-height:1.5;">
+      ${ar ? 'لا توجد تخطيطات محفوظة بعد.<br>افتح «الخانات» واضغط «حفظ التخطيط» لإنشاء أول واحد.'
+           : 'No saved layouts yet.<br>Open Columns → Save layout to create your first one.'}
+    </div>`;
+    return;
+  }
+
+  const renderRow = (l, isMine) => {
     const name = ar ? (l.name_ar || l.name) : l.name;
     const sourceIcon = DATA_SOURCES[l.data_source]?.icon || '📊';
-    return `<button class="sidebar-link" onclick="dbOpenLayout('${l.id}', this)" title="${escHTML(l.data_source)}">
-      <span class="icon">${sourceIcon}</span>
-      <span style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHTML(name)}</span>
-    </button>`;
+    const sourceLabel = DATA_SOURCES[l.data_source] ? (ar ? DATA_SOURCES[l.data_source].label_ar : DATA_SOURCES[l.data_source].label_en) : l.data_source;
+    return `<div class="db-saved-row">
+      <button class="db-saved-pick" onclick="dbOpenLayoutFromMenu('${l.id}')">
+        <span style="font-size:14px;">${sourceIcon}</span>
+        <span class="db-saved-name">${escHTML(name)}</span>
+        <span class="db-saved-source">${escHTML(sourceLabel)}</span>
+      </button>
+      ${isMine ? `<button class="db-saved-delete" onclick="dbDeleteLayout('${l.id}', event)" title="${ar?'حذف':'Delete'}">×</button>` : ''}
+    </div>`;
   };
 
-  myList.innerHTML = mine.map(renderRow).join('');
-  myGroup.style.display = mine.length ? '' : 'none';
-  sharedList.innerHTML = shared.map(renderRow).join('');
-  sharedGroup.style.display = shared.length ? '' : 'none';
+  let html = '';
+  if(mine.length){
+    html += `<div class="db-popover-section-label">${ar?'الخاصة بي':'Mine'}</div>`;
+    html += mine.map(l => renderRow(l, true)).join('');
+  }
+  if(shared.length){
+    html += `<div class="db-popover-section-label">${ar?'مشاركة':'Shared'}</div>`;
+    html += shared.map(l => renderRow(l, false)).join('');
+  }
+  menu.innerHTML = html;
+}
+
+/* Toggle the saved-layouts dropdown */
+function dbToggleSavedMenu(btn){
+  const menu = document.getElementById('db-saved-menu');
+  if(!menu) return;
+  if(menu.style.display === 'none' || !menu.style.display){
+    dbRenderSavedMenu();
+    menu.style.display = '';
+    setTimeout(() => {
+      document.addEventListener('click', dbOnSavedMenuOutsideClick, { capture: true });
+    }, 0);
+  } else {
+    dbCloseSavedMenu();
+  }
+}
+function dbCloseSavedMenu(){
+  const menu = document.getElementById('db-saved-menu');
+  if(menu) menu.style.display = 'none';
+  document.removeEventListener('click', dbOnSavedMenuOutsideClick, { capture: true });
+}
+function dbOnSavedMenuOutsideClick(ev){
+  if(ev.target.closest('#db-btn-saved') || ev.target.closest('#db-saved-menu')) return;
+  dbCloseSavedMenu();
+}
+
+/* Called from the menu — closes the menu, then opens the layout */
+async function dbOpenLayoutFromMenu(layoutId){
+  dbCloseSavedMenu();
+  await dbOpenLayout(layoutId, null);
+}
+
+/* Delete a saved layout. Confirms first, then DELETEs from Supabase. */
+async function dbDeleteLayout(layoutId, ev){
+  if(ev) ev.stopPropagation();
+  const ar = currentLang === 'ar';
+  const layout = _dbState.savedLayouts.find(l => l.id === layoutId);
+  if(!layout) return;
+  const name = ar ? (layout.name_ar || layout.name) : layout.name;
+  if(!confirm((ar ? 'حذف «' : 'Delete "') + name + (ar ? '»؟' : '"?'))) return;
+  try {
+    const {error} = await sb.from('report_layouts').delete().eq('id', layoutId);
+    if(error) throw error;
+    _dbState.savedLayouts = _dbState.savedLayouts.filter(l => l.id !== layoutId);
+    if(_dbState.activeLayoutId === layoutId){
+      _dbState.activeLayoutId = null;
+    }
+    dbRenderSavedMenu();
+    notify(ar ? '✅ تم حذف التخطيط' : '✅ Layout deleted', 'success');
+  } catch(err){
+    console.error('[GL] dbDeleteLayout', err);
+    notify(err.message || 'Delete failed', 'error');
+  }
 }
 
 async function dbOpenLayout(layoutId, btn){
