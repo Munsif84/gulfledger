@@ -136,9 +136,19 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .field-label select.filter-select{padding:6px 8px;font-size:12px;max-width:200px;}
 
 /* Toolbar inside section header — holds the date pickers + presets + actions */
-.report-toolbar{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap;margin-top:14px;}
+/* Unified report toolbar — two explicit rows.
+   Row 1: scope inputs (date range / as-of / entity picker). Hidden when not needed.
+   Row 2: period preset pills (left) + action buttons (right, always shown).
+   When row 1 has nothing to show, it collapses and row 2 takes its place visually. */
+.report-toolbar{margin-top:14px;display:flex;flex-direction:column;gap:10px;}
+.report-toolbar-row{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;flex-wrap:wrap;}
+.report-toolbar-row.row-scope{align-items:flex-end;}
+.report-toolbar-row.row-actions{align-items:center;}
 .report-toolbar-left{display:flex;align-items:flex-end;gap:10px;flex-wrap:wrap;}
 .report-toolbar-right{display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+/* When the scope row has no visible content (master-data reports), collapse it
+   so there's no awkward empty gap above the action buttons. */
+.report-toolbar-row.row-scope.collapsed{display:none;}
 
 /* Report rendering states */
 .report-empty,.report-loading{text-align:center;padding:60px 20px;color:var(--muted);font-size:14px;}
@@ -723,71 +733,89 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         </div>
       </div>
 
-      <!-- Toolbar: date pickers + presets + actions.
-           Layout: left side stays on one line (date range + optional picker +
-           preset pills), right side has action buttons. Date range is locked
-           against wrapping so From and To always sit side-by-side. -->
+      <!-- ════════════════════════════════════════════════════════════════
+           UNIFIED REPORT TOOLBAR (Round 6f)
+           Two explicit rows:
+             Row 1 — scope inputs (date range / as-of / entity picker)
+             Row 2 — presets (left) + action buttons (right)
+           Each report variant shows/hides relevant rows. Master-data reports
+           collapse row 1 entirely. As-of reports show row 1 but hide presets.
+           Data Builder sources additionally get a row 3 (Columns/Filter/etc.)
+           rendered inside the section body — not here.
+           ════════════════════════════════════════════════════════════════ -->
       <div class="report-toolbar">
-        <div class="report-toolbar-left">
-          <!-- Date range (sales, customer statement). nowrap keeps From and To together. -->
-          <div id="rt-daterange" style="display:inline-flex;gap:8px;align-items:flex-end;flex-shrink:0;">
-            <label class="field-label">
-              <span data-ar="من" data-en="From">من</span>
-              <input type="date" id="rt-from" lang="en-SA-u-ca-gregory">
-            </label>
-            <label class="field-label">
-              <span data-ar="إلى" data-en="To">إلى</span>
-              <input type="date" id="rt-to" lang="en-SA-u-ca-gregory">
-            </label>
-          </div>
-          <!-- Single 'as of' date (aging reports, valuation) -->
-          <div id="rt-asof" style="display:none;">
-            <label class="field-label">
-              <span data-ar="بتاريخ" data-en="As of">بتاريخ</span>
-              <input type="date" id="rt-asofdate" lang="en-SA-u-ca-gregory">
-            </label>
-          </div>
-          <!-- Customer picker (Customer Statement only) -->
-          <div id="rt-customer" style="display:none;">
-            <label class="field-label">
-              <span data-ar="العميل" data-en="Customer">العميل</span>
-              <select id="rt-customer-select" class="filter-select"></select>
-            </label>
-          </div>
-          <!-- Supplier picker (Supplier Statement only) -->
-          <div id="rt-supplier" style="display:none;">
-            <label class="field-label">
-              <span data-ar="المورد" data-en="Supplier">المورد</span>
-              <select id="rt-supplier-select" class="filter-select"></select>
-            </label>
-          </div>
-          <!-- Quick presets -->
-          <div class="filter-group" id="rt-presets">
-            <button class="filter-btn" data-preset="this_month" onclick="applyPreset('this_month')" data-ar="هذا الشهر" data-en="This Month">هذا الشهر</button>
-            <button class="filter-btn" data-preset="last_month" onclick="applyPreset('last_month')" data-ar="الشهر الماضي" data-en="Last Month">الشهر الماضي</button>
-            <button class="filter-btn" data-preset="this_quarter" onclick="applyPreset('this_quarter')" data-ar="هذا الربع" data-en="This Quarter">هذا الربع</button>
-            <button class="filter-btn" data-preset="this_year" onclick="applyPreset('this_year')" data-ar="هذه السنة" data-en="This Year">هذه السنة</button>
+        <!-- Row 1: scope inputs. Collapses when nothing is visible. -->
+        <div class="report-toolbar-row row-scope" id="rt-row-scope">
+          <div class="report-toolbar-left">
+            <!-- Date range (sales, customer/supplier statement, bills, POs, stock movements).
+                 inline-flex with flex-shrink:0 keeps From and To side-by-side. -->
+            <div id="rt-daterange" style="display:inline-flex;gap:8px;align-items:flex-end;flex-shrink:0;">
+              <label class="field-label">
+                <span data-ar="من" data-en="From">من</span>
+                <input type="date" id="rt-from" lang="en-SA-u-ca-gregory">
+              </label>
+              <label class="field-label">
+                <span data-ar="إلى" data-en="To">إلى</span>
+                <input type="date" id="rt-to" lang="en-SA-u-ca-gregory">
+              </label>
+            </div>
+            <!-- Single 'as of' date (aging reports) -->
+            <div id="rt-asof" style="display:none;">
+              <label class="field-label">
+                <span data-ar="بتاريخ" data-en="As of">بتاريخ</span>
+                <input type="date" id="rt-asofdate" lang="en-SA-u-ca-gregory">
+              </label>
+            </div>
+            <!-- Customer picker (Customer Statement) -->
+            <div id="rt-customer" style="display:none;">
+              <label class="field-label">
+                <span data-ar="العميل" data-en="Customer">العميل</span>
+                <select id="rt-customer-select" class="filter-select"></select>
+              </label>
+            </div>
+            <!-- Supplier picker (Supplier Statement) -->
+            <div id="rt-supplier" style="display:none;">
+              <label class="field-label">
+                <span data-ar="المورد" data-en="Supplier">المورد</span>
+                <select id="rt-supplier-select" class="filter-select"></select>
+              </label>
+            </div>
           </div>
         </div>
-        <div class="report-toolbar-right">
-          <!-- Action buttons — order/labels mirror the Data Builder toolbar so
-               users see the same shape everywhere.
-               عرض (Generate) is primary. The rest unlock after first Run. -->
-          <button class="btn btn-primary btn-sm" onclick="runCurrentReport()" id="bi-btn-run">
-            <span data-ar="عرض" data-en="Generate">عرض</span>
-          </button>
-          <button class="btn btn-secondary btn-sm" onclick="runCurrentReport()" id="bi-btn-refresh" disabled title="Refresh">
-            <span>↻</span>
-            <span data-ar="تحديث" data-en="Refresh">تحديث</span>
-          </button>
-          <button class="btn btn-secondary btn-sm" onclick="exportCurrentReportCSV()" id="bi-btn-export" disabled title="Export to CSV">
-            <span>⬇</span>
-            <span data-ar="تصدير" data-en="Export">تصدير</span>
-          </button>
-          <button class="btn btn-ghost btn-sm" onclick="dbPrint()" id="bi-btn-print" disabled title="Print">
-            <span>🖨</span>
-            <span data-ar="طباعة" data-en="Print">طباعة</span>
-          </button>
+
+        <!-- Row 2: period presets (left) + action buttons (right). Always shown. -->
+        <div class="report-toolbar-row row-actions">
+          <div class="report-toolbar-left">
+            <!-- Quick presets. Hidden for as-of and master-data reports. -->
+            <div class="filter-group" id="rt-presets">
+              <button class="filter-btn" data-preset="this_month" onclick="applyPreset('this_month')" data-ar="هذا الشهر" data-en="This Month">هذا الشهر</button>
+              <button class="filter-btn" data-preset="last_month" onclick="applyPreset('last_month')" data-ar="الشهر الماضي" data-en="Last Month">الشهر الماضي</button>
+              <button class="filter-btn" data-preset="this_quarter" onclick="applyPreset('this_quarter')" data-ar="هذا الربع" data-en="This Quarter">هذا الربع</button>
+              <button class="filter-btn" data-preset="this_year" onclick="applyPreset('this_year')" data-ar="هذه السنة" data-en="This Year">هذه السنة</button>
+            </div>
+          </div>
+          <div class="report-toolbar-right">
+            <!-- Action buttons — Generate (primary), Refresh, Export, Print.
+                 Same buttons, same order, same labels on EVERY report.
+                 Refresh/Export/Print start disabled, unlock after first Generate.
+                 For Data Builder sources these buttons re-route to dbGenerate /
+                 dbExport / dbPrint via the dispatcher in runCurrentReport. -->
+            <button class="btn btn-primary btn-sm" onclick="runCurrentReport()" id="bi-btn-run">
+              <span data-ar="عرض" data-en="Generate">عرض</span>
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="runCurrentReport()" id="bi-btn-refresh" disabled title="Refresh">
+              <span>↻</span>
+              <span data-ar="تحديث" data-en="Refresh">تحديث</span>
+            </button>
+            <button class="btn btn-secondary btn-sm" onclick="exportCurrentReportCSV()" id="bi-btn-export" disabled title="Export to CSV">
+              <span>⬇</span>
+              <span data-ar="تصدير" data-en="Export">تصدير</span>
+            </button>
+            <button class="btn btn-ghost btn-sm" onclick="dbPrint()" id="bi-btn-print" disabled title="Print">
+              <span>🖨</span>
+              <span data-ar="طباعة" data-en="Print">طباعة</span>
+            </button>
+          </div>
         </div>
       </div>
     </div>
@@ -808,6 +836,11 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
       <section class="report-section" id="report-data_builder">
         <!-- Toolbar specific to the Data Builder: Columns popover, Filters popover,
              Layout name + Save/Reset. Sits inside section-body, above the table. -->
+        <!-- Row 3 — Data Builder configuration: column picker, filter popover,
+             row search, saved layouts, reset. The Generate/Refresh/Export/Print
+             action buttons now live in the global toolbar (row 2) so every report
+             shows them in the same place. This row only carries the engine-specific
+             controls (columns/filter/search/saved/reset). -->
         <div class="db-toolbar">
           <div class="db-toolbar-left">
             <button class="btn btn-secondary btn-sm db-popover-trigger" id="db-btn-columns" onclick="dbTogglePopover('columns', this)">
@@ -823,18 +856,28 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
               placeholder="🔍 Search rows..." data-ar-placeholder="🔍 ابحث في الصفوف..." data-en-placeholder="🔍 Search rows..." aria-label="Search rows">
           </div>
           <div class="db-toolbar-right">
-            <!-- Generate — primary action. Explicit "go fetch and render" button. -->
-            <button class="btn btn-primary btn-sm" id="db-btn-generate" onclick="dbGenerate()">
-              <span data-ar="عرض" data-en="Generate">عرض</span>
-            </button>
-            <!-- Refresh — same fetch path as Generate but communicates "re-pull" intent.
-                 Disabled until at least one Generate has happened. -->
-            <button class="btn btn-secondary btn-sm" id="db-btn-refresh" onclick="dbGenerate()" disabled title="Refresh data">
-              <span>↻</span>
-              <span data-ar="تحديث" data-en="Refresh">تحديث</span>
-            </button>
-            <!-- Export menu -->
+            <!-- Saved layouts dropdown -->
             <div style="position:relative;">
+              <button class="btn btn-ghost btn-sm" id="db-btn-saved" onclick="dbToggleSavedMenu(this)" title="My saved layouts">
+                <span>⭐</span>
+                <span data-ar="المحفوظات" data-en="Saved">المحفوظات</span>
+                <span class="db-count-badge" id="db-saved-count"></span>
+              </button>
+              <div class="db-export-menu" id="db-saved-menu" style="display:none;min-width:260px;max-height:360px;overflow-y:auto;">
+                <!-- Populated by dbRenderSavedMenu() -->
+              </div>
+            </div>
+            <!-- Reset: restore source defaults -->
+            <button class="btn btn-ghost btn-sm" id="db-btn-reset" onclick="dbResetToDefault()" title="Reset to default layout">
+              <span>↺</span>
+              <span data-ar="استعادة" data-en="Reset">استعادة</span>
+            </button>
+            <!-- Hidden Export menu — kept in DOM so dbToggleExportMenu still
+                 functions. The visible Export button now lives in the global
+                 toolbar; clicking it calls exportCurrentReportCSV which routes
+                 to dbExport for Data Builder sources. We retain this menu so
+                 power-users can choose CSV vs Excel format if needed later. -->
+            <div style="position:relative;display:none;">
               <button class="btn btn-secondary btn-sm" id="db-btn-export" onclick="dbToggleExportMenu(this)" disabled>
                 <span>⬇</span>
                 <span data-ar="تصدير" data-en="Export">تصدير</span>
@@ -851,26 +894,20 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
                 </button>
               </div>
             </div>
-            <!-- Print: standard browser print of the rendered table -->
-            <button class="btn btn-ghost btn-sm" onclick="dbPrint()" disabled id="db-btn-print" title="Print">
+            <!-- Hidden Generate/Refresh/Print buttons — old IDs kept for any
+                 legacy code that still references them (dbSetPostGenerateButtons
+                 toggles their disabled state). The visible buttons are in the
+                 global toolbar above. -->
+            <button class="btn btn-primary btn-sm" id="db-btn-generate" onclick="dbGenerate()" style="display:none;">
+              <span data-ar="عرض" data-en="Generate">عرض</span>
+            </button>
+            <button class="btn btn-secondary btn-sm" id="db-btn-refresh" onclick="dbGenerate()" disabled title="Refresh data" style="display:none;">
+              <span>↻</span>
+              <span data-ar="تحديث" data-en="Refresh">تحديث</span>
+            </button>
+            <button class="btn btn-ghost btn-sm" onclick="dbPrint()" disabled id="db-btn-print" title="Print" style="display:none;">
               <span>🖨</span>
               <span data-ar="طباعة" data-en="Print">طباعة</span>
-            </button>
-            <!-- Saved layouts dropdown — replaces sidebar list -->
-            <div style="position:relative;">
-              <button class="btn btn-ghost btn-sm" id="db-btn-saved" onclick="dbToggleSavedMenu(this)" title="My saved layouts">
-                <span>⭐</span>
-                <span data-ar="المحفوظات" data-en="Saved">المحفوظات</span>
-                <span class="db-count-badge" id="db-saved-count"></span>
-              </button>
-              <div class="db-export-menu" id="db-saved-menu" style="display:none;min-width:260px;max-height:360px;overflow-y:auto;">
-                <!-- Populated by dbRenderSavedMenu() -->
-              </div>
-            </div>
-            <!-- Reset: restore source defaults (does NOT re-fetch; user must click Generate again) -->
-            <button class="btn btn-ghost btn-sm" id="db-btn-reset" onclick="dbResetToDefault()" title="Reset to default layout">
-              <span>↺</span>
-              <span data-ar="استعادة" data-en="Reset">استعادة</span>
             </button>
           </div>
         </div>
@@ -1384,29 +1421,46 @@ function showReport(name, btn, preset){
     document.getElementById('active-report-sub').textContent = ar ? (meta.sub_ar || '') : (meta.sub_en || '');
   }
 
-  /* Top toolbar config:
-     • data_builder: hide the global date toolbar — engine has its own controls
-     • aging / grni_aging / ap_aging: as-of date picker
-     • customer / supplier_statement: range + customer/supplier picker
-     • trial_balance / pl / bs / cf: period dropdown (TB/BS as-at, P&L/CF range)
-     • pl: also shows the compare-to-previous checkbox
-     • stock_valuation: no date inputs needed (snapshot of current state); Run button still shown
-     • otherwise: range only */
+  /* ════════════════════════════════════════════════════════════════════════
+     Unified toolbar visibility — 5 layout variants:
+       • data_range       — range + presets  (Sales, Bills, POs, Stock Movements)
+       • date_picker      — range + presets + entity dropdown  (Customer/Supplier Statement)
+       • as_of            — single date, no presets  (Aging reports)
+       • master_data      — no date row at all  (Customers, Suppliers, Products)
+       • snapshot         — no date row  (Stock Valuation)
+     Row 1 (scope) collapses when nothing is visible. Row 2 (actions) is always
+     shown. Presets are hidden for as_of and master_data reports.
+     Data Builder mode delegates: dbOpenSource will overwrite this configuration
+     based on the active source's `dateColumn` field. */
   const isDataBuilder = (name === 'data_builder');
   const isAsOf = (name === 'aging' || name === 'grni_aging' || name === 'ap_aging');
   const isCustomer = (name === 'customer');
   const isSupplierStatement = (name === 'supplier_statement');
   const isStockValuation = (name === 'stock_valuation');
-  /* Hide all toolbar input groups for stock_valuation since it has no date scope. */
-  document.getElementById('rt-daterange').style.display = (isDataBuilder || isAsOf || isStockValuation) ? 'none' : '';
-  document.getElementById('rt-asof').style.display = isAsOf ? '' : 'none';
-  document.getElementById('rt-customer').style.display = isCustomer ? '' : 'none';
-  document.getElementById('rt-supplier').style.display = isSupplierStatement ? '' : 'none';
-  document.getElementById('rt-presets').style.display = (isDataBuilder || isStockValuation) ? 'none' : '';
-  /* Hide the entire global toolbar-right (Run + Print) for the Data Builder —
-     the engine has its own toolbar with its own Generate and Print buttons. */
+
+  if(!isDataBuilder){
+    /* Built-in reports: drive row visibility from the report kind */
+    document.getElementById('rt-daterange').style.display =
+      (isAsOf || isStockValuation) ? 'none' : '';
+    document.getElementById('rt-asof').style.display = isAsOf ? '' : 'none';
+    document.getElementById('rt-customer').style.display = isCustomer ? '' : 'none';
+    document.getElementById('rt-supplier').style.display = isSupplierStatement ? '' : 'none';
+    document.getElementById('rt-presets').style.display = (isAsOf || isStockValuation) ? 'none' : '';
+
+    /* Scope row visibility: collapse only when nothing in row 1 is visible.
+       Stock Valuation is the snapshot case — no scope inputs at all. */
+    const scopeRow = document.getElementById('rt-row-scope');
+    if(scopeRow) scopeRow.classList.toggle('collapsed', isStockValuation);
+  } else {
+    /* Data Builder: dbOpenSource handles its own scope row visibility per
+       source. But we need to clear any lingering visibility flags here in
+       case the user switches between sources that have/don't have dateColumn. */
+  }
+
+  /* Global action buttons stay visible for every report. They route through
+     runCurrentReport which dispatches to the right runner (built-in or dbGenerate). */
   const globalToolbarRight = document.querySelector('.report-toolbar-right');
-  if(globalToolbarRight) globalToolbarRight.style.display = isDataBuilder ? 'none' : '';
+  if(globalToolbarRight) globalToolbarRight.style.display = '';
 
   /* Update URL hash */
   history.replaceState(null, '', '#' + name);
@@ -3080,29 +3134,42 @@ async function dbOpenSource(sourceName, btn){
   _dbState.isModified = false;
   _dbState.generated = false;
 
-  /* Toolbar visibility per source.
-     Sources with a dateColumn get the global From/To range and the preset pills
-     visible above the Data Builder table — same toolbar used by Customer/Supplier
-     Statement. Without a dateColumn (e.g., Customers, Suppliers) the range stays
-     hidden because date scoping doesn't apply to those entities. */
+  /* Toolbar visibility per Data Builder source.
+     Sources with a dateColumn get the date range + period presets visible.
+     Sources without (master-data: Customers, Suppliers, Products) get the entire
+     scope row collapsed so the action buttons sit directly under the title. */
   const dateRange = document.getElementById('rt-daterange');
+  const asOfInput = document.getElementById('rt-asof');
+  const custPicker = document.getElementById('rt-customer');
+  const supPicker = document.getElementById('rt-supplier');
   const presets   = document.getElementById('rt-presets');
+  const scopeRow  = document.getElementById('rt-row-scope');
+
+  /* Hide picker inputs (no Data Builder source uses them) */
+  if(asOfInput)  asOfInput.style.display  = 'none';
+  if(custPicker) custPicker.style.display = 'none';
+  if(supPicker)  supPicker.style.display  = 'none';
+
   if(src.dateColumn){
     if(dateRange) dateRange.style.display = '';
-    if(presets)   presets.style.display = '';
+    if(presets)   presets.style.display   = '';
+    if(scopeRow)  scopeRow.classList.remove('collapsed');
     /* Default to "this month" if dates aren't set yet */
     const fromInput = document.getElementById('rt-from');
     const toInput   = document.getElementById('rt-to');
     if(fromInput && !fromInput.value){
       const today = new Date();
       const firstOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
-      const lastOfMonth = new Date(today.getFullYear(), today.getMonth() + 1, 0);
+      const lastOfMonth  = new Date(today.getFullYear(), today.getMonth() + 1, 0);
       fromInput.value = firstOfMonth.toISOString().slice(0, 10);
       if(toInput) toInput.value = lastOfMonth.toISOString().slice(0, 10);
     }
   } else {
+    /* Master-data source — no scope inputs needed. Collapse the entire scope row
+       so the action buttons appear immediately under the title. */
     if(dateRange) dateRange.style.display = 'none';
-    if(presets)   presets.style.display = 'none';
+    if(presets)   presets.style.display   = 'none';
+    if(scopeRow)  scopeRow.classList.add('collapsed');
   }
 
   /* Update the report header to reflect this source */
@@ -3160,7 +3227,15 @@ async function dbGenerate(){
 
 /* Enable/disable buttons that only make sense after data has been generated */
 function dbSetPostGenerateButtons(enabled){
+  /* Toggle the hidden legacy db-toolbar buttons (some code paths still check
+     their disabled state). */
   ['db-btn-refresh','db-btn-export','db-btn-print'].forEach(id => {
+    const el = document.getElementById(id);
+    if(el) el.disabled = !enabled;
+  });
+  /* Toggle the VISIBLE global toolbar buttons that the user actually sees and
+     clicks. After Generate runs, Refresh/Export/Print become available. */
+  ['bi-btn-refresh','bi-btn-export','bi-btn-print'].forEach(id => {
     const el = document.getElementById(id);
     if(el) el.disabled = !enabled;
   });
@@ -4408,6 +4483,14 @@ async function runReportGRNIAging(){
    RUNNER
 ═══════════════════════════════════════════════════════ */
 async function runCurrentReport(){
+  /* Data Builder Generate routes through dbGenerate. The global toolbar's
+     Generate button calls runCurrentReport for every report; for Data Builder
+     sources we delegate. dbGenerate handles its own button-state updates. */
+  if(currentReport === 'data_builder'){
+    if(typeof dbGenerate === 'function') await dbGenerate();
+    return;
+  }
+
   /* Update print header */
   const ar = currentLang === 'ar';
   const t = REPORT_TITLES[currentReport];
@@ -4422,18 +4505,17 @@ async function runCurrentReport(){
     document.getElementById('print-period').textContent = periodLabel(document.getElementById('rt-from').value, document.getElementById('rt-to').value);
   }
 
-  /* Run the chosen report runner. Whichever one runs, after it returns the
-     post-Run buttons unlock (Refresh, Export, Print). They stay locked until
-     a first successful Run, matching the Data Builder convention. */
+  /* Run the chosen Built-in report runner. After it returns, post-Run buttons
+     unlock (Refresh, Export, Print). They stay locked until a first run, matching
+     the Data Builder convention. */
   if(currentReport === 'customer') await runReportCustomer();
   else if(currentReport === 'supplier_statement') await runReportSupplierStatement();
   else if(currentReport === 'aging') await runReportAging();
   else if(currentReport === 'ap_aging') await runReportAPAging();
   else if(currentReport === 'grni_aging') await runReportGRNIAging();
   else if(currentReport === 'stock_valuation') await runReportStockValuation();
-  /* data_builder doesn't use runCurrentReport — engine handles its own buttons */
 
-  /* Unlock post-Run buttons (Built-in toolbar only) */
+  /* Unlock post-Run buttons */
   biSetPostRunButtons(true);
 }
 
@@ -4446,16 +4528,21 @@ function biSetPostRunButtons(enabled){
   });
 }
 
-/* Universal CSV export for Built-in reports.
-   Strategy: scrape the rendered table from the active section. Works for any
-   Built-in that renders an HTML table — Customer Statement, Supplier Statement,
-   AR Aging, GRNI Aging. Stock Valuation has its own export function (already
-   wired through its own Export button inside the section), so we delegate to
-   it when active. */
+/* Universal Export dispatcher.
+   Routes to the right export function for the active report:
+     • Data Builder source → dbExport('csv') (uses _dbState.filteredRows directly,
+       captures filters and sort that may not be reflected in the rendered DOM)
+     • Stock Valuation → exportValuationCSV() (richer computed columns)
+     • Other Built-ins → generic table-scrape from the rendered <table> */
 function exportCurrentReportCSV(){
   const ar = currentLang === 'ar';
-  /* Stock Valuation has a richer export (per-item columns including computed
-     fields like days_of_stock) — call its dedicated function. */
+
+  /* Data Builder: route to dbExport which uses the underlying state */
+  if(currentReport === 'data_builder' && typeof dbExport === 'function'){
+    return dbExport('csv');
+  }
+
+  /* Stock Valuation has a richer export — call its dedicated function */
   if(currentReport === 'stock_valuation' && typeof exportValuationCSV === 'function'){
     return exportValuationCSV();
   }
