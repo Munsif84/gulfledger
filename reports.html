@@ -329,6 +329,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   }
   .print-header-inline .ph-biz{font-weight:800;}
   .print-header-inline .ph-title{font-weight:600;}
+  .print-header-inline .ph-period{color:#333;}
   .print-header-inline .ph-sep{color:#888;margin:0 6px;}
   .print-header-inline .ph-date{color:#444;font-size:8.5pt;float:inline-end;}
 
@@ -2679,22 +2680,46 @@ function dbSetupPrintState(){
 
   /* Build compact header content */
   const bizName = pickLang(currentBiz, 'name') || '—';
-  const titleText = document.getElementById('active-report-label')?.textContent || '';
-  const subText = document.getElementById('active-report-sub')?.textContent || '';
   const today = new Date().toLocaleDateString(ar ? 'ar-SA' : 'en-US', {year:'numeric',month:'short',day:'numeric'});
 
-  /* Build the print title: prefer the subtitle (which often includes source + layout name)
-     if it's a strict superset of the title — avoids "Customers — Customers · X" duplication. */
-  let printTitle = titleText;
-  if(subText){
-    if(subText === titleText){
-      /* same — just use the title */
-    } else if(subText.startsWith(titleText) || subText.includes(titleText + ' ·') || subText.includes(titleText + ' —')){
-      /* subtitle already contains the title — use subtitle alone */
-      printTitle = subText;
-    } else {
-      /* subtitle is independent context — join them with — */
-      printTitle = titleText + ' — ' + subText;
+  /* Build a clean report title — never use the screen subtitle (which holds
+     configuration prompts). Use authoritative source: DATA_SOURCES for Data
+     Builder, REPORT_TITLES for built-in reports. Append layout name if active. */
+  let printTitle = '';
+  let printPeriod = '';
+
+  if(activeSection.id === 'report-data_builder'){
+    const src = DATA_SOURCES[_dbState.source];
+    if(src) printTitle = ar ? src.label_ar : src.label_en;
+    /* Append active saved-layout name if loaded */
+    if(_dbState.activeLayoutId){
+      const layout = _dbState.savedLayouts.find(l => l.id === _dbState.activeLayoutId);
+      if(layout){
+        const name = ar ? (layout.name_ar || layout.name) : layout.name;
+        if(name) printTitle += ar ? ` — «${name}»` : ` — "${name}"`;
+      }
+    }
+    /* Data Builder has no inherent period — date is the print date */
+  } else {
+    /* Built-in reports — pull clean title from REPORT_TITLES */
+    const reportKey = activeSection.id.replace('report-', '');
+    const meta = REPORT_TITLES[reportKey];
+    if(meta) printTitle = ar ? meta.ar : meta.en;
+
+    /* Period for built-ins:
+       • aging / grni_aging — as-of date from the toolbar
+       • customer — from/to range from the toolbar */
+    if(reportKey === 'aging' || reportKey === 'grni_aging'){
+      const asOf = document.getElementById('rt-asofdate')?.value;
+      if(asOf){
+        printPeriod = (ar ? 'كما في ' : 'As of ') + asOf;
+      }
+    } else if(reportKey === 'customer'){
+      const from = document.getElementById('rt-from')?.value;
+      const to = document.getElementById('rt-to')?.value;
+      if(from && to){
+        printPeriod = (ar ? 'من ' : 'From ') + from + (ar ? ' إلى ' : ' to ') + to;
+      }
     }
   }
 
@@ -2704,12 +2729,20 @@ function dbSetupPrintState(){
 
   const header = document.createElement('div');
   header.className = 'print-header-inline';
-  header.innerHTML = `
+  /* Header parts: Business · Report Title [· Period] · Date
+     Period is included only when the report is period-bound. */
+  let headerHTML = `
     <span class="ph-biz">${escHTML(bizName)}</span>
     <span class="ph-sep">·</span>
-    <span class="ph-title">${escHTML(printTitle)}</span>
-    <span class="ph-date">${escHTML(today)}</span>
-  `;
+    <span class="ph-title">${escHTML(printTitle)}</span>`;
+  if(printPeriod){
+    headerHTML += `
+    <span class="ph-sep">·</span>
+    <span class="ph-period">${escHTML(printPeriod)}</span>`;
+  }
+  headerHTML += `
+    <span class="ph-date">${escHTML(today)}</span>`;
+  header.innerHTML = headerHTML;
   activeSection.insertBefore(header, activeSection.firstChild);
 
   /* Mark active section so the print CSS shows it (and hides the others) */
