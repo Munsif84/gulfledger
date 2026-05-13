@@ -680,13 +680,196 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .report-empty .icon{font-size:36px;opacity:0.4;margin-bottom:10px;}
 
 /* Print stylesheet */
-@media print {
-  .topnav, .app-nav, .subtab-bar, .report-toolbar, .acc-footer, .notify { display:none !important; }
-  body { background:#fff; }
-  .page { padding:0; max-width:100%; }
-  .report-doc { border:none; box-shadow:none; padding:0; max-width:100%; }
-  .report-row:hover { background:transparent; cursor:default; }
+/* ════════════════════════════════════════════════════════════════════════════
+   PRINT STYLESHEET
+   ════════════════════════════════════════════════════════════════════════════
+   Goals:
+     1. A4 portrait with sensible 15mm margins — fits any standard printer.
+     2. Hide app chrome (sidebar, topnav, toolbars, banners) — show only the
+        report content.
+     3. Preserve background colors for financial status indicators (red losses,
+        green profits, yellow calculated rows) — defaults strip these to save ink.
+     4. Smart page breaks — keep rows together, keep section headers with their
+        first row of content, prevent orphan grand-totals on a page alone.
+     5. Show a print-only document header at the top of the printed report:
+        business name + report title + period. Inside the document so it prints
+        once at the top; modern @page margin boxes would do per-page headers
+        but have inconsistent browser support — we keep it simple. */
+
+@page {
+  size: A4 portrait;
+  margin: 15mm 14mm 18mm 14mm;
 }
+
+@media print {
+  /* ─── Color preservation ───
+     Default browsers strip backgrounds to save ink. For financial reports we
+     want status colors (subtotal borders, calculated-row yellow, profit green,
+     loss red) preserved so the printed output looks like the screen. */
+  *, *::before, *::after {
+    -webkit-print-color-adjust: exact !important;
+    print-color-adjust: exact !important;
+  }
+
+  /* ─── Hide app chrome ───
+     Sidebar, topnav, all toolbars and banners that don't belong on paper. */
+  .topnav, .app-nav, .subtab-bar, .accounting-sidebar, .report-toolbar,
+  .acc-trust-banner, #period-locked-banner, .acc-footer, .notify,
+  .gl-modal-overlay, .gl-qa-wrap, .lang-switch, .ledger-view-toggle,
+  .ledger-toolbar, .filing-type-toggle, #insights-panel,
+  .last-updated, .setup-banner { display:none !important; }
+
+  /* ─── Body & page resets ───
+     Pure white background, no margins/padding (the @page rule handles outer
+     margins). Default font sizing — 11pt is a good print body size. */
+  html, body {
+    background:#fff !important;
+    margin:0 !important;
+    padding:0 !important;
+    width:100% !important;
+    font-size:11pt;
+    color:#000;
+  }
+
+  /* ─── Grid reset ───
+     The shell uses a 240px+1fr grid. In print we want one column at full width
+     so reports fill the page (otherwise they'd be squeezed to ~75% width). */
+  .accounting-shell {
+    display:block !important;
+    padding:0 !important;
+    margin:0 !important;
+    max-width:none !important;
+    width:100% !important;
+    grid-template-columns:none !important;
+    gap:0 !important;
+  }
+  .accounting-main {
+    width:100% !important;
+    max-width:none !important;
+    background:#fff !important;
+  }
+  .page { padding:0; max-width:100%; }
+
+  /* ─── Report document ───
+     Drop the on-screen card framing (border, shadow, padding) — the page itself
+     provides the frame. Drop the max-width:900px so it fills the page width. */
+  .report-doc {
+    border:none !important;
+    box-shadow:none !important;
+    padding:0 !important;
+    max-width:none !important;
+    background:transparent !important;
+  }
+  .report-row:hover, .je-card:hover { background:transparent !important; cursor:default !important; }
+
+  /* ─── Page break rules ───
+     Each individual row is atomic — never split across pages.
+     Section titles stay with at least one row of content following them.
+     Grand totals avoid being orphaned on a page by themselves.
+     Journal entry cards (Ledger view) treat each entry as atomic. */
+  .report-row, .report-total, .je-card, .je-line,
+  .coa-account-row, .tb-balance-banner, .bs-balance-check {
+    page-break-inside: avoid;
+    break-inside: avoid;
+  }
+  .report-section-title {
+    page-break-after: avoid;
+    break-after: avoid;
+  }
+  /* Try to keep the grand total with what comes before it (the last subtotal). */
+  .report-total {
+    page-break-before: avoid;
+    break-before: avoid;
+  }
+
+  /* ─── Print-only document header ───
+     Show the business name + report title + period at the top of the printed
+     output. Hidden on screen, visible only on paper. Sits above the report. */
+  .print-doc-header {
+    display:block !important;
+    margin-bottom:14px;
+    padding-bottom:10px;
+    border-bottom:2px solid #000;
+  }
+  .print-doc-header .biz-name {
+    font-size:14pt;
+    font-weight:800;
+    color:#000;
+    margin-bottom:2px;
+  }
+  .print-doc-header .doc-title {
+    font-size:18pt;
+    font-weight:800;
+    color:#000;
+    margin-bottom:4px;
+  }
+  .print-doc-header .doc-period {
+    font-size:10pt;
+    color:#444;
+    font-family:'DM Mono',monospace;
+  }
+
+  /* ─── Report row sizing for print ───
+     Slightly tighter padding, slightly smaller font — fits more rows per page
+     without losing readability. Keep monospace for numbers (alignment matters). */
+  .report-row, .report-total {
+    font-size:10pt !important;
+    padding:3px 4px !important;
+  }
+  .report-row .acct-code { font-size:9pt !important; }
+  .report-section-title {
+    font-size:10pt !important;
+    margin-top:10px;
+    margin-bottom:4px;
+    padding-bottom:3px;
+  }
+
+  /* Yellow calculated-row highlight — keep visible. Default print would strip
+     this to white. We forced color-preservation above; this is just a safety net. */
+  .report-row.calculated { background:#fef9e6 !important; }
+  .report-row.subtotal { border-top:1px solid #000 !important; }
+  .report-total {
+    border-top:2px solid #000 !important;
+    border-bottom:3px double #000 !important;
+    background:#fafafa !important;
+  }
+  .report-total.profit .val { color:#15803d !important; }
+  .report-total.loss .val { color:#b91c1c !important; }
+
+  /* ─── Repeating table headers ───
+     For any table that spans pages (Trial Balance can be long), the thead
+     should repeat at the top of each page. Standard CSS. */
+  table { border-collapse:collapse; width:100%; }
+  thead { display:table-header-group; }
+  tfoot { display:table-footer-group; }
+  tr { page-break-inside:avoid; break-inside:avoid; }
+
+  /* ─── Journal entry cards (Ledger view) ───
+     Each card stays together. Tighter padding for paper. */
+  .je-card {
+    border:1px solid #ccc !important;
+    box-shadow:none !important;
+    margin-bottom:6px !important;
+    page-break-inside:avoid;
+  }
+  .je-line { font-size:10pt !important; padding:3px 0 !important; }
+
+  /* ─── Trial Balance / Balance Sheet status banners ───
+     Keep the colored "Balanced" / "Unbalanced" banners visible — they're
+     informational and matter for the printed report. */
+  .tb-balance-banner.balanced, .bs-balance-check.ok {
+    background:#f0fdf4 !important; color:#166534 !important;
+    border:1px solid #86efac !important;
+  }
+  .tb-balance-banner.unbalanced, .bs-balance-check.bad {
+    background:#fef2f2 !important; color:#b91c1c !important;
+    border:1px solid #fca5a5 !important;
+  }
+}
+
+/* Print-only document header — hidden on screen. JS populates this with the
+   current business name, report title, and period when the user prints. */
+.print-doc-header { display:none; }
 
 @media (max-width:768px){
   .report-doc{padding:16px 14px;}
@@ -4081,7 +4264,57 @@ function drillToLedger(accountCode){
 
 /* ─── Print + CSV export for reports ─── */
 function printReport(){
-  /* Browser's print dialog. CSS @media print strips chrome. */
+  /* Inject a print-only header at the top of the report — business name,
+     report title, period. Hidden on screen, visible only in print via the
+     .print-doc-header { display:none } / @media print { display:block } rule.
+     Header is removed after the print dialog closes so the DOM stays clean. */
+  const ar = currentLang === 'ar';
+  const reportContent = document.getElementById('report-content');
+  if(!reportContent){ window.print(); return; }
+
+  const reportDoc = reportContent.querySelector('.report-doc');
+  if(reportDoc){
+    /* Build the print header content */
+    const titles = {
+      pl: ar ? 'قائمة الدخل' : 'Profit & Loss',
+      bs: ar ? 'الميزانية العمومية' : 'Balance Sheet',
+      cf: ar ? 'قائمة التدفقات النقدية' : 'Cash Flow Statement',
+      tb: ar ? 'ميزان المراجعة' : 'Trial Balance'
+    };
+    const periodLabels = {
+      this_month:   ar ? 'هذا الشهر'    : 'This Month',
+      this_quarter: ar ? 'هذا الربع'    : 'This Quarter',
+      this_year:    ar ? 'هذا العام'    : 'This Year',
+      all:          ar ? 'منذ البداية' : 'Since Inception'
+    };
+    const period = document.getElementById('report-period')?.value || 'this_quarter';
+    const bizName = currentBiz ? (ar ? (currentBiz.name_ar || currentBiz.name || '—')
+                                     : (currentBiz.name_en || currentBiz.name || '—'))
+                               : '—';
+    const today = new Date();
+    const dateStr = today.toLocaleDateString(ar ? 'ar-SA-u-ca-gregory' : 'en-GB',
+      { day: '2-digit', month: 'short', year: 'numeric' });
+
+    /* Remove any stale header from a previous print */
+    reportDoc.querySelectorAll('.print-doc-header').forEach(el => el.remove());
+
+    const header = document.createElement('div');
+    header.className = 'print-doc-header';
+    header.innerHTML = `
+      <div class="biz-name">${escHTML(bizName)}</div>
+      <div class="doc-title">${escHTML(titles[reportView] || '')}</div>
+      <div class="doc-period">${escHTML(periodLabels[period] || period)} · ${escHTML(dateStr)}</div>
+    `;
+    reportDoc.insertBefore(header, reportDoc.firstChild);
+
+    /* Trigger print, then clean up the injected header after the dialog closes. */
+    const cleanup = () => {
+      header.remove();
+      window.removeEventListener('afterprint', cleanup);
+    };
+    window.addEventListener('afterprint', cleanup);
+  }
+
   window.print();
 }
 
