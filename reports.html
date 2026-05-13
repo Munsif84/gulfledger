@@ -2660,7 +2660,16 @@ async function dbExportExcel(rows, cols, baseFilename, ar){
    3. Mark active section with .printing for the print CSS rules to show it.
    No DOM moves of the off-screen .print-header element — inline injection is
    more reliable across browsers. */
-function dbPrint(){
+/* ─────────────────────────────────────────
+   PRINT — robust setup via beforeprint/afterprint events.
+
+   Why event-driven: a user can trigger print four ways: (1) the toolbar button,
+   (2) Ctrl/Cmd+P, (3) browser menu File → Print, (4) right-click → Print. If we
+   only set up the print state in the button's onclick handler, methods 2–4
+   produce a broken preview. The 'beforeprint' event fires for ALL four methods,
+   so we use it as the single setup hook.
+   ───────────────────────────────────────── */
+function dbSetupPrintState(){
   const ar = currentLang === 'ar';
   /* Identify the visible report section */
   const sections = document.querySelectorAll('.report-section');
@@ -2668,30 +2677,15 @@ function dbPrint(){
   sections.forEach(s => {
     if(s.style.display !== 'none') activeSection = s;
   });
-  if(!activeSection){ window.print(); return; }
+  if(!activeSection) return;
 
-  /* Build the compact header for this report.
-     Source label · layout name (if any) · date · row count */
+  /* Build compact header content */
   const bizName = pickLang(currentBiz, 'name') || '—';
   const titleText = document.getElementById('active-report-label')?.textContent || '';
   const subText = document.getElementById('active-report-sub')?.textContent || '';
   const today = new Date().toLocaleDateString(ar ? 'ar-SA' : 'en-US', {year:'numeric',month:'short',day:'numeric'});
 
-  /* If Data Builder, also check column count and warn if it's going to overflow */
-  if(activeSection.id === 'report-data_builder'){
-    const colCount = _dbState.visibleColumns?.length || 0;
-    /* A4 landscape ~26cm printable. With ~2cm per column the rough sweet spot is 12-13.
-       Past ~14 columns the table starts shrinking text below readable size. */
-    if(colCount > 14){
-      const proceed = confirm(ar
-        ? `لديك ${colCount} عمودًا، وقد لا يتسع كلها على ورقة A4. ينصح بإخفاء بعض الأعمدة من «الخانات» أو استخدام «تصدير Excel» للحصول على كل البيانات. هل تريد المتابعة بالطباعة؟`
-        : `You have ${colCount} columns selected. They may not fit on A4 landscape. Consider hiding some columns from "Columns" or use "Export as Excel" for the full dataset. Continue to print anyway?`
-      );
-      if(!proceed) return;
-    }
-  }
-
-  /* Inject a compact print-header into the active section */
+  /* Remove any leftover header from a previous print attempt */
   const existing = activeSection.querySelector(':scope > .print-header-inline');
   if(existing) existing.remove();
 
@@ -2706,24 +2700,56 @@ function dbPrint(){
   `;
   activeSection.insertBefore(header, activeSection.firstChild);
 
-  /* Mark active section for the print CSS */
+  /* Mark active section so the print CSS shows it (and hides the others) */
   activeSection.classList.add('printing');
-  /* Set column count so CSS can auto-scale font for wide tables */
+
+  /* Set column-count for CSS auto-scale (Data Builder only) */
   if(activeSection.id === 'report-data_builder'){
     activeSection.setAttribute('data-cols', String(_dbState.visibleColumns?.length || 0));
   }
+}
 
-  /* Cleanup after print dialog closes */
-  const cleanup = () => {
-    activeSection.classList.remove('printing');
-    activeSection.removeAttribute('data-cols');
-    const h = activeSection.querySelector(':scope > .print-header-inline');
+function dbCleanupPrintState(){
+  document.querySelectorAll('.report-section.printing').forEach(s => {
+    s.classList.remove('printing');
+    s.removeAttribute('data-cols');
+    const h = s.querySelector(':scope > .print-header-inline');
     if(h) h.remove();
-    window.removeEventListener('afterprint', cleanup);
-  };
-  window.addEventListener('afterprint', cleanup);
+  });
+}
 
-  window.print();
+/* Wire the events — once, at module load. Idempotent. */
+window.addEventListener('beforeprint', dbSetupPrintState);
+window.addEventListener('afterprint', dbCleanupPrintState);
+
+/* Button handler — for the Data Builder: validate column count, then print.
+   Built-in reports also call this; the validation is a no-op for them. */
+function dbPrint(){
+  const ar = currentLang === 'ar';
+  /* Identify the visible section */
+  let activeSection = null;
+  document.querySelectorAll('.report-section').forEach(s => {
+    if(s.style.display !== 'none') activeSection = s;
+  });
+
+  /* If Data Builder and >14 cols, warn before opening preview */
+  if(activeSection && activeSection.id === 'report-data_builder'){
+    const colCount = _dbState.visibleColumns?.length || 0;
+    if(colCount > 14){
+      const proceed = confirm(ar
+        ? `لديك ${colCount} عمودًا، وقد لا يتسع كلها على ورقة A4. ينصح بإخفاء بعض الأعمدة من «الخانات» أو استخدام «تصدير Excel» للحصول على كل البيانات. هل تريد المتابعة بالطباعة؟`
+        : `You have ${colCount} columns selected. They may not fit on A4 landscape. Consider hiding some columns from "Columns" or use "Export as Excel" for the full dataset. Continue to print anyway?`
+      );
+      if(!proceed) return;
+    }
+  }
+  /* Belt + suspenders: trigger setup synchronously before calling print().
+     beforeprint fires for Ctrl+P etc., but on some browsers it's flaky when
+     print is triggered via JS. Calling setup directly here guarantees the
+     state is right; beforeprint setup is idempotent (removes existing header
+     before injecting) so running it twice is harmless. */
+  dbSetupPrintState();
+  window.print();   /* triggers beforeprint → preview → afterprint */
 }
 
 function triggerDownload(blob, filename){
