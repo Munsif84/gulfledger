@@ -414,7 +414,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .ledger-toolbar{display:flex;justify-content:space-between;align-items:center;gap:10px;margin-bottom:14px;flex-wrap:wrap;}
 .ledger-filters{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;}
 .ledger-filters .search-wrap{flex:1;max-width:260px;min-width:160px;position:relative;}
-.ledger-filters .search-input{width:100%;padding:7px 11px 7px 32px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;background:#fff;}
+.ledger-filters .search-input{width:100%;padding:7px 11px 7px 32px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;background:#fff;}
 .ledger-filters .search-input:focus{outline:none;border-color:var(--blue);}
 [dir="rtl"] .ledger-filters .search-input{padding:7px 32px 7px 11px;}
 .ledger-filters .search-icon{position:absolute;top:50%;transform:translateY(-50%);color:var(--muted);font-size:13px;pointer-events:none;}
@@ -938,11 +938,19 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         <div class="sidebar-sub" data-ar="القيود · التقارير · الإقرارات" data-en="Ledger · Reports · Filings">القيود · التقارير · الإقرارات</div>
       </div>
 
-      <!-- Journal Ledger — the underlying ledger; standalone at top. -->
+      <!-- LEDGER group — 2 entries. Journal Entries (running transaction log)
+           and Chart of Accounts (account structure) are conceptually different
+           views that deserve direct sidebar access. Both render inside pane-ledger
+           but with different internal views — setLedgerView() handles the toggle. -->
       <div class="sidebar-group">
-        <button class="sidebar-link" id="subtab-ledger" onclick="switchSubtab('ledger')">
-          <span class="icon">📒</span>
-          <span data-ar="دفتر الأستاذ" data-en="Journal Ledger">دفتر الأستاذ</span>
+        <div class="sidebar-group-label" data-ar="📒 دفتر الأستاذ" data-en="📒 Ledger">📒 دفتر الأستاذ</div>
+        <button class="sidebar-link" id="subtab-ledger-journal" onclick="switchSubtab('ledger-journal')">
+          <span class="icon">📓</span>
+          <span data-ar="قيود اليومية" data-en="Journal Entries">قيود اليومية</span>
+        </button>
+        <button class="sidebar-link" id="subtab-ledger-coa" onclick="switchSubtab('ledger-coa')">
+          <span class="icon">🌳</span>
+          <span data-ar="دليل الحسابات" data-en="Chart of Accounts">دليل الحسابات</span>
         </button>
       </div>
 
@@ -1007,8 +1015,9 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   <!-- ════ PANE: LEDGER ════ -->
   <div id="pane-ledger">
 
-    <!-- View toggle: Journal Entries vs Chart of Accounts -->
-    <div class="ledger-view-toggle">
+    <!-- Internal view-toggle hidden — sidebar drives this selection now.
+         Buttons kept in DOM so setLedgerView() can still toggle their `on` class. -->
+    <div class="ledger-view-toggle" style="display:none;">
       <button type="button" class="ledger-view-btn on" id="lview-journal" onclick="setLedgerView('journal')">
         📓 <span data-ar="قيود اليومية" data-en="Journal Entries">قيود اليومية</span>
       </button>
@@ -1026,13 +1035,15 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
             <input type="text" class="search-input" id="ledger-search" oninput="renderLedgerJournal()"
                    placeholder="ابحث في الوصف أو الرقم..." data-ph-ar="ابحث في الوصف أو الرقم..." data-ph-en="Search description or reference...">
           </div>
-          <select class="filter-select" id="ledger-filter-period" onchange="loadAndRenderLedger()" style="padding:7px 10px;font-size:12px;border:1px solid var(--border);border-radius:8px;">
+          <!-- Period, source, and account filters — styled to match reports.html
+               .filter-select (1.5px border, 13px font, var(--border) at rest). -->
+          <select class="filter-select" id="ledger-filter-period" onchange="loadAndRenderLedger()" style="padding:7px 10px;font-size:13px;border:1.5px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);cursor:pointer;">
             <option value="this_month" data-ar="هذا الشهر" data-en="This Month">هذا الشهر</option>
             <option value="this_quarter" selected data-ar="هذا الربع" data-en="This Quarter">هذا الربع</option>
             <option value="this_year" data-ar="هذا العام" data-en="This Year">هذا العام</option>
             <option value="all" data-ar="كل الفترات" data-en="All Time">كل الفترات</option>
           </select>
-          <select class="filter-select" id="ledger-filter-source" onchange="renderLedgerJournal()" style="padding:7px 10px;font-size:12px;border:1px solid var(--border);border-radius:8px;">
+          <select class="filter-select" id="ledger-filter-source" onchange="renderLedgerJournal()" style="padding:7px 10px;font-size:13px;border:1.5px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);cursor:pointer;">
             <option value="" data-ar="كل المصادر" data-en="All Sources">كل المصادر</option>
             <option value="invoice" data-ar="فاتورة مبيعات" data-en="Sales invoice">فاتورة مبيعات</option>
             <option value="expense" data-ar="مصروف" data-en="Expense">مصروف</option>
@@ -1042,7 +1053,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
             <option value="manual" data-ar="قيد يدوي" data-en="Manual entry">قيد يدوي</option>
             <option value="reversal" data-ar="عكس قيد" data-en="Reversal">عكس قيد</option>
           </select>
-          <select class="filter-select" id="ledger-filter-account" onchange="renderLedgerJournal()" style="padding:7px 10px;font-size:12px;border:1px solid var(--border);border-radius:8px;">
+          <select class="filter-select" id="ledger-filter-account" onchange="renderLedgerJournal()" style="padding:7px 10px;font-size:13px;border:1.5px solid var(--border);border-radius:8px;background:#fff;color:var(--ink);cursor:pointer;">
             <option value="" data-ar="كل الحسابات" data-en="All Accounts">كل الحسابات</option>
             <!-- filled by populateLedgerAccountFilter -->
           </select>
@@ -1145,11 +1156,11 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
     </div>
 
     <!-- Period-locked banner (shown when current period is closed) -->
-    <div id="period-locked-banner" style="display:none;background:linear-gradient(135deg,#dbeafe,#fff);border:1.5px solid #93c5fd;border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:13px;color:#1e40af;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+    <div id="period-locked-banner" style="display:none;background:linear-gradient(135deg,rgba(201,146,10,0.10),#fff);border:1.5px solid #fde68a;border-radius:10px;padding:12px 16px;margin-bottom:12px;font-size:13px;color:#92400e;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
       <span style="display:flex;align-items:center;gap:8px;font-weight:700;">🔒 <span id="period-locked-text"></span></span>
       <span style="display:flex;gap:6px;">
-        <button type="button" onclick="viewClosedSnapshot()" style="background:#1e40af;color:#fff;border:none;padding:5px 12px;border-radius:6px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;" data-ar="عرض اللقطة المحفوظة" data-en="View saved snapshot">عرض اللقطة المحفوظة</button>
-        <button type="button" onclick="reopenPeriod()" style="background:#fff;color:#1e40af;border:1px solid #1e40af;padding:5px 12px;border-radius:6px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;" data-ar="إعادة فتح" data-en="Reopen">إعادة فتح</button>
+        <button type="button" onclick="viewClosedSnapshot()" style="background:var(--amber);color:#fff;border:none;padding:5px 12px;border-radius:6px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;" data-ar="عرض اللقطة المحفوظة" data-en="View saved snapshot">عرض اللقطة المحفوظة</button>
+        <button type="button" onclick="reopenPeriod()" style="background:#fff;color:#92400e;border:1px solid #fde68a;padding:5px 12px;border-radius:6px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;" data-ar="إعادة فتح" data-en="Reopen">إعادة فتح</button>
       </span>
     </div>
 
@@ -1302,7 +1313,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 let currentLang = localStorage.getItem('gl_lang') || 'ar';
 let currentUser = null;
 let currentBiz = null;
-let currentSubtab = 'ledger';
+let currentSubtab = 'ledger-journal';
 
 /* Preloaded data — sub-tabs fill from these */
 let chartOfAccounts = [];
@@ -1452,7 +1463,10 @@ async function init(){
 
   /* Resolve sidebar entry name from URL params. */
   let sub;
-  if(subRaw === 'reports'){
+  if(subRaw === 'ledger'){
+    /* ?sub=ledger or ?sub=ledger&view=coa */
+    sub = (urlView === 'coa') ? 'ledger-coa' : 'ledger-journal';
+  } else if(subRaw === 'reports'){
     /* Legacy ?sub=reports&view=pl → map to new sidebar key */
     if(['pl','bs','cf','tb'].includes(urlView)){
       sub = 'report-' + urlView;
@@ -1464,20 +1478,21 @@ async function init(){
     if(urlFiling === 'annual') sub = 'vat-annual';
     else if(urlFiling === 'qawaem') sub = 'vat-qawaem';
     else sub = 'vat-return';
-  } else if(['ledger','report-pl','report-bs','report-cf','report-tb',
+  } else if(['ledger-journal','ledger-coa',
+             'report-pl','report-bs','report-cf','report-tb',
              'vat-return','vat-annual','vat-qawaem'].includes(subRaw)){
     /* New-style direct sidebar key */
     sub = subRaw;
   } else {
-    /* Unknown sub — default to Ledger */
-    sub = 'ledger';
+    /* Unknown sub — default to Journal Entries */
+    sub = 'ledger-journal';
   }
 
   switchSubtab(sub);
 
   /* URL filter for ledger: ?filter=unbalanced */
   const urlFilter = (window.location.search.match(/filter=([a-z_]+)/)?.[1]) || '';
-  if(urlFilter === 'unbalanced' && sub === 'ledger'){
+  if(urlFilter === 'unbalanced' && (sub === 'ledger-journal' || sub === 'ledger-coa')){
     /* Wait for the ledger to render, then check the box */
     setTimeout(() => {
       const cb = document.getElementById('ledger-only-unbalanced');
@@ -1490,7 +1505,7 @@ async function init(){
 
   /* Quick Action handler — auto-open the right modal based on ?action= */
   const actionParam = (window.location.search.match(/action=([a-z_]+)/)?.[1]) || '';
-  if(actionParam === 'new_journal' && sub === 'ledger'){
+  if(actionParam === 'new_journal' && (sub === 'ledger-journal' || sub === 'ledger-coa')){
     setTimeout(() => {
       if(typeof openManualEntryModal === 'function') openManualEntryModal();
       /* Clean URL but keep sub-tab */
@@ -1586,11 +1601,12 @@ function switchSubtab(name){
 
   /* Map sidebar name → actual pane DOM id. */
   const paneMap = {
-    'ledger':      'pane-ledger',
-    'report-pl':   'pane-reports', 'report-bs': 'pane-reports',
-    'report-cf':   'pane-reports', 'report-tb': 'pane-reports',
-    'vat-return':  'pane-vat',     'vat-annual':'pane-vat',
-    'vat-qawaem':  'pane-vat'
+    'ledger-journal': 'pane-ledger',
+    'ledger-coa':     'pane-ledger',
+    'report-pl':      'pane-reports', 'report-bs': 'pane-reports',
+    'report-cf':      'pane-reports', 'report-tb': 'pane-reports',
+    'vat-return':     'pane-vat',     'vat-annual':'pane-vat',
+    'vat-qawaem':     'pane-vat'
   };
   const targetPane = paneMap[name];
   if(!targetPane){
@@ -1598,8 +1614,9 @@ function switchSubtab(name){
     return;
   }
 
-  /* All 8 sidebar buttons — toggle active class based on the name. */
-  ['ledger','report-pl','report-bs','report-cf','report-tb',
+  /* All sidebar buttons — toggle active class based on the name. */
+  ['ledger-journal','ledger-coa',
+   'report-pl','report-bs','report-cf','report-tb',
    'vat-return','vat-annual','vat-qawaem'].forEach(key => {
     document.getElementById('subtab-' + key)?.classList.toggle('active', key === name);
   });
@@ -1614,19 +1631,28 @@ function switchSubtab(name){
      ?view=, and for filing types we use the sidebar key directly.
      Old URLs from reports.html deep-links still work:
        ?sub=reports&view=pl  → handled at init, routes to report-pl entry. */
-  if(name.startsWith('report-')){
+  if(name === 'ledger-journal'){
+    history.replaceState(null, '', '?sub=ledger');
+  } else if(name === 'ledger-coa'){
+    history.replaceState(null, '', '?sub=ledger&view=coa');
+  } else if(name.startsWith('report-')){
     const view = name.replace('report-', '');
     history.replaceState(null, '', '?sub=reports&view=' + view);
   } else if(name.startsWith('vat-')){
     const filing = name.replace('vat-', '');  /* 'return','annual','qawaem' */
-    /* Use ?sub=vat for backward compat — the filing type is reconstructed below */
     history.replaceState(null, '', '?sub=vat&filing=' + filing);
-  } else {
-    history.replaceState(null, '', '?sub=' + name);
   }
 
   /* Lazy-load + activate per sub-tab. */
-  if(name === 'ledger' && !ledgerDataReady) loadAndRenderLedger();
+  if(name === 'ledger-journal' || name === 'ledger-coa'){
+    if(!ledgerDataReady) {
+      loadAndRenderLedger();
+    }
+    /* Switch internal ledger view (journal vs COA) */
+    if(typeof setLedgerView === 'function'){
+      setLedgerView(name === 'ledger-coa' ? 'coa' : 'journal');
+    }
+  }
 
   if(name.startsWith('report-')){
     /* Switch to the right report view (P&L / BS / CF / TB). setReportView
@@ -3466,7 +3492,9 @@ function reportPeriodSubtitle(period, isPointInTime){
 }
 
 async function loadAndRenderReport(){
-  if(currentSubtab !== 'reports') return;
+  /* Round B-1: currentSubtab now stores the sidebar key (e.g., 'report-pl').
+     Accept any 'report-*' value AND the legacy 'reports' value for safety. */
+  if(currentSubtab !== 'reports' && !currentSubtab.startsWith('report-')) return;
   const loading = document.getElementById('report-loading');
   const content = document.getElementById('report-content');
   if(loading) loading.style.display = '';
@@ -7169,19 +7197,17 @@ function setLang(lang){
   document.querySelectorAll('[data-ph-ar]').forEach(el => {
     el.placeholder = lang === 'ar' ? el.dataset.phAr : el.dataset.phEn;
   });
-  /* Re-render Health if it's already loaded so labels match new lang */
-  if(currentSubtab === 'health' && healthDataReady) loadAndRenderHealth();
   /* Re-render Ledger if open */
-  if(currentSubtab === 'ledger' && ledgerDataReady){
+  if((currentSubtab === 'ledger-journal' || currentSubtab === 'ledger-coa') && ledgerDataReady){
     rebuildAccountMap();
     populateLedgerAccountFilter();
     if(ledgerView === 'journal') renderLedgerJournal();
     else renderChartOfAccounts();
   }
-  /* Re-render Reports if open */
-  if(currentSubtab === 'reports') loadAndRenderReport();
-  /* Re-render VAT wizard if open */
-  if(currentSubtab === 'vat'){
+  /* Re-render Reports if open — Round B-1: report-pl / -bs / -cf / -tb keys */
+  if(currentSubtab.startsWith('report-')) loadAndRenderReport();
+  /* Re-render VAT wizard if open — Round B-1: vat-return / -annual / -qawaem keys */
+  if(currentSubtab.startsWith('vat-')){
     if(currentFilingType === 'vat') renderVatStep();
     else if(currentFilingType === 'annual') renderAnnStep();
     else if(currentFilingType === 'qawaem') renderQawStep();
