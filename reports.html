@@ -293,51 +293,125 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 }
 
 /* ═══ PRINT STYLES ═══
-   Print should show only: print header (biz name + report title + period) + the rendered table.
-   Everything else — sidebar, toolbars, buttons, popovers — gets hidden. */
+   Operational reports: minimal header, data-first. Compact single-row header
+   with business · title · date. Body is the table. Auto-scales for wide tables. */
 @media print{
   /* Hide all chrome */
   .topnav,.app-nav,.reports-sidebar,.profile-menu,.gl-qa-wrap,.lang-switch,.fab,
   .section-header,.db-toolbar,.db-popover,.db-export-menu,.db-saved-menu,
-  .db-modal-backdrop,#gl-notify-style{display:none!important;}
-  body{background:#fff;}
+  .db-modal-backdrop,#gl-notify-style,.print-header{display:none!important;}
+  body{background:#fff;margin:0;padding:0;}
   .reports-shell{display:block;padding:0;margin:0;max-width:100%;}
-  .reports-main{border:none;border-radius:0;background:#fff;}
+  .reports-main{border:none;border-radius:0;background:#fff;box-shadow:none;}
   .section-body{padding:0;}
 
-  /* Hide ALL report sections by default, then unhide the active one */
+  /* Only the marked-for-printing section shows */
   .report-section{display:none!important;}
-  /* The active section is whichever has its parent-set display:block (i.e., not 'none' inline).
-     We can't query inline display in CSS, so instead JS sets a 'printing' class on the
-     active section before window.print() fires. That class makes it visible. */
   .report-section.printing{display:block!important;}
 
-  /* Print header — visible only when printing */
-  .print-header{display:block!important;text-align:center;padding:0 0 16px;margin-bottom:20px;border-bottom:2px solid #000;}
-  .print-biz-name{font-size:18px;font-weight:800;color:#000;margin-bottom:4px;}
-  .print-report-title{font-size:22px;font-weight:800;color:#000;margin-bottom:4px;}
-  .print-period{font-size:12px;color:#444;}
+  /* Compact inline header — single row, small, separator below. The injected
+     .print-header-inline lives inside the .printing section. */
+  .print-header-inline{
+    display:flex!important;
+    align-items:baseline;
+    gap:8px;
+    flex-wrap:wrap;
+    padding:0 0 6px;
+    margin-bottom:10px;
+    border-bottom:1px solid #333;
+    font-size:10pt;
+    color:#000;
+    page-break-after:avoid;
+  }
+  .print-header-inline .ph-biz{font-weight:800;}
+  .print-header-inline .ph-title{font-weight:600;}
+  .print-header-inline .ph-sep{color:#888;}
+  .print-header-inline .ph-date{margin-inline-start:auto;color:#444;font-size:9pt;}
 
-  /* Strip table chrome — no rounded borders or hover styling in print */
-  .table-wrap{overflow:visible!important;max-height:none!important;border:none!important;border-radius:0!important;}
+  /* Summary stays above the table but compact */
+  .db-summary{
+    margin:0 0 8px 0;
+    padding:6px 8px;
+    border:1px solid #ccc;
+    border-radius:0;
+    background:#fafafa!important;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact;
+    font-size:9pt;
+    gap:14px;
+  }
+  .db-summary-item{gap:0;}
+  .db-summary-label{font-size:7pt;}
+  .db-summary-value{font-size:10pt;}
+
+  /* Strip table chrome — no rounded borders, no scroll, no sticky headers */
+  .table-wrap{overflow:visible!important;max-height:none!important;min-height:0!important;border:none!important;border-radius:0!important;}
   .table-wrap::-webkit-scrollbar{display:none!important;}
 
-  /* Compact tables for print */
-  .r-table{font-size:11px;}
-  .r-table th{background:#f5f5f5!important;color:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;position:static!important;}
+  /* In print, let cell text wrap if needed (on-screen we want nowrap so users
+     can scroll; in print there's no scroll so wrapping is the only way to fit). */
+  .printing .r-table td{white-space:normal!important;word-break:break-word;}
+  .printing .r-table th{white-space:normal!important;}
+
+  /* Default table for ≤10 columns: comfortable size */
+  .r-table{font-size:9pt;width:100%;}
+  .r-table th{
+    background:#f0f0f0!important;color:#000!important;
+    -webkit-print-color-adjust:exact;print-color-adjust:exact;
+    position:static!important;
+    padding:5px 6px;
+    border-bottom:1px solid #888;
+    text-transform:none;letter-spacing:0;
+    font-size:8.5pt;
+  }
   .r-table th .sort-arrow{display:none!important;}
-  .r-row-section td{background:#f0f0f0!important;color:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
-  .r-row-grandtotal td{background:#e0e0e0!important;color:#000!important;border-top:2px solid #000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  .r-table td{padding:4px 6px;border-bottom:1px solid #e5e5e5;}
+  .r-row-section td{background:#e8e8e8!important;color:#000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  .r-row-grandtotal td{background:#dcdcdc!important;color:#000!important;border-top:1.5px solid #000!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;font-weight:800;}
 
-  /* Summary stays as supporting info above the table */
-  .db-summary{margin-bottom:14px;padding:10px;border:1px solid #ccc;border-radius:0;background:#fafafa!important;-webkit-print-color-adjust:exact;print-color-adjust:exact;}
+  /* Wider tables (11+ columns): tighter padding and smaller font.
+     Driven by data-cols attribute set in JS for cross-browser reliability. */
+  .printing[data-cols="11"] .r-table,
+  .printing[data-cols="12"] .r-table,
+  .printing[data-cols="13"] .r-table{font-size:8pt;}
+  .printing[data-cols="11"] .r-table th,
+  .printing[data-cols="12"] .r-table th,
+  .printing[data-cols="13"] .r-table th{font-size:7.5pt;padding:4px 5px;}
+  .printing[data-cols="11"] .r-table td,
+  .printing[data-cols="12"] .r-table td,
+  .printing[data-cols="13"] .r-table td{padding:3px 5px;}
 
-  /* Avoid page breaks inside tables */
+  .printing[data-cols="14"] .r-table,
+  .printing[data-cols="15"] .r-table{font-size:7.5pt;}
+  .printing[data-cols="14"] .r-table th,
+  .printing[data-cols="15"] .r-table th{font-size:7pt;padding:3px 4px;}
+  .printing[data-cols="14"] .r-table td,
+  .printing[data-cols="15"] .r-table td{padding:2.5px 4px;}
+
+  /* 16+ columns: smallest readable size; the user was warned at print time */
+  .printing[data-cols="16"] .r-table,
+  .printing[data-cols="17"] .r-table,
+  .printing[data-cols="18"] .r-table,
+  .printing[data-cols="19"] .r-table,
+  .printing[data-cols="20"] .r-table{font-size:7pt;}
+  .printing[data-cols="16"] .r-table th,
+  .printing[data-cols="17"] .r-table th,
+  .printing[data-cols="18"] .r-table th,
+  .printing[data-cols="19"] .r-table th,
+  .printing[data-cols="20"] .r-table th{font-size:6.5pt;padding:3px 3px;}
+  .printing[data-cols="16"] .r-table td,
+  .printing[data-cols="17"] .r-table td,
+  .printing[data-cols="18"] .r-table td,
+  .printing[data-cols="19"] .r-table td,
+  .printing[data-cols="20"] .r-table td{padding:2px 3px;}
+
+  /* Avoid page breaks inside rows; allow within table */
   .r-table{page-break-inside:auto;}
   .r-table tr{page-break-inside:avoid;page-break-after:auto;}
+  .r-table thead{display:table-header-group;}   /* repeat header on each page */
+  .r-table tbody{display:table-row-group;}
 
-  /* A4 page setup */
-  @page{size:A4 landscape;margin:1.2cm 1cm;}
+  /* A4 landscape, narrow margins for max usable width */
+  @page{size:A4 landscape;margin:1cm 0.8cm;}
 }
 </style>
 </head>
@@ -2579,8 +2653,13 @@ async function dbExportExcel(rows, cols, baseFilename, ar){
   notify(ar ? '✅ تم تصدير Excel' : '✅ Excel exported', 'success');
 }
 
-/* Print wrapper — marks the active report section with .printing so the print CSS
-   can hide all others, fills in the print header, then triggers print and cleans up. */
+/* Print wrapper. Three jobs:
+   1. Warn if the column count is too wide to fit A4 landscape comfortably.
+   2. Inject a compact single-row header at the top of the active section
+      (business · report title · date — all small, one line, separator below).
+   3. Mark active section with .printing for the print CSS rules to show it.
+   No DOM moves of the off-screen .print-header element — inline injection is
+   more reliable across browsers. */
 function dbPrint(){
   const ar = currentLang === 'ar';
   /* Identify the visible report section */
@@ -2591,38 +2670,55 @@ function dbPrint(){
   });
   if(!activeSection){ window.print(); return; }
 
-  /* Fill in print header with business name + current report title + period */
-  const titleEl = document.getElementById('print-report-title');
-  const bizEl = document.getElementById('print-biz-name');
-  const periodEl = document.getElementById('print-period');
-  if(bizEl) bizEl.textContent = pickLang(currentBiz, 'name');
-  if(titleEl){
-    const subText = document.getElementById('active-report-sub')?.textContent || '';
-    const titleText = document.getElementById('active-report-label')?.textContent || '';
-    titleEl.textContent = titleText + (subText ? ' — ' + subText : '');
-  }
-  if(periodEl){
-    /* For built-in reports, the period was set by their run functions.
-       For the Data Builder, use today's date. */
-    if(activeSection.id === 'report-data_builder'){
-      const today = new Date().toLocaleDateString(ar ? 'ar-SA' : 'en-US', {year:'numeric',month:'long',day:'numeric'});
-      periodEl.textContent = (ar ? 'تاريخ الطباعة: ' : 'Printed: ') + today;
+  /* Build the compact header for this report.
+     Source label · layout name (if any) · date · row count */
+  const bizName = pickLang(currentBiz, 'name') || '—';
+  const titleText = document.getElementById('active-report-label')?.textContent || '';
+  const subText = document.getElementById('active-report-sub')?.textContent || '';
+  const today = new Date().toLocaleDateString(ar ? 'ar-SA' : 'en-US', {year:'numeric',month:'short',day:'numeric'});
+
+  /* If Data Builder, also check column count and warn if it's going to overflow */
+  if(activeSection.id === 'report-data_builder'){
+    const colCount = _dbState.visibleColumns?.length || 0;
+    /* A4 landscape ~26cm printable. With ~2cm per column the rough sweet spot is 12-13.
+       Past ~14 columns the table starts shrinking text below readable size. */
+    if(colCount > 14){
+      const proceed = confirm(ar
+        ? `لديك ${colCount} عمودًا، وقد لا يتسع كلها على ورقة A4. ينصح بإخفاء بعض الأعمدة من «الخانات» أو استخدام «تصدير Excel» للحصول على كل البيانات. هل تريد المتابعة بالطباعة؟`
+        : `You have ${colCount} columns selected. They may not fit on A4 landscape. Consider hiding some columns from "Columns" or use "Export as Excel" for the full dataset. Continue to print anyway?`
+      );
+      if(!proceed) return;
     }
   }
 
-  /* Mark active section for print */
+  /* Inject a compact print-header into the active section */
+  const existing = activeSection.querySelector(':scope > .print-header-inline');
+  if(existing) existing.remove();
+
+  const header = document.createElement('div');
+  header.className = 'print-header-inline';
+  header.innerHTML = `
+    <span class="ph-biz">${escHTML(bizName)}</span>
+    <span class="ph-sep">·</span>
+    <span class="ph-title">${escHTML(titleText)}${subText && titleText !== subText ? ' — ' + escHTML(subText) : ''}</span>
+    <span class="ph-sep">·</span>
+    <span class="ph-date">${escHTML(today)}</span>
+  `;
+  activeSection.insertBefore(header, activeSection.firstChild);
+
+  /* Mark active section for the print CSS */
   activeSection.classList.add('printing');
-  /* Move the print-header *into* the active section so it appears even when
-     all other sections are hidden. The HTML has it under #reports-body which is
-     a sibling of the section, so it would normally also get hidden. */
-  const printHeader = document.querySelector('.print-header');
-  if(printHeader && activeSection.firstChild !== printHeader){
-    activeSection.insertBefore(printHeader, activeSection.firstChild);
+  /* Set column count so CSS can auto-scale font for wide tables */
+  if(activeSection.id === 'report-data_builder'){
+    activeSection.setAttribute('data-cols', String(_dbState.visibleColumns?.length || 0));
   }
 
-  /* Cleanup once print dialog closes */
+  /* Cleanup after print dialog closes */
   const cleanup = () => {
     activeSection.classList.remove('printing');
+    activeSection.removeAttribute('data-cols');
+    const h = activeSection.querySelector(':scope > .print-header-inline');
+    if(h) h.remove();
     window.removeEventListener('afterprint', cleanup);
   };
   window.addEventListener('afterprint', cleanup);
