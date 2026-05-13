@@ -128,7 +128,29 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .settings-shell{max-width:1200px;margin:0 auto;padding:18px;display:grid;grid-template-columns:240px 1fr;gap:18px;}
 
 /* Sidebar */
-.settings-sidebar{background:#fff;border:1px solid var(--border);border-radius:12px;padding:10px 0;height:fit-content;position:sticky;top:90px;}
+.settings-sidebar{
+  background:#fff;
+  border:1px solid var(--border);
+  border-radius:12px;
+  padding:10px 0;
+  /* Stick to top while main content scrolls, with a viewport-bounded max-height
+     so a long sidebar doesn't push past the screen. The 90px offset matches
+     the topnav; the 36px bottom buffer keeps the sidebar from touching the
+     viewport floor. overflow-y:auto gives the sidebar its own internal
+     scrollbar — users can reach any section without losing place in main content. */
+  position:sticky;
+  top:90px;
+  max-height:calc(100vh - 90px - 36px);
+  overflow-y:auto;
+  overflow-x:hidden;
+}
+/* Slim, unobtrusive scrollbar for the sidebar's internal scroll. Same styling
+   used in reports.html so the two pages feel like one product. */
+.settings-sidebar::-webkit-scrollbar{width:6px;}
+.settings-sidebar::-webkit-scrollbar-track{background:transparent;}
+.settings-sidebar::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px;}
+.settings-sidebar::-webkit-scrollbar-thumb:hover{background:var(--muted);}
+.settings-sidebar{scrollbar-width:thin;scrollbar-color:var(--border) transparent;}
 .sidebar-header{padding:10px 16px 12px;border-bottom:1px solid var(--tint);}
 .sidebar-title{font-size:16px;font-weight:800;color:var(--ink);}
 .sidebar-sub{font-size:11px;color:var(--muted);margin-top:2px;}
@@ -317,7 +339,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 /* Mobile */
 @media (max-width:850px){
   .settings-shell{grid-template-columns:1fr;padding:12px;gap:12px;}
-  .settings-sidebar{position:static;}
+  .settings-sidebar{position:static;max-height:none;overflow:visible;}
   .field-row.double,.field-row.triple{grid-template-columns:1fr;}
   .topnav{padding:8px 12px;}
   .nav-biz{max-width:90px;font-size:12px;}
@@ -414,10 +436,6 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           <span class="profile-icon">⚙️</span>
           <span data-ar="الإعدادات" data-en="Settings">الإعدادات</span>
         </a>
-        <a href="audit.html" class="profile-item" role="menuitem">
-          <span class="profile-icon">📜</span>
-          <span data-ar="سجل المراجعة" data-en="Audit Log">سجل المراجعة</span>
-        </a>
         <div class="profile-divider"></div>
         <button class="profile-item profile-item-button" onclick="logout()" role="menuitem">
           <span class="profile-icon">🚪</span>
@@ -432,8 +450,8 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 <div class="app-nav" id="app-nav">
   <a href="dashboard.html" class="app-nav-link app-nav-icon" title="Dashboard" aria-label="Dashboard"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></a>
   <a href="purchasing.html" class="app-nav-link" data-ar="المشتريات" data-en="Purchasing">المشتريات</a>
-  <a href="invoices.html" class="app-nav-link" data-ar="المبيعات" data-en="Sales">المبيعات</a>
   <a href="inventory.html" class="app-nav-link" data-ar="المخزون" data-en="Inventory">المخزون</a>
+  <a href="invoices.html" class="app-nav-link" data-ar="المبيعات" data-en="Sales">المبيعات</a>
   <a href="finance.html" class="app-nav-link" data-ar="المالية" data-en="Finance">المالية</a>
   <a href="accounting.html" class="app-nav-link" data-ar="المحاسبة" data-en="Accounting">المحاسبة</a>
   <a href="reports.html" class="app-nav-link" data-ar="التقارير" data-en="Reports">التقارير</a>
@@ -510,10 +528,6 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         <span class="icon">👥</span>
         <span data-ar="الفريق والصلاحيات" data-en="Team & Roles">الفريق والصلاحيات</span>
       </button>
-      <a href="audit.html" class="sidebar-link" style="text-decoration:none;">
-        <span class="icon">📜</span>
-        <span data-ar="سجل المراجعة" data-en="Audit Log">سجل المراجعة</span>
-      </a>
       <button class="sidebar-link" onclick="showSection('integrations', this)">
         <span class="icon">🔌</span>
         <span data-ar="التكاملات" data-en="Integrations">التكاملات</span>
@@ -1102,7 +1116,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           </div>
         </div>
 
-        <!-- Round 4p: PO overdue threshold + Round 4s: PO price variance tolerance -->
+        <!-- Round 4p: PO overdue threshold -->
         <div class="field-row double">
           <div class="field">
             <div class="field-label">
@@ -1112,11 +1126,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
             <div class="field-hint" data-ar="أوامر الشراء بدون استلام بعد هذه المدة من التاريخ المتوقع تُعتبر متأخرة (افتراضي 14 يوم)." data-en="POs not received within this many days past expected delivery are flagged overdue (default 14 days).">أوامر الشراء بدون استلام بعد هذه المدة من التاريخ المتوقع تُعتبر متأخرة (افتراضي 14 يوم).</div>
           </div>
           <div class="field">
-            <div class="field-label">
-              <span data-ar="حد فرق السعر في الاستلام — %" data-en="PO price variance tolerance — %">حد فرق السعر في الاستلام — %</span>
-            </div>
-            <input type="number" id="th-po-variance-pct" class="mono" min="0.1" max="50" step="0.1" placeholder="5" dir="ltr">
-            <div class="field-hint" data-ar="إذا تجاوز فرق السعر بين الاستلام وأمر الشراء هذه النسبة، يُعرض تحذير ويُعلَّم البند كغير مطابق في تقرير المطابقة (افتراضي 5%)." data-en="If a receipt's unit cost differs from the PO price by more than this %, it triggers a variance warning on receipt and flags the line as mismatched in the reconciliation view (default 5%).">إذا تجاوز فرق السعر بين الاستلام وأمر الشراء هذه النسبة، يُعرض تحذير ويُعلَّم البند كغير مطابق في تقرير المطابقة (افتراضي 5%).</div>
+            <!-- Reserved for future analytics threshold -->
           </div>
         </div>
 
@@ -1748,7 +1758,6 @@ function populateAllForms(){
   setVal('th-overstock-days', String(b.overstock_days  != null ? b.overstock_days  : 180));
   setVal('th-reorder-days',   String(b.reorder_urgency_days != null ? b.reorder_urgency_days : 7));
   setVal('th-po-overdue-days', String(b.po_overdue_days != null ? b.po_overdue_days : 14));
-  setVal('th-po-variance-pct', String(b.po_variance_pct_threshold != null ? b.po_variance_pct_threshold : 5));
   updateThresholdsExample();
   /* Wire reactive example update */
   ['th-slow-days','th-dead-days'].forEach(id => {
@@ -2481,7 +2490,6 @@ async function saveInventoryAnalytics(){
   const overstock = parseInt(v('th-overstock-days'), 10);
   const reorder = parseInt(v('th-reorder-days'), 10);
   const poOverdue = parseInt(v('th-po-overdue-days'), 10);
-  const poVariancePct = parseFloat(v('th-po-variance-pct'));   /* Round 4s */
 
   if(!slow || slow < 7 || slow > 365){ notify(ar?'حد المتحرك ببطء غير صحيح (7-365)':'Invalid slow-moving days (7-365)','error'); return; }
   if(!dead || dead < 14 || dead > 730){ notify(ar?'حد الراكد غير صحيح (14-730)':'Invalid dead-stock days (14-730)','error'); return; }
@@ -2489,9 +2497,6 @@ async function saveInventoryAnalytics(){
   if(!overstock || overstock < 30 || overstock > 1095){ notify(ar?'حد الفائض غير صحيح (30-1095)':'Invalid overstock days','error'); return; }
   if(!reorder || reorder < 1 || reorder > 90){ notify(ar?'حد إعادة الطلب غير صحيح (1-90)':'Invalid reorder days','error'); return; }
   if(!poOverdue || poOverdue < 1 || poOverdue > 365){ notify(ar?'حد تأخر أمر الشراء غير صحيح (1-365)':'Invalid PO overdue days (1-365)','error'); return; }
-  if(!Number.isFinite(poVariancePct) || poVariancePct <= 0 || poVariancePct > 50){
-    notify(ar?'حد فرق السعر غير صحيح (0 < x <= 50)':'Invalid price variance % (0 < x <= 50)','error'); return;
-  }
 
   const payload = {
     slow_moving_days: slow,
@@ -2499,7 +2504,6 @@ async function saveInventoryAnalytics(){
     overstock_days: overstock,
     reorder_urgency_days: reorder,
     po_overdue_days: poOverdue,
-    po_variance_pct_threshold: poVariancePct,   /* Round 4s */
     updated_at: new Date().toISOString()
   };
   const {error} = await sb.from('businesses').update(payload).eq('id', currentBiz.id);
