@@ -712,7 +712,10 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   }
 
   /* ─── Hide app chrome ───
-     Sidebar, topnav, all toolbars and banners that don't belong on paper. */
+     Sidebar, topnav, all toolbars and banners that don't belong on paper.
+     CFS warnings (.cfs-warning) are intentionally NOT hidden in print — if
+     the report is distributed with a flagged issue, the recipient must see
+     that flag too. Hiding it would silently launder a flawed report. */
   .topnav, .app-nav, .subtab-bar, .accounting-sidebar, .report-toolbar,
   .acc-trust-banner, #period-locked-banner, .acc-footer, .notify,
   .gl-modal-overlay, .gl-qa-wrap, .lang-switch, .ledger-view-toggle,
@@ -782,33 +785,6 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
     break-before: avoid;
   }
 
-  /* ─── Print-only document header ───
-     Show the business name + report title + period at the top of the printed
-     output. Hidden on screen, visible only on paper. Sits above the report. */
-  .print-doc-header {
-    display:block !important;
-    margin-bottom:14px;
-    padding-bottom:10px;
-    border-bottom:2px solid #000;
-  }
-  .print-doc-header .biz-name {
-    font-size:14pt;
-    font-weight:800;
-    color:#000;
-    margin-bottom:2px;
-  }
-  .print-doc-header .doc-title {
-    font-size:18pt;
-    font-weight:800;
-    color:#000;
-    margin-bottom:4px;
-  }
-  .print-doc-header .doc-period {
-    font-size:10pt;
-    color:#444;
-    font-family:'DM Mono',monospace;
-  }
-
   /* ─── Report row sizing for print ───
      Slightly tighter padding, slightly smaller font — fits more rows per page
      without losing readability. Keep monospace for numbers (alignment matters). */
@@ -866,10 +842,6 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
     border:1px solid #fca5a5 !important;
   }
 }
-
-/* Print-only document header — hidden on screen. JS populates this with the
-   current business name, report title, and period when the user prints. */
-.print-doc-header { display:none; }
 
 @media (max-width:768px){
   .report-doc{padding:16px 14px;}
@@ -4037,8 +4009,28 @@ async function renderCashFlow(period){
   /* Track cash accounts to compute the actual closing cash for verification */
   let openingCash = 0, closingCash = 0;
 
-  /* Walk every account in chart_of_accounts (or any account that has activity) */
+  /* Walk every account in chart_of_accounts (or any account that has activity).
+
+     ROUND B-6 (PENDING — Cash Flow Statement compliance):
+     Today this loop classifies accounts via code-range regex in
+     classifyCashFlowSection(). Accounts that don't match any range fall into
+     'unclassified' and their movement is silently dropped — that's a real
+     compliance gap. The proper fix is:
+       1. Add a `cash_flow_category` column to chart_of_accounts (enum:
+          'operating' | 'investing' | 'financing' | 'cash' | 'excluded').
+       2. Default it from account.type at creation time using a proper
+          classification rule (not regex on code).
+       3. Read THIS field here, not the regex result.
+       4. When a new account is created (or seeded), present a one-time
+          review screen if the auto-classification might be ambiguous.
+       5. Persist user overrides — once an account is reviewed, never ask again.
+       6. Validate: if `reconDiff` is non-zero by > 0.01 SAR, surface a real
+          "books inconsistency" warning, NOT a "consult your accountant" hedge.
+     Until B-6 lands: we still surface a warning ONLY when there are
+     unclassified accounts with material movement (replaces the blanket
+     Honest, specific, actionable. */
   const allCodes = new Set([...Object.keys(opening), ...Object.keys(closing)]);
+  const unclassifiedItems = [];  /* {code, name, change} */
   for(const code of allCodes){
     const section = classifyCashFlowSection(code);
     const account = (chartOfAccounts || []).find(a => a.code === code);
@@ -4065,6 +4057,11 @@ async function renderCashFlow(period){
     if(section === 'operating') operating.push(item);
     else if(section === 'investing') investing.push(item);
     else if(section === 'financing') financing.push(item);
+    else {
+      /* section === 'unclassified' — account doesn't match any code-range rule.
+         Track it so we can warn the user instead of silently dropping it. */
+      unclassifiedItems.push({ code, name, change, cashImpact });
+    }
   }
 
   /* Sort each section by absolute amount descending for readability */
@@ -4113,21 +4110,45 @@ async function renderCashFlow(period){
         ${currentBiz ? `<div class="report-biz">${escHTML(ar?(currentBiz.name_ar||currentBiz.name):currentBiz.name)}</div>` : ''}
       </div>
 
-      <!-- IFRS compliance disclaimer -->
-      <div style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#78350f;">
-        ⚠️ <strong>${ar?'تنويه:':'Disclaimer:'}</strong>
-        ${ar
-          ? 'تصنيف الحسابات بدائي اعتماداً على نطاقات أرقام الحسابات. راجع مع محاسبك القانوني المعتمد قبل التقديم على منصة قوائم. هذه القائمة استرشادية للأغراض التشغيلية.'
-          : 'Account classification is preliminary based on account-code ranges. Review with your CPA before Qawaem submission. This statement is informational for operational use.'}
-      </div>
+      <!-- Round B-6 (PENDING): Cash Flow Statement compliance.
+           The old blanket disclaimer ("preliminary classification, consult
+           your CPA before submission") defied our accountant-replacement
+           positioning and has been removed. Replaced with:
 
-      <!-- Cross-reference to operational tracker -->
-      <div style="background:var(--tint);border:1px solid var(--light);border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:var(--blue);">
-        💧 ${ar
-          ? 'لتتبع التدفقات النقدية اليومية والتنبؤ بالسيولة:'
-          : 'For day-to-day cash flow tracking and liquidity forecasting:'}
-        <a href="finance.html?tab=cashflow" style="color:var(--blue);font-weight:700;text-decoration:underline;margin-inline-start:6px;">${ar?'المالية ← التدفق النقدي':'Finance → Cash Flow'}</a>
-      </div>
+             (a) NO disclaimer at all in the common case — by default the
+                 statement stands on its own like P&L and Balance Sheet do.
+             (b) A specific, actionable warning ONLY when we detect a real
+                 issue: either an unclassified account with material movement
+                 OR the section totals don't reconcile to the actual change
+                 in cash balance. Both are real bugs we can name and fix.
+
+           B-6 will replace the code-range regex classifier with a proper
+           cash_flow_category column on chart_of_accounts (defaulted from
+           account type, persisted from user review). Once that lands the
+           unclassified branch goes away by construction — every account
+           has a category. -->
+      ${unclassifiedItems.length > 0 ? `
+        <div class="cfs-warning" style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#78350f;">
+          ⚠️ <strong>${ar?'تحقق من التصنيف:':'Classification check:'}</strong>
+          ${ar
+            ? `${unclassifiedItems.length} حساب غير مُصنّف ضمن أقسام التدفق النقدي:`
+            : `${unclassifiedItems.length} account${unclassifiedItems.length === 1 ? '' : 's'} not assigned to a cash-flow section:`}
+          <span style="font-family:'DM Mono',monospace;font-weight:700;margin-inline-start:4px;">
+            ${unclassifiedItems.slice(0,5).map(u => `${u.code} ${escHTML(u.name)}`).join(' · ')}${unclassifiedItems.length > 5 ? ` … +${unclassifiedItems.length - 5}` : ''}
+          </span>
+          <div style="margin-top:4px;font-size:11px;opacity:0.85;">${ar
+            ? 'افتح دليل الحسابات لتعيين قسم لكل حساب (تشغيلي / استثماري / تمويلي).'
+            : 'Open the Chart of Accounts to assign a section (operating / investing / financing) to each.'}</div>
+        </div>
+      ` : ''}
+      ${Math.abs(reconDiff) > 0.01 ? `
+        <div class="cfs-warning" style="background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#991b1b;">
+          ⚠️ <strong>${ar?'عدم اتساق:':'Inconsistency:'}</strong>
+          ${ar
+            ? `صافي التغير في النقد المحسوب لا يطابق رصيد النقد الفعلي بفارق ${fmt(Math.abs(reconDiff))} ر.س. هذا يعني وجود قيد لم يُعالج بشكل صحيح.`
+            : `Computed net cash change differs from actual cash balance by SAR ${fmt(Math.abs(reconDiff))}. An entry is not being captured correctly.`}
+        </div>
+      ` : ''}
 
       <table class="report-table" style="width:100%;border-collapse:collapse;">
         <thead>
@@ -4158,7 +4179,7 @@ async function renderCashFlow(period){
             <td style="padding:7px 10px;font-size:13px;color:var(--muted);">${ar?'الرصيد الختامي للنقد (الفعلي)':'Closing cash balance (actual ledger)'}</td>
             <td style="padding:7px 10px;text-align:end;font-family:'DM Mono',monospace;font-size:13px;color:var(--muted);">SAR ${fmt(closingCash)}</td>
           </tr>
-          ${Math.abs(reconDiff) > 0.5 ? `
+          ${Math.abs(reconDiff) > 0.01 ? `
           <tr style="background:#fee2e2;">
             <td style="padding:8px 10px;font-size:12px;color:#991b1b;">⚠️ ${ar?'فرق التسوية':'Reconciliation difference'}</td>
             <td style="padding:8px 10px;text-align:end;font-family:'DM Mono',monospace;font-size:12px;color:#991b1b;">${reconDiff >= 0 ? '+' : '−'}SAR ${fmt(Math.abs(reconDiff))}</td>
@@ -4264,57 +4285,10 @@ function drillToLedger(accountCode){
 
 /* ─── Print + CSV export for reports ─── */
 function printReport(){
-  /* Inject a print-only header at the top of the report — business name,
-     report title, period. Hidden on screen, visible only in print via the
-     .print-doc-header { display:none } / @media print { display:block } rule.
-     Header is removed after the print dialog closes so the DOM stays clean. */
-  const ar = currentLang === 'ar';
-  const reportContent = document.getElementById('report-content');
-  if(!reportContent){ window.print(); return; }
-
-  const reportDoc = reportContent.querySelector('.report-doc');
-  if(reportDoc){
-    /* Build the print header content */
-    const titles = {
-      pl: ar ? 'قائمة الدخل' : 'Profit & Loss',
-      bs: ar ? 'الميزانية العمومية' : 'Balance Sheet',
-      cf: ar ? 'قائمة التدفقات النقدية' : 'Cash Flow Statement',
-      tb: ar ? 'ميزان المراجعة' : 'Trial Balance'
-    };
-    const periodLabels = {
-      this_month:   ar ? 'هذا الشهر'    : 'This Month',
-      this_quarter: ar ? 'هذا الربع'    : 'This Quarter',
-      this_year:    ar ? 'هذا العام'    : 'This Year',
-      all:          ar ? 'منذ البداية' : 'Since Inception'
-    };
-    const period = document.getElementById('report-period')?.value || 'this_quarter';
-    const bizName = currentBiz ? (ar ? (currentBiz.name_ar || currentBiz.name || '—')
-                                     : (currentBiz.name_en || currentBiz.name || '—'))
-                               : '—';
-    const today = new Date();
-    const dateStr = today.toLocaleDateString(ar ? 'ar-SA-u-ca-gregory' : 'en-GB',
-      { day: '2-digit', month: 'short', year: 'numeric' });
-
-    /* Remove any stale header from a previous print */
-    reportDoc.querySelectorAll('.print-doc-header').forEach(el => el.remove());
-
-    const header = document.createElement('div');
-    header.className = 'print-doc-header';
-    header.innerHTML = `
-      <div class="biz-name">${escHTML(bizName)}</div>
-      <div class="doc-title">${escHTML(titles[reportView] || '')}</div>
-      <div class="doc-period">${escHTML(periodLabels[period] || period)} · ${escHTML(dateStr)}</div>
-    `;
-    reportDoc.insertBefore(header, reportDoc.firstChild);
-
-    /* Trigger print, then clean up the injected header after the dialog closes. */
-    const cleanup = () => {
-      header.remove();
-      window.removeEventListener('afterprint', cleanup);
-    };
-    window.addEventListener('afterprint', cleanup);
-  }
-
+  /* The report's existing in-document header (.report-header — business name,
+     title, period) is already centered and styled appropriately for both
+     screen and print. No additional injection needed — single header avoids
+     the duplicate-header issue (one centered, one auto-injected at top). */
   window.print();
 }
 
