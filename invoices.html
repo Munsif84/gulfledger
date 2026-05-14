@@ -5114,6 +5114,14 @@ async function autoPostInvoice(invoice){
   const vat = parseFloat(invoice.vat_amount) || 0;
   const total = parseFloat(invoice.total) || sub + vat;
   if(total <= 0) return;
+  /* CRITICAL: For the journal entry, Revenue must equal (total - vat), NOT
+     the stored `subtotal`. Reason: when an invoice has an invoice-level
+     discount, `subtotal` is the PRE-discount amount (for display on the
+     invoice "Subtotal" line) while `total - vat` is the actual taxable
+     revenue. Using `subtotal` here makes the entry unbalanced by the
+     discount amount — that was the root cause of the historical invoice
+     imbalances found in TB diagnostics. */
+  const revenue = roundCurrency(total - vat);
   const ref = invoice.invoice_number;
   const date = invoice.issue_date || todayISO();
 
@@ -5164,7 +5172,7 @@ async function autoPostInvoice(invoice){
        debit:total, credit:0,
        description:(currentLang==='ar'?'مستحقات من ':'Receivable from ') + (invoice.buyer_name||'عميل')},
       {entry_id:entry.id, user_id:currentUser.id, account_code:'4100', account_name:'إيرادات المبيعات',
-       debit:0, credit:sub,
+       debit:0, credit:revenue,
        description:(currentLang==='ar'?'إيرادات مبيعات — ':'Sales — ') + ref},
       {entry_id:entry.id, user_id:currentUser.id, account_code:'2200', account_name:'ضريبة القيمة المضافة — مخرجات',
        debit:0, credit:vat,
