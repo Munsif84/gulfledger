@@ -3906,12 +3906,21 @@ async function renderBalanceSheet(period){
         <span></span>
       </div>
 
-      <div class="bs-balance-check ${balanceCheck ? 'ok' : 'bad'}">
-        ${balanceCheck ? '✅' : '❌'}
-        <span>${balanceCheck
-          ? (ar?'الميزانية متوازنة: الأصول = الالتزامات + حقوق الملكية':'Balanced: Assets = Liabilities + Equity')
-          : (ar?`غير متوازنة! فرق: SAR ${fmt(Math.abs(totalAssets - totalLiabEq))}`:`Unbalanced! Difference: SAR ${fmt(Math.abs(totalAssets - totalLiabEq))}`)}</span>
-      </div>
+      <!-- Balance Sheet imbalance indicator removed (Round B-6/B-7).
+           If Assets ≠ Liab+Equity, that's a system data-integrity issue
+           identical to the Trial Balance imbalance — logged to console for
+           developer diagnosis, not surfaced to a non-accountant user.
+           Run window.glDiagnoseTB() in console to find offending entries. -->
+      ${(() => {
+        if(!balanceCheck){
+          console.warn('[GL] Balance sheet imbalance:',
+                       `Assets=${totalAssets.toFixed(2)}`,
+                       `Liab+Eq=${totalLiabEq.toFixed(2)}`,
+                       `diff=${(totalAssets - totalLiabEq).toFixed(2)} SAR.`,
+                       'Run window.glDiagnoseTB() to find the offending journal entries.');
+        }
+        return '';
+      })()}
     </div>
   `;
 }
@@ -4328,15 +4337,104 @@ async function renderTrialBalance(period){
         <span class="val">${formatVal(totalCR)}</span>
       </div>
 
-      <div class="tb-balance-banner ${balanced ? 'balanced' : 'unbalanced'}">
-        ${balanced ? '✅' : '❌'}
-        <span>${balanced
-          ? (ar?'ميزان المراجعة متوازن':'Trial balance is balanced')
-          : (ar?`غير متوازن! فرق: ${formatVal(Math.abs(totalDR - totalCR))}`:`Unbalanced! Difference: ${formatVal(Math.abs(totalDR - totalCR))}`)}</span>
-      </div>
+      <!-- The "balanced/unbalanced" banner is intentionally removed in
+           Round B-6/B-7. Same principle as the CFS reconciliation warning:
+           a non-accountant user cannot act on "trial balance unbalanced
+           by X" — that's a system data-integrity issue, not their problem.
+
+           Imbalance can only arise from one of three causes, all of which
+           are OUR responsibility, not the user's:
+
+             (a) A journal entry was saved without DR=CR validation
+                 (current code DOES validate manual entries — line ~3445 —
+                 but auto-generated entries from invoice/bill/receipt
+                 modules don't all go through the same validated helper).
+             (b) A partial line-insert failure (header saved, some lines
+                 failed). Today these inserts aren't wrapped in a transaction
+                 and errors are silently warned.
+             (c) Data left over from earlier development iterations before
+                 the current journal-generation logic was finalized.
+
+           Round B-7 (Journal Entry Integrity) addresses all three:
+             1. Single postJournalEntry() helper used by every module that
+                generates journal entries. Refuses to save if unbalanced.
+             2. Transactional insert via Supabase RPC (header + lines in
+                one DB transaction — atomic or both fail).
+             3. One-time data repair script to identify and fix or void
+                pre-existing unbalanced entries from dev-era test data.
+
+           Until B-7 lands: imbalance is logged to console (developer-visible)
+           via window.glDiagnoseTB() — see below — but not shown to the user. */
+      ${(() => {
+        if(!balanced){
+          console.warn('[GL] Trial balance imbalance:',
+                       `DR=${totalDR.toFixed(2)}`,
+                       `CR=${totalCR.toFixed(2)}`,
+                       `diff=${(totalDR - totalCR).toFixed(2)} SAR.`,
+                       'Run window.glDiagnoseTB() to find the offending entries.');
+        }
+        return '';
+      })()}
     </div>
   `;
 }
+
+/* Diagnostic helper for journal-entry integrity issues. Lists every entry
+   in the current business with DR ≠ CR (more than 1 halala off). Logs to
+   console — not exposed in UI. Use from browser devtools:
+
+     await window.glDiagnoseTB()
+
+   Returns: array of {entryId, date, source, description, totalDR, totalCR, diff}
+   sorted by absolute diff descending. */
+window.glDiagnoseTB = async function(){
+  if(!currentBiz?.id){ console.warn('[GL diagnose] No business loaded'); return []; }
+  const {data: entries, error: eErr} = await sb.from('journal_entries')
+    .select('id, entry_date, source, description, status, reference')
+    .eq('business_id', currentBiz.id)
+    .neq('status', 'voided')
+    .order('entry_date', { ascending: false });
+  if(eErr){ console.error('[GL diagnose]', eErr); return []; }
+  const offenders = [];
+  /* Chunk lookups to avoid hitting URL-length limits */
+  const chunk = 200;
+  for(let i = 0; i < entries.length; i += chunk){
+    const ids = entries.slice(i, i + chunk).map(e => e.id);
+    const {data: lines} = await sb.from('journal_lines')
+      .select('entry_id, debit, credit')
+      .in('entry_id', ids);
+    const byEntry = {};
+    (lines || []).forEach(l => {
+      if(!byEntry[l.entry_id]) byEntry[l.entry_id] = { dr: 0, cr: 0 };
+      byEntry[l.entry_id].dr += parseFloat(l.debit) || 0;
+      byEntry[l.entry_id].cr += parseFloat(l.credit) || 0;
+    });
+    for(const id of ids){
+      const e = entries.find(x => x.id === id);
+      const totals = byEntry[id] || { dr: 0, cr: 0 };
+      const diff = totals.dr - totals.cr;
+      if(Math.abs(diff) > 0.01){
+        offenders.push({
+          entryId: id,
+          date: e.entry_date,
+          source: e.source,
+          reference: e.reference,
+          description: e.description,
+          totalDR: totals.dr.toFixed(2),
+          totalCR: totals.cr.toFixed(2),
+          diff: diff.toFixed(2),
+          lineCount: (lines || []).filter(l => l.entry_id === id).length
+        });
+      }
+    }
+  }
+  offenders.sort((a, b) => Math.abs(parseFloat(b.diff)) - Math.abs(parseFloat(a.diff)));
+  console.table(offenders);
+  console.log(`[GL diagnose] Found ${offenders.length} unbalanced entries (sorted by |diff| desc).`);
+  console.log('  → To void a specific one: await sb.from(\'journal_entries\').update({status:\'voided\'}).eq(\'id\', ENTRY_ID)');
+  console.log('  → To inspect lines:        await sb.from(\'journal_lines\').select(\'*\').eq(\'entry_id\', ENTRY_ID)');
+  return offenders;
+};
 
 /* ─── Drill-down to ledger sub-tab filtered by account ─── */
 function drillToLedger(accountCode){
