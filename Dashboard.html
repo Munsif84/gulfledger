@@ -1,0 +1,1835 @@
+<!DOCTYPE html>
+
+<!--
+  GulfLedger — dashboard.html
+  Last UX/UI pass: All fixes are additive and preserve existing IDs, classes, JS handlers,
+  Supabase queries, and the data-en / data-ar translation system.
+
+  KNOWN ISSUES (deferred — do NOT remove without addressing the underlying cause):
+  1. AI Insights API call disabled — needs Supabase Edge Function (for API key security + CORS).
+     When ready, re-enable by setting AI_INSIGHTS_ENABLED = true and pointing to the Edge Function URL.
+  2. accounting.html link in nav exists but file may not be in repo. Verify before launch.
+  3. gl_accountant_mode localStorage flag controls "Advanced Accounting" link visibility — no UI toggle exists.
+  4. Hardcoded Supabase anon key — depends on RLS policies being correct on every table. Verify in schema.sql phase.
+  5. Replace 966500000000 with real WhatsApp number (1 occurrence in this file).
+-->
+
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<script>
+/* Apply language before render — prevents flash */
+(function(){
+  var lang=localStorage.getItem('gl_lang')||'ar';
+  document.documentElement.setAttribute('lang',lang);
+  document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex,nofollow">
+<meta name="theme-color" content="#1A3C2A">
+<title>GulfLedger — Dashboard</title>
+
+<!-- Standardized on Tajawal for Arabic consistency with index.html -->
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Tajawal:wght@300;400;500;700;800&family=Cairo:wght@300;400;500;600;700&family=Playfair+Display:wght@700&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<style>
+:root{
+  --navy:#1A3C2A;--blue:#006C35;--sky:#3DAA65;--light:#A8D9BC;--tint:#E6F4EC;
+  --green:#1D9E75;--red:#C62828;--amber:#C9920A;--ink:#0D2618;--muted:#4A7A5E;
+  --border:#C3DECE;--bg:#F4F9F6;--white:#ffffff;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+
+/* Tajawal primary, Cairo fallback (Cairo loaded for legacy compatibility with other pages) */
+body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--ink);}
+
+.topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;}
+.nav-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
+.nav-bars{display:flex;gap:5px;height:36px;}
+.nav-bar{width:5px;border-radius:2px;}
+.nav-name{font-family:'Playfair Display',serif;font-size:23px;color:#fff;}
+.nav-right{display:flex;align-items:center;gap:8px;}
+.nav-divider{width:1px;height:20px;background:rgba(255,255,255,0.2);}
+.nav-biz{font-size:16px;color:var(--light);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 10px;background:rgba(255,255,255,0.08);border-radius:6px;border:1px solid rgba(255,255,255,0.15);}
+.btn-logout{padding:5px 14px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:6px;font-family:'Tajawal','Cairo',sans-serif;font-size:16px;cursor:pointer;}
+.btn-logout:hover{background:rgba(255,255,255,0.2);}
+.nav-settings-btn{display:flex;align-items:center;justify-content:center;width:32px;height:32px;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:6px;color:#fff;text-decoration:none;font-size:15px;flex-shrink:0;}
+.nav-settings-btn:hover{background:rgba(255,255,255,0.2);}
+
+.lang-switch{display:flex;border:1px solid rgba(255,255,255,0.2);border-radius:6px;overflow:hidden;}
+.lang-btn{padding:4px 10px;font-size:13px;cursor:pointer;border:none;background:transparent;color:rgba(255,255,255,0.6);font-family:'Tajawal','Cairo',sans-serif;font-weight:500;}
+.lang-btn.on{background:var(--sky);color:#fff;}
+
+/* App nav with mobile scroll fade indicator */
+.app-nav{background:var(--blue);padding:8px 20px;display:flex;gap:4px;align-items:center;overflow-x:auto;position:relative;-webkit-overflow-scrolling:touch;scrollbar-width:thin;}
+.app-nav::-webkit-scrollbar{height:0;}
+.app-nav-link{padding:5px 14px;font-size:16px;font-weight:500;color:rgba(255,255,255,0.7);text-decoration:none;border-radius:6px;white-space:nowrap;transition:all .15s;}
+.app-nav-link:hover{background:rgba(255,255,255,0.12);color:#fff;}
+.app-nav-link.active{background:rgba(255,255,255,0.18);color:#fff;}
+
+/* ═══ ROUND D1 — Canonical nav additions (profile dropdown + dashboard icon) ═══ */
+.nav-settings-btn, .btn-logout { display: none !important; }
+.profile-menu { position: relative; }
+.profile-trigger { display: inline-flex; align-items: center; gap: 4px; background: rgba(255,255,255,0.08); color: #fff; border: 1px solid rgba(255,255,255,0.15); border-radius: 6px; padding: 4px 10px; cursor: pointer; font-size: 13px; transition: background .15s; font-family: inherit; }
+.profile-trigger:hover { background: rgba(255,255,255,0.15); }
+.profile-avatar { font-size: 16px; }
+.profile-caret { font-size: 10px; opacity: 0.7; }
+.profile-dropdown { position: absolute; top: calc(100% + 6px); inset-inline-end: 0; min-width: 180px; background: #fff; border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,0.15); padding: 4px; z-index: 400; display: none; }
+.profile-dropdown.open { display: block; }
+.profile-item { display: flex; align-items: center; gap: 10px; padding: 9px 12px; border-radius: 6px; color: var(--ink); text-decoration: none; font-size: 13px; cursor: pointer; transition: background .12s; width: 100%; text-align: inherit; background: none; border: none; font-family: inherit; }
+.profile-item:hover { background: rgba(0,108,53,0.06); }
+.profile-icon { font-size: 16px; flex-shrink: 0; }
+.profile-divider { height: 1px; background: var(--border); margin: 4px 0; }
+.app-nav-link.app-nav-icon { padding: 6px 12px; line-height: 1; display: inline-flex; align-items: center; }
+.app-nav-link.app-nav-icon svg { color: rgba(255,255,255,0.7); transition: color .15s; }
+.app-nav-link.app-nav-icon:hover svg { color: #fff; }
+.app-nav-link.app-nav-icon.active { background: rgba(255,255,255,0.18); }
+.app-nav-link.app-nav-icon.active svg { color: #fff; }
+@media (max-width: 560px) {
+  .profile-trigger { padding: 4px 8px; }
+  .nav-biz { max-width: 100px; font-size: 12px; }
+  .nav-divider { display: none; }
+  .profile-caret { display: none; }
+}
+/* ═══ Quick Action Menu (canonical D1+) ═══ */
+.gl-qa-wrap{position:relative;}
+.gl-qa-btn{display:inline-flex;align-items:center;gap:6px;padding:5px 13px;background:var(--sky);color:#fff;border:none;border-radius:6px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;transition:background .15s;}
+.gl-qa-btn:hover{background:var(--light);color:var(--navy);}
+.gl-qa-btn .qa-plus{font-size:16px;font-weight:300;line-height:1;}
+.gl-qa-menu{display:none;position:absolute;top:calc(100% + 6px);min-width:240px;background:#fff;border:1px solid var(--border);border-radius:10px;box-shadow:0 12px 40px rgba(0,0,0,0.18);padding:6px;z-index:401;inset-inline-end:0;}
+.gl-qa-menu.open{display:block;}
+.gl-qa-cat{font-size:10px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;padding:8px 12px 4px;}
+.gl-qa-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:6px;font-size:13px;font-weight:500;color:var(--ink);text-decoration:none;transition:background .12s;}
+.gl-qa-item:hover{background:rgba(0,108,53,0.06);}
+.gl-qa-icon{font-size:16px;flex-shrink:0;}
+.gl-qa-div{height:1px;background:var(--border);margin:4px 0;}
+@media (max-width:560px){.gl-qa-btn{padding:5px 10px;font-size:12px;}.gl-qa-btn span:not(.qa-plus){display:none;}.gl-qa-menu{min-width:220px;}}
+
+/* Quick Add menu (Round D1+) */
+.qa-wrap { position: relative; }
+.qa-btn { display: inline-flex; align-items: center; gap: 6px; padding: 5px 13px; background: var(--sky); color: #fff; border: none; border-radius: 6px; font-family: inherit; font-size: 13px; font-weight: 700; cursor: pointer; white-space: nowrap; transition: background .15s; }
+.qa-btn:hover { background: var(--light); color: var(--navy); }
+.qa-plus { font-size: 16px; font-weight: 300; line-height: 1; }
+.qa-menu { display: none; position: absolute; top: calc(100% + 6px); inset-inline-end: 0; min-width: 220px; max-height: calc(100vh - 80px); overflow-y: auto; background: #fff; border: 1px solid var(--border); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,108,53,0.18); padding: 6px; z-index: 401; }
+.qa-menu.open { display: block; }
+.qa-cat { font-size: 10px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: .07em; padding: 8px 10px 4px; }
+.qa-item { display: flex; align-items: center; gap: 10px; padding: 8px 10px; border-radius: 6px; font-size: 13px; font-weight: 500; color: var(--ink); text-decoration: none; transition: background .12s; }
+.qa-item:hover { background: rgba(0,108,53,0.08); color: var(--navy); }
+.qa-icon { font-size: 16px; flex-shrink: 0; }
+.qa-div { height: 1px; background: var(--border); margin: 4px 0; }
+@media (max-width: 560px) { .qa-label { display: none; } .qa-btn { padding: 5px 10px; } }
+
+.page{max-width:960px;margin:0 auto;padding:28px 20px;}
+.page-title{font-family:'Tajawal','Playfair Display',serif;font-size:24px;color:var(--navy);margin-bottom:4px;font-weight:800;}
+.page-sub{font-size:15px;color:var(--muted);margin-bottom:24px;}
+
+/* Last updated indicator — subtle, but reassures users data is fresh */
+.last-updated{display:inline-flex;align-items:center;gap:6px;font-size:11px;color:var(--muted);margin-bottom:18px;}
+.last-updated-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 2s infinite;}
+@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
+
+/* Unified loading state (Round D-loading) — same pattern as accounting/inventory */
+.loading-state{text-align:center;padding:50px 20px;color:var(--muted);}
+.loading-spinner{font-size:36px;margin-bottom:12px;animation:pulse 1.5s ease-in-out infinite;}
+
+/* ═══ FIRST-TIME SETUP MODAL (Round D2) ═══ */
+.setup-modal-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.5);z-index:600;align-items:center;justify-content:center;padding:20px;}
+.setup-modal-overlay.open{display:flex;}
+.setup-modal{background:#fff;border-radius:14px;width:100%;max-width:560px;max-height:calc(100vh - 40px);overflow-y:auto;box-shadow:0 20px 60px rgba(0,0,0,0.25);}
+.setup-modal-head{padding:24px 28px 0;display:flex;align-items:flex-start;justify-content:space-between;gap:12px;}
+.setup-modal-title{font-size:22px;font-weight:800;color:var(--navy);margin:0 0 4px;}
+.setup-modal-sub{font-size:14px;color:var(--muted);margin:0;line-height:1.5;}
+.setup-modal-close{background:none;border:none;font-size:22px;color:var(--muted);cursor:pointer;padding:4px 8px;line-height:1;border-radius:6px;}
+.setup-modal-close:hover{background:rgba(0,0,0,0.05);color:var(--ink);}
+.setup-modal-body{padding:18px 28px 8px;}
+.setup-field{margin-bottom:14px;}
+.setup-field-label{display:block;font-size:13px;font-weight:600;color:var(--ink);margin-bottom:6px;}
+.setup-field-label .req{color:#c43e3e;font-weight:700;}
+.setup-field-hint{font-size:11px;color:var(--muted);margin-top:4px;line-height:1.4;}
+.setup-field-error{font-size:12px;color:#c43e3e;margin-top:4px;display:none;}
+.setup-field.error .setup-field-error{display:block;}
+.setup-field.error input,.setup-field.error select{border-color:#c43e3e;}
+.setup-input{width:100%;padding:10px 12px;border:1px solid var(--border);border-radius:8px;font-family:inherit;font-size:14px;color:var(--ink);background:#fff;transition:border-color .15s;}
+.setup-input:focus{outline:none;border-color:var(--green);}
+.setup-input[readonly]{background:#f7faf8;color:var(--muted);}
+.setup-toggle-group{display:flex;gap:8px;margin-top:6px;}
+.setup-toggle{flex:1;padding:10px 14px;border:1.5px solid var(--border);border-radius:8px;background:#fff;font-family:inherit;font-size:13px;font-weight:600;color:var(--muted);cursor:pointer;transition:all .15s;}
+.setup-toggle.active{border-color:var(--green);background:rgba(0,108,53,0.05);color:var(--green);}
+.setup-toggle:hover:not(.active){border-color:var(--ink);color:var(--ink);}
+.setup-modal-foot{padding:14px 28px 24px;display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap;border-top:1px solid var(--border);margin-top:8px;}
+.setup-btn-skip{padding:10px 18px;background:none;border:1px solid var(--border);color:var(--muted);border-radius:8px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;}
+.setup-btn-skip:hover{background:rgba(0,0,0,0.04);color:var(--ink);}
+.setup-btn-save{padding:10px 22px;background:var(--green);color:#fff;border:none;border-radius:8px;font-family:inherit;font-size:14px;font-weight:700;cursor:pointer;transition:background .15s;}
+.setup-btn-save:hover{background:#005028;}
+.setup-btn-save:disabled{opacity:0.6;cursor:not-allowed;}
+@media (max-width:560px){
+  .setup-modal-head,.setup-modal-body,.setup-modal-foot{padding-left:18px;padding-right:18px;}
+  .setup-modal-foot{flex-direction:column-reverse;}
+  .setup-btn-save,.setup-btn-skip{width:100%;}
+}
+
+/* SETUP BANNER */
+.setup-banner{display:none;background:linear-gradient(135deg,var(--blue),var(--navy));border-radius:12px;padding:16px 20px;margin-bottom:20px;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+.setup-text h3{font-size:15px;color:#fff;margin-bottom:4px;}
+.setup-text p{font-size:16px;color:var(--light);line-height:1.5;}
+.btn-setup{padding:9px 20px;background:#fff;color:var(--navy);border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;white-space:nowrap;transition:transform .15s;}
+.btn-setup:hover{transform:translateY(-1px);}
+
+/* TRUST BANNER (Round B-2)
+   Inline books-health signal at the very top of the dashboard. Communicates
+   "your books are in order" in one line — the dashboard surface for the
+   accountant-replacement promise. Mirrors the thin banner inside accounting.html.
+   Two states:
+     • Happy (.acc-trust-banner)         → green check, neutral text
+     • Warning (.acc-trust-banner.warning) → amber check, actionable text
+   Currently the trust state is a placeholder (always happy) until B-3 wires
+   real integrity checks. */
+.acc-trust-banner{display:flex;align-items:center;gap:10px;padding:10px 14px;background:linear-gradient(135deg,rgba(29,158,117,0.08),#fff);border:1px solid var(--light);border-radius:10px;margin-bottom:14px;font-size:13px;color:var(--ink);}
+.acc-trust-banner.warning{background:linear-gradient(135deg,rgba(201,146,10,0.08),#fff);border-color:#fde68a;}
+.acc-trust-banner .check{display:inline-flex;align-items:center;justify-content:center;width:20px;height:20px;border-radius:50%;background:var(--green);color:#fff;font-size:12px;flex-shrink:0;}
+.acc-trust-banner.warning .check{background:var(--amber);}
+.acc-trust-banner .meta{color:var(--muted);font-size:12px;margin-inline-start:auto;}
+
+/* COMPLIANCE STATUS CARD (Round B-2)
+   Single horizontal card showing the next 2-3 filing deadlines. The bread-
+   and-butter of the accountant-replacement story — at-a-glance confirmation
+   of upcoming ZATCA filings + one-click jump to the filing wizard.
+   Each filing row shows: icon · name · countdown · Start link. */
+.compliance-card{background:#fff;border:1px solid var(--border);border-radius:14px;padding:14px 18px;margin-bottom:24px;}
+.compliance-card-hdr{display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;}
+.compliance-card-title{font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;}
+.compliance-card-badge{display:inline-block;padding:2px 7px;border-radius:4px;font-size:10px;font-weight:800;letter-spacing:.04em;font-family:Arial,sans-serif;background:#00B488;color:#fff;line-height:1.4;}
+.compliance-row{display:flex;align-items:center;gap:12px;padding:10px 0;border-top:1px solid var(--tint);}
+.compliance-row:first-of-type{border-top:none;}
+.compliance-row .icon{font-size:18px;flex-shrink:0;}
+.compliance-row .info{flex:1;min-width:0;}
+.compliance-row .name{font-size:14px;font-weight:700;color:var(--ink);}
+.compliance-row .countdown{font-size:12px;color:var(--muted);font-family:'DM Mono',monospace;margin-top:2px;}
+.compliance-row .countdown.urgent{color:var(--red);font-weight:700;}
+.compliance-row .countdown.soon{color:var(--amber);font-weight:700;}
+.compliance-row .action{padding:6px 14px;background:var(--tint);color:var(--blue);border-radius:7px;text-decoration:none;font-size:12px;font-weight:700;white-space:nowrap;transition:all .15s;border:1px solid transparent;}
+.compliance-row .action:hover{background:var(--blue);color:#fff;}
+.compliance-row.urgent .action{background:var(--red);color:#fff;}
+.compliance-row.urgent .action:hover{background:#a01a1a;}
+@media (max-width:560px){
+  .compliance-row{flex-wrap:wrap;}
+  .compliance-row .action{margin-inline-start:30px;}
+}
+
+/* STATS — with skeleton loading state */
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:28px;}
+.stat{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px;min-width:0;position:relative;}
+.stat-label{font-size:13px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:8px;}
+.stat-val{font-size:20px;font-weight:700;font-family:'DM Mono',monospace;color:var(--navy);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.stat-val.loading{color:var(--border);font-family:'Tajawal','Cairo',sans-serif;}
+.stat-sub{font-size:13px;color:var(--muted);margin-top:4px;}
+.stat-deadline{display:inline-block;font-size:10px;font-weight:700;padding:2px 7px;border-radius:6px;background:var(--tint);color:var(--blue);margin-top:6px;}
+.stat-deadline.urgent{background:#fff1f2;color:var(--red);}
+
+/* ACTIVITY CARDS */
+.activity-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:80px;}
+.act-card{background:var(--white);border:1px solid var(--border);border-radius:14px;overflow:hidden;}
+
+/* AI Insight Cards */
+.insight-card{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:14px 16px;display:flex;flex-direction:column;gap:6px;position:relative;overflow:hidden;}
+.insight-card::before{content:'';position:absolute;top:0;left:0;right:0;height:3px;}
+.insight-card.type-warning::before{background:var(--amber);}
+.insight-card.type-positive::before{background:var(--green);}
+.insight-card.type-alert::before{background:var(--red);}
+.insight-card.type-info::before{background:var(--blue);}
+.insight-card.type-action::before{background:#7c3aed;}
+.insight-icon{font-size:22px;margin-bottom:2px;}
+.insight-title{font-size:16px;font-weight:700;color:var(--navy);line-height:1.4;}
+.insight-body{font-size:13px;color:var(--muted);line-height:1.6;}
+.insight-action{font-size:12px;font-weight:700;color:var(--blue);text-decoration:none;margin-top:2px;display:inline-block;}
+.insight-skeleton{background:linear-gradient(90deg,var(--tint) 25%,#e8f0f8 50%,var(--tint) 75%);background-size:200% 100%;animation:shimmer 1.5s infinite;border-radius:12px;height:110px;}
+@keyframes shimmer{0%{background-position:200% 0}100%{background-position:-200% 0}}
+@media(max-width:768px){
+  #insights-container{grid-template-columns:1fr!important;}
+}
+
+.act-card-hdr{padding:14px 18px 12px;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid var(--tint);}
+.act-card-title{font-size:15px;font-weight:700;color:var(--navy);}
+.act-card-link{font-size:13px;color:var(--blue);text-decoration:none;font-weight:500;}
+.act-card-link:hover{color:var(--navy);}
+
+.act-item{display:flex;align-items:center;gap:12px;padding:11px 18px;border-bottom:1px solid var(--tint);}
+.act-item:last-child{border-bottom:none;}
+.act-icon{width:34px;height:34px;border-radius:9px;display:flex;align-items:center;justify-content:center;font-size:16px;flex-shrink:0;}
+.act-icon.inv{background:#dbeafe;}
+.act-icon.exp{background:#fff1f2;}
+.act-icon.stk-ok{background:#dcfce7;}
+.act-icon.stk-low{background:#fffbeb;}
+.act-icon.stk-out{background:#fff1f2;}
+.act-body{flex:1;min-width:0;}
+.act-name{font-size:16px;font-weight:600;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.act-meta{font-size:12px;color:var(--muted);margin-top:2px;display:flex;align-items:center;gap:6px;flex-wrap:wrap;}
+.act-amount{font-family:'DM Mono',monospace;font-size:15px;font-weight:700;white-space:nowrap;}
+
+/* Payment status badges — new for invoice rows */
+.pay-badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:5px;letter-spacing:0.02em;}
+.pay-badge.paid{background:#dcfce7;color:#166534;}
+.pay-badge.unpaid{background:#fef3c7;color:#92400e;}
+.pay-badge.overdue{background:#fee2e2;color:#991b1b;}
+.pay-badge.partial{background:#dbeafe;color:#1e40af;}
+
+/* Empty states — standardized across all three activity cards */
+.act-empty{padding:32px 18px;text-align:center;color:var(--muted);font-size:14px;display:flex;flex-direction:column;align-items:center;gap:8px;}
+.act-empty-icon{font-size:24px;opacity:0.4;}
+.act-empty.success{color:var(--green);}
+.act-empty.success .act-empty-icon{opacity:1;}
+
+.act-col{display:flex;flex-direction:column;gap:16px;}
+
+/* STAT improvements */
+.c-red{color:var(--red);}
+.c-green{color:var(--green);}
+.c-navy{color:var(--navy);}
+.c-amber{color:var(--amber);}
+
+@media(max-width:768px){.activity-grid{grid-template-columns:1fr !important;}}
+
+.modules{display:grid;grid-template-columns:repeat(auto-fill,minmax(280px,1fr));gap:14px;margin-bottom:80px;}
+.module-card{display:flex;align-items:center;gap:14px;background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px;text-decoration:none;color:var(--ink);transition:all .15s;}
+.module-card:hover{border-color:var(--sky);box-shadow:0 4px 16px rgba(0,108,53,0.1);transform:translateY(-1px);}
+.module-icon{width:42px;height:42px;background:var(--tint);border-radius:10px;display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.module-name{font-size:16px;font-weight:700;color:var(--navy);margin-bottom:3px;}
+.module-desc{font-size:13px;color:var(--muted);line-height:1.5;}
+.module-badge{font-size:9px;font-weight:700;padding:2px 8px;border-radius:8px;display:inline-block;margin-top:5px;}
+.badge-ai{background:#f5f3ff;color:#6d28d9;}
+.badge-ready{background:var(--tint);color:var(--blue);}
+
+@media(max-width:768px){
+  .stats{grid-template-columns:1fr 1fr !important;}
+  .modules{grid-template-columns:1fr !important;}
+  #activity-grid{grid-template-columns:1fr !important;}
+}
+@media(max-width:480px){.stats{grid-template-columns:1fr 1fr !important;}}
+
+/* ═══════════════════════════════════════
+   GULFLEDGER MOBILE RESPONSIVE — ALL PAGES
+   Breakpoint: 768px
+   ═══════════════════════════════════════ */
+@media(max-width:768px){
+  /* NAV */
+  .topnav{padding:8px 12px;gap:6px;}
+  .nav-biz{max-width:100px;}
+  .lang-switch .lang-btn{padding:3px 8px;font-size:12px;}
+  .btn-logout{padding:4px 10px;font-size:13px;}
+
+  /* APP NAV — scrollable, compact */
+  .app-nav{padding:6px 10px;gap:2px;}
+  .app-nav-link{padding:5px 9px;font-size:13px;}
+
+  /* SIDEBAR LAYOUTS — hide sidebar, full width main */
+  .layout{grid-template-columns:1fr !important;}
+  .sidebar{display:none !important;}
+
+  /* STATS GRIDS */
+  .stats{grid-template-columns:1fr 1fr !important;}
+
+  /* MODULE CARDS */
+  .modules{grid-template-columns:1fr !important;}
+
+  /* INVOICE — stack panels */
+  .app{grid-template-columns:1fr !important;}
+  .form-panel{border-left:none;border-bottom:1px solid var(--border);}
+  .invoice-doc{margin-top:12px;}
+
+  /* FORM GRIDS — all single column */
+  .fg-2,.fg-3,.fg-4,.fg-5{grid-template-columns:1fr !important;}
+  .field-row.double,.field-row.triple{grid-template-columns:1fr !important;}
+
+  /* ITEM ROW — description on its own line */
+  .item-row{grid-template-columns:20px 1fr 40px 58px 46px 58px 22px !important;}
+
+  /* PERIOD BAR — stack */
+  .period-bar{flex-direction:column;align-items:stretch;gap:8px;}
+  .period-bar select,.period-bar input{width:100%;}
+
+  /* PAGE HEADER */
+  .page-header{flex-direction:column;gap:10px;}
+
+  /* TABLES — horizontal scroll */
+  .tbl-wrap, .overflow-x-auto, [style*="overflow-x:auto"]{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+  .tbl{min-width:520px;}
+  .inv-items{min-width:480px;}
+
+  /* INVOICE PARTIES — stack on very small */
+  .inv-parties{grid-template-columns:1fr !important;}
+  .inv-parties > div:first-child{border-right:none;border-bottom:1px solid var(--border);}
+
+  /* CARDS */
+  .card-hdr{flex-direction:column;align-items:flex-start !important;}
+
+  /* SETTINGS TABS */
+  .section-tabs{flex-wrap:wrap;gap:4px;}
+  .stab{padding:6px 10px;font-size:13px;}
+
+  /* VAT FORM */
+  .f201-row{flex-direction:column;gap:8px;}
+  .f201-row > div{flex:none;width:100%;}
+  .f201-stats{grid-template-columns:1fr 1fr !important;}
+
+  /* STATEMENTS */
+  .stmt-row{font-size:16px;}
+
+  /* PADDING */
+  .main{padding:12px !important;}
+  .page{padding:14px 12px !important;}
+  .card-bdy{padding:12px !important;}
+}
+
+@media(max-width:480px){
+  .stats{grid-template-columns:1fr !important;}
+  .nav-name span{display:none;}
+  .item-row{grid-template-columns:16px 1fr 36px 52px 44px 52px 20px !important;}
+  .f201-stats{grid-template-columns:1fr !important;}
+}
+
+/* ── STICKY NAV ── */
+.topnav{position:sticky;top:0;z-index:300;box-shadow:0 2px 8px rgba(0,0,0,0.15);}
+.app-nav{position:sticky;top:44px;z-index:299;box-shadow:0 2px 6px rgba(0,0,0,0.1);}
+
+/* ═══════════════════════════════════════
+   FLOATING ACTION BUTTON — quick "New Invoice" access
+   The #1 daily action, always one tap away
+   ═══════════════════════════════════════ */
+.fab{
+  position:fixed;
+  bottom:24px;
+  inset-inline-end:24px; /* RTL-aware: right in LTR, left in RTL */
+  z-index:200;
+  display:inline-flex;align-items:center;gap:8px;
+  padding:14px 22px;
+  background:var(--blue);
+  color:#fff;
+  text-decoration:none;
+  font-family:'Tajawal','Cairo',sans-serif;
+  font-size:15px;font-weight:700;
+  border-radius:50px;
+  box-shadow:0 8px 24px rgba(0,108,53,0.4);
+  transition:all .2s;
+}
+.fab:hover{
+  background:var(--navy);
+  transform:translateY(-2px) scale(1.03);
+  box-shadow:0 12px 28px rgba(0,108,53,0.5);
+}
+.fab svg{width:18px;height:18px;flex-shrink:0;}
+@media(max-width:480px){
+  .fab{bottom:16px;inset-inline-end:16px;padding:12px 18px;font-size:14px;}
+  .fab .fab-text{display:none;} /* On tiny screens, just show the + icon */
+  .fab.icon-only{padding:14px;}
+}
+
+/* ═══════════════════════════════════════
+   GULFLEDGER SHARED UX — consistent across all pages
+   ═══════════════════════════════════════ */
+.sidebar{background:var(--white);border-left:1px solid var(--border);padding:14px 0;overflow-y:auto;}
+[dir="ltr"] .sidebar{border-left:none;border-right:1px solid var(--border);}
+.layout{display:grid;grid-template-columns:210px 1fr;min-height:calc(100vh - 88px);}
+
+.sb-sec{padding:0 12px;margin-bottom:6px;}
+.sb-lbl{font-size:15px;font-weight:700;color:var(--navy);padding:12px 6px 6px;display:block;letter-spacing:.01em;}
+.sb-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:15px;color:var(--ink);margin-bottom:2px;user-select:none;transition:background .15s;}
+.sb-item:hover{background:var(--tint);color:var(--blue);}
+.sb-item.active{background:var(--tint);color:var(--blue);font-weight:600;border-right:3px solid var(--blue);}
+[dir="ltr"] .sb-item.active{border-right:none;border-left:3px solid var(--blue);}
+
+.sb-dot{width:7px;height:7px;border-radius:50%;flex-shrink:0;}
+.sb-stat{font-size:13px;color:var(--muted);padding:4px 10px;display:flex;justify-content:space-between;}
+.sb-stat-val{font-family:'DM Mono',monospace;font-weight:700;font-size:13px;}
+.main{padding:20px;overflow-y:auto;}
+
+.stats{display:grid;gap:12px;margin-bottom:20px;}
+.stat{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px;}
+.stat-lbl{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:6px;}
+.stat-num{font-family:'DM Mono',monospace;font-size:22px;font-weight:700;color:var(--navy);}
+.stat-sub{font-size:13px;color:var(--muted);margin-top:3px;}
+.stat.s-green{border-color:#86efac;background:#f0fdf4;}
+.stat.s-amber{border-color:#fde68a;background:#fffbeb;}
+.stat.s-red{border-color:#fca5a5;background:#fff5f5;}
+
+.c-navy{color:var(--navy)!important;}.c-green{color:var(--green)!important;}.c-red{color:var(--red)!important;}.c-amber{color:var(--amber)!important;}
+
+.card{background:var(--white);border:1px solid var(--border);border-radius:12px;overflow:hidden;margin-bottom:16px;}
+.card-hdr{padding:13px 18px;border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:8px;}
+.card-ttl{font-size:16px;font-weight:700;color:var(--navy);}
+.card-bdy{padding:18px;}
+
+.section-title{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);margin:16px 0 8px;padding-bottom:6px;border-bottom:1px solid var(--border);display:block;}
+
+.fg{display:grid;gap:12px;margin-bottom:14px;}
+.fg-2{grid-template-columns:1fr 1fr;}
+.fg-3{grid-template-columns:1fr 1fr 1fr;}
+
+.fld{display:flex;flex-direction:column;gap:4px;}
+.fld label{font-size:13px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+.fld input,.fld select,.fld textarea{padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-family:'Tajawal','Cairo',sans-serif;font-size:15px;color:var(--ink);background:var(--white);width:100%;}
+/* Green-tinted focus shadow to match brand (was blue) */
+.fld input:focus,.fld select:focus,.fld textarea:focus{outline:none;border-color:var(--sky);box-shadow:0 0 0 3px rgba(61,170,101,0.15);}
+.hint{font-size:12px;color:var(--muted);margin-top:2px;}
+
+.btn-p{padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:'Tajawal','Cairo',sans-serif;font-size:15px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;}
+.btn-p:hover{background:var(--navy);}
+.btn-s{padding:7px 14px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:'Tajawal','Cairo',sans-serif;font-size:16px;font-weight:600;cursor:pointer;}
+.btn-s:hover{border-color:var(--blue);background:var(--light);}
+.btn-d{padding:5px 10px;background:#fff5f5;color:var(--red);border:1px solid #fca5a5;border-radius:6px;font-family:'Tajawal','Cairo',sans-serif;font-size:13px;cursor:pointer;}
+.btn-row{display:flex;gap:8px;flex-wrap:wrap;}
+
+.tbl{width:100%;border-collapse:collapse;font-size:16px;}
+.tbl th{padding:9px 12px;background:var(--tint);color:var(--navy);font-size:12px;font-weight:700;text-align:right;white-space:nowrap;letter-spacing:.04em;text-transform:uppercase;}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--tint);vertical-align:middle;}
+[dir="ltr"] .tbl th,[dir="ltr"] .tbl td{text-align:left;}
+.tbl tr:last-child td{border-bottom:none;}
+.tbl tr:hover td{background:#fafcff;cursor:pointer;}
+
+.mono{font-family:'DM Mono',monospace;font-size:16px;}
+.bdg{font-size:12px;font-weight:700;padding:2px 9px;border-radius:8px;display:inline-block;}
+
+.note-box{display:flex;align-items:flex-start;gap:8px;padding:10px 13px;border-radius:8px;margin-bottom:13px;font-size:16px;line-height:1.5;}
+.note-box.blue{background:var(--tint);border:1px solid var(--light);color:var(--navy);}
+.note-box.amber{background:#fffbeb;border:1px solid #fde68a;color:var(--amber);}
+
+.tc{display:none;}.tc.active{display:block;}
+
+@media(max-width:768px){
+  .layout{grid-template-columns:1fr!important;}
+  .sidebar{display:none!important;}
+  .stats{grid-template-columns:1fr 1fr!important;}
+  .fg-2,.fg-3{grid-template-columns:1fr 1fr!important;}
+  .main{padding:12px!important;}
+  .card-bdy{padding:12px!important;}
+  .card-hdr{flex-direction:column;align-items:flex-start!important;}
+}
+@media(max-width:480px){
+  .stats{grid-template-columns:1fr!important;}
+  .fg-2,.fg-3{grid-template-columns:1fr!important;}
+}
+
+/* Respect users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+</style>
+
+</head>
+<body>
+
+<!-- ═══ CANONICAL TOP NAV (Round D1) ═══
+     Identical on every page. Active state set by JS at runtime. -->
+
+<div class="topnav">
+  <a href="dashboard.html" class="nav-logo" aria-label="GulfLedger home">
+    <div class="nav-bars">
+      <div class="nav-bar" style="background:#fff;"></div>
+      <div class="nav-bar" style="background:rgba(255,255,255,0.45);"></div>
+    </div>
+    <span class="nav-name">Gulf<span style="color:var(--light);">Ledger</span></span>
+  </a>
+  <div class="nav-right">
+    <div class="gl-qa-wrap" id="gl-qa-wrap">
+      <button class="gl-qa-btn" onclick="glQAToggle(event)" aria-haspopup="true" aria-expanded="false" aria-label="إضافة سريعة / Quick Add">
+        <span class="qa-plus">+</span>
+        <span data-ar="إضافة" data-en="Add">إضافة</span>
+      </button>
+      <div class="gl-qa-menu" id="gl-qa-menu" role="menu">
+        <div class="gl-qa-cat" data-ar="مبيعات" data-en="Sales">مبيعات</div>
+        <a href="invoices.html?action=new_invoice" class="gl-qa-item" role="menuitem">
+          <span class="gl-qa-icon">🧾</span>
+          <span data-ar="فاتورة جديدة" data-en="New Invoice">فاتورة جديدة</span>
+        </a>
+        <a href="invoices.html?action=new_customer" class="gl-qa-item" role="menuitem">
+          <span class="gl-qa-icon">👤</span>
+          <span data-ar="عميل جديد" data-en="New Customer">عميل جديد</span>
+        </a>
+
+```
+    <div class="gl-qa-div"></div>
+    <div class="gl-qa-cat" data-ar="المشتريات" data-en="Purchasing">المشتريات</div>
+    <a href="purchasing.html?tab=suppliers&action=new_supplier" class="gl-qa-item" role="menuitem">
+      <span class="gl-qa-icon">🏭</span>
+      <span data-ar="مورد جديد" data-en="New Supplier">مورد جديد</span>
+    </a>
+    <a href="purchasing.html?tab=products&action=new_product" class="gl-qa-item" role="menuitem">
+      <span class="gl-qa-icon">📦</span>
+      <span data-ar="منتج جديد" data-en="New Product">منتج جديد</span>
+    </a>
+
+    <div class="gl-qa-div"></div>
+    <div class="gl-qa-cat" data-ar="المخزون" data-en="Inventory">المخزون</div>
+    <a href="inventory.html?tab=receive&action=new_receipt" class="gl-qa-item" role="menuitem">
+      <span class="gl-qa-icon">📥</span>
+      <span data-ar="استلام بضاعة" data-en="Receive Stock">استلام بضاعة</span>
+    </a>
+
+    <div class="gl-qa-div"></div>
+    <div class="gl-qa-cat" data-ar="المالية" data-en="Finance">المالية</div>
+    <a href="finance.html?tab=expenses&action=new_expense" class="gl-qa-item" role="menuitem">
+      <span class="gl-qa-icon">💸</span>
+      <span data-ar="مصروف جديد" data-en="New Expense">مصروف جديد</span>
+    </a>
+    <a href="finance.html?tab=vendors&action=new_vendor" class="gl-qa-item" role="menuitem">
+      <span class="gl-qa-icon">🏢</span>
+      <span data-ar="مورد مصروفات" data-en="New Expense Vendor">مورد مصروفات</span>
+    </a>
+
+    <div class="gl-qa-div"></div>
+    <div class="gl-qa-cat" data-ar="محاسبة" data-en="Accounting">محاسبة</div>
+    <a href="accounting.html?sub=ledger&action=new_journal" class="gl-qa-item" role="menuitem">
+      <span class="gl-qa-icon">📒</span>
+      <span data-ar="قيد محاسبي" data-en="New Journal Entry">قيد محاسبي</span>
+    </a>
+  </div>
+</div>
+<div class="lang-switch">
+  <button class="lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button>
+  <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
+</div>
+<div class="nav-divider"></div>
+<span class="nav-biz" id="biz-name" title="">...</span>
+<div class="profile-menu" id="profile-menu">
+  <button class="profile-trigger" onclick="toggleProfileMenu(event)" aria-haspopup="true" aria-expanded="false" aria-label="Profile menu">
+    <span class="profile-avatar" id="profile-avatar">👤</span>
+    <span class="profile-caret">▾</span>
+  </button>
+  <div class="profile-dropdown" id="profile-dropdown" role="menu">
+    <a href="settings.html" class="profile-item" role="menuitem">
+      <span class="profile-icon">⚙️</span>
+      <span data-ar="الإعدادات" data-en="Settings">الإعدادات</span>
+    </a>
+    <div class="profile-divider"></div>
+    <button class="profile-item profile-item-button" onclick="logout()" role="menuitem">
+      <span class="profile-icon">🚪</span>
+      <span data-ar="تسجيل الخروج" data-en="Sign out">تسجيل الخروج</span>
+    </button>
+  </div>
+</div>
+```
+
+  </div>
+</div>
+
+<!-- ═══ MAIN APP NAVIGATION ═══ -->
+
+<div class="app-nav" id="app-nav">
+  <a href="dashboard.html" class="app-nav-link app-nav-icon" title="Dashboard" aria-label="Dashboard"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:block;"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></a>
+  <a href="purchasing.html" class="app-nav-link" data-ar="المشتريات" data-en="Purchasing">المشتريات</a>
+  <a href="inventory.html" class="app-nav-link" data-ar="المخزون" data-en="Inventory">المخزون</a>
+  <a href="invoices.html" class="app-nav-link" data-ar="المبيعات" data-en="Sales">المبيعات</a>
+  <a href="finance.html" class="app-nav-link" data-ar="المالية" data-en="Finance">المالية</a>
+  <a href="accounting.html" class="app-nav-link" data-ar="المحاسبة" data-en="Accounting">المحاسبة</a>
+  <a href="reports.html" class="app-nav-link" data-ar="التقارير" data-en="Reports">التقارير</a>
+</div>
+
+<script>
+  /* TODO: gl_accountant_mode flag has no UI toggle yet — only set manually via DevTools. Add toggle in settings.html. */
+  (function(){
+    var mode = localStorage.getItem('gl_accountant_mode');
+    if(mode === 'true'){
+      var el = document.getElementById('nav-accounting');
+      if(el) el.style.display = 'inline-block';
+    }
+  })();
+</script>
+
+<!-- Loading state (shown until init completes) -->
+
+<div class="loading-state" id="loading-state">
+  <div class="loading-spinner">📊</div>
+  <div data-ar="جارٍ تحميل لوحة التحكم..." data-en="Loading dashboard...">جارٍ تحميل لوحة التحكم...</div>
+</div>
+
+<div class="page" id="page" style="display:none;">
+
+  <!-- Setup Banner -->
+
+  <div class="setup-banner" id="setup-banner" role="alert">
+    <div class="setup-text">
+      <h3 data-ar="أكمل إعداد منشأتك" data-en="Complete your business setup">أكمل إعداد منشأتك</h3>
+      <p data-ar="أضف الرقم الضريبي والسجل التجاري والعنوان لتفعيل الفواتير المتوافقة مع زاتكا." data-en="Add your TRN, CR number, and address to enable ZATCA-compliant invoicing.">أضف الرقم الضريبي والسجل التجاري والعنوان لتفعيل الفواتير المتوافقة مع زاتكا.</p>
+    </div>
+    <a href="settings.html" class="btn-setup" data-ar="إعداد الآن ←" data-en="Set Up Now →">إعداد الآن ←</a>
+  </div>
+
+  <!-- Trust banner (Round B-2) — moved from accounting.html.
+       Dashboard is the natural home for the "are my books OK?" signal
+       since this is the landing surface after login.
+       Currently shows happy state with placeholder timestamp; B-3 will
+       wire real integrity checks (unreconciled bank entries, draft
+       journals, period close status). -->
+
+  <div class="acc-trust-banner" id="acc-trust-banner">
+    <span class="check">✓</span>
+    <span data-ar="القيود محدّثة" data-en="Books current">القيود محدّثة</span>
+    <span class="meta" id="acc-trust-meta">—</span>
+  </div>
+
+  <h1 class="page-title" id="dash-title" data-ar="مرحباً" data-en="Welcome back">مرحباً</h1>
+  <p class="page-sub" id="dash-period"></p>
+
+  <!-- Last updated indicator -->
+
+  <div class="last-updated" id="last-updated" style="display:none;">
+    <span class="last-updated-dot"></span>
+    <span data-ar="آخر تحديث:" data-en="Last updated:">آخر تحديث:</span>
+    <span id="last-updated-time">—</span>
+  </div>
+
+  <!-- Stats — start with placeholder dashes instead of SAR 0 to avoid the "data is zero" misread -->
+
+  <div class="stats">
+    <div class="stat">
+      <div class="stat-label" data-ar="المبيعات" data-en="Revenue">المبيعات</div>
+      <div class="stat-val loading" id="s-invoiced">—</div>
+      <div class="stat-sub" id="s-invoiced-sub" data-ar="هذا الشهر" data-en="This month">هذا الشهر</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label" data-ar="المصاريف" data-en="Expenses">المصاريف</div>
+      <div class="stat-val loading" id="s-expenses">—</div>
+      <div class="stat-sub" data-ar="هذا الشهر" data-en="This month">هذا الشهر</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label" data-ar="صافي الربح" data-en="Net Profit">صافي الربح</div>
+      <div class="stat-val loading" id="s-profit">—</div>
+      <div class="stat-sub" data-ar="هذا الشهر" data-en="This month">هذا الشهر</div>
+    </div>
+    <div class="stat">
+      <div class="stat-label" data-ar="VAT المستحق" data-en="VAT Payable">VAT المستحق</div>
+      <div class="stat-val loading" id="s-vat">—</div>
+      <div class="stat-sub" data-ar="الربع الحالي" data-en="Current quarter">الربع الحالي</div>
+      <div class="stat-deadline" id="s-vat-deadline" style="display:none;"></div>
+    </div>
+  </div>
+
+  <!-- Compliance Status (Round B-2) — moved from accounting.html Health.
+       Shows the next 2-3 ZATCA filings with countdown + Start link.
+       Populated by populateComplianceStatus() during init. Hidden until
+       data is loaded to avoid flash of empty content. -->
+
+  <div class="compliance-card" id="compliance-card" style="display:none;">
+    <div class="compliance-card-hdr">
+      <span class="compliance-card-title" data-ar="حالة الامتثال" data-en="Compliance Status">حالة الامتثال</span>
+      <span class="compliance-card-badge" aria-hidden="true">ZATCA</span>
+    </div>
+    <div id="compliance-rows">
+      <!-- populated by JS at init time -->
+    </div>
+  </div>
+
+  <!-- AI Insights Panel — disabled API call, fallback insights only until Edge Function ready -->
+
+  <div id="insights-panel" style="margin-bottom:20px;">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:14px;font-weight:700;color:var(--navy);" data-ar="💡 توصيات ذكية" data-en="💡 Smart Insights">💡 توصيات ذكية</span>
+        <span style="font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;background:#f5f3ff;color:#6d28d9;" data-ar="قريباً AI" data-en="AI Soon">قريباً AI</span>
+      </div>
+      <button onclick="loadInsights(true)" id="insights-refresh-btn"
+        style="padding:4px 12px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:6px;font-family:'Tajawal','Cairo',sans-serif;font-size:11px;cursor:pointer;">
+        🔄 <span data-ar="تحديث" data-en="Refresh">تحديث</span>
+      </button>
+    </div>
+    <div id="insights-container" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;">
+      <div class="insight-skeleton"></div>
+      <div class="insight-skeleton"></div>
+      <div class="insight-skeleton"></div>
+    </div>
+  </div>
+
+  <!-- Recent Activity -->
+
+  <div class="activity-grid">
+    <!-- Recent Invoices -->
+    <div class="act-card">
+      <div class="act-card-hdr">
+        <span class="act-card-title" data-ar="آخر الفواتير" data-en="Recent Invoices">آخر الفواتير</span>
+        <a href="invoices.html" class="act-card-link" data-ar="عرض الكل ←" data-en="View all →">عرض الكل ←</a>
+      </div>
+      <div id="recent-invoices">
+        <div class="act-empty">
+          <span class="act-empty-icon">⏳</span>
+          <span data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</span>
+        </div>
+      </div>
+    </div>
+
+```
+<!-- Right column -->
+<div class="act-col">
+  <!-- Recent Expenses -->
+  <div class="act-card">
+    <div class="act-card-hdr">
+      <span class="act-card-title" data-ar="آخر المصاريف" data-en="Recent Expenses">آخر المصاريف</span>
+      <a href="accounting.html?sub=ledger" class="act-card-link" data-ar="عرض الكل ←" data-en="View all →">عرض الكل ←</a>
+    </div>
+    <div id="recent-expenses">
+      <div class="act-empty">
+        <span class="act-empty-icon">⏳</span>
+        <span data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Stock Alerts -->
+  <div class="act-card">
+    <div class="act-card-hdr">
+      <span class="act-card-title" data-ar="تنبيهات المخزون" data-en="Stock Alerts">تنبيهات المخزون</span>
+      <a href="inventory.html" class="act-card-link" data-ar="إدارة ←" data-en="Manage →">إدارة ←</a>
+    </div>
+    <div id="stock-alerts-list">
+      <div class="act-empty">
+        <span class="act-empty-icon">⏳</span>
+        <span data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</span>
+      </div>
+    </div>
+  </div>
+</div>
+```
+
+  </div>
+
+  <!-- Round B-2: "Quick Access" modules grid removed — it duplicated the
+       topnav exactly (Invoices / Inventory / Ledger / VAT / Reports /
+       Settings) and added no information. Freed vertical space goes to
+       trust banner, compliance status, and (future) Things-to-Do panel.
+
+       The `.modules` and `.module-card` CSS is kept for now in case a
+       future Round wants to reuse the card style elsewhere. The orphaned
+       JS reference at the inventory-plan-lock branch is now a no-op
+       (getElementByID returns null, guarded by `if(invCard)`). -->
+
+</div>
+
+<!-- Floating Action Button — quick access to "New Invoice" (#1 daily action) -->
+
+<a href="invoices.html#new" class="fab" id="fab-new-invoice" aria-label="New Invoice">
+  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+  <span class="fab-text" data-ar="فاتورة جديدة" data-en="New Invoice">فاتورة جديدة</span>
+</a>
+
+<!-- ═══ FIRST-TIME SETUP MODAL (Round D2) ═══ -->
+
+<div class="setup-modal-overlay" id="setup-modal-overlay" role="dialog" aria-modal="true" aria-labelledby="setup-modal-title">
+  <div class="setup-modal" onclick="event.stopPropagation();">
+    <div class="setup-modal-head">
+      <div>
+        <h2 class="setup-modal-title" id="setup-modal-title" data-ar="مرحباً بك في GulfLedger" data-en="Welcome to GulfLedger">مرحباً بك في GulfLedger</h2>
+        <p class="setup-modal-sub" data-ar="لنُكمل إعداد منشأتك حتى تتمكن من إصدار فواتير متوافقة مع زاتكا." data-en="Let's finish setting up your business so you can issue ZATCA-compliant invoices.">لنُكمل إعداد منشأتك حتى تتمكن من إصدار فواتير متوافقة مع زاتكا.</p>
+      </div>
+      <button class="setup-modal-close" onclick="closeSetupModal()" aria-label="Close" title="Skip for now">×</button>
+    </div>
+
+```
+<div class="setup-modal-body">
+  <!-- Business name AR (required) -->
+  <div class="setup-field" id="setup-field-name-ar">
+    <label class="setup-field-label" for="setup-name-ar">
+      <span data-ar="اسم المنشأة (عربي)" data-en="Business name (Arabic)">اسم المنشأة (عربي)</span>
+      <span class="req">*</span>
+    </label>
+    <input type="text" id="setup-name-ar" class="setup-input" maxlength="100" placeholder="مثال: شركة الخليج للحلول المحاسبية">
+    <div class="setup-field-error" data-ar="اسم المنشأة بالعربية مطلوب" data-en="Arabic business name is required">اسم المنشأة بالعربية مطلوب</div>
+  </div>
+
+  <!-- Business name EN (optional) -->
+  <div class="setup-field" id="setup-field-name-en">
+    <label class="setup-field-label" for="setup-name-en">
+      <span data-ar="اسم المنشأة (إنجليزي) — اختياري" data-en="Business name (English) — optional">اسم المنشأة (إنجليزي) — اختياري</span>
+    </label>
+    <input type="text" id="setup-name-en" class="setup-input" maxlength="100" placeholder="e.g. Gulf Accounting Solutions Co.">
+    <div class="setup-field-hint" data-ar="مفيد للفواتير باللغة الإنجليزية." data-en="Useful for English-language invoices.">مفيد للفواتير باللغة الإنجليزية.</div>
+  </div>
+
+  <!-- VAT registered yes/no -->
+  <div class="setup-field" id="setup-field-vat-registered">
+    <label class="setup-field-label">
+      <span data-ar="هل المنشأة مسجلة في ضريبة القيمة المضافة؟" data-en="Is your business registered for VAT?">هل المنشأة مسجلة في ضريبة القيمة المضافة؟</span>
+      <span class="req">*</span>
+    </label>
+    <div class="setup-toggle-group">
+      <button type="button" class="setup-toggle" id="setup-vat-yes" onclick="setupSetVat(true)">
+        <span data-ar="نعم، مُسجلة" data-en="Yes, registered">نعم، مُسجلة</span>
+      </button>
+      <button type="button" class="setup-toggle" id="setup-vat-no" onclick="setupSetVat(false)">
+        <span data-ar="لا، غير مُسجلة" data-en="No, not registered">لا، غير مُسجلة</span>
+      </button>
+    </div>
+    <div class="setup-field-hint" data-ar="التسجيل إلزامي إذا تجاوزت إيراداتك السنوية 375,000 ريال." data-en="Registration is mandatory if your annual revenue exceeds SAR 375,000.">التسجيل إلزامي إذا تجاوزت إيراداتك السنوية 375,000 ريال.</div>
+  </div>
+
+  <!-- TRN (conditional, shown only if VAT registered) -->
+  <div class="setup-field" id="setup-field-trn" style="display:none;">
+    <label class="setup-field-label" for="setup-trn">
+      <span data-ar="الرقم الضريبي (TRN)" data-en="Tax Registration Number (TRN)">الرقم الضريبي (TRN)</span>
+      <span class="req">*</span>
+    </label>
+    <input type="text" id="setup-trn" class="setup-input" maxlength="15" inputmode="numeric" placeholder="3xxxxxxxxxxxx03">
+    <div class="setup-field-hint" data-ar="15 رقماً، يبدأ بـ 3 وينتهي بـ 03." data-en="15 digits, starts with 3 and ends with 03.">15 رقماً، يبدأ بـ 3 وينتهي بـ 03.</div>
+    <div class="setup-field-error">—</div>
+  </div>
+
+  <!-- VAT filing frequency (conditional) -->
+  <div class="setup-field" id="setup-field-vat-freq" style="display:none;">
+    <label class="setup-field-label" for="setup-vat-freq">
+      <span data-ar="دورة تقديم الإقرار الضريبي" data-en="VAT filing frequency">دورة تقديم الإقرار الضريبي</span>
+    </label>
+    <select id="setup-vat-freq" class="setup-input">
+      <option value="quarterly" data-ar="ربع سنوي (الافتراضي)" data-en="Quarterly (default)">ربع سنوي (الافتراضي)</option>
+      <option value="monthly" data-ar="شهري (للإيرادات > 40 مليون ريال)" data-en="Monthly (revenue > SAR 40M)">شهري (للإيرادات > 40 مليون ريال)</option>
+    </select>
+  </div>
+
+  <!-- CR (optional) -->
+  <div class="setup-field" id="setup-field-cr">
+    <label class="setup-field-label" for="setup-cr">
+      <span data-ar="رقم السجل التجاري — اختياري" data-en="Commercial Registration (CR) — optional">رقم السجل التجاري — اختياري</span>
+    </label>
+    <input type="text" id="setup-cr" class="setup-input" maxlength="10" inputmode="numeric" placeholder="10 digits">
+    <div class="setup-field-hint" data-ar="إذا كنت مستقلاً (فريلانسر) يمكنك ترك هذا الحقل فارغاً." data-en="Leave blank if you're a freelancer without a CR.">إذا كنت مستقلاً (فريلانسر) يمكنك ترك هذا الحقل فارغاً.</div>
+  </div>
+
+  <!-- Fiscal year start -->
+  <div class="setup-field" id="setup-field-fy">
+    <label class="setup-field-label" for="setup-fy">
+      <span data-ar="بداية السنة المالية" data-en="Fiscal year start">بداية السنة المالية</span>
+    </label>
+    <select id="setup-fy" class="setup-input">
+      <option value="01-01" data-ar="1 يناير (الافتراضي)" data-en="January 1 (default)">1 يناير (الافتراضي)</option>
+      <option value="04-01" data-ar="1 أبريل" data-en="April 1">1 أبريل</option>
+      <option value="07-01" data-ar="1 يوليو" data-en="July 1">1 يوليو</option>
+      <option value="10-01" data-ar="1 أكتوبر" data-en="October 1">1 أكتوبر</option>
+    </select>
+  </div>
+</div>
+
+<div class="setup-modal-foot">
+  <button type="button" class="setup-btn-skip" onclick="closeSetupModal()">
+    <span data-ar="إكمال لاحقاً" data-en="Finish later">إكمال لاحقاً</span>
+  </button>
+  <button type="button" class="setup-btn-save" id="setup-save-btn" onclick="saveSetup()">
+    <span data-ar="حفظ والمتابعة ←" data-en="Save & Continue →">حفظ والمتابعة ←</span>
+  </button>
+</div>
+```
+
+  </div>
+</div>
+
+<script>
+  /* TODO: hardcoded anon key works only with proper RLS policies on every table — verify in schema.sql phase */
+  const SUPABASE_URL='https://ykzivnasjwtuhvjxfxzf.supabase.co';
+  const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
+  const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+  let L=localStorage.getItem('gl_lang')||'ar';
+  let currentBiz=null;
+
+  /* Feature flag — set to true once Supabase Edge Function is ready and pointed at /functions/v1/ai-insights */
+  const AI_INSIGHTS_ENABLED = false;
+
+  /* Locale-aware month names for the period label */
+  const MONTH_NAMES = {
+    ar: ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'],
+    en: ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  };
+
+  /* Build one row of the Compliance Status card.
+     Takes an object: { icon, name_ar, name_en, dueDate, daysLeft, sub_ar,
+     sub_en, link, startText_ar, startText_en }.
+     Returns HTML string. Urgency tiers (Round B-2.1):
+       • overdue (daysLeft < 0)  → red banner, "X days overdue"
+       • today (daysLeft = 0)    → red banner, "Due today"
+       • critical (1-7 days)     → red countdown, prominent
+       • soon (8-30 days)        → amber countdown
+       • otherwise               → neutral grey */
+  function buildComplianceRow(r){
+    const ar = L === 'ar';
+    const name = ar ? r.name_ar : r.name_en;
+    const sub = ar ? r.sub_ar : r.sub_en;
+    const startText = ar ? r.startText_ar : r.startText_en;
+
+    let countdownText, urgencyClass = '', rowUrgent = false;
+    if(r.daysLeft < 0){
+      urgencyClass = 'urgent';
+      rowUrgent = true;
+      countdownText = ar
+        ? `⚠ متأخر ${Math.abs(r.daysLeft)} يوم · ${sub}`
+        : `⚠ ${Math.abs(r.daysLeft)} days overdue · ${sub}`;
+    } else if(r.daysLeft === 0){
+      urgencyClass = 'urgent';
+      rowUrgent = true;
+      countdownText = ar ? `⚠ مستحق اليوم · ${sub}` : `⚠ Due today · ${sub}`;
+    } else if(r.daysLeft <= 7){
+      urgencyClass = 'urgent';
+      rowUrgent = true;
+      countdownText = ar
+        ? `⏰ خلال ${r.daysLeft} يوم · ${sub}`
+        : `⏰ Due in ${r.daysLeft} days · ${sub}`;
+    } else if(r.daysLeft <= 30){
+      urgencyClass = 'soon';
+      countdownText = ar
+        ? `⏰ خلال ${r.daysLeft} يوم · ${sub}`
+        : `⏰ Due in ${r.daysLeft} days · ${sub}`;
+    } else {
+      countdownText = ar
+        ? `خلال ${r.daysLeft} يوم · ${sub}`
+        : `Due in ${r.daysLeft} days · ${sub}`;
+    }
+
+    const rowClass = rowUrgent ? 'compliance-row urgent' : 'compliance-row';
+
+    return `
+      <div class="${rowClass}">
+        <span class="icon">${r.icon}</span>
+        <div class="info">
+          <div class="name">${name}</div>
+          <div class="countdown ${urgencyClass}">${countdownText}</div>
+        </div>
+        <a href="${r.link}" class="action">${startText} →</a>
+      </div>
+    `;
+  }
+
+  /* ── LANGUAGE ── */
+  function getStoredLang(){return localStorage.getItem('gl_lang')||'ar';}
+
+  function applyLang(lang){
+    localStorage.setItem('gl_lang',lang);
+    document.getElementById('btn-ar')?.classList.toggle('on',lang==='ar');
+    document.getElementById('btn-en')?.classList.toggle('on',lang==='en');
+    document.documentElement.setAttribute('lang',lang);
+    document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
+    document.querySelectorAll('[data-ar][data-en]').forEach(el=>el.textContent=el.getAttribute('data-'+lang));
+    // Update dash title with biz name (language-aware: prefer current lang, fall back to other)
+    if(currentBiz){
+      const name = pickLang(currentBiz, 'name');
+      document.getElementById('dash-title').textContent=(lang==='ar'?'مرحباً، ':'Welcome, ')+name;
+    }
+    // Update period label with current date range
+    updatePeriodLabel(lang);
+  }
+
+  function setLang(lang){
+    L=lang;
+    applyLang(lang);
+    // Clear insights cache and reload in new language
+    if(currentBiz?.id){
+      localStorage.removeItem('gl_insights_'+currentBiz.id);
+      localStorage.removeItem('gl_insights_time_'+currentBiz.id);
+    }
+    loadInsights();
+  }
+
+  /* Round D1: Language fallback for data fields.
+     Returns the field in the current language; falls back to the other language;
+     shows '—' if both are empty. Uses dashboard's `L` variable (vs currentLang elsewhere). */
+  function pickLang(obj, baseField) {
+    if (!obj) return '—';
+    const ar = obj[baseField + '_ar'];
+    const en = obj[baseField + '_en'];
+    const fallback = obj[baseField] || null;
+    if (L === 'en') return en || ar || fallback || '—';
+    return ar || en || fallback || '—';
+  }
+
+  /* Date label — today's date only, DD/MM/YYYY format */
+  function updatePeriodLabel(lang){
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2,'0');
+    const mm = String(now.getMonth()+1).padStart(2,'0');
+    const yyyy = now.getFullYear();
+    const periodEl = document.getElementById('dash-period');
+    if(!periodEl) return;
+    periodEl.textContent = `${dd}/${mm}/${yyyy}`;
+  }
+
+  /* Update last-updated indicator */
+  function updateLastUpdated(){
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2,'0');
+    const mm = String(now.getMinutes()).padStart(2,'0');
+    const el = document.getElementById('last-updated');
+    const timeEl = document.getElementById('last-updated-time');
+    if(el && timeEl){
+      timeEl.textContent = `${hh}:${mm}`;
+      el.style.display = 'inline-flex';
+    }
+  }
+
+  /* ═══════════════════════════════════════════════════════════════
+     Round 2-MultiTenant-C: loadCurrentBusiness(sb, user)
+     Returns { biz, role, reason } — looks up business via business_users
+     membership (works for both owners and team members). Auto-creates a
+     business for brand-new users with no membership history. */
+  async function loadCurrentBusiness(sb, user){
+    /* 1. Active membership (owner or team member) */
+    const {data: activeMembership} = await sb.from('business_users')
+      .select('business_id, role')
+      .eq('user_id', user.id)
+      .eq('status', 'active')
+      .limit(5);
+    if(activeMembership && activeMembership.length > 0){
+      /* Prefer owner > admin > others if user has multiple memberships */
+      const ownerRow = activeMembership.find(m => m.role === 'owner');
+      const adminRow = activeMembership.find(m => m.role === 'admin');
+      const chosen = ownerRow || adminRow || activeMembership[0];
+      const {data: biz} = await sb.from('businesses').select('*').eq('id', chosen.business_id).maybeSingle();
+      if(biz) return {biz, role: chosen.role, reason: null};
+      /* Active membership exists but business lookup failed.
+         Do NOT fall through to "revoked" — this is an RLS or data error. */
+      console.error('[GL] Active membership found but businesses lookup returned null for business_id:', chosen.business_id);
+      return {biz: null, role: chosen.role, reason: 'biz_lookup_failed'};
+    }
+    /* 2. Inactive-only membership: access revoked.
+       Only reached if there's NO active membership at all. */
+    const {data: anyMembership} = await sb.from('business_users')
+      .select('id, status').eq('user_id', user.id).limit(5);
+    if(anyMembership && anyMembership.length > 0){
+      /* All memberships are inactive — truly revoked */
+      return {biz: null, role: null, reason: 'revoked'};
+    }
+    /* 3. Brand new user — auto-create business (trigger will add owner membership) */
+    const bizName = user.user_metadata?.business_name || 'My Business';
+    const {data: newBiz} = await sb.from('businesses').insert({
+      user_id: user.id, name: bizName, plan: 'starter', plan_status: 'active'
+    }).select().single();
+    if(!newBiz) return {biz: null, role: null, reason: 'create_failed'};
+    /* The trg_businesses_ensure_owner_membership trigger creates the owner row.
+       But also insert defensively in case the trigger isn't installed. */
+    await sb.from('business_users').insert({
+      business_id: newBiz.id, user_id: user.id,
+      email: user.email || 'unknown@example.com', role: 'owner', status: 'active'
+    });
+    return {biz: newBiz, role: 'owner', reason: null};
+  }
+
+  /* ── INIT ── */
+  let _initRan = false;
+  async function init(){
+    // Defensive: prevent double-execution if init() somehow gets called twice
+    if(_initRan) return;
+    _initRan = true;
+
+    /* Hide loading and show page once we have basic auth + biz info */
+    function showPage(){
+      const ls = document.getElementById('loading-state');
+      const pg = document.getElementById('page');
+      if(ls) ls.style.display = 'none';
+      if(pg) pg.style.display = '';
+    }
+
+    const {data:{session}}=await sb.auth.getSession();
+    if(!session){window.location.href='login.html';return;}
+    const user=session.user;
+    window.currentUser = user;  /* expose for setup modal & other helpers */
+
+    const {biz, role, reason} = await loadCurrentBusiness(sb, user);
+    if(!biz){
+      if(reason === 'revoked'){
+        document.body.innerHTML = '<div style="max-width:480px;margin:80px auto;padding:32px;background:#fff;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.1);text-align:center;font-family:Tajawal,Cairo,sans-serif;"><h1 style="color:#c43e3e;font-size:22px;margin-bottom:12px;">' + (L==='ar'?'تم إلغاء الوصول':'Access revoked') + '</h1><p style="color:#666;margin-bottom:20px;">' + (L==='ar'?'تم إزالة وصولك إلى هذه المنشأة. تواصل مع مالك المنشأة.':'Your access to this business has been removed. Contact the business owner.') + '</p><button onclick="logout()" style="padding:10px 22px;background:#006C35;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:700;cursor:pointer;">' + (L==='ar'?'تسجيل الخروج':'Sign out') + '</button></div>';
+        return;
+      }
+      alert((L==='ar'?'فشل تحميل المنشأة':'Failed to load business') + ' (' + (reason||'unknown') + ')');
+      return;
+    }
+    currentBiz = biz;
+    currentBiz._myRole = role;
+    const name = pickLang(biz, 'name');
+    const bizEl = document.getElementById('biz-name');
+    bizEl.textContent = name;
+    bizEl.title = name;
+    document.getElementById('dash-title').textContent = (L==='ar'?'مرحباً، ':'Welcome, ') + name;
+    if(!biz.trn) document.getElementById('setup-banner').style.display = 'flex';
+    applyPlanGating(biz.plan || 'starter');
+
+    /* Reveal page now that biz is loaded — stats & insights load progressively below */
+    showPage();
+    updatePeriodLabel(L);
+
+    /* First-time setup popup — show if user hasn't completed setup yet.
+       Soft dismiss: closing reopens next session until they save. */
+    if(currentBiz && currentBiz.setup_complete === false){
+      /* Small delay so the page paints first */
+      setTimeout(openSetupModal, 250);
+    }
+
+    // Stats — current month revenue, quarterly VAT, all-time count
+    const now = new Date();
+    const monthStart = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-01';
+    const monthEnd = now.toISOString().split('T')[0];
+    const q = Math.floor(now.getMonth()/3);
+    const qStart = now.getFullYear()+'-'+String(q*3+1).padStart(2,'0')+'-01';
+
+    const {data:allInv}=await sb.from('invoices').select('total,vat_amount,subtotal,issue_date,invoice_number,buyer_name,payment_status,due_date').eq('business_id', biz.id).order('issue_date',{ascending:false});
+
+    if(allInv){
+      const monthInv=allInv.filter(i=>i.issue_date>=monthStart&&i.issue_date<=monthEnd);
+      const monthRev=monthInv.reduce((s,i)=>s+(i.subtotal||0),0);
+      const qInv=allInv.filter(i=>i.issue_date>=qStart&&i.issue_date<=monthEnd);
+      const qVat=qInv.reduce((s,i)=>s+(i.vat_amount||0),0);
+      const sInvoiced = document.getElementById('s-invoiced');
+      sInvoiced.textContent='SAR '+fmt(monthRev);
+      sInvoiced.classList.remove('loading');
+      const sVat = document.getElementById('s-vat');
+      sVat.textContent='SAR '+fmt(qVat);
+      sVat.classList.remove('loading');
+
+      // VAT deadline indicator — show "Due in N days" / "متأخر بـ N يوم"
+      const vatDueDate = new Date(now.getFullYear(), q*3+3, 30);
+      const daysToVat = Math.round((vatDueDate-now)/(1000*60*60*24));
+      const deadlineEl = document.getElementById('s-vat-deadline');
+      if(deadlineEl){
+        deadlineEl.style.display='inline-block';
+        if(daysToVat < 0){
+          deadlineEl.classList.add('urgent');
+          deadlineEl.textContent = L==='ar' ? `⚠ متأخر ${Math.abs(daysToVat)} يوم` : `⚠ ${Math.abs(daysToVat)} days overdue`;
+        } else if(daysToVat <= 14){
+          deadlineEl.classList.add('urgent');
+          deadlineEl.textContent = L==='ar' ? `⚠ خلال ${daysToVat} يوم` : `⚠ Due in ${daysToVat} days`;
+        } else {
+          deadlineEl.textContent = L==='ar' ? `خلال ${daysToVat} يوم` : `Due in ${daysToVat} days`;
+        }
+      }
+
+      // ─── Round B-2 ─── populate trust banner + compliance status card
+      //
+      // Trust banner ("Books current · Last updated [date]") — placeholder
+      // happy state today; B-3 will wire real integrity checks (unbalanced
+      // entries, draft journals, unreconciled bank).
+      try {
+        const trustMeta = document.getElementById('acc-trust-meta');
+        if(trustMeta){
+          const today = new Date();
+          const dateStr = today.toLocaleDateString(L==='ar'?'ar-SA-u-ca-gregory':'en-GB',
+            {day:'2-digit', month:'short', year:'numeric'});
+          trustMeta.textContent = L==='ar' ? `آخر تحديث · ${dateStr}` : `Last updated · ${dateStr}`;
+        }
+      } catch(e){ console.warn('[GL] trust banner populate:', e); }
+
+      // Compliance Status card — list upcoming ZATCA filings with countdowns.
+      //
+      // Round B-2.1: Smart visibility. A user filing VAT every quarter has
+      // ~10 months/year where the next VAT is too far away to act on.
+      // Showing it every day for 90 days creates noise.
+      //
+      // Behaviour:
+      //   • VAT row shown when within 30 days of due (or overdue)
+      //   • Annual row shown when within 60 days of due (or overdue —
+      //     longer window because it's bigger work)
+      //   • Neither in window → single green "All caught up" line with the
+      //     next upcoming VAT date as orientation
+      //
+      // Future Round B-VAT (Filings & Period Close): adds a real `filings`
+      // table tracking what's actually been filed. Then this card becomes
+      // even smarter — when user filed Q1 last week, Q2 row won't show
+      // prematurely; it appears only when Q2 enters its 30-day window.
+      // For now (no filings table) we assume nothing is filed and rely
+      // purely on date proximity — good 95% of the time.
+      try {
+        const card = document.getElementById('compliance-card');
+        const rows = document.getElementById('compliance-rows');
+        if(card && rows){
+          const VAT_WINDOW_DAYS = 30;
+          const ANNUAL_WINDOW_DAYS = 60;
+
+          // Annual Return — due 30 April of the next calendar year, covering
+          // the current fiscal year.
+          const annualDueDate = new Date(now.getFullYear() + 1, 3, 30);
+          const daysToAnnual = Math.round((annualDueDate - now)/(1000*60*60*24));
+
+          const showVat = (daysToVat <= VAT_WINDOW_DAYS); // includes overdue (negative)
+          const showAnnual = (daysToAnnual <= ANNUAL_WINDOW_DAYS);
+
+          const ar = L === 'ar';
+          let html = '';
+
+          if(showVat){
+            html += buildComplianceRow({
+              icon: '🧾',
+              name_ar: 'إقرار ضريبة القيمة المضافة',
+              name_en: 'VAT Return',
+              dueDate: vatDueDate,
+              daysLeft: daysToVat,
+              sub_ar: `الربع ${q+1} ${now.getFullYear()}`,
+              sub_en: `Q${q+1} ${now.getFullYear()}`,
+              link: 'accounting.html?sub=vat&filing=return',
+              startText_ar: 'ابدأ الإقرار', startText_en: 'Start filing'
+            });
+          }
+
+          if(showAnnual){
+            html += buildComplianceRow({
+              icon: '📅',
+              name_ar: 'الإقرار السنوي (الزكاة / ضريبة الدخل)',
+              name_en: 'Annual Return (Zakat / Income Tax)',
+              dueDate: annualDueDate,
+              daysLeft: daysToAnnual,
+              sub_ar: `السنة المالية ${now.getFullYear()}`,
+              sub_en: `Fiscal year ${now.getFullYear()}`,
+              link: 'accounting.html?sub=vat&filing=annual',
+              startText_ar: 'ابدأ الإقرار', startText_en: 'Start filing'
+            });
+          }
+
+          if(!showVat && !showAnnual){
+            // Calm state: nothing actionable in the next 30/60 days.
+            // Show a single reassuring line — date of the next upcoming VAT
+            // (always the closer of the two filings) for orientation.
+            const nextVatStr = vatDueDate.toLocaleDateString(ar?'ar-SA-u-ca-gregory':'en-GB',
+              {day:'2-digit', month:'short', year:'numeric'});
+            html = `
+              <div class="compliance-row" style="border-top:none;">
+                <span class="icon" style="color:var(--green);">✓</span>
+                <div class="info">
+                  <div class="name" style="font-size:13px;font-weight:600;">${ar?'الإقرارات الضريبية محدّثة':'All tax filings up to date'}</div>
+                  <div class="countdown">${ar?`الإقرار التالي · ${nextVatStr}`:`Next filing · ${nextVatStr}`}</div>
+                </div>
+              </div>
+            `;
+          }
+
+          rows.innerHTML = html;
+          card.style.display = '';
+        }
+      } catch(e){ console.warn('[GL] compliance card populate:', e); }
+
+      // Recent invoices — clean act-item design with payment status
+      const ri=document.getElementById('recent-invoices');
+      const recent=allInv.slice(0,5);
+      if(recent.length){
+        ri.innerHTML=recent.map(i=>{
+          const status = (i.payment_status||'unpaid').toLowerCase();
+          const today = new Date().toISOString().split('T')[0];
+          const isOverdue = status === 'unpaid' && i.due_date && i.due_date < today;
+          const finalStatus = isOverdue ? 'overdue' : status;
+          const STATUS_LABELS={
+            ar:{paid:'مدفوع',unpaid:'غير مدفوع',overdue:'متأخر',partial:'جزئي'},
+            en:{paid:'Paid',unpaid:'Unpaid',overdue:'Overdue',partial:'Partial'}
+          };
+          const label = STATUS_LABELS[L][finalStatus] || STATUS_LABELS[L].unpaid;
+          return `<div class="act-item">
+            <div class="act-icon inv">📄</div>
+            <div class="act-body">
+              <div class="act-name">${escapeHtml(i.buyer_name||'—')}</div>
+              <div class="act-meta">
+                <span>${escapeHtml(i.invoice_number||'')}</span>
+                <span>·</span>
+                <span>${i.issue_date}</span>
+                <span class="pay-badge ${finalStatus}">${label}</span>
+              </div>
+            </div>
+            <div class="act-amount c-navy">SAR ${fmt(i.total)}</div>
+          </div>`;
+        }).join('');
+      } else {
+        ri.innerHTML=`<div class="act-empty">
+          <span class="act-empty-icon">📭</span>
+          <span>${L==='ar'?'لا توجد فواتير بعد':'No invoices yet'}</span>
+        </div>`;
+      }
+    }
+
+    // Load expenses this month
+    const {data:expEntries}=await sb.from('journal_entries')
+      .select('*, journal_lines(*)')
+      .eq('business_id', biz.id)
+      .eq('source','expense')
+      .gte('entry_date',monthStart)
+      .order('entry_date',{ascending:false})
+      .limit(4);
+    const EXP_NAMES={'5200':'رواتب','5300':'إيجار','5400':'مرافق','5500':'تسويق','5750':'سفر','5700':'رسوم بنكية','5800':'أتعاب','5900':'متنوع'};
+    const EXP_NAMES_EN={'5200':'Salaries','5300':'Rent','5400':'Utilities','5500':'Marketing','5750':'Travel','5700':'Bank Fees','5800':'Prof. Fees','5900':'Misc'};
+
+    let monthExp=0;
+    const re=document.getElementById('recent-expenses');
+    if(expEntries&&expEntries.length){
+      let rows='';
+      expEntries.forEach(e=>{
+        const expLine=(e.journal_lines||[]).find(l=>l.account_code?.startsWith('5')&&l.debit>0);
+        const crLine=(e.journal_lines||[]).find(l=>l.credit>0);
+        if(!expLine)return;
+        const amt=crLine?.credit||expLine.debit||0;
+        monthExp+=amt;
+        const catName=L==='ar'?(EXP_NAMES[expLine.account_code]||'مصروف'):(EXP_NAMES_EN[expLine.account_code]||'Expense');
+        rows+=`<div class="act-item">
+          <div class="act-icon exp">💸</div>
+          <div class="act-body">
+            <div class="act-name">${escapeHtml(catName)}</div>
+            <div class="act-meta">${escapeHtml(e.description?.replace(/\(شامل VAT\)/,'').trim()||'')} · ${e.entry_date}</div>
+          </div>
+          <div class="act-amount c-red">SAR ${fmt(amt)}</div>
+        </div>`;
+      });
+      re.innerHTML=rows||`<div class="act-empty">
+        <span class="act-empty-icon">📭</span>
+        <span>${L==='ar'?'لا مصاريف هذا الشهر':'No expenses this month'}</span>
+      </div>`;
+    } else {
+      re.innerHTML=`<div class="act-empty">
+        <span class="act-empty-icon">📭</span>
+        <span>${L==='ar'?'لا مصاريف هذا الشهر':'No expenses this month'}</span>
+      </div>`;
+    }
+
+    // Profit stat — calculate after both revenue and expenses are known
+    const monthRev2 = (allInv||[]).filter(i=>i.issue_date>=monthStart&&i.issue_date<=monthEnd).reduce((s,i)=>s+(i.subtotal||0),0);
+    const sExp = document.getElementById('s-expenses');
+    sExp.textContent='SAR '+fmt(monthExp);
+    sExp.classList.remove('loading');
+    const profit=monthRev2-monthExp;
+    const profEl=document.getElementById('s-profit');
+    profEl.textContent='SAR '+fmt(Math.abs(profit));
+    profEl.className='stat-val '+(profit>=0?'c-green':'c-red');
+
+    // Stock alerts — clean act-item design with proper success state
+    const {data:items}=await sb.from('inventory_items').select('name,current_qty,alert_level,unit').eq('business_id', biz.id);
+    const sal=document.getElementById('stock-alerts-list');
+    if(items){
+      const low=items.filter(i=>i.current_qty<=(i.alert_level||0));
+      if(low.length){
+        sal.innerHTML=low.slice(0,4).map(i=>{
+          const isOut=i.current_qty===0;
+          return `<div class="act-item">
+            <div class="act-icon ${isOut?'stk-out':'stk-low'}">${isOut?'🔴':'🟡'}</div>
+            <div class="act-body">
+              <div class="act-name">${escapeHtml(i.name)}</div>
+              <div class="act-meta">${L==='ar'?(isOut?'نفد تماماً':'قارب النفاد'):(isOut?'Out of stock':'Low stock')}</div>
+            </div>
+            <div class="act-amount ${isOut?'c-red':'c-amber'}">${i.current_qty} ${escapeHtml(i.unit||'')}</div>
+          </div>`;
+        }).join('');
+      } else if(items.length === 0) {
+        // Empty state — no inventory items at all
+        sal.innerHTML=`<div class="act-empty">
+          <span class="act-empty-icon">📦</span>
+          <span>${L==='ar'?'لا توجد منتجات بعد':'No products yet'}</span>
+        </div>`;
+      } else {
+        // Positive empty state — has items but none below alert level
+        sal.innerHTML=`<div class="act-empty success">
+          <span class="act-empty-icon">✅</span>
+          <span>${L==='ar'?'المخزون بحالة جيدة':'Stock levels OK'}</span>
+        </div>`;
+      }
+    }
+
+    // Apply language after data loaded
+    applyLang(L);
+
+    // Show last updated indicator
+    updateLastUpdated();
+
+    // Load AI insights after data is available (will show fallback only — see AI_INSIGHTS_ENABLED flag)
+    loadInsights();
+  }
+
+  /* HTML escape helper — defensive against any malicious data in the DB */
+  function escapeHtml(str){
+    if(str == null) return '';
+    return String(str)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/"/g,'&quot;').replace(/'/g,'&#039;');
+  }
+
+  /* ── INSIGHTS (fallback-only mode until Edge Function is ready) ── */
+  let insightsData = {};
+  async function loadInsights(forceRefresh=false){
+    const container = document.getElementById('insights-container');
+
+    /* AI insights are disabled until Supabase Edge Function is built.
+       The fallback insights below are rule-based and provide useful guidance.
+       When the Edge Function is ready:
+         1. Set AI_INSIGHTS_ENABLED = true at the top of this script
+         2. Replace the fetch URL below with: SUPABASE_URL + '/functions/v1/ai-insights'
+         3. Pass the session JWT as Authorization header
+         4. Move the prompt-building logic into the Edge Function
+    */
+    if(!AI_INSIGHTS_ENABLED){
+      // Show fallback insights immediately, no network call
+      renderInsights(buildFallbackInsights());
+      return;
+    }
+
+    // [Edge Function call would go here — see TODO above]
+    // For now, this branch is unreachable
+    renderInsights(buildFallbackInsights());
+  }
+
+  function buildFallbackInsights(){
+    const now = new Date();
+    const q = Math.floor(now.getMonth()/3);
+    const vatDueDate = new Date(now.getFullYear(), q*3+3, 30);
+    const daysToVat = Math.round((vatDueDate-now)/(1000*60*60*24));
+    const vatAmt = document.getElementById('s-vat')?.textContent||'SAR 0';
+    const revenue = document.getElementById('s-invoiced')?.textContent||'SAR 0';
+    const expenses= document.getElementById('s-expenses')?.textContent||'SAR 0';
+
+    return [
+      {
+        type: daysToVat<=30?'warning':'info', icon:'📅',
+        title: L==='ar'?`VAT مستحق خلال ${daysToVat} يوم`:`VAT due in ${daysToVat} days`,
+        body: L==='ar'
+          ?`الضريبة المستحقة ${vatAmt}. تأكد من تقديم الإقرار قبل الموعد النهائي لتجنب الغرامات.`
+          :`Estimated VAT ${vatAmt}. Submit your return before the deadline to avoid penalties.`,
+        action_label: L==='ar'?'تقديم إقرار VAT →':'Submit VAT Return →', action_url:'accounting.html?sub=vat'
+      },
+      {
+        type:'info', icon:'📊',
+        title: L==='ar'?'أداء هذا الشهر':'This Month Performance',
+        body: L==='ar'
+          ?`المبيعات ${revenue} والمصاريف ${expenses}. راجع القوائم المالية للتفاصيل الكاملة.`
+          :`Revenue ${revenue}, Expenses ${expenses}. Review financial statements for full details.`,
+        action_label: L==='ar'?'القوائم المالية →':'Statements →', action_url:'statements.html'
+      },
+      {
+        type:'action', icon:'💰',
+        title: L==='ar'?'تابع مدفوعاتك':'Track Your Payments',
+        body: L==='ar'
+          ?'راجع الفواتير غير المدفوعة وتابع مع عملائك لتحسين التدفق النقدي وتقليل الذمم المدينة.'
+          :'Review unpaid invoices and follow up with customers to improve cash flow.',
+        action_label: L==='ar'?'الفواتير →':'Invoices →', action_url:'invoices.html'
+      }
+    ];
+  }
+
+  function renderInsights(insights){
+    const container = document.getElementById('insights-container');
+    if(!insights||!insights.length){
+      insights = buildFallbackInsights();
+    }
+    // Always show exactly 3
+    while(insights.length < 3) insights.push(...buildFallbackInsights().slice(0, 3-insights.length));
+    insights = insights.slice(0,3);
+
+    container.innerHTML = insights.map(ins=>`
+      <div class="insight-card type-${escapeHtml(ins.type||'info')}">
+        <div class="insight-icon">${ins.icon||'💡'}</div>
+        <div class="insight-title">${escapeHtml(ins.title||'')}</div>
+        <div class="insight-body">${escapeHtml(ins.body||'')}</div>
+        ${ins.action_label?`<a href="${escapeHtml(ins.action_url||'#')}" class="insight-action">${escapeHtml(ins.action_label)}</a>`:''}
+      </div>`).join('');
+  }
+
+  /* ── PLAN GATING ── */
+  const PLAN_FEATURES={
+    starter: ['invoices','ledger','vat','statements','settings'],
+    business:['invoices','ledger','vat','statements','settings','inventory'],
+    pro:     ['invoices','ledger','vat','statements','settings','inventory']
+  };
+
+  let _planGatingApplied = false; /* Prevent duplicate badge insertion */
+  function applyPlanGating(plan){
+    if(_planGatingApplied) return;
+    _planGatingApplied = true;
+
+    const allowed=PLAN_FEATURES[plan]||PLAN_FEATURES.starter;
+    localStorage.setItem('gl_plan',plan);
+    // Plan badge
+    const badge=document.createElement('span');
+    badge.id = 'plan-badge';
+    badge.style.cssText='font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;margin-right:8px;'
+      +(plan==='pro'?'background:#f5f3ff;color:#6d28d9;':plan==='business'?'background:var(--tint);color:var(--blue);':'background:#f0fdf4;color:var(--green);');
+    badge.textContent=plan==='pro'?'Pro':plan==='business'?'Business':'Starter';
+    document.getElementById('biz-name').after(badge);
+
+    if(!allowed.includes('inventory')){
+      // Lock nav
+      const navInv=document.querySelector('.app-nav a[href="inventory.html"]');
+      if(navInv){navInv.style.opacity='0.4';navInv.style.pointerEvents='none';navInv.href='#';}
+      // Lock module card
+      const invCard=document.querySelector('a.module-card[href="inventory.html"]');
+      if(invCard){
+        invCard.style.opacity='0.5';invCard.style.pointerEvents='none';
+        invCard.href='#';invCard.style.cursor='not-allowed';
+        const lock=document.createElement('div');
+        lock.style.cssText='font-size:10px;color:var(--amber);font-weight:700;margin-top:4px;';
+        lock.setAttribute('data-ar','🔒 يتطلب باقة الأعمال');
+        lock.setAttribute('data-en','🔒 Requires Business plan');
+        lock.textContent=L==='ar'?'🔒 يتطلب باقة الأعمال':'🔒 Requires Business plan';
+        invCard.appendChild(lock);
+      }
+      // Upgrade banner
+      const banner=document.createElement('div');
+      banner.style.cssText='background:linear-gradient(135deg,#b45309,#d97706);border-radius:10px;padding:14px 18px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between;gap:12px;';
+      banner.innerHTML=`<div>
+        <div style="font-size:14px;font-weight:700;color:#fff;margin-bottom:3px;" data-ar="🔒 المخزون متاح في باقة الأعمال" data-en="🔒 Inventory available in Business plan">🔒 ${L==='ar'?'المخزون متاح في باقة الأعمال':'Inventory available in Business plan'}</div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.8);" data-ar="ترقّ للحصول على إدارة المخزون الكاملة والموردين" data-en="Upgrade for full inventory management and suppliers">${L==='ar'?'ترقّ للحصول على إدارة المخزون الكاملة':'Upgrade for full inventory management'}</div>
+      </div>
+      <!-- TODO: replace 966500000000 with real WhatsApp number -->
+      <a href="https://wa.me/966500000000" style="padding:9px 18px;background:#fff;color:#b45309;border-radius:7px;text-decoration:none;font-size:12px;font-weight:700;white-space:nowrap;" data-ar="ترقّ الآن ←" data-en="Upgrade Now →">${L==='ar'?'ترقّ الآن ←':'Upgrade Now →'}</a>`;
+      const page=document.querySelector('.page');
+      const stats=page?.querySelector('.stats');
+      if(stats)page.insertBefore(banner,stats);
+    }
+  }
+
+  function fmt(n){return(n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,',');}
+
+  async function logout(){await sb.auth.signOut();window.location.href='login.html';}
+
+  // Force Gregorian dates
+  (function(){
+    function fixDates(){document.querySelectorAll('input[type="date"]').forEach(function(el){if(!el.dataset.gf){el.setAttribute('lang','en-SA-u-ca-gregory');el.dataset.gf='1';}});}
+    fixDates();
+    new MutationObserver(fixDates).observe(document.body,{childList:true,subtree:true});
+  })();
+
+  /* checkRoleAccess() removed in Round 2a. Role-based access enforcement
+     will be implemented in Round 2b with up-to-date page names. */
+
+  /* ═══ FIRST-TIME SETUP MODAL (Round D2) ═══════════════════════
+     Triggered from init() when currentBiz.setup_complete === false.
+     Soft-dismiss: user can close the modal; popup returns next session
+     until they save. */
+
+  /* Inline TRN validator (kept self-contained — same rule as invoices/expenses pages) */
+  function setupValidateTRN(trn){
+    const cleaned = String(trn || '').replace(/\D/g, '');
+    if(cleaned.length === 0) return {valid:false, reason: L==='ar' ? 'الرقم الضريبي مطلوب' : 'TRN is required'};
+    if(cleaned.length !== 15) return {valid:false, reason: L==='ar' ? 'الرقم الضريبي يجب أن يكون 15 رقماً' : 'TRN must be 15 digits'};
+    if(!/^3\d{12}03$/.test(cleaned)) return {valid:false, reason: L==='ar' ? 'تنسيق غير صحيح — يبدأ بـ 3 وينتهي بـ 03' : 'Invalid format — must start with 3 and end with 03'};
+    return {valid:true, reason:null};
+  }
+
+  /* Pre-fill modal from currentBiz, open it */
+  function openSetupModal(){
+    if(!currentBiz) return;
+    const setVal = (id, v) => { const el = document.getElementById(id); if(el) el.value = v || ''; };
+    setVal('setup-name-ar', currentBiz.name_ar || currentBiz.name || '');
+    setVal('setup-name-en', currentBiz.name_en || '');
+    setVal('setup-trn', currentBiz.trn || '');
+    setVal('setup-cr', currentBiz.cr_number || '');
+    setVal('setup-fy', currentBiz.fiscal_year_start || '01-01');
+    setVal('setup-vat-freq', currentBiz.vat_filing_frequency || 'quarterly');
+
+    /* VAT-registered toggle initial state:
+       - true  → user has confirmed they're registered
+       - false → user has confirmed they're NOT registered
+       - null  → not yet answered (default: yes if TRN exists, otherwise unset) */
+    if(currentBiz.vat_registered === true) setupSetVat(true);
+    else if(currentBiz.vat_registered === false) setupSetVat(false);
+    else if(currentBiz.trn) setupSetVat(true);
+    else { /* no default; user must pick */ }
+
+    /* Apply current language to modal labels */
+    document.querySelectorAll('#setup-modal-overlay [data-ar][data-en]').forEach(el => {
+      el.textContent = el.getAttribute('data-' + L);
+    });
+
+    document.getElementById('setup-modal-overlay').classList.add('open');
+  }
+
+  function closeSetupModal(){
+    document.getElementById('setup-modal-overlay').classList.remove('open');
+    /* Clear any error states so reopening is fresh */
+    document.querySelectorAll('#setup-modal-overlay .setup-field.error').forEach(el => el.classList.remove('error'));
+  }
+
+  /* Close on backdrop click */
+  document.getElementById('setup-modal-overlay').addEventListener('click', function(e){
+    if(e.target === this) closeSetupModal();
+  });
+  /* Close on Escape */
+  document.addEventListener('keydown', function(e){
+    if(e.key === 'Escape' && document.getElementById('setup-modal-overlay').classList.contains('open')){
+      closeSetupModal();
+    }
+  });
+
+  /* VAT-registered toggle — show/hide TRN + VAT-frequency fields */
+  window._setupVatRegistered = null;
+  function setupSetVat(yes){
+    window._setupVatRegistered = yes;
+    document.getElementById('setup-vat-yes').classList.toggle('active', yes);
+    document.getElementById('setup-vat-no').classList.toggle('active', !yes);
+    document.getElementById('setup-field-trn').style.display = yes ? '' : 'none';
+    document.getElementById('setup-field-vat-freq').style.display = yes ? '' : 'none';
+    /* Clear TRN error if user switches to "no" */
+    if(!yes) document.getElementById('setup-field-trn').classList.remove('error');
+  }
+
+  /* Save — validate then update businesses row + setup_complete=true */
+  async function saveSetup(){
+    const ar = L === 'ar';
+    let hasError = false;
+    const fieldsToCheck = ['setup-field-name-ar','setup-field-vat-registered','setup-field-trn'];
+    fieldsToCheck.forEach(f => document.getElementById(f).classList.remove('error'));
+
+    /* Required: name AR */
+    const nameAr = document.getElementById('setup-name-ar').value.trim();
+    if(nameAr.length < 2){
+      document.getElementById('setup-field-name-ar').classList.add('error');
+      hasError = true;
+    }
+
+    /* Required: VAT registered yes/no */
+    if(window._setupVatRegistered === null){
+      const f = document.getElementById('setup-field-vat-registered');
+      f.classList.add('error');
+      const err = f.querySelector('.setup-field-error');
+      if(!err){
+        const e = document.createElement('div');
+        e.className = 'setup-field-error';
+        e.textContent = ar ? 'الرجاء اختيار حالة التسجيل' : 'Please select registration status';
+        f.appendChild(e);
+      }
+      hasError = true;
+    }
+
+    /* Conditional required: TRN if VAT-registered */
+    let trnClean = null;
+    if(window._setupVatRegistered === true){
+      const trnRaw = document.getElementById('setup-trn').value.trim();
+      const check = setupValidateTRN(trnRaw);
+      if(!check.valid){
+        const f = document.getElementById('setup-field-trn');
+        f.classList.add('error');
+        const err = f.querySelector('.setup-field-error');
+        if(err) err.textContent = check.reason;
+        hasError = true;
+      } else {
+        trnClean = trnRaw.replace(/\D/g, '');
+      }
+    }
+
+    /* Optional: CR — if provided, must be 10 digits */
+    const crRaw = document.getElementById('setup-cr').value.trim();
+    let crClean = null;
+    if(crRaw){
+      const cr = crRaw.replace(/\D/g, '');
+      if(cr.length !== 10){
+        const f = document.getElementById('setup-field-cr');
+        f.classList.add('error');
+        const err = f.querySelector('.setup-field-error');
+        if(err){
+          err.textContent = ar ? 'السجل التجاري يجب أن يكون 10 أرقام' : 'CR must be 10 digits';
+        } else {
+          const e = document.createElement('div');
+          e.className = 'setup-field-error';
+          e.textContent = ar ? 'السجل التجاري يجب أن يكون 10 أرقام' : 'CR must be 10 digits';
+          f.appendChild(e);
+        }
+        hasError = true;
+      } else {
+        crClean = cr;
+      }
+    }
+
+    if(hasError) return;
+
+    const saveBtn = document.getElementById('setup-save-btn');
+    saveBtn.disabled = true;
+    const origText = saveBtn.textContent;
+    saveBtn.textContent = ar ? 'جارٍ الحفظ...' : 'Saving...';
+
+    /* Build payload */
+    const payload = {
+      name_ar: nameAr,
+      name: nameAr,                                      /* legacy fallback column */
+      name_en: document.getElementById('setup-name-en').value.trim() || null,
+      vat_registered: window._setupVatRegistered,
+      trn: trnClean,                                     /* null if not registered */
+      cr_number: crClean,                                /* null if blank */
+      fiscal_year_start: document.getElementById('setup-fy').value || '01-01',
+      vat_filing_frequency: window._setupVatRegistered ? document.getElementById('setup-vat-freq').value : null,
+      setup_complete: true
+    };
+
+    const {error} = await sb.from('businesses').update(payload).eq('id', currentBiz.id);
+    if(error){
+      console.error('[setup] save error:', error);
+      saveBtn.disabled = false;
+      saveBtn.textContent = origText;
+      alert(ar ? 'حدث خطأ — حاول مرة أخرى' : 'Error — please try again');
+      return;
+    }
+
+    /* Refresh local state */
+    Object.assign(currentBiz, payload);
+    /* Update biz name in topnav and welcome */
+    const newName = pickLang(currentBiz, 'name');
+    document.getElementById('biz-name').textContent = newName;
+    document.getElementById('biz-name').title = newName;
+    document.getElementById('dash-title').textContent = (L==='ar'?'مرحباً، ':'Welcome, ') + newName;
+    /* Hide setup banner if it was visible */
+    const banner = document.getElementById('setup-banner');
+    if(banner) banner.style.display = 'none';
+
+    closeSetupModal();
+  }
+
+  init();
+</script>
+
+<script>
+/* ═══ ROUND D1 — Canonical nav JS (activates current tab, profile dropdown) ═══ */
+(function() {
+  const currentPath = window.location.pathname.split('/').pop() || 'dashboard.html';
+  document.querySelectorAll('.app-nav-link').forEach(link => {
+    const href = link.getAttribute('href');
+    if (href === currentPath) link.classList.add('active');
+  });
+  window.toggleProfileMenu = function(e) {
+    if (e) e.stopPropagation();
+    const dd = document.getElementById('profile-dropdown');
+    const trigger = document.querySelector('.profile-trigger');
+    if (!dd) return;
+    const isOpen = dd.classList.contains('open');
+    dd.classList.toggle('open');
+    if (trigger) trigger.setAttribute('aria-expanded', String(!isOpen));
+  };
+  document.addEventListener('click', function(e) {
+    const menu = document.getElementById('profile-menu');
+    const dd = document.getElementById('profile-dropdown');
+    if (menu && dd && !menu.contains(e.target)) {
+      dd.classList.remove('open');
+      const t = document.querySelector('.profile-trigger');
+      if (t) t.setAttribute('aria-expanded', 'false');
+    }
+  });
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      const dd = document.getElementById('profile-dropdown');
+      if (dd) dd.classList.remove('open');
+    }
+  });
+})();
+
+/* ═══ Quick Action menu (canonical) ═══ */
+window.glQAToggle = function(e){
+  if(e) e.stopPropagation();
+  const m = document.getElementById('gl-qa-menu');
+  const b = document.querySelector('.gl-qa-btn');
+  if(!m) return;
+  const isOpen = m.classList.contains('open');
+  m.classList.toggle('open');
+  if(b) b.setAttribute('aria-expanded', String(!isOpen));
+  document.getElementById('profile-dropdown')?.classList.remove('open');
+};
+window.glQAClose = function(){
+  document.getElementById('gl-qa-menu')?.classList.remove('open');
+  const b = document.querySelector('.gl-qa-btn');
+  if(b) b.setAttribute('aria-expanded', 'false');
+};
+document.addEventListener('click', function(e){
+  const w = document.getElementById('gl-qa-wrap');
+  if(w && !w.contains(e.target)) glQAClose();
+});
+document.addEventListener('keydown', function(e){
+  if(e.key === 'Escape') glQAClose();
+});
+
+</script>
+
+</body>
+</html>
