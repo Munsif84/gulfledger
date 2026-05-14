@@ -4385,55 +4385,108 @@ async function renderTrialBalance(period){
 
      await window.glDiagnoseTB()
 
-   Returns: array of {entryId, date, source, description, totalDR, totalCR, diff}
-   sorted by absolute diff descending. */
+   Output:
+     1. console.table with full untruncated entryId, source, ref, totals, diff
+     2. For each offender: per-line breakdown so you can see exactly which
+        line's debit/credit is off, and which account.
+   Returns: array of offender objects. */
 window.glDiagnoseTB = async function(){
   if(!currentBiz?.id){ console.warn('[GL diagnose] No business loaded'); return []; }
   const {data: entries, error: eErr} = await sb.from('journal_entries')
-    .select('id, entry_date, source, description, status, reference')
+    .select('id, entry_date, source, source_id, description, status, reference')
     .eq('business_id', currentBiz.id)
     .neq('status', 'voided')
     .order('entry_date', { ascending: false });
   if(eErr){ console.error('[GL diagnose]', eErr); return []; }
-  const offenders = [];
-  /* Chunk lookups to avoid hitting URL-length limits */
+
+  /* Pull all lines and group by entry_id */
+  const linesByEntry = {};
   const chunk = 200;
   for(let i = 0; i < entries.length; i += chunk){
     const ids = entries.slice(i, i + chunk).map(e => e.id);
     const {data: lines} = await sb.from('journal_lines')
-      .select('entry_id, debit, credit')
+      .select('entry_id, account_code, account_name, debit, credit, description')
       .in('entry_id', ids);
-    const byEntry = {};
     (lines || []).forEach(l => {
-      if(!byEntry[l.entry_id]) byEntry[l.entry_id] = { dr: 0, cr: 0 };
-      byEntry[l.entry_id].dr += parseFloat(l.debit) || 0;
-      byEntry[l.entry_id].cr += parseFloat(l.credit) || 0;
+      if(!linesByEntry[l.entry_id]) linesByEntry[l.entry_id] = [];
+      linesByEntry[l.entry_id].push(l);
     });
-    for(const id of ids){
-      const e = entries.find(x => x.id === id);
-      const totals = byEntry[id] || { dr: 0, cr: 0 };
-      const diff = totals.dr - totals.cr;
-      if(Math.abs(diff) > 0.01){
-        offenders.push({
-          entryId: id,
-          date: e.entry_date,
-          source: e.source,
-          reference: e.reference,
-          description: e.description,
-          totalDR: totals.dr.toFixed(2),
-          totalCR: totals.cr.toFixed(2),
-          diff: diff.toFixed(2),
-          lineCount: (lines || []).filter(l => l.entry_id === id).length
-        });
-      }
+  }
+
+  /* Find offenders */
+  const offenders = [];
+  for(const e of entries){
+    const lines = linesByEntry[e.id] || [];
+    const dr = lines.reduce((s, l) => s + (parseFloat(l.debit) || 0), 0);
+    const cr = lines.reduce((s, l) => s + (parseFloat(l.credit) || 0), 0);
+    const diff = dr - cr;
+    if(Math.abs(diff) > 0.01){
+      offenders.push({
+        entryId: e.id,
+        date: e.entry_date,
+        source: e.source || '(null)',
+        sourceId: e.source_id || '',
+        reference: e.reference || '',
+        description: (e.description || '').slice(0, 60),
+        totalDR: dr.toFixed(2),
+        totalCR: cr.toFixed(2),
+        diff: diff.toFixed(2),
+        lineCount: lines.length
+      });
     }
   }
   offenders.sort((a, b) => Math.abs(parseFloat(b.diff)) - Math.abs(parseFloat(a.diff)));
-  console.table(offenders);
-  console.log(`[GL diagnose] Found ${offenders.length} unbalanced entries (sorted by |diff| desc).`);
-  console.log('  → To void a specific one: await sb.from(\'journal_entries\').update({status:\'voided\'}).eq(\'id\', ENTRY_ID)');
-  console.log('  → To inspect lines:        await sb.from(\'journal_lines\').select(\'*\').eq(\'entry_id\', ENTRY_ID)');
+
+  /* Print summary table */
+  console.log(`%c[GL diagnose] Found ${offenders.length} unbalanced entries`,
+              'font-weight:bold;color:#b91c1c;');
+  console.table(offenders, ['date','source','reference','totalDR','totalCR','diff','lineCount']);
+
+  /* Group by source to identify the buggy module */
+  const bySource = {};
+  offenders.forEach(o => {
+    bySource[o.source] = (bySource[o.source] || 0) + 1;
+  });
+  console.log('%c[GL diagnose] By source:', 'font-weight:bold;');
+  console.table(bySource);
+
+  /* For each offender, print the line breakdown so we can see exactly which
+     line is causing the imbalance. */
+  console.log('%c[GL diagnose] Per-entry line breakdown:', 'font-weight:bold;');
+  offenders.forEach((o, idx) => {
+    const lines = linesByEntry[o.entryId] || [];
+    console.log(`\n#${idx + 1}  ${o.date}  ${o.source}  ${o.reference || ''}  diff=${o.diff}`);
+    console.log(`     entryId=${o.entryId}  sourceId=${o.sourceId}`);
+    console.log(`     desc: ${o.description}`);
+    console.table(lines.map(l => ({
+      account: `${l.account_code} ${(l.account_name || '').slice(0, 30)}`,
+      debit: parseFloat(l.debit || 0).toFixed(2),
+      credit: parseFloat(l.credit || 0).toFixed(2),
+      narration: (l.description || '').slice(0, 50)
+    })));
+  });
+
+  console.log('\n%c[GL diagnose] To void a specific entry:', 'font-weight:bold;');
+  console.log("  await sb.from('journal_entries').update({status:'voided'}).eq('id', 'ENTRY_ID')");
+  console.log('%c[GL diagnose] To void ALL unbalanced entries (USE WITH CARE):', 'font-weight:bold;');
+  console.log("  await window.glVoidAllUnbalanced()");
+
   return offenders;
+};
+
+/* Convenience: void every unbalanced entry in one go. Use only after you've
+   reviewed the diagnostic output and confirmed these are all garbage. */
+window.glVoidAllUnbalanced = async function(){
+  const offenders = await window.glDiagnoseTB();
+  if(offenders.length === 0){ console.log('[GL] Nothing to void.'); return; }
+  if(!confirm(`Void ${offenders.length} unbalanced journal entries? This cannot be undone via the UI.`)){
+    console.log('[GL] Cancelled.');
+    return;
+  }
+  const ids = offenders.map(o => o.entryId);
+  const {error} = await sb.from('journal_entries').update({status:'voided'}).in('id', ids);
+  if(error){ console.error('[GL] Void failed:', error); return; }
+  console.log(`[GL] Voided ${ids.length} entries. Reload the page to refresh reports.`);
 };
 
 /* ─── Drill-down to ledger sub-tab filtered by account ─── */
