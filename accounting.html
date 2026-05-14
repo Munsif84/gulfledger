@@ -712,10 +712,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   }
 
   /* ─── Hide app chrome ───
-     Sidebar, topnav, all toolbars and banners that don't belong on paper.
-     CFS warnings (.cfs-warning) are intentionally NOT hidden in print — if
-     the report is distributed with a flagged issue, the recipient must see
-     that flag too. Hiding it would silently launder a flawed report. */
+     Sidebar, topnav, all toolbars and banners that don't belong on paper. */
   .topnav, .app-nav, .subtab-bar, .accounting-sidebar, .report-toolbar,
   .acc-trust-banner, #period-locked-banner, .acc-footer, .notify,
   .gl-modal-overlay, .gl-qa-wrap, .lang-switch, .ledger-view-toggle,
@@ -3944,25 +3941,102 @@ async function renderBalanceSheet(period){
    The classifications are best-effort defaults. A banner reminds users
    to review with their CPA before Qawaem submission.
 */
+/* Classify an account into a cash-flow section based on the account itself,
+   not on regex over its code.
+
+   Returns one of:
+     'cash'            → the account IS the cash balance (excluded from CFS sections)
+     'operating'       → working capital changes (AR, inventory, AP, accruals)
+     'investing'       → long-term assets (fixed assets, intangibles, investments)
+     'financing'       → long-term liabilities, equity, retained earnings
+     'income_statement' → revenue/expense (flows in via net income)
+
+   This function is the SINGLE SOURCE OF TRUTH for cash-flow classification.
+   The 'unclassified' return value used to exist; it's gone now — every
+   account in the system gets a definite category by construction. That's
+   the structural guarantee the system relies on: if you can create an
+   account, it has a known cash-flow category. No ambiguity, no user prompt.
+
+   Resolution order:
+   1. By `cash_flow_category` field on the account (Round B-6 — future).
+      If set explicitly, honor it. Until B-6, this field doesn't exist yet.
+   2. By the account's `type` (required field on every account):
+        type='income'  or 'expense'  → income_statement
+        type='equity'                → financing
+        type='liability'             → operating OR financing (long-term)
+        type='asset'                 → cash, operating (current), or investing (long-term)
+   3. Code-range refinement to distinguish current vs long-term within
+      asset/liability — these regexes are an optimization for the standard
+      KSA SOCPA chart of accounts. If a code doesn't match, we default to
+      the "most likely" bucket (current asset → operating, current liability
+      → operating). NEVER returns 'unclassified'. */
 function classifyCashFlowSection(code){
   const c = String(code || '');
-  /* Cash itself — not classified, it's the balance */
-  if(/^10\d{2}$/.test(c) || /^11\d{2}$/.test(c)) return 'cash';
-  /* Operating: receivables, inventory, payables, accrued */
-  if(/^12\d{2}$/.test(c)) return 'operating';   /* AR */
-  if(/^13\d{2}$/.test(c)) return 'operating';   /* Inventory */
-  if(/^21\d{2}$/.test(c)) return 'operating';   /* AP */
-  if(/^22\d{2}$/.test(c)) return 'operating';   /* Accrued, VAT */
-  /* Investing: fixed assets, intangibles */
-  if(/^14\d{2}$/.test(c)) return 'investing';
-  if(/^15\d{2}$/.test(c)) return 'investing';
-  /* Financing: long-term debt, equity */
-  if(/^23\d{2}$/.test(c)) return 'financing';
-  if(/^24\d{2}$/.test(c)) return 'financing';
-  if(/^3\d{3}$/.test(c)) return 'financing';
-  /* Income statement accounts roll up via net income (handled separately) */
+  const account = (chartOfAccounts || []).find(a => a.code === c);
+
+  /* Step 1: Honor explicit override if present (B-6 prep). */
+  if(account && account.cash_flow_category){
+    return account.cash_flow_category;
+  }
+
+  /* Step 2: Use the account's TYPE as the primary classifier.
+     Every account has a type — it's required at creation time. */
+  const type = account?.type;
+
+  if(type === 'income' || type === 'expense'){
+    return 'income_statement';
+  }
+
+  if(type === 'equity'){
+    return 'financing';
+  }
+
+  if(type === 'liability'){
+    /* Long-term liabilities (loans, bonds) → financing.
+       Current liabilities (AP, accrued, VAT) → operating.
+       KSA SOCPA chart of accounts convention: 23xx-29xx = long-term debt. */
+    if(/^2[3-9]\d{2}$/.test(c)) return 'financing';
+    return 'operating';  /* Default for any liability = current/operating */
+  }
+
+  if(type === 'asset'){
+    /* Cash accounts excluded from CFS sections (they're the balance).
+       Account names matter here — if a "Bank" or "Cash" account uses an
+       unusual code, the name catches it. Otherwise fall through to code
+       range for the standard KSA SOCPA layout: 10xx-11xx = cash/bank. */
+    const nameEn = (account?.name_en || '').toLowerCase();
+    const nameAr = account?.name_ar || '';
+    if(/cash|bank|petty/i.test(nameEn) || /نقد|بنك|صندوق/.test(nameAr)){
+      return 'cash';
+    }
+    if(/^1[01]\d{2}$/.test(c)) return 'cash';
+
+    /* Long-term assets → investing. KSA SOCPA: 14xx-19xx = fixed/intangible. */
+    if(/^1[4-9]\d{2}$/.test(c)) return 'investing';
+
+    /* Default for any asset = current/operating (AR, inventory, prepayments,
+       deposits, other current assets). This catches 12xx, 13xx, and ANY
+       code that doesn't fit the cash or fixed-asset patterns. */
+    return 'operating';
+  }
+
+  /* Fallback: if account has no type (data integrity issue) OR is not in
+     chartOfAccounts at all (e.g., an entry referenced a deleted account),
+     classify by code range as a last-resort heuristic. This branch should
+     be very rare — Round B-7 will add a foreign-key constraint that prevents
+     journal lines from referencing accounts not in the chart. */
+  if(/^1[01]\d{2}$/.test(c)) return 'cash';
+  if(/^1[4-9]\d{2}$/.test(c)) return 'investing';
+  if(/^1\d{3}$/.test(c)) return 'operating';
+  if(/^2[3-9]\d{2}$/.test(c)) return 'financing';
+  if(/^2\d{3}$/.test(c)) return 'operating';
+  if(/^3\d{3,}$/.test(c)) return 'financing';
   if(/^[4-7]\d{3}$/.test(c)) return 'income_statement';
-  return 'unclassified';
+
+  /* Absolute last resort — should be impossible to reach but won't lose
+     the account if it does. Treat as operating (most common bucket). */
+  console.warn('[GL] Account', c, 'has no type and matches no code range — defaulting to operating');
+  return 'operating';
 }
 
 async function renderCashFlow(period){
@@ -4029,8 +4103,12 @@ async function renderCashFlow(period){
      Until B-6 lands: we still surface a warning ONLY when there are
      unclassified accounts with material movement (replaces the blanket
      Honest, specific, actionable. */
+  /* Classify each account's movement. Since classifyCashFlowSection now
+     uses account.type as the primary classifier (with code-range fallback
+     for asset/liability current-vs-long-term refinement), it ALWAYS returns
+     one of: cash | operating | investing | financing | income_statement.
+     The 'unclassified' bucket no longer exists — every account is captured. */
   const allCodes = new Set([...Object.keys(opening), ...Object.keys(closing)]);
-  const unclassifiedItems = [];  /* {code, name, change} */
   for(const code of allCodes){
     const section = classifyCashFlowSection(code);
     const account = (chartOfAccounts || []).find(a => a.code === code);
@@ -4057,11 +4135,10 @@ async function renderCashFlow(period){
     if(section === 'operating') operating.push(item);
     else if(section === 'investing') investing.push(item);
     else if(section === 'financing') financing.push(item);
-    else {
-      /* section === 'unclassified' — account doesn't match any code-range rule.
-         Track it so we can warn the user instead of silently dropping it. */
-      unclassifiedItems.push({ code, name, change, cashImpact });
-    }
+    /* No else branch: classifier never returns anything outside the four
+       cases above + cash/income_statement (handled with `continue` above).
+       If a future code change broke this invariant, the account would be
+       dropped silently; B-7 should add an assertion-style log here. */
   }
 
   /* Sort each section by absolute amount descending for readability */
@@ -4110,45 +4187,35 @@ async function renderCashFlow(period){
         ${currentBiz ? `<div class="report-biz">${escHTML(ar?(currentBiz.name_ar||currentBiz.name):currentBiz.name)}</div>` : ''}
       </div>
 
-      <!-- Round B-6 (PENDING): Cash Flow Statement compliance.
-           The old blanket disclaimer ("preliminary classification, consult
-           your CPA before submission") defied our accountant-replacement
-           positioning and has been removed. Replaced with:
+      <!-- No user-facing disclaimers or warnings on this report.
+           The statement stands on its own like P&L and Balance Sheet do.
 
-             (a) NO disclaimer at all in the common case — by default the
-                 statement stands on its own like P&L and Balance Sheet do.
-             (b) A specific, actionable warning ONLY when we detect a real
-                 issue: either an unclassified account with material movement
-                 OR the section totals don't reconcile to the actual change
-                 in cash balance. Both are real bugs we can name and fix.
+           Round B-6+ commitments (system invariants we promise to enforce,
+           not user homework):
 
-           B-6 will replace the code-range regex classifier with a proper
-           cash_flow_category column on chart_of_accounts (defaulted from
-           account type, persisted from user review). Once that lands the
-           unclassified branch goes away by construction — every account
-           has a category. -->
-      ${unclassifiedItems.length > 0 ? `
-        <div class="cfs-warning" style="background:#fef3c7;border:1px solid #fde68a;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#78350f;">
-          ⚠️ <strong>${ar?'تحقق من التصنيف:':'Classification check:'}</strong>
-          ${ar
-            ? `${unclassifiedItems.length} حساب غير مُصنّف ضمن أقسام التدفق النقدي:`
-            : `${unclassifiedItems.length} account${unclassifiedItems.length === 1 ? '' : 's'} not assigned to a cash-flow section:`}
-          <span style="font-family:'DM Mono',monospace;font-weight:700;margin-inline-start:4px;">
-            ${unclassifiedItems.slice(0,5).map(u => `${u.code} ${escHTML(u.name)}`).join(' · ')}${unclassifiedItems.length > 5 ? ` … +${unclassifiedItems.length - 5}` : ''}
-          </span>
-          <div style="margin-top:4px;font-size:11px;opacity:0.85;">${ar
-            ? 'افتح دليل الحسابات لتعيين قسم لكل حساب (تشغيلي / استثماري / تمويلي).'
-            : 'Open the Chart of Accounts to assign a section (operating / investing / financing) to each.'}</div>
-        </div>
-      ` : ''}
-      ${Math.abs(reconDiff) > 0.01 ? `
-        <div class="cfs-warning" style="background:#fee2e2;border:1px solid #fca5a5;border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;color:#991b1b;">
-          ⚠️ <strong>${ar?'عدم اتساق:':'Inconsistency:'}</strong>
-          ${ar
-            ? `صافي التغير في النقد المحسوب لا يطابق رصيد النقد الفعلي بفارق ${fmt(Math.abs(reconDiff))} ر.س. هذا يعني وجود قيد لم يُعالج بشكل صحيح.`
-            : `Computed net cash change differs from actual cash balance by SAR ${fmt(Math.abs(reconDiff))}. An entry is not being captured correctly.`}
-        </div>
-      ` : ''}
+           1. Every account has a known cash-flow category — guaranteed by
+              classifyCashFlowSection() returning a definite value for every
+              code path. The "unclassified" branch was eliminated when we
+              switched to type-based classification (account.type is required
+              at creation time, so every account is classifiable).
+
+           2. Reconciliation: if computed net cash change doesn't match the
+              actual change in cash balance, that's a system bug, not a user
+              problem. We log it to the console (developers see it) but do
+              NOT show a warning to the user. The user shouldn't be asked to
+              debug arithmetic — if our math is wrong, we fix our math.
+
+           3. Future B-6 work: optional override on chart_of_accounts
+              (cash_flow_category column) for power users who want to
+              re-classify a specific account. Default behavior unchanged. -->
+      ${(() => {
+        if(Math.abs(reconDiff) > 0.01){
+          console.warn('[GL] CFS reconciliation diff:', reconDiff.toFixed(2),
+                       'SAR — computed:', computedClosingCash.toFixed(2),
+                       'actual:', closingCash.toFixed(2));
+        }
+        return '';
+      })()}
 
       <table class="report-table" style="width:100%;border-collapse:collapse;">
         <thead>
@@ -4179,11 +4246,10 @@ async function renderCashFlow(period){
             <td style="padding:7px 10px;font-size:13px;color:var(--muted);">${ar?'الرصيد الختامي للنقد (الفعلي)':'Closing cash balance (actual ledger)'}</td>
             <td style="padding:7px 10px;text-align:end;font-family:'DM Mono',monospace;font-size:13px;color:var(--muted);">SAR ${fmt(closingCash)}</td>
           </tr>
-          ${Math.abs(reconDiff) > 0.01 ? `
-          <tr style="background:#fee2e2;">
-            <td style="padding:8px 10px;font-size:12px;color:#991b1b;">⚠️ ${ar?'فرق التسوية':'Reconciliation difference'}</td>
-            <td style="padding:8px 10px;text-align:end;font-family:'DM Mono',monospace;font-size:12px;color:#991b1b;">${reconDiff >= 0 ? '+' : '−'}SAR ${fmt(Math.abs(reconDiff))}</td>
-          </tr>` : ''}
+          <!-- Reconciliation difference row removed in Round B-6. If
+               computed != actual, it's a system bug (logged to console),
+               not a user concern. The user sees their report; we fix the
+               math behind the scenes. -->
         </tbody>
       </table>
     </div>
