@@ -6309,9 +6309,35 @@ async function vatMarkAsFiled(){
     ''
   );
 
-  /* Determine period dates from the wizard state */
-  const periodFrom = period?.from || new Date(period?.year, period?.startMonth || 0, 1);
-  const periodTo = period?.to || new Date(period?.year, (period?.endMonth || 11) + 1, 0);
+  /* Determine period dates from the wizard state.
+     The VAT wizard's period object uses { fromISO, toISO } (ISO date strings),
+     NOT { from, to } Date objects — built by vatCandidatePeriods(). Be
+     defensive: also accept { from, to } in case future code restructures. */
+  let periodFrom, periodTo;
+  if(period?.fromISO){
+    periodFrom = new Date(period.fromISO);
+  } else if(period?.from){
+    periodFrom = (period.from instanceof Date) ? period.from : new Date(period.from);
+  } else {
+    notify(ar?'بيانات الفترة غير صحيحة':'Period data invalid','error');
+    console.error('[GL] vatMarkAsFiled: period.fromISO and period.from both missing', period);
+    return;
+  }
+  if(period?.toISO){
+    periodTo = new Date(period.toISO);
+  } else if(period?.to){
+    periodTo = (period.to instanceof Date) ? period.to : new Date(period.to);
+  } else {
+    notify(ar?'بيانات الفترة غير صحيحة':'Period data invalid','error');
+    console.error('[GL] vatMarkAsFiled: period.toISO and period.to both missing', period);
+    return;
+  }
+  /* Sanity check — invalid Date would silently corrupt the row */
+  if(isNaN(periodFrom.getTime()) || isNaN(periodTo.getTime())){
+    notify(ar?'تواريخ الفترة غير صالحة':'Invalid period dates','error');
+    console.error('[GL] vatMarkAsFiled: invalid date in period', { period, periodFrom, periodTo });
+    return;
+  }
   /* Deadline = last day of month after period end */
   const deadline = new Date(periodTo.getFullYear(), periodTo.getMonth() + 2, 0);
 
