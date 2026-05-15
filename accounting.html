@@ -5635,6 +5635,26 @@ async function renderFilingHistory(filingType){
     const fmtDate = d => new Date(d).toLocaleDateString(ar?'ar-SA-u-ca-gregory':'en-GB',
       {day:'2-digit', month:'short', year:'numeric'});
 
+    /* Round B-VAT timezone-corruption detection.
+       Filings saved before the timezone fix have period_from on Dec 31
+       (instead of Jan 1) for calendar-FY businesses, and VAT quarters
+       ending one day early. These are computationally identifiable —
+       the user shouldn't have to think about them, we offer a one-click
+       inline fix. */
+    const isCorruptedRow = f => {
+      const from = f.period_from || '';
+      const to = f.period_to || '';
+      if((f.filing_type === 'annual' || f.filing_type === 'qawaem')
+         && from.endsWith('-12-31') && to.endsWith('-12-30')){
+        return true;
+      }
+      if(f.filing_type === 'vat'){
+        const badQuarterEnds = ['-03-30', '-06-29', '-09-29', '-12-30'];
+        if(badQuarterEnds.some(b => to.endsWith(b))) return true;
+      }
+      return false;
+    };
+
     let html = `<div style="background:rgba(29,158,117,0.06);border:1px solid var(--light);border-radius:10px;padding:12px 14px;font-size:13px;">`;
     html += `<div style="font-weight:700;color:var(--ink);margin-bottom:8px;display:flex;align-items:center;gap:6px;">`;
     html += `<span style="color:var(--green);">✓</span> ${ar?'الإقرارات السابقة':'Previous filings'}`;
@@ -5643,21 +5663,42 @@ async function renderFilingHistory(filingType){
 
     /* Most recent first */
     const sorted = filedRows.slice().sort((a,b) => new Date(b.filed_at) - new Date(a.filed_at));
-    for(const f of sorted.slice(0, 5)){
+    for(const f of sorted.slice(0, 10)){
+      const corrupted = isCorruptedRow(f);
       const periodLabel = `${fmtDate(f.period_from)} → ${fmtDate(f.period_to)}`;
       const filedLabel = fmtDate(f.filed_at);
       const ref = f.external_ref ? ` · ${ar?'مرجع':'Ref'}: ${escHTML(f.external_ref)}` : '';
-      html += `
-        <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border-radius:7px;border:1px solid var(--tint);">
-          <div style="flex:1;min-width:0;">
-            <div style="font-size:12px;color:var(--muted);">${ar?'الفترة':'Period'}: <span style="color:var(--ink);font-weight:600;">${periodLabel}</span></div>
-            <div style="font-size:11px;color:var(--muted);margin-top:2px;">${ar?'تاريخ التقديم':'Filed'}: ${filedLabel}${ref}</div>
+
+      /* Corrupted rows get a distinctive amber border + inline fix button.
+         Non-corrupted rows get the normal Reopen button. */
+      if(corrupted){
+        html += `
+          <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fff8e7;border-radius:7px;border:1.5px solid #c9920a;">
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:11px;color:#7a4f00;font-weight:700;margin-bottom:3px;">
+                ⚠ ${ar?'تواريخ غير صحيحة (خطأ منطقة زمنية سابق)':'Dates are off by 1 day (legacy timezone bug)'}
+              </div>
+              <div style="font-size:12px;color:var(--muted);">${ar?'الفترة المسجَّلة':'Saved period'}: <span style="color:var(--ink);font-weight:600;">${periodLabel}</span></div>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px;">${ar?'تاريخ التقديم':'Filed'}: ${filedLabel}${ref}</div>
+            </div>
+            <button onclick="fixCorruptedFilingDates('${f.id}')" style="padding:6px 14px;background:var(--amber);border:none;color:#fff;border-radius:6px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">
+              🛠 ${ar?'تصحيح التواريخ':'Fix dates'}
+            </button>
           </div>
-          <button onclick="reopenFilingHandler('${f.id}', '${escHTML(periodLabel)}')" style="padding:5px 12px;background:#fff;border:1px solid var(--amber);color:var(--amber);border-radius:6px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;">
-            🔓 ${ar?'إعادة فتح':'Reopen'}
-          </button>
-        </div>
-      `;
+        `;
+      } else {
+        html += `
+          <div style="display:flex;align-items:center;gap:10px;padding:8px 10px;background:#fff;border-radius:7px;border:1px solid var(--tint);">
+            <div style="flex:1;min-width:0;">
+              <div style="font-size:12px;color:var(--muted);">${ar?'الفترة':'Period'}: <span style="color:var(--ink);font-weight:600;">${periodLabel}</span></div>
+              <div style="font-size:11px;color:var(--muted);margin-top:2px;">${ar?'تاريخ التقديم':'Filed'}: ${filedLabel}${ref}</div>
+            </div>
+            <button onclick="reopenFilingHandler('${f.id}', '${escHTML(periodLabel)}')" style="padding:5px 12px;background:#fff;border:1px solid var(--amber);color:var(--amber);border-radius:6px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;">
+              🔓 ${ar?'إعادة فتح':'Reopen'}
+            </button>
+          </div>
+        `;
+      }
     }
 
     if(reopenedRows.length > 0){
@@ -5671,6 +5712,92 @@ async function renderFilingHistory(filingType){
     console.warn('[GL] renderFilingHistory:', e);
     banner.style.display = 'none';
   }
+}
+
+/* Round B-VAT one-click cleanup: shift the dates of a corrupted filing
+   forward by 1 day to undo the legacy timezone shift. The fix is purely
+   additive (period_from + 1, period_to + 1) — no risk of further drift
+   because we're working with date strings, not Date objects. */
+async function fixCorruptedFilingDates(filingId){
+  const ar = currentLang === 'ar';
+  /* Fetch the row first so we can compute the corrected dates */
+  const { data: rows, error: fetchErr } = await sb.from('filings')
+    .select('id, period_from, period_to, due_date, filing_type')
+    .eq('id', filingId)
+    .limit(1);
+  if(fetchErr || !rows?.length){
+    notify(ar?'تعذر قراءة الإقرار':'Could not read filing','error');
+    console.error('[GL] fixCorruptedFilingDates fetch:', fetchErr);
+    return;
+  }
+  const row = rows[0];
+
+  /* Add 1 day to each date string. Pure string math via Date arithmetic
+     — start from the SAVED string (which is UTC midnight when parsed),
+     add 24h, then format back with isoLocal. This avoids reintroducing
+     the very bug we're fixing. */
+  const shiftByOneDay = (isoStr) => {
+    if(!isoStr) return null;
+    /* Parse year/month/day directly to avoid timezone games */
+    const m = isoStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if(!m) return isoStr;
+    const y = parseInt(m[1], 10);
+    const mo = parseInt(m[2], 10);
+    const d = parseInt(m[3], 10);
+    /* Construct in LOCAL time, then add 1 day, then format with local getters */
+    const dt = new Date(y, mo - 1, d);
+    dt.setDate(dt.getDate() + 1);
+    return isoLocal(dt);
+  };
+
+  const newFrom = shiftByOneDay(row.period_from);
+  const newTo = shiftByOneDay(row.period_to);
+  /* due_date is also potentially off by 1 if computed at save time */
+  const newDue = shiftByOneDay(row.due_date);
+
+  const periodLabel = `${row.period_from} → ${row.period_to}  ⇒  ${newFrom} → ${newTo}`;
+  if(!confirm(ar
+    ? `سيتم تصحيح التواريخ:\n\n${periodLabel}\n\nالمتابعة؟`
+    : `Will correct dates:\n\n${periodLabel}\n\nProceed?`)){
+    return;
+  }
+
+  const { error: updErr } = await sb.from('filings')
+    .update({ period_from: newFrom, period_to: newTo, due_date: newDue })
+    .eq('id', filingId);
+  if(updErr){
+    /* Most likely cause: unique constraint conflict — a correct-dated
+       filing already exists for this (business, type, period_to). In that
+       case the corrupt row is duplicate garbage — offer to delete it. */
+    console.error('[GL] fixCorruptedFilingDates update:', updErr);
+    const detail = updErr.message || String(updErr);
+    if(detail.includes('filings_active_unique') || detail.includes('duplicate key')){
+      if(confirm(ar
+        ? 'يوجد إقرار صحيح بالفعل لهذه الفترة. حذف السجل المعطوب؟'
+        : 'A correct filing already exists for this period. Delete this corrupted duplicate?')){
+        const { error: delErr } = await sb.from('filings').delete().eq('id', filingId);
+        if(delErr){
+          notify(ar?'تعذر الحذف':'Delete failed','error');
+          return;
+        }
+        if(window.gl?.filings) window.gl.filings.invalidateCache(currentBiz.id);
+        notify(ar?'✓ تم حذف السجل المكرر':'✓ Duplicate corrupted row deleted','success');
+        renderFilingHistory(currentFilingType);
+      }
+      return;
+    }
+    notify(ar?`تعذر التصحيح: ${detail}`:`Could not fix: ${detail}`,'error');
+    return;
+  }
+
+  if(window.gl?.filings) window.gl.filings.invalidateCache(currentBiz.id);
+  notify(ar?'✓ تم تصحيح التواريخ':'✓ Dates corrected','success');
+  renderFilingHistory(currentFilingType);
+  /* If wizard is open on a period that just got fixed, re-render so the
+     "FILED" badge appears on that year. */
+  if(currentFilingType === 'annual') renderAnnStep();
+  else if(currentFilingType === 'vat') renderVatStep();
+  else if(currentFilingType === 'qawaem') renderQawStep();
 }
 
 /* Reopen a filed period. Marks the filing record as 'reopened' — the
