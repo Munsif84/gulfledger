@@ -418,8 +418,8 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
           type: 'annual',
           authority: 'ZATCA',
           icon: '📅',
-          name_ar: 'الإقرار السنوي (الزكاة / ضريبة الدخل)',
-          name_en: 'Annual Return (Zakat / Income Tax)',
+          name_ar: 'إقرارات الزكاة / ضريبة الدخل',
+          name_en: 'Zakat / Income Tax filing',
           period_label: `FY ${annualPeriod.label}`,
           period_from: annualPeriod.from,
           period_to: annualPeriod.to,
@@ -1577,7 +1577,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         </button>
         <button class="sidebar-link" id="subtab-vat-annual" onclick="switchSubtab('vat-annual')">
           <span class="icon">📅</span>
-          <span data-ar="الإقرار السنوي" data-en="Annual Return">الإقرار السنوي</span>
+          <span data-ar="إقرارات الزكاة / ضريبة الدخل" data-en="Zakat / Income Tax filing">إقرارات الزكاة / ضريبة الدخل</span>
         </button>
         <button class="sidebar-link" id="subtab-vat-qawaem" onclick="switchSubtab('vat-qawaem')">
           <span class="icon">📋</span>
@@ -1769,7 +1769,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         <span style="font-size:10px;color:inherit;opacity:0.7;margin-inline-start:4px;" data-ar="(شهري/ربعي)" data-en="(monthly/quarterly)">(شهري/ربعي)</span>
       </button>
       <button type="button" class="ledger-view-btn" id="filing-annual" onclick="setFilingType('annual')">
-        📅 <span data-ar="الزكاة / ضريبة الدخل" data-en="Zakat / Income Tax">الزكاة / ضريبة الدخل</span>
+        📅 <span data-ar="إقرارات الزكاة / ضريبة الدخل" data-en="Zakat / Income Tax filing">إقرارات الزكاة / ضريبة الدخل</span>
         <span style="font-size:10px;color:inherit;opacity:0.7;margin-inline-start:4px;" data-ar="(سنوي)" data-en="(annual)">(سنوي)</span>
       </button>
       <button type="button" class="ledger-view-btn" id="filing-qawaem" onclick="setFilingType('qawaem')">
@@ -3893,7 +3893,7 @@ async function saveManualEntry(){
     if(closeCheck.closed){
       const f = closeCheck.filing;
       const typeLabel = (f.filing_type === 'vat') ? (ar?'إقرار VAT':'VAT Return')
-        : (f.filing_type === 'annual') ? (ar?'الإقرار السنوي':'Annual Return')
+        : (f.filing_type === 'annual') ? (ar?'إقرار الزكاة / ضريبة الدخل':'Zakat / Income Tax filing')
         : (ar?'قوائم':'Qawaem');
       notify(ar
         ? `الفترة مغلقة — ${typeLabel} مُقدَّم. لإجراء تعديلات يجب إعادة فتح الفترة أولاً.`
@@ -6366,7 +6366,8 @@ async function vatMarkAsFiled(){
 
   if(error){
     console.error('[GL] VAT mark-as-filed error:', error);
-    notify(ar?'تعذر تسجيل الإقرار':'Could not record filing','error');
+    const detail = error?.message || error?.error || String(error);
+    notify(ar?`تعذر تسجيل الإقرار: ${detail}`:`Could not record filing: ${detail}`,'error');
     return;
   }
 
@@ -7225,7 +7226,7 @@ async function renderAnnStep6(){
           ${ar?'بعد إكمال التقديم على بوابة ZATCA، اضغط أدناه لتسجيل الإقرار وإغلاق السنة المالية:':'Once filed on the ZATCA portal, click below to record the filing and close the fiscal year:'}
         </div>
         <button class="btn btn-primary" onclick="annMarkAsFiled()" style="background:var(--green);border:none;padding:10px 22px;font-size:14px;font-weight:700;">
-          ✓ ${ar?'تم تقديم الإقرار — إغلاق السنة':'Filed — Close Fiscal Year'}
+          ✓ ${ar?'تم تقديم الزكاة / ضريبة الدخل — إغلاق السنة':'Zakat/IT Filed — Close Fiscal Year'}
         </button>
       </div>
     </div>
@@ -7375,13 +7376,23 @@ async function annMarkAsFiled(){
   }
 
   const fy = annWizardState.fy;
+  if(!fy || (!fy.startISO && !fy.endISO)){
+    notify(ar?'بيانات السنة المالية غير صحيحة':'Fiscal year data invalid','error');
+    console.error('[GL] annMarkAsFiled: fy missing startISO/endISO', fy);
+    return;
+  }
   const periodFrom = new Date(fy.startISO);
   const periodTo = new Date(fy.endISO);
+  if(isNaN(periodFrom.getTime()) || isNaN(periodTo.getTime())){
+    notify(ar?'تواريخ السنة المالية غير صالحة':'Invalid fiscal year dates','error');
+    console.error('[GL] annMarkAsFiled: invalid dates', { fy, periodFrom, periodTo });
+    return;
+  }
   const deadline = window.gl.filings.getAnnualDeadline(periodTo);
 
   const confirmMsg = ar
-    ? `تأكيد إغلاق السنة المالية ${fy.year}؟\n\nبعد الإغلاق، لن يمكن إضافة أو تعديل قيود مؤرخة ضمن هذه السنة إلا بعد إعادة فتحها يدوياً.`
-    : `Close fiscal year ${fy.year}?\n\nAfter closing, no journal entries dated within this fiscal year can be added or edited unless explicitly reopened.`;
+    ? `تأكيد إغلاق السنة المالية ${fy.year}؟ (تم تقديم الزكاة / ضريبة الدخل)\n\nبعد الإغلاق، لن يمكن إضافة أو تعديل قيود مؤرخة ضمن هذه السنة إلا بعد إعادة فتحها يدوياً.`
+    : `Close fiscal year ${fy.year}? (Zakat / Income Tax filed)\n\nAfter closing, no journal entries dated within this fiscal year can be added or edited unless explicitly reopened.`;
   if(!confirm(confirmMsg)) return;
 
   const externalRef = prompt(
@@ -7409,11 +7420,12 @@ async function annMarkAsFiled(){
 
   if(error){
     console.error('[GL] Annual mark-as-filed error:', error);
-    notify(ar?'تعذر تسجيل الإقرار':'Could not record filing','error');
+    const detail = error?.message || error?.error || String(error);
+    notify(ar?`تعذر تسجيل الإقرار: ${detail}`:`Could not record filing: ${detail}`,'error');
     return;
   }
   try { localStorage.removeItem('gl_annual_wizard'); } catch(e){}
-  notify(ar?'✓ تم تسجيل الإقرار وإغلاق السنة':'✓ Annual filing recorded, fiscal year closed','success');
+  notify(ar?'✓ تم تسجيل الزكاة / ضريبة الدخل وإغلاق السنة':'✓ Zakat / Income Tax filing recorded, fiscal year closed','success');
   setTimeout(() => { window.location.href = 'dashboard.html'; }, 1500);
 }
 
@@ -8125,8 +8137,18 @@ async function qawMarkAsFiled(){
   }
 
   const fy = qawWizardState.fy;
+  if(!fy || (!fy.startISO && !fy.endISO)){
+    notify(ar?'بيانات السنة المالية غير صحيحة':'Fiscal year data invalid','error');
+    console.error('[GL] qawMarkAsFiled: fy missing startISO/endISO', fy);
+    return;
+  }
   const periodFrom = new Date(fy.startISO);
   const periodTo = new Date(fy.endISO);
+  if(isNaN(periodFrom.getTime()) || isNaN(periodTo.getTime())){
+    notify(ar?'تواريخ السنة المالية غير صالحة':'Invalid fiscal year dates','error');
+    console.error('[GL] qawMarkAsFiled: invalid dates', { fy, periodFrom, periodTo });
+    return;
+  }
   const deadline = window.gl.filings.getQawaemDeadline(periodTo);
 
   const confirmMsg = ar
@@ -8159,7 +8181,8 @@ async function qawMarkAsFiled(){
 
   if(error){
     console.error('[GL] Qawaem mark-as-filed error:', error);
-    notify(ar?'تعذر تسجيل الإيداع':'Could not record filing','error');
+    const detail = error?.message || error?.error || String(error);
+    notify(ar?`تعذر تسجيل الإيداع: ${detail}`:`Could not record filing: ${detail}`,'error');
     return;
   }
   try { localStorage.removeItem('gl_qawaem_wizard'); } catch(e){}
