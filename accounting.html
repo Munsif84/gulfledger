@@ -1301,6 +1301,10 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .period-option{padding:14px 16px;background:#fff;border:1.5px solid var(--border);border-radius:10px;cursor:pointer;font-family:inherit;text-align:start;transition:all .15s;}
 .period-option:hover{border-color:var(--blue);background:var(--tint);}
 .period-option.on{border-color:var(--blue);background:var(--tint);box-shadow:0 0 0 3px rgba(0,108,53,0.1);}
+/* Round B-VAT: already-filed period state. Green border, dimmed, not clickable. */
+.period-option.filed{border-color:var(--green);background:rgba(29,158,117,0.04);box-shadow:none;}
+.period-option.filed:hover{border-color:var(--green);background:rgba(29,158,117,0.04);}
+.period-option[disabled]{pointer-events:auto;cursor:not-allowed;}
 .period-option .lbl{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin-bottom:3px;}
 .period-option .val{font-size:14px;font-weight:800;color:var(--ink);}
 .period-option .sub{font-size:11px;color:var(--muted);margin-top:2px;font-family:'DM Mono',monospace;}
@@ -5603,7 +5607,7 @@ function renderVatStep(){
 
   const container = document.getElementById('vat-step-content');
   switch(vatWizardState.step){
-    case 1: container.innerHTML = renderVatStep1(); break;
+    case 1: renderVatStep1(); return;  /* async — fetches filings */
     case 2: renderVatStep2(); return;  /* async */
     case 3: renderVatStep3(); return;  /* async */
     case 4: container.innerHTML = renderVatStep4(); break;
@@ -5612,16 +5616,43 @@ function renderVatStep(){
 }
 
 /* ─── STEP 1: Period & TRN ─── */
-function renderVatStep1(){
+async function renderVatStep1(){
   const ar = currentLang === 'ar';
+  const container = document.getElementById('vat-step-content');
+  container.innerHTML = `<div class="loading-state"><div class="loading-spinner">⏳</div><div>${ar?'جارٍ التحقق من حالة الإقرارات...':'Checking filing status...'}</div></div>`;
+
   const trn = currentBiz?.tax_number || currentBiz?.vat_number || currentBiz?.trn || '';
   const hasTrn = !!(trn && String(trn).length >= 10);
   const freq = (currentBiz?.vat_filing_frequency || 'quarterly').toLowerCase();
   const periods = vatCandidatePeriods();
-  /* If no period chosen yet, default to the previous period (index 0) */
+
+  /* Round B-VAT: check which periods are already filed.
+     Periods with status='filed' get a "تم التقديم" badge and disabled state.
+     Clicking a filed period shows an explanation pointing to the reopen flow. */
+  let existingFilings = [];
+  try {
+    if(window.gl?.filings && currentBiz?.id){
+      existingFilings = await window.gl.filings.getFilings(currentBiz.id, true);
+    }
+  } catch(e){ console.warn('[GL] VAT step1 filings fetch:', e); }
+  const filedSet = new Set(
+    existingFilings
+      .filter(f => f.filing_type === 'vat' && f.status === 'filed')
+      .map(f => f.period_to)
+  );
+
+  /* If the currently-selected period is in the filed set, switch to the
+     first unfiled candidate so the user isn't stuck on a closed period. */
+  if(vatWizardState.period && filedSet.has(vatWizardState.period.toISO)){
+    const firstOpen = periods.find(p => !filedSet.has(p.toISO));
+    if(firstOpen){
+      vatWizardState.period = firstOpen;
+      saveVatDraft();
+    }
+  }
   const selectedISO = vatWizardState.period?.fromISO;
 
-  return `
+  container.innerHTML = `
     <div class="wizard-card">
       <h3>${ar?'تأكيد بيانات المنشأة':'Confirm Business Details'}</h3>
       <div class="help">${ar?'هذه البيانات ستظهر على الإقرار. يجب أن تكون مطابقة لما هو مسجل في ZATCA.':'These details will appear on the return. They must match what is registered with ZATCA.'}</div>
@@ -5652,17 +5683,27 @@ function renderVatStep1(){
 
     <div class="wizard-card">
       <h3>${ar?'اختر الفترة الضريبية':'Choose Tax Period'}</h3>
-      <div class="help">${ar?'الإقرار الأكثر شيوعاً هو عن الفترة المنتهية مؤخراً. اختر منها:':'The most common return is for the recently-ended period. Pick one:'}</div>
+      <div class="help">${ar?'الإقرار الأكثر شيوعاً هو عن الفترة المنتهية مؤخراً. الفترات المؤشرة بـ "تم التقديم" مغلقة — لإجراء تعديلات يجب إعادة فتحها من سجل الإقرارات.':'The most common return is for the recently-ended period. Periods marked "Filed" are closed — to amend, reopen them from the filing history below.'}</div>
       <div class="period-options">
-        ${periods.map((p, i) => `
-          <button type="button" class="period-option ${selectedISO === p.fromISO || (!selectedISO && i === 0) ? 'on' : ''}" onclick="vatPickPeriod(${i})">
-            <div class="lbl">${escHTML(p.sub)}</div>
-            <div class="val">${escHTML(p.label)}</div>
-            <div class="sub">${escHTML(p.fromISO)} → ${escHTML(p.toISO)}</div>
-          </button>`).join('')}
+        ${periods.map((p, i) => {
+          const isFiled = filedSet.has(p.toISO);
+          const cls = isFiled
+            ? 'period-option filed'
+            : (selectedISO === p.fromISO || (!selectedISO && !periods.slice(0, i).some(pp => !filedSet.has(pp.toISO)) && !filedSet.has(p.toISO)) ? 'on' : '');
+          return `
+            <button type="button" class="period-option ${cls}"
+                    ${isFiled ? 'disabled' : ''}
+                    onclick="${isFiled ? `vatShowFiledExplanation('${escHTML(p.label)}')` : `vatPickPeriod(${i})`}"
+                    style="${isFiled ? 'opacity:0.55;cursor:not-allowed;border-color:var(--green);' : ''}">
+              <div class="lbl">${escHTML(p.sub)}</div>
+              <div class="val">${escHTML(p.label)}</div>
+              <div class="sub">${escHTML(p.fromISO)} → ${escHTML(p.toISO)}</div>
+              ${isFiled ? `<div style="margin-top:6px;display:inline-block;padding:2px 8px;background:var(--green);color:#fff;font-size:10px;font-weight:800;border-radius:4px;letter-spacing:.04em;">✓ ${ar?'تم التقديم':'FILED'}</div>` : ''}
+            </button>`;
+        }).join('')}
       </div>
       ${(() => {
-        const cur = vatWizardState.period || periods[0];
+        const cur = vatWizardState.period || periods.find(p => !filedSet.has(p.toISO)) || periods[0];
         return `<div style="font-size:12px;color:var(--muted);margin-top:8px;">
           ${ar?'الفترة المختارة:':'Selected period:'} <strong style="color:var(--ink);font-family:DM Mono,monospace;">${escHTML(cur.fromISO)} → ${escHTML(cur.toISO)}</strong>
         </div>`;
@@ -5676,6 +5717,18 @@ function renderVatStep1(){
       </button>
     </div>
   `;
+}
+
+/* Round B-VAT: explanation modal when user clicks a filed (disabled)
+   period. Points them to the filing history banner where they can reopen. */
+function vatShowFiledExplanation(periodLabel){
+  const ar = currentLang === 'ar';
+  notify(ar
+    ? `الفترة ${periodLabel} مغلقة (تم تقديم الإقرار). لإجراء تعديلات، أعد فتح الفترة من قسم "الإقرارات السابقة" في أعلى الصفحة.`
+    : `Period ${periodLabel} is closed (return filed). To amend, reopen it from the "Previous filings" section at the top of this page.`,
+    'info');
+  /* Scroll up so user sees the filing history banner */
+  document.getElementById('filing-history-banner')?.scrollIntoView({behavior:'smooth', block:'start'});
 }
 
 function vatPickPeriod(idx){
@@ -6496,7 +6549,7 @@ function renderAnnStep(){
      Actually keep all steps but conditionally hide CIT-specific bits */
 
   switch(annWizardState.step){
-    case 1: container.innerHTML = renderAnnStep1(); break;
+    case 1: renderAnnStep1(); return;  /* async — fetches filings */
     case 2: renderAnnStep2(); return;  /* async */
     case 3:
       /* Skip Zakat base step if no Saudi/GCC ownership */
@@ -6514,8 +6567,11 @@ function renderAnnStep(){
 }
 
 /* ─── ANN STEP 1: Fiscal year + ownership ─── */
-function renderAnnStep1(){
+async function renderAnnStep1(){
   const ar = currentLang === 'ar';
+  const container = document.getElementById('ann-step-content');
+  container.innerHTML = `<div class="loading-state"><div class="loading-spinner">⏳</div><div>${ar?'جارٍ التحقق من حالة الإقرارات...':'Checking filing status...'}</div></div>`;
+
   const o = annWizardState.ownership || { saudiPct: 0, foreignPct: 0, partners: [] };
   const regime = annTaxRegime();
   const ds = annDeadlineStatus();
@@ -6545,6 +6601,28 @@ function renderAnnStep1(){
     });
   }
 
+  /* Round B-VAT: check which fiscal years are already filed for Zakat/IT */
+  let existingFilings = [];
+  try {
+    if(window.gl?.filings && currentBiz?.id){
+      existingFilings = await window.gl.filings.getFilings(currentBiz.id, true);
+    }
+  } catch(e){ console.warn('[GL] Annual step1 filings fetch:', e); }
+  const filedSet = new Set(
+    existingFilings
+      .filter(f => f.filing_type === 'annual' && f.status === 'filed')
+      .map(f => f.period_to)
+  );
+
+  /* If currently selected fy is already filed, switch to first unfiled */
+  if(fy && filedSet.has(fy.endISO)){
+    const firstOpen = candidates.find(c => !filedSet.has(c.endISO));
+    if(firstOpen){
+      annWizardState.fy = firstOpen;
+      saveAnnDraft();
+    }
+  }
+
   const regimeLabel = regime === 'zakat_only'
     ? (ar?'زكاة فقط (ملكية سعودية/خليجية)':'Zakat only (Saudi/GCC owned)')
     : regime === 'cit_only'
@@ -6563,18 +6641,26 @@ function renderAnnStep1(){
     }
   }
 
-  return `
+  container.innerHTML = `
     <div class="wizard-card">
       <h3>${ar?'السنة المالية':'Fiscal Year'}</h3>
-      <div class="help">${ar?'يجب تقديم الإقرار خلال 120 يوم من نهاية السنة المالية. اختر السنة التي تريد تقديم إقرار عنها:':'You must file within 120 days of fiscal year end. Pick the year you\'re filing for:'}</div>
+      <div class="help">${ar?'يجب تقديم الإقرار خلال 120 يوم من نهاية السنة المالية. السنوات المؤشرة بـ "تم التقديم" مغلقة — لإجراء تعديلات يجب إعادة فتحها.':'File within 120 days of fiscal year end. Years marked "Filed" are closed — reopen them to amend.'}</div>
 
       <div class="period-options">
-        ${candidates.map(c => `
-          <button type="button" class="period-option ${fy?.year === c.year ? 'on' : ''}" onclick="annPickFiscalYear(${c.year})">
-            <div class="lbl">${escHTML(c.sub)}</div>
-            <div class="val">${escHTML(c.label)}</div>
-            <div class="sub">${escHTML(c.startISO)} → ${escHTML(c.endISO)}</div>
-          </button>`).join('')}
+        ${candidates.map(c => {
+          const isFiled = filedSet.has(c.endISO);
+          const isOn = annWizardState.fy?.year === c.year && !isFiled;
+          return `
+            <button type="button" class="period-option ${isFiled ? 'filed' : (isOn ? 'on' : '')}"
+                    ${isFiled ? 'disabled' : ''}
+                    onclick="${isFiled ? `annShowFiledExplanation('${escHTML(c.label)}')` : `annPickFiscalYear(${c.year})`}"
+                    style="${isFiled ? 'opacity:0.55;cursor:not-allowed;border-color:var(--green);' : ''}">
+              <div class="lbl">${escHTML(c.sub)}</div>
+              <div class="val">${escHTML(c.label)}</div>
+              <div class="sub">${escHTML(c.startISO)} → ${escHTML(c.endISO)}</div>
+              ${isFiled ? `<div style="margin-top:6px;display:inline-block;padding:2px 8px;background:var(--green);color:#fff;font-size:10px;font-weight:800;border-radius:4px;letter-spacing:.04em;">✓ ${ar?'تم التقديم':'FILED'}</div>` : ''}
+            </button>`;
+        }).join('')}
       </div>
       ${deadlineHTML}
     </div>
@@ -6617,6 +6703,16 @@ function renderAnnStep1(){
       <button class="btn btn-primary" onclick="annNextStep()">${ar?'متابعة ←':'Continue →'}</button>
     </div>
   `;
+}
+
+/* Round B-VAT: explanation when user clicks a filed fiscal year */
+function annShowFiledExplanation(yearLabel){
+  const ar = currentLang === 'ar';
+  notify(ar
+    ? `السنة ${yearLabel} مغلقة (تم تقديم الزكاة / ضريبة الدخل). لإجراء تعديلات، أعد فتح السنة من قسم "الإقرارات السابقة" في أعلى الصفحة.`
+    : `Year ${yearLabel} is closed (Zakat/IT filed). To amend, reopen it from "Previous filings" at the top of this page.`,
+    'info');
+  document.getElementById('filing-history-banner')?.scrollIntoView({behavior:'smooth', block:'start'});
 }
 
 function annPickFiscalYear(year){
@@ -7513,6 +7609,33 @@ async function renderQawStep1(){
   container.innerHTML = `<div class="loading-state"><div class="loading-spinner">📊</div><div>${ar?'جارٍ احتساب البيانات...':'Computing metrics...'}</div></div>`;
 
   const fy = qawWizardState.fy;
+
+  /* Round B-VAT: check if this FY is already filed for Qawaem */
+  try {
+    if(window.gl?.filings && currentBiz?.id && fy?.endISO){
+      const filings = await window.gl.filings.getFilings(currentBiz.id, true);
+      const alreadyFiled = filings.find(f =>
+        f.filing_type === 'qawaem' && f.status === 'filed' && f.period_to === fy.endISO
+      );
+      if(alreadyFiled){
+        container.innerHTML = `
+          <div class="wizard-card" style="text-align:center;padding:32px 24px;">
+            <div style="font-size:38px;margin-bottom:12px;">✓</div>
+            <h3 style="color:var(--green);margin-bottom:8px;">${ar?'تم إيداع قوائم لهذه السنة':'Qawaem already filed for this fiscal year'}</h3>
+            <div style="font-size:13px;color:var(--muted);margin-bottom:18px;line-height:1.6;">
+              ${ar?`السنة المالية ${escHTML(fy.label)} مغلقة. لإجراء تعديلات، أعد فتح السنة من قسم "الإقرارات السابقة" في أعلى الصفحة.`
+                  :`Fiscal year ${escHTML(fy.label)} is closed. To amend, reopen it from "Previous filings" at the top of this page.`}
+            </div>
+            <button class="btn btn-secondary" onclick="document.getElementById('filing-history-banner')?.scrollIntoView({behavior:'smooth'});">
+              ${ar?'الذهاب إلى الإقرارات السابقة':'Go to filing history'}
+            </button>
+          </div>
+        `;
+        return;
+      }
+    }
+  } catch(e){ console.warn('[GL] Qawaem step1 filings fetch:', e); }
+
   rebuildAccountMap();
 
   /* Compute revenue from journal for FY */
@@ -7960,6 +8083,24 @@ function renderQawStep4(){
   const bizName = displayName(currentBiz) || currentBiz?.name || '—';
   const trn = currentBiz?.tax_number || currentBiz?.vat_number || currentBiz?.trn || '—';
   const fmtNum = n => 'SAR ' + fmt(n);
+
+  /* Round B-VAT: Defensive — step 4 depends on plData/bsData being populated
+     by step 2. If user resumed from a stale draft where these are missing,
+     send them back to step 2 to recompute instead of rendering broken UI. */
+  if(!m || !m.plData || !m.bsData){
+    console.warn('[GL] Qawaem step 4: metrics.plData/bsData missing — sending back to step 2');
+    qawWizardState.step = 2;
+    saveQawDraft();
+    renderQawStep();
+    return;
+  }
+  if(exempt && !qawWizardState.declaration){
+    /* Edge case: SME path was chosen but declaration wasn't filled. Back to 3. */
+    qawWizardState.step = 3;
+    saveQawDraft();
+    renderQawStep();
+    return;
+  }
 
   container.innerHTML = `
     <div class="wizard-card">
