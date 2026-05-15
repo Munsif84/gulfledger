@@ -1067,6 +1067,10 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .report-view-btn{padding:6px 14px;font-family:inherit;font-size:13px;font-weight:600;border:none;background:transparent;color:var(--muted);border-radius:7px;cursor:pointer;display:inline-flex;align-items:center;gap:6px;transition:all .15s;}
 .report-view-btn:hover{color:var(--blue);}
 .report-view-btn.on{background:var(--blue);color:#fff;}
+/* Round B-VAT-2: period picker in compliance reports (VAT / Zakat / Qawaem report views) */
+.report-period-btn{padding:6px 12px;font-family:inherit;font-size:12px;font-weight:600;border:1px solid var(--border);background:#fff;color:var(--ink);border-radius:7px;cursor:pointer;transition:all .12s;}
+.report-period-btn:hover{border-color:var(--blue);color:var(--blue);}
+.report-period-btn.on{background:var(--blue);border-color:var(--blue);color:#fff;}
 .report-actions{display:flex;gap:6px;align-items:center;}
 .report-period-select{padding:7px 10px;font-size:12px;border:1px solid var(--border);border-radius:8px;background:#fff;font-family:inherit;}
 
@@ -1564,6 +1568,24 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         <button class="sidebar-link" id="subtab-report-tb" onclick="switchSubtab('report-tb')">
           <span class="icon">✅</span>
           <span data-ar="ميزان المراجعة" data-en="Trial Balance">ميزان المراجعة</span>
+        </button>
+
+        <!-- Round B-VAT-2: compliance reports — view-only versions of
+             VAT / Zakat / Qawaem with period picker. Available year-round,
+             independent of filing state. The filing wizards remain for
+             actual submission. -->
+        <div style="font-size:10px;color:var(--muted);font-weight:700;letter-spacing:.05em;text-transform:uppercase;padding:8px 14px 4px;margin-top:4px;border-top:1px solid var(--border);" data-ar="تقارير الامتثال" data-en="Compliance reports">تقارير الامتثال</div>
+        <button class="sidebar-link" id="subtab-report-vat" onclick="switchSubtab('report-vat')">
+          <span class="icon">🧾</span>
+          <span data-ar="تقرير ضريبة القيمة المضافة" data-en="VAT Report">تقرير ضريبة القيمة المضافة</span>
+        </button>
+        <button class="sidebar-link" id="subtab-report-zakat" onclick="switchSubtab('report-zakat')">
+          <span class="icon">📅</span>
+          <span data-ar="تقرير الزكاة / ضريبة الدخل" data-en="Zakat / Income Tax Report">تقرير الزكاة / ضريبة الدخل</span>
+        </button>
+        <button class="sidebar-link" id="subtab-report-qawaem" onclick="switchSubtab('report-qawaem')">
+          <span class="icon">📑</span>
+          <span data-ar="حزمة القوائم المالية" data-en="Financial Statements">حزمة القوائم المالية</span>
         </button>
       </div>
 
@@ -2220,6 +2242,9 @@ function switchSubtab(name){
     'ledger-coa':     'pane-ledger',
     'report-pl':      'pane-reports', 'report-bs': 'pane-reports',
     'report-cf':      'pane-reports', 'report-tb': 'pane-reports',
+    /* Round B-VAT-2: compliance reports also live in pane-reports */
+    'report-vat':     'pane-reports', 'report-zakat': 'pane-reports',
+    'report-qawaem':  'pane-reports',
     'vat-return':     'pane-vat',     'vat-annual':'pane-vat',
     'vat-qawaem':     'pane-vat'
   };
@@ -2232,6 +2257,7 @@ function switchSubtab(name){
   /* All sidebar buttons — toggle active class based on the name. */
   ['ledger-journal','ledger-coa',
    'report-pl','report-bs','report-cf','report-tb',
+   'report-vat','report-zakat','report-qawaem',
    'vat-return','vat-annual','vat-qawaem'].forEach(key => {
     document.getElementById('subtab-' + key)?.classList.toggle('active', key === name);
   });
@@ -4057,12 +4083,30 @@ async function reverseEntry(entryId){
 
 function setReportView(name){
   reportView = name;
+  /* Existing financial reports (P&L, Balance Sheet, Cash Flow, Trial Balance) */
   ['pl','bs','cf','tb'].forEach(v => {
     document.getElementById('rview-'+v)?.classList.toggle('on', v === name);
   });
   /* Compare toggle only meaningful for P&L (period-based) */
   const compareWrap = document.getElementById('report-compare-wrap');
   if(compareWrap) compareWrap.style.display = (name === 'pl') ? '' : 'none';
+
+  /* Round B-VAT-2: compliance reports use their own period pickers, so
+     the toolbar's preset dropdown + compare toggle + CSV/print/close-period
+     actions don't apply. Hide the toolbar entirely when in a compliance
+     report view, and show it for the regular financial reports.
+     Compliance report names map: 'vat' | 'zakat' | 'qawaem'. */
+  const toolbar = document.querySelector('#pane-reports .report-toolbar');
+  const periodBanner = document.getElementById('period-locked-banner');
+  const isComplianceView = (name === 'vat' || name === 'zakat' || name === 'qawaem');
+  if(toolbar) toolbar.style.display = isComplianceView ? 'none' : '';
+  if(periodBanner && isComplianceView) periodBanner.style.display = 'none';
+
+  if(isComplianceView){
+    renderComplianceReport(name);
+    return;
+  }
+
   loadAndRenderReport();
 }
 
@@ -5155,6 +5199,765 @@ function exportReportCSV(){
 
   downloadCSV(filename, rows);
   notify(ar?'تم تصدير CSV':'CSV exported','success');
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   ROUND B-VAT-2: COMPLIANCE REPORTS (read-only views, no filing flow)
+   ─────────────────────────────────────────────────────────────────
+   These are ungated report views for VAT (Form 201), Zakat / Income
+   Tax, and Qawaem (Financial Statements Package). Unlike the filing
+   wizards, they:
+     • Are accessible year-round for any period
+     • Don't gate access based on filing status
+     • Show a small informational badge if the period is filed/reopened
+     • Reuse the same Form 201 / Zakat calc / Qawaem package layout
+       the wizards' final review steps use
+   The wizards still own the submission flow. This is the "look at the
+   numbers" surface — the wizards are the "act on the numbers" surface.
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* Module state for compliance reports — separate from wizard state so
+   the two views are independent and don't corrupt each other. */
+const complianceReportState = {
+  vat: {
+    preset: 'prev_quarter',     /* prev_quarter | curr_quarter | prev_month | curr_month | custom */
+    customFromISO: null,
+    customToISO: null,
+    data: null                  /* last computed report */
+  },
+  zakat: {
+    fyYear: null,               /* numeric year, defaults to last completed FY */
+    data: null
+  },
+  qawaem: {
+    fyYear: null,
+    data: null
+  }
+};
+
+/* ─── Period helpers for compliance reports ─────────────────────────── */
+
+/* Resolve a preset like 'prev_quarter' to {fromISO, toISO, label}.
+   Uses isoLocal so dates are local-safe. */
+function complianceVatPeriodForPreset(preset){
+  const ar = currentLang === 'ar';
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const monthAr = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
+  const monthEn = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  let from, to, label;
+  if(preset === 'prev_quarter'){
+    const curQ = Math.floor(m/3);
+    const prevQ = curQ - 1;
+    const prevYear = prevQ < 0 ? y - 1 : y;
+    const prevQNum = prevQ < 0 ? 3 : prevQ;
+    from = new Date(prevYear, prevQNum*3, 1);
+    to = new Date(prevYear, prevQNum*3+3, 0);
+    label = `Q${prevQNum+1} ${prevYear}`;
+  } else if(preset === 'curr_quarter'){
+    const curQ = Math.floor(m/3);
+    from = new Date(y, curQ*3, 1);
+    to = new Date(y, curQ*3+3, 0);
+    label = `Q${curQ+1} ${y}`;
+  } else if(preset === 'prev_month'){
+    from = new Date(y, m-1, 1);
+    to = new Date(y, m, 0);
+    label = `${(ar?monthAr:monthEn)[from.getMonth()]} ${from.getFullYear()}`;
+  } else if(preset === 'curr_month'){
+    from = new Date(y, m, 1);
+    to = new Date(y, m+1, 0);
+    label = `${(ar?monthAr:monthEn)[from.getMonth()]} ${from.getFullYear()}`;
+  } else {
+    return null; /* custom — caller provides */
+  }
+  return { fromISO: isoLocal(from), toISO: isoLocal(to), label };
+}
+
+/* Resolve fiscal year `year` to {fromISO, toISO, label}. Uses
+   currentBiz.fiscal_year_start ("MM-DD"). Local-safe. */
+function complianceFyPeriod(year){
+  const fyStart = currentBiz?.fiscal_year_start || '01-01';
+  const [mm, dd] = fyStart.split('-').map(s => parseInt(s, 10));
+  const startDate = new Date(year, mm-1, dd);
+  const endDate = new Date(year+1, mm-1, dd);
+  endDate.setDate(endDate.getDate() - 1);
+  const isCalendar = (mm === 1 && dd === 1);
+  return {
+    year,
+    fromISO: isoLocal(startDate),
+    toISO: isoLocal(endDate),
+    label: isCalendar ? String(year) : `${isoLocal(startDate)} → ${isoLocal(endDate)}`,
+    isCalendar
+  };
+}
+
+/* Determine the default fiscal year to show — the last COMPLETED FY. */
+function complianceDefaultFyYear(){
+  const fyStart = currentBiz?.fiscal_year_start || '01-01';
+  const [mm, dd] = fyStart.split('-').map(s => parseInt(s, 10));
+  const today = new Date();
+  /* Are we currently inside this calendar year's FY? */
+  let fyStartYear = today.getFullYear();
+  const thisFyStart = new Date(fyStartYear, mm-1, dd);
+  if(today < thisFyStart){ fyStartYear -= 1; }
+  /* Previous fiscal year is the one most likely the user wants to view */
+  return fyStartYear - 1;
+}
+
+/* ─── Filing status lookup (informational badge) ─────────────────────── */
+
+/* Returns { status, filing } where status is one of:
+     'filed' | 'reopened' | 'unfiled' | 'pending'
+   and filing is the matching row (or null). The badge is informational
+   only — viewing a filed report doesn't unlock anything. */
+async function complianceFilingStatus(filingType, periodToISO){
+  try {
+    if(!window.gl?.filings || !currentBiz?.id) return { status: 'unfiled', filing: null };
+    const filings = await window.gl.filings.getFilings(currentBiz.id, false);
+    const match = filings.find(f =>
+      f.filing_type === filingType && f.period_to === periodToISO
+    );
+    if(!match) return { status: 'unfiled', filing: null };
+    return { status: match.status, filing: match };
+  } catch(e){
+    console.warn('[GL] complianceFilingStatus:', e);
+    return { status: 'unfiled', filing: null };
+  }
+}
+
+/* Render the small badge next to the report title showing filing status */
+function complianceFilingStatusBadge(statusInfo){
+  const ar = currentLang === 'ar';
+  if(!statusInfo) return '';
+  const s = statusInfo.status;
+  if(s === 'filed'){
+    const filedDate = statusInfo.filing?.filed_at
+      ? new Date(statusInfo.filing.filed_at).toLocaleDateString(ar?'ar-SA-u-ca-gregory':'en-GB',{day:'numeric',month:'short',year:'numeric'})
+      : '';
+    return `<span style="display:inline-flex;align-items:center;gap:5px;padding:3px 9px;background:rgba(29,158,117,0.12);border:1px solid var(--green);color:var(--green);border-radius:999px;font-size:11px;font-weight:700;">
+      ✓ ${ar?'مُقدَّم':'Filed'}${filedDate ? ` · ${escHTML(filedDate)}` : ''}
+    </span>`;
+  }
+  if(s === 'reopened'){
+    return `<span style="display:inline-flex;align-items:center;gap:5px;padding:3px 9px;background:rgba(201,146,10,0.12);border:1px solid var(--amber);color:var(--amber);border-radius:999px;font-size:11px;font-weight:700;">
+      🔓 ${ar?'مُعاد فتحه':'Reopened'}
+    </span>`;
+  }
+  return `<span style="display:inline-flex;align-items:center;gap:5px;padding:3px 9px;background:rgba(74,122,94,0.08);border:1px solid var(--border);color:var(--muted);border-radius:999px;font-size:11px;font-weight:600;">
+    ${ar?'غير مُقدَّم':'Not filed'}
+  </span>`;
+}
+
+/* ─── VAT REPORT: compute ───────────────────────────────────────────── */
+
+/* Compute the full Form 201 numbers for an arbitrary period. Read-only
+   — does not write to any wizard state. Returns:
+     { sales: {standardNet, standardVAT, zeroRated, exempt, count, invoices},
+       purchases: {recoverableNet, recoverableVAT, blockedNet, blockedVAT, count, expenses},
+       form201: {box1Net..box14},
+       period: {fromISO, toISO, label},
+       filingStatus: {...}                                              } */
+async function computeVatComplianceReport(fromISO, toISO, label){
+  if(!currentBiz?.id) throw new Error('no business');
+
+  /* Invoices in the period (output VAT) */
+  const {data: invoices} = await sb.from('invoices')
+    .select('id, invoice_number, issue_date, buyer_name, subtotal, vat_amount, vat_pct, total, status')
+    .eq('business_id', currentBiz.id)
+    .gte('issue_date', fromISO).lte('issue_date', toISO)
+    .neq('status', 'draft').neq('status', 'voided');
+  let sN=0, sV=0, zR=0, ex=0;
+  for(const inv of (invoices || [])){
+    const sub = parseFloat(inv.subtotal) || 0;
+    const vat = parseFloat(inv.vat_amount) || 0;
+    if(parseFloat(inv.vat_pct) === 0 || vat === 0){
+      zR += sub || (parseFloat(inv.total) || 0);
+    } else {
+      sN += sub; sV += vat;
+    }
+  }
+
+  /* Expenses in the period (input VAT) */
+  const {data: expenses} = await sb.from('expenses')
+    .select('id, expense_number, expense_date, description, subtotal, vat_amount, vat_recoverable, total, status')
+    .eq('business_id', currentBiz.id)
+    .gte('expense_date', fromISO).lte('expense_date', toISO)
+    .neq('status','voided').neq('status','draft');
+  let rN=0, rV=0, bN=0, bV=0;
+  for(const exp of (expenses || [])){
+    const sub = parseFloat(exp.subtotal) || 0;
+    const vat = parseFloat(exp.vat_amount) || 0;
+    if(exp.vat_recoverable !== false){ rN += sub; rV += vat; }
+    else { bN += sub + vat; }
+  }
+
+  /* Form 201 boxes */
+  const box1Net = sN, box1VAT = sV;
+  const box2Net = zR, box2VAT = 0;
+  const box3Net = 0, box3VAT = 0;
+  const box4Net = ex, box4VAT = 0;
+  const box5Net = box1Net + box2Net + box3Net + box4Net;
+  const box5VAT = box1VAT;
+  const box6Net = rN, box6VAT = rV;
+  const box7Net = 0, box7VAT = 0;
+  const box8Net = 0;
+  const box9Net = 0;
+  const box10Net = box6Net + box7Net + box8Net + box9Net;
+  const box10VAT = box6VAT + box7VAT;
+  const box11 = box5VAT;
+  const box12 = box10VAT;
+  const box13 = 0; /* No adjustments in report view — the wizard is for filing-time adjustments */
+  const box14 = box11 - box12 + box13;
+
+  const filingStatus = await complianceFilingStatus('vat', toISO);
+
+  return {
+    sales: { standardNet: sN, standardVAT: sV, zeroRated: zR, exempt: ex, count: (invoices||[]).length, invoices: invoices || [] },
+    purchases: { recoverableNet: rN, recoverableVAT: rV, blockedNet: bN, blockedVAT: bV, count: (expenses||[]).length, expenses: expenses || [] },
+    form201: { box1Net, box1VAT, box2Net, box3Net, box4Net, box5Net, box5VAT, box6Net, box6VAT, box7Net, box7VAT, box8Net, box9Net, box10Net, box10VAT, box11, box12, box13, box14 },
+    period: { fromISO, toISO, label },
+    filingStatus
+  };
+}
+
+/* ─── VAT REPORT: render ────────────────────────────────────────────── */
+
+function renderVatComplianceReportHTML(report){
+  const ar = currentLang === 'ar';
+  const trn = currentBiz?.tax_number || currentBiz?.vat_number || currentBiz?.trn || '—';
+  const bizName = displayName(currentBiz) || currentBiz?.name || '—';
+  const f = report.form201;
+  const p = report.period;
+
+  const finalClass = f.box14 > 0.01 ? 'due' : (f.box14 < -0.01 ? 'refund' : 'zero');
+  const finalLabel = f.box14 > 0.01
+    ? (ar?'صافي ضريبة مستحقة لـ ZATCA':'Net VAT due to ZATCA')
+    : (f.box14 < -0.01
+      ? (ar?'استرداد مستحق من ZATCA':'Refund due from ZATCA')
+      : (ar?'إقرار صفري':'Nil return'));
+
+  return `
+    <div class="form201" id="vat-report-form">
+      <div class="form201-header">
+        <div class="gov">${ar?'هيئة الزكاة والضريبة والجمارك (ZATCA)':'Zakat, Tax & Customs Authority (ZATCA)'}</div>
+        <div class="title">${ar?'تقرير ضريبة القيمة المضافة — نموذج 201':'VAT Report — Form 201'}</div>
+        <div class="subtitle">${escHTML(p.label)} · ${escHTML(p.fromISO)} → ${escHTML(p.toISO)}</div>
+      </div>
+
+      <div class="form201-meta">
+        <div class="form201-meta-row"><span class="lbl">${ar?'المنشأة:':'Business:'}</span><span class="val">${escHTML(bizName)}</span></div>
+        <div class="form201-meta-row"><span class="lbl">${ar?'الرقم الضريبي:':'TRN:'}</span><span class="val">${escHTML(trn)}</span></div>
+        <div class="form201-meta-row"><span class="lbl">${ar?'الفترة:':'Period:'}</span><span class="val">${escHTML(p.label)}</span></div>
+        <div class="form201-meta-row"><span class="lbl">${ar?'تاريخ الإعداد:':'Prepared on:'}</span><span class="val">${isoLocal(new Date())}</span></div>
+      </div>
+
+      <div class="form201-section">
+        <div class="form201-section-title">${ar?'المبيعات (المخرجات)':'Sales (Output)'}</div>
+        ${row201('1', ar?'مبيعات قياسية 15%':'Standard rated sales (15%)', f.box1Net, f.box1VAT)}
+        ${row201('2', ar?'مبيعات بالمعدل الصفري':'Zero-rated sales', f.box2Net, 0)}
+        ${row201('3', ar?'صادرات':'Exports', f.box3Net, 0)}
+        ${row201('4', ar?'مبيعات معفاة':'Exempt sales', f.box4Net, 0)}
+        ${row201('5', ar?'إجمالي المبيعات':'Total Sales', f.box5Net, f.box5VAT, true)}
+      </div>
+
+      <div class="form201-section">
+        <div class="form201-section-title">${ar?'المشتريات (المدخلات)':'Purchases (Input)'}</div>
+        ${row201('6', ar?'مشتريات قياسية':'Standard rated purchases', f.box6Net, f.box6VAT)}
+        ${row201('7', ar?'واردات':'Imports', f.box7Net, f.box7VAT)}
+        ${row201('8', ar?'مشتريات بالمعدل الصفري':'Zero-rated purchases', f.box8Net, 0)}
+        ${row201('9', ar?'مشتريات معفاة':'Exempt purchases', f.box9Net, 0)}
+        ${row201('10', ar?'إجمالي المشتريات':'Total Purchases', f.box10Net, f.box10VAT, true)}
+      </div>
+
+      <div class="form201-section">
+        <div class="form201-section-title">${ar?'الحساب النهائي':'Final Calculation'}</div>
+        ${row201('11', ar?'إجمالي ضريبة المخرجات':'Total Output VAT (due)', '', f.box11)}
+        ${row201('12', ar?'إجمالي ضريبة المدخلات (قابلة للاسترداد)':'Total Input VAT (deductible)', '', f.box12)}
+        ${row201('13', ar?'تسويات (تُحدَّد في معالج التقديم)':'Adjustments (set in filing wizard)', '', f.box13)}
+      </div>
+
+      <div class="form201-final ${finalClass}">
+        <span>${ar?'صندوق 14:':'Box 14:'} ${escHTML(finalLabel)}</span>
+        <span class="val">SAR ${fmt(Math.abs(f.box14))}</span>
+      </div>
+    </div>
+  `;
+}
+
+/* ─── ZAKAT / INCOME TAX REPORT: compute ────────────────────────────── */
+
+/* Mirrors the Annual wizard's compute pipeline, but for any fiscal year
+   and using ownership data straight from business_partners (no
+   wizard-state overrides). Returns full P&L + Zakat + CIT numbers. */
+async function computeZakatComplianceReport(fyYear){
+  if(!currentBiz?.id) throw new Error('no business');
+  const fy = complianceFyPeriod(fyYear);
+
+  /* Ownership */
+  const {data: partners} = await sb.from('business_partners')
+    .select('*').eq('business_id', currentBiz.id);
+  let saudiPct = 0, foreignPct = 0;
+  const GCC = ['SA','AE','BH','KW','OM','QA'];
+  for(const p of (partners || [])){
+    const pct = parseFloat(p.ownership_pct) || 0;
+    if(GCC.includes(p.nationality)) saudiPct += pct;
+    else foreignPct += pct;
+  }
+  if((partners || []).length === 0){ saudiPct = 100; foreignPct = 0; }
+  const ownership = { saudiPct, foreignPct, partners: partners || [] };
+
+  /* Tax regime based on ownership */
+  let regime;
+  if(saudiPct >= 99.99) regime = 'zakat_only';
+  else if(foreignPct >= 99.99) regime = 'cit_only';
+  else regime = 'mixed';
+
+  /* P&L for the fiscal year — uses computeAccountBalances() */
+  const balances = await computeAccountBalances(fy.fromISO, fy.toISO);
+  let revenue = 0, totalExpenses = 0;
+  rebuildAccountMap();
+  for(const a of chartOfAccounts){
+    if(!a.parent_code) continue;
+    const b = balances[a.code];
+    if(!b) continue;
+    if(a.type === 'income') revenue += -b.net;
+    else if(a.type === 'expense') totalExpenses += b.net;
+  }
+  const accountingProfit = revenue - totalExpenses;
+  /* For the report view we don't apply add-back/deduction overrides
+     — those are the wizard's job. Show the raw accounting profit as
+     adjusted profit for now. The wizard will refine it at filing time. */
+  const totalAddBacks = 0;
+  const totalDeductions = 0;
+  const adjustedProfit = accountingProfit;
+
+  /* Zakat base: use adjusted profit as floor since we don't have the
+     sources-of-funds breakdown without going through the wizard */
+  const zakatBase = Math.max(0, adjustedProfit);
+  const zakatTotal = zakatBase * 0.025;
+  const zakatSaudiShare = zakatTotal * (saudiPct / 100);
+
+  /* CIT */
+  const taxableProfit = Math.max(0, adjustedProfit);
+  const citTotal = taxableProfit * 0.20;
+  const citForeignShare = citTotal * (foreignPct / 100);
+
+  /* Combined total — show only the share that applies under the regime */
+  let grandTotal = 0;
+  if(regime !== 'cit_only') grandTotal += zakatSaudiShare;
+  if(regime !== 'zakat_only') grandTotal += citForeignShare;
+
+  const filingStatus = await complianceFilingStatus('annual', fy.toISO);
+
+  return {
+    fy,
+    ownership,
+    pl: { revenue, totalExpenses, accountingProfit, totalAddBacks, totalDeductions, adjustedProfit },
+    computed: { regime, zakatBase, zakatTotal, zakatSaudiShare, taxableProfit, citTotal, citForeignShare, grandTotal },
+    filingStatus
+  };
+}
+
+/* ─── ZAKAT / INCOME TAX REPORT: render ─────────────────────────────── */
+
+function renderZakatComplianceReportHTML(report){
+  const ar = currentLang === 'ar';
+  const trn = currentBiz?.tax_number || currentBiz?.vat_number || currentBiz?.trn || '—';
+  const bizName = displayName(currentBiz) || currentBiz?.name || '—';
+  const c = report.computed;
+  const o = report.ownership;
+  const pl = report.pl;
+  const fy = report.fy;
+  const showZakat = c.regime !== 'cit_only';
+  const showCIT = c.regime !== 'zakat_only';
+  const fmtNum = n => 'SAR ' + fmt(n);
+
+  return `
+    <div class="form201" id="zakat-report-form">
+      <div class="form201-header">
+        <div class="gov">${ar?'هيئة الزكاة والضريبة والجمارك (ZATCA)':'Zakat, Tax & Customs Authority (ZATCA)'}</div>
+        <div class="title">${c.regime === 'zakat_only' ? (ar?'تقرير الزكاة السنوي':'Annual Zakat Report') : c.regime === 'cit_only' ? (ar?'تقرير ضريبة الدخل السنوي':'Annual Corporate Income Tax Report') : (ar?'تقرير الزكاة وضريبة الدخل':'Zakat & CIT Report')}</div>
+        <div class="subtitle">${ar?'السنة المالية':'Fiscal Year'} ${escHTML(fy.label)} · ${escHTML(fy.fromISO)} → ${escHTML(fy.toISO)}</div>
+      </div>
+
+      <div class="form201-meta">
+        <div class="form201-meta-row"><span class="lbl">${ar?'المنشأة:':'Business:'}</span><span class="val">${escHTML(bizName)}</span></div>
+        <div class="form201-meta-row"><span class="lbl">${ar?'الرقم الضريبي:':'TRN:'}</span><span class="val">${escHTML(trn)}</span></div>
+        <div class="form201-meta-row"><span class="lbl">${ar?'هيكل الملكية:':'Ownership:'}</span><span class="val">${o.saudiPct.toFixed(1)}% ${ar?'سعودي/خليجي':'Saudi/GCC'} · ${o.foreignPct.toFixed(1)}% ${ar?'أجنبي':'Foreign'}</span></div>
+        <div class="form201-meta-row"><span class="lbl">${ar?'تاريخ الإعداد:':'Prepared on:'}</span><span class="val">${isoLocal(new Date())}</span></div>
+      </div>
+
+      <div class="form201-section">
+        <div class="form201-section-title">${ar?'قائمة الدخل':'Income Statement'}</div>
+        <div class="form201-row"><span class="box-num">A</span><span class="lbl">${ar?'الإيرادات':'Revenue'}</span><span class="val">${fmt(pl.revenue)}</span><span class="val"></span></div>
+        <div class="form201-row"><span class="box-num">B</span><span class="lbl">${ar?'إجمالي المصروفات':'Total Expenses'}</span><span class="val">${fmt(pl.totalExpenses)}</span><span class="val"></span></div>
+        <div class="form201-row totals"><span class="box-num">C</span><span class="lbl">${ar?(pl.accountingProfit>=0?'الربح المحاسبي':'الخسارة المحاسبية'):(pl.accountingProfit>=0?'Accounting Profit':'Accounting Loss')}</span><span class="val">${fmt(Math.abs(pl.accountingProfit))}</span><span class="val"></span></div>
+      </div>
+
+      ${showZakat ? `
+      <div class="form201-section">
+        <div class="form201-section-title">${ar?'حساب الزكاة (تقديري — التفاصيل النهائية في معالج التقديم)':'Zakat Calculation (estimated — final details in filing wizard)'}</div>
+        <div class="form201-row"><span class="box-num">Z1</span><span class="lbl">${ar?'وعاء الزكاة':'Zakat Base'}</span><span class="val">${fmt(c.zakatBase)}</span><span class="val"></span></div>
+        <div class="form201-row"><span class="box-num">Z2</span><span class="lbl">${ar?'إجمالي الزكاة (2.5%)':'Total Zakat (2.5%)'}</span><span class="val">${fmt(c.zakatTotal)}</span><span class="val"></span></div>
+        <div class="form201-row totals"><span class="box-num">Z3</span><span class="lbl">${ar?`الحصة السعودية/الخليجية (${o.saudiPct.toFixed(1)}%)`:`Saudi/GCC Share (${o.saudiPct.toFixed(1)}%)`}</span><span class="val">${fmt(c.zakatSaudiShare)}</span><span class="val"></span></div>
+      </div>` : ''}
+
+      ${showCIT ? `
+      <div class="form201-section">
+        <div class="form201-section-title">${ar?'حساب ضريبة الدخل':'CIT Calculation'}</div>
+        <div class="form201-row"><span class="box-num">T1</span><span class="lbl">${ar?'الربح الخاضع للضريبة':'Taxable Profit'}</span><span class="val">${fmt(c.taxableProfit)}</span><span class="val"></span></div>
+        <div class="form201-row"><span class="box-num">T2</span><span class="lbl">${ar?'إجمالي ضريبة الدخل (20%)':'Total CIT (20%)'}</span><span class="val">${fmt(c.citTotal)}</span><span class="val"></span></div>
+        <div class="form201-row totals"><span class="box-num">T3</span><span class="lbl">${ar?`الحصة الأجنبية (${o.foreignPct.toFixed(1)}%)`:`Foreign Share (${o.foreignPct.toFixed(1)}%)`}</span><span class="val">${fmt(c.citForeignShare)}</span><span class="val"></span></div>
+      </div>` : ''}
+
+      <div class="form201-final due">
+        <span>${ar?'إجمالي المستحق سنوياً (تقديري)':'Total Annual Payable (estimated)'}</span>
+        <span class="val">${fmtNum(c.grandTotal)}</span>
+      </div>
+
+      <div style="margin-top:10px;font-size:11px;color:var(--muted);text-align:center;line-height:1.6;">
+        ${ar?'هذا تقرير تقديري للعرض. الإقرار الرسمي يتم من خلال معالج إقرارات الزكاة / ضريبة الدخل، حيث يمكنك إضافة الإضافات والخصومات وتسويات وعاء الزكاة قبل التقديم.':'This is an estimated report for review. Official filing is done through the Zakat / Income Tax filing wizard, where you can add add-backs, deductions, and Zakat base adjustments before submission.'}
+      </div>
+    </div>
+  `;
+}
+
+/* ─── QAWAEM REPORT: compute ────────────────────────────────────────── */
+
+async function computeQawaemComplianceReport(fyYear){
+  if(!currentBiz?.id) throw new Error('no business');
+  const fy = complianceFyPeriod(fyYear);
+
+  /* P&L for the FY */
+  rebuildAccountMap();
+  const plBal = await computeAccountBalances(fy.fromISO, fy.toISO);
+  let revenue = 0, expenses = 0;
+  for(const a of chartOfAccounts){
+    if(!a.parent_code) continue;
+    const b = plBal[a.code];
+    if(!b) continue;
+    if(a.type === 'income') revenue += -b.net;
+    else if(a.type === 'expense') expenses += b.net;
+  }
+  const netProfit = revenue - expenses;
+
+  /* Balance Sheet at FY end (cumulative since inception) */
+  const bsBal = await computeAccountBalances(null, fy.toISO);
+  let totalAssets = 0, totalLiabilities = 0, totalEquityFromAccts = 0;
+  let totalIncomeAllTime = 0, totalExpenseAllTime = 0;
+  for(const a of chartOfAccounts){
+    if(!a.parent_code) continue;
+    const b = bsBal[a.code];
+    if(!b) continue;
+    if(a.type === 'asset' && b.net > 0.005) totalAssets += b.net;
+    else if(a.type === 'liability' && -b.net > 0.005) totalLiabilities += -b.net;
+    else if(a.type === 'equity' && -b.net > 0.005) totalEquityFromAccts += -b.net;
+    else if(a.type === 'income') totalIncomeAllTime += -b.net;
+    else if(a.type === 'expense') totalExpenseAllTime += b.net;
+  }
+  const retainedEarnings = totalIncomeAllTime - totalExpenseAllTime;
+  const totalEquity = totalEquityFromAccts + retainedEarnings;
+  const balanced = Math.abs(totalAssets - (totalLiabilities + totalEquity)) < 0.01;
+
+  const filingStatus = await complianceFilingStatus('qawaem', fy.toISO);
+
+  return {
+    fy,
+    plData: { revenue, expenses, netProfit },
+    bsData: { totalAssets, totalLiabilities, totalEquity, retainedEarnings, balanced },
+    filingStatus
+  };
+}
+
+/* ─── QAWAEM REPORT: render ─────────────────────────────────────────── */
+
+function renderQawaemComplianceReportHTML(report){
+  const ar = currentLang === 'ar';
+  const trn = currentBiz?.tax_number || currentBiz?.vat_number || currentBiz?.trn || '—';
+  const bizName = displayName(currentBiz) || currentBiz?.name || '—';
+  const fy = report.fy;
+  const m = report;
+
+  return `
+    <div class="form201" id="qawaem-report-form">
+      <div class="form201-header">
+        <div class="gov">${ar?'وزارة التجارة (MoC) — منصة قوائم':'Ministry of Commerce — Qawaem Platform'}</div>
+        <div class="title">${ar?'حزمة القوائم المالية السنوية':'Annual Financial Statements Package'}</div>
+        <div class="subtitle">${ar?'السنة المالية':'Fiscal Year'} ${escHTML(fy.label)} · ${escHTML(fy.fromISO)} → ${escHTML(fy.toISO)}</div>
+      </div>
+
+      <div class="form201-meta">
+        <div class="form201-meta-row"><span class="lbl">${ar?'المنشأة:':'Business:'}</span><span class="val">${escHTML(bizName)}</span></div>
+        <div class="form201-meta-row"><span class="lbl">${ar?'الرقم الضريبي:':'TRN:'}</span><span class="val">${escHTML(trn)}</span></div>
+        <div class="form201-meta-row"><span class="lbl">${ar?'الفترة:':'Period:'}</span><span class="val">${escHTML(fy.fromISO)} → ${escHTML(fy.toISO)}</span></div>
+        <div class="form201-meta-row"><span class="lbl">${ar?'تاريخ الإعداد:':'Prepared on:'}</span><span class="val">${isoLocal(new Date())}</span></div>
+      </div>
+
+      <div class="form201-section">
+        <div class="form201-section-title">${ar?'قائمة الدخل':'Income Statement'}</div>
+        <div class="form201-row totals"><span class="box-num">P1</span><span class="lbl">${ar?'الإيرادات':'Revenue'}</span><span class="val">${fmt(m.plData.revenue)}</span><span class="val"></span></div>
+        <div class="form201-row"><span class="box-num">P2</span><span class="lbl">${ar?'إجمالي المصروفات':'Total Expenses'}</span><span class="val">${fmt(m.plData.expenses)}</span><span class="val"></span></div>
+        <div class="form201-row totals"><span class="box-num">P3</span><span class="lbl">${ar?(m.plData.netProfit>=0?'صافي الربح':'صافي الخسارة'):(m.plData.netProfit>=0?'Net Profit':'Net Loss')}</span><span class="val">${fmt(Math.abs(m.plData.netProfit))}</span><span class="val"></span></div>
+      </div>
+
+      <div class="form201-section">
+        <div class="form201-section-title">${ar?'قائمة المركز المالي':'Balance Sheet'}</div>
+        <div class="form201-row"><span class="box-num">B1</span><span class="lbl">${ar?'إجمالي الأصول':'Total Assets'}</span><span class="val">${fmt(m.bsData.totalAssets)}</span><span class="val"></span></div>
+        <div class="form201-row"><span class="box-num">B2</span><span class="lbl">${ar?'إجمالي الالتزامات':'Total Liabilities'}</span><span class="val">${fmt(m.bsData.totalLiabilities)}</span><span class="val"></span></div>
+        <div class="form201-row"><span class="box-num">B3</span><span class="lbl">${ar?'إجمالي حقوق الملكية':'Total Equity'}</span><span class="val">${fmt(m.bsData.totalEquity)}</span><span class="val"></span></div>
+        <div class="form201-row totals"><span class="box-num">B4</span><span class="lbl">${ar?'إجمالي الالتزامات + حقوق الملكية':'Total L+E'}</span><span class="val">${fmt(m.bsData.totalLiabilities + m.bsData.totalEquity)}</span><span class="val"></span></div>
+      </div>
+
+      ${!m.bsData.balanced ? `
+      <div class="warnings-list" style="margin-top:12px;">
+        <li class="error"><span class="icon">⚠</span><span>${ar?'الميزانية غير متوازنة — قد توجد قيود غير متوازنة في دفتر اليومية. شغّل glDiagnoseTB() من وحدة التحكم لاكتشافها.':'Balance sheet does not balance — there may be unbalanced journal entries. Run glDiagnoseTB() in console to identify them.'}</span></li>
+      </div>` : ''}
+
+      <div style="margin-top:10px;font-size:11px;color:var(--muted);text-align:center;line-height:1.6;">
+        ${ar?'هذا التقرير للعرض. الإيداع الرسمي على منصة قوائم يتم من خلال معالج إيداع القوائم.':'This is a report view. Official submission to the Qawaem platform is done through the Qawaem filing wizard.'}
+      </div>
+    </div>
+  `;
+}
+
+/* ─── COMPLIANCE REPORTS: dispatcher (called by setReportView) ──────── */
+
+async function renderComplianceReport(kind){
+  const ar = currentLang === 'ar';
+  const container = document.getElementById('report-content');
+  if(!container){ console.warn('[GL] report-content container missing'); return; }
+  container.innerHTML = `<div class="loading-state"><div class="loading-spinner">⏳</div><div>${ar?'جارٍ احتساب التقرير...':'Computing report...'}</div></div>`;
+
+  try {
+    if(kind === 'vat'){
+      await renderVatCompliancePane();
+    } else if(kind === 'zakat'){
+      await renderZakatCompliancePane();
+    } else if(kind === 'qawaem'){
+      await renderQawaemCompliancePane();
+    }
+  } catch(e){
+    console.error('[GL] renderComplianceReport:', e);
+    container.innerHTML = `<div style="padding:18px;color:var(--red);">${ar?'تعذر إعداد التقرير':'Could not prepare report'}: ${escHTML(e.message || String(e))}</div>`;
+  }
+}
+
+/* ─── VAT REPORT: full pane (period picker + body) ──────────────────── */
+
+async function renderVatCompliancePane(){
+  const ar = currentLang === 'ar';
+  const container = document.getElementById('report-content');
+  const st = complianceReportState.vat;
+
+  /* Resolve current period */
+  let period;
+  if(st.preset === 'custom' && st.customFromISO && st.customToISO){
+    period = { fromISO: st.customFromISO, toISO: st.customToISO, label: `${st.customFromISO} → ${st.customToISO}` };
+  } else {
+    period = complianceVatPeriodForPreset(st.preset === 'custom' ? 'prev_quarter' : st.preset);
+    if(st.preset === 'custom'){
+      /* user picked custom but didn't fill dates yet — fall back gracefully */
+      st.preset = 'prev_quarter';
+    }
+  }
+
+  /* Compute */
+  let report;
+  try {
+    report = await computeVatComplianceReport(period.fromISO, period.toISO, period.label);
+    st.data = report;
+  } catch(e){
+    container.innerHTML = `<div style="padding:18px;color:var(--red);">${ar?'تعذر احتساب التقرير':'Could not compute report'}: ${escHTML(e.message)}</div>`;
+    return;
+  }
+
+  /* Picker UI */
+  const presetButton = (key, labelAr, labelEn) => {
+    const on = st.preset === key;
+    return `<button type="button" class="report-period-btn ${on?'on':''}" onclick="complianceSetVatPreset('${key}')">${ar?labelAr:labelEn}</button>`;
+  };
+
+  const customWrap = `
+    <div id="vat-report-custom-wrap" style="display:${st.preset === 'custom' ? 'flex' : 'none'};gap:8px;align-items:center;margin-top:8px;flex-wrap:wrap;">
+      <label style="font-size:12px;color:var(--muted);">${ar?'من':'From'}</label>
+      <input type="date" id="vat-report-from" value="${escHTML(st.customFromISO || period.fromISO)}" onchange="complianceVatCustomChanged()" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:DM Mono,monospace;">
+      <label style="font-size:12px;color:var(--muted);">${ar?'إلى':'To'}</label>
+      <input type="date" id="vat-report-to" value="${escHTML(st.customToISO || period.toISO)}" onchange="complianceVatCustomChanged()" style="padding:5px 8px;border:1px solid var(--border);border-radius:6px;font-family:DM Mono,monospace;">
+      <button class="btn btn-secondary" onclick="complianceVatCustomApply()" style="padding:5px 12px;font-size:12px;">${ar?'تطبيق':'Apply'}</button>
+    </div>`;
+
+  container.innerHTML = `
+    <div style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap;">
+      <div>
+        <h2 style="font-size:18px;font-weight:800;color:var(--ink);margin:0 0 4px;">${ar?'تقرير ضريبة القيمة المضافة':'VAT Report'}</h2>
+        <div style="font-size:12px;color:var(--muted);">${ar?'نموذج 201 — يمكن الاطلاع عليه لأي فترة. للتقديم، استخدم قسم الإقرارات.':'Form 201 — viewable for any period. For submission, use the Filings section.'}</div>
+      </div>
+      ${complianceFilingStatusBadge(report.filingStatus)}
+    </div>
+
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">${ar?'الفترة':'Period'}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        ${presetButton('prev_quarter', 'الربع السابق', 'Previous quarter')}
+        ${presetButton('curr_quarter', 'الربع الحالي', 'Current quarter')}
+        ${presetButton('prev_month', 'الشهر السابق', 'Previous month')}
+        ${presetButton('curr_month', 'الشهر الحالي', 'Current month')}
+        ${presetButton('custom', 'فترة مخصصة', 'Custom range')}
+      </div>
+      ${customWrap}
+    </div>
+
+    ${renderVatComplianceReportHTML(report)}
+
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap;">
+      <button class="btn btn-secondary" onclick="window.print()">🖨 ${ar?'طباعة / حفظ PDF':'Print / Save PDF'}</button>
+      ${report.filingStatus.status === 'unfiled' ? `<button class="btn btn-primary" onclick="switchSubtab('vat-vat')">${ar?'الذهاب إلى التقديم ←':'Go to Filings →'}</button>` : ''}
+    </div>
+  `;
+}
+
+function complianceSetVatPreset(key){
+  complianceReportState.vat.preset = key;
+  renderVatCompliancePane();
+}
+
+function complianceVatCustomChanged(){
+  /* User editing dates — store in state but don't recompute until Apply */
+  complianceReportState.vat.customFromISO = document.getElementById('vat-report-from')?.value || null;
+  complianceReportState.vat.customToISO = document.getElementById('vat-report-to')?.value || null;
+}
+
+function complianceVatCustomApply(){
+  const from = document.getElementById('vat-report-from')?.value;
+  const to = document.getElementById('vat-report-to')?.value;
+  if(!from || !to){
+    notify(currentLang==='ar'?'حدد التاريخين':'Select both dates','error');
+    return;
+  }
+  if(from > to){
+    notify(currentLang==='ar'?'تاريخ البداية يجب أن يكون قبل النهاية':'Start must be before end','error');
+    return;
+  }
+  complianceReportState.vat.customFromISO = from;
+  complianceReportState.vat.customToISO = to;
+  complianceReportState.vat.preset = 'custom';
+  renderVatCompliancePane();
+}
+
+/* ─── ZAKAT REPORT: full pane (FY picker + body) ─────────────────────── */
+
+async function renderZakatCompliancePane(){
+  const ar = currentLang === 'ar';
+  const container = document.getElementById('report-content');
+  const st = complianceReportState.zakat;
+
+  if(!st.fyYear) st.fyYear = complianceDefaultFyYear();
+
+  let report;
+  try {
+    report = await computeZakatComplianceReport(st.fyYear);
+    st.data = report;
+  } catch(e){
+    container.innerHTML = `<div style="padding:18px;color:var(--red);">${ar?'تعذر احتساب التقرير':'Could not compute report'}: ${escHTML(e.message)}</div>`;
+    return;
+  }
+
+  /* FY picker: last completed FY + the two before that */
+  const defaultY = complianceDefaultFyYear();
+  const fyButton = (year) => {
+    const fy = complianceFyPeriod(year);
+    const on = st.fyYear === year;
+    return `<button type="button" class="report-period-btn ${on?'on':''}" onclick="complianceSetZakatFy(${year})">${escHTML(fy.label)}</button>`;
+  };
+
+  container.innerHTML = `
+    <div style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap;">
+      <div>
+        <h2 style="font-size:18px;font-weight:800;color:var(--ink);margin:0 0 4px;">${ar?'تقرير الزكاة / ضريبة الدخل':'Zakat / Income Tax Report'}</h2>
+        <div style="font-size:12px;color:var(--muted);">${ar?'احتساب تقديري لأي سنة مالية. للتقديم النهائي مع التسويات، استخدم معالج الإقرارات.':'Estimated calculation for any fiscal year. For final filing with adjustments, use the wizard.'}</div>
+      </div>
+      ${complianceFilingStatusBadge(report.filingStatus)}
+    </div>
+
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">${ar?'السنة المالية':'Fiscal Year'}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        ${fyButton(defaultY)}
+        ${fyButton(defaultY - 1)}
+        ${fyButton(defaultY - 2)}
+      </div>
+    </div>
+
+    ${renderZakatComplianceReportHTML(report)}
+
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap;">
+      <button class="btn btn-secondary" onclick="window.print()">🖨 ${ar?'طباعة / حفظ PDF':'Print / Save PDF'}</button>
+      ${report.filingStatus.status === 'unfiled' ? `<button class="btn btn-primary" onclick="switchSubtab('vat-annual')">${ar?'الذهاب إلى التقديم ←':'Go to Filings →'}</button>` : ''}
+    </div>
+  `;
+}
+
+function complianceSetZakatFy(year){
+  complianceReportState.zakat.fyYear = year;
+  renderZakatCompliancePane();
+}
+
+/* ─── QAWAEM REPORT: full pane (FY picker + body) ────────────────────── */
+
+async function renderQawaemCompliancePane(){
+  const ar = currentLang === 'ar';
+  const container = document.getElementById('report-content');
+  const st = complianceReportState.qawaem;
+
+  if(!st.fyYear) st.fyYear = complianceDefaultFyYear();
+
+  let report;
+  try {
+    report = await computeQawaemComplianceReport(st.fyYear);
+    st.data = report;
+  } catch(e){
+    container.innerHTML = `<div style="padding:18px;color:var(--red);">${ar?'تعذر احتساب التقرير':'Could not compute report'}: ${escHTML(e.message)}</div>`;
+    return;
+  }
+
+  const defaultY = complianceDefaultFyYear();
+  const fyButton = (year) => {
+    const fy = complianceFyPeriod(year);
+    const on = st.fyYear === year;
+    return `<button type="button" class="report-period-btn ${on?'on':''}" onclick="complianceSetQawaemFy(${year})">${escHTML(fy.label)}</button>`;
+  };
+
+  container.innerHTML = `
+    <div style="margin-bottom:14px;display:flex;justify-content:space-between;align-items:start;gap:12px;flex-wrap:wrap;">
+      <div>
+        <h2 style="font-size:18px;font-weight:800;color:var(--ink);margin:0 0 4px;">${ar?'حزمة القوائم المالية (قوائم)':'Financial Statements Package (Qawaem)'}</h2>
+        <div style="font-size:12px;color:var(--muted);">${ar?'قائمة الدخل + المركز المالي لأي سنة مالية. للإيداع الرسمي، استخدم معالج قوائم.':'Income Statement + Balance Sheet for any fiscal year. For official submission, use the Qawaem wizard.'}</div>
+      </div>
+      ${complianceFilingStatusBadge(report.filingStatus)}
+    </div>
+
+    <div style="background:var(--bg);border:1px solid var(--border);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.06em;margin-bottom:8px;">${ar?'السنة المالية':'Fiscal Year'}</div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap;">
+        ${fyButton(defaultY)}
+        ${fyButton(defaultY - 1)}
+        ${fyButton(defaultY - 2)}
+      </div>
+    </div>
+
+    ${renderQawaemComplianceReportHTML(report)}
+
+    <div style="display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap;">
+      <button class="btn btn-secondary" onclick="window.print()">🖨 ${ar?'طباعة / حفظ PDF':'Print / Save PDF'}</button>
+      ${report.filingStatus.status === 'unfiled' ? `<button class="btn btn-primary" onclick="switchSubtab('vat-qawaem')">${ar?'الذهاب إلى الإيداع ←':'Go to Filings →'}</button>` : ''}
+    </div>
+  `;
+}
+
+function complianceSetQawaemFy(year){
+  complianceReportState.qawaem.fyYear = year;
+  renderQawaemCompliancePane();
 }
 
 /* ═══════════════════════════════════════════════════════════════════
