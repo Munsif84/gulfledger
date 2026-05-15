@@ -4952,6 +4952,55 @@ window.glVoidAllUnbalanced = async function(){
   console.log(`[GL] Voided ${ids.length} entries. Reload the page to refresh reports.`);
 };
 
+/* ─── Round B-VAT diagnostic: inspect the filings table directly.
+   When the dashboard or wizard appears out of sync with what the user
+   thinks they filed, this shows the raw rows so we can see what's
+   actually saved vs what's claimed. Use from devtools:
+
+     await window.glDiagnoseFilings()           — list everything
+     await window.glDeleteFiling('<filing-id>') — hard delete a single row
+                                                  (the UI uses reopen, not
+                                                  delete — use this only
+                                                  for cleanup of garbage rows) */
+window.glDiagnoseFilings = async function(){
+  if(!currentBiz?.id){ console.warn('[GL diag] No business loaded'); return []; }
+  const {data, error} = await sb.from('filings')
+    .select('id, filing_type, status, period_from, period_to, due_date, filed_at, external_ref, notes')
+    .eq('business_id', currentBiz.id)
+    .order('filing_type', {ascending: true})
+    .order('period_to', {ascending: false});
+  if(error){ console.error('[GL diag] filings fetch error:', error); return []; }
+  if(!data?.length){
+    console.log('%c[GL diag] No filings recorded.', 'font-weight:bold;color:#b91c1c;');
+    return [];
+  }
+  console.log(`%c[GL diag] ${data.length} filings in database for this business:`,
+              'font-weight:bold;color:#1D9E75;');
+  console.table(data.map(r => ({
+    id: r.id,
+    type: r.filing_type,
+    status: r.status,
+    period: `${r.period_from} → ${r.period_to}`,
+    due: r.due_date,
+    filed_at: (r.filed_at || '').slice(0, 19).replace('T', ' '),
+    ref: r.external_ref || '—'
+  })));
+  console.log('To hard-delete: await window.glDeleteFiling(\'<id>\')');
+  console.log('To reopen (preferred): use the "Previous filings" UI in Accounting → Filings');
+  return data;
+};
+
+window.glDeleteFiling = async function(filingId){
+  if(!filingId){ console.error('[GL diag] filingId required'); return; }
+  if(!confirm(`Hard-delete filing ${filingId}? Audit log will be kept. This cannot be undone.`)){
+    return;
+  }
+  const {error} = await sb.from('filings').delete().eq('id', filingId);
+  if(error){ console.error('[GL diag] delete error:', error); return; }
+  if(window.gl?.filings) window.gl.filings.invalidateCache(currentBiz.id);
+  console.log(`[GL diag] Deleted filing ${filingId}. Reload to refresh UI.`);
+};
+
 /* ─── Drill-down to ledger sub-tab filtered by account ─── */
 function drillToLedger(accountCode){
   switchSubtab('ledger');
@@ -6420,7 +6469,17 @@ async function vatMarkAsFiled(){
   if(error){
     console.error('[GL] VAT mark-as-filed error:', error);
     const detail = error?.message || error?.error || String(error);
-    notify(ar?`تعذر تسجيل الإقرار: ${detail}`:`Could not record filing: ${detail}`,'error');
+    if(detail.includes('filings_active_unique') || detail.includes('duplicate key')){
+      notify(ar
+        ? `هذه الفترة الضريبية مُقدَّمة بالفعل. لإجراء تعديلات، أعد فتح الإقرار السابق من قسم "الإقرارات السابقة" في أعلى الصفحة.`
+        : `This tax period is already filed. To amend, reopen the existing filing from "Previous filings" at the top of this page.`,
+        'error');
+      if(window.gl?.filings) window.gl.filings.invalidateCache(currentBiz.id);
+      vatWizardState.step = 1;
+      renderVatStep();
+    } else {
+      notify(ar?`تعذر تسجيل الإقرار: ${detail}`:`Could not record filing: ${detail}`,'error');
+    }
     return;
   }
 
@@ -7517,7 +7576,22 @@ async function annMarkAsFiled(){
   if(error){
     console.error('[GL] Annual mark-as-filed error:', error);
     const detail = error?.message || error?.error || String(error);
-    notify(ar?`تعذر تسجيل الإقرار: ${detail}`:`Could not record filing: ${detail}`,'error');
+    /* Specific handling for the duplicate-key case — means a filing already
+       exists for this fiscal year. User should reopen the existing one,
+       not try to file again. */
+    if(detail.includes('filings_active_unique') || detail.includes('duplicate key')){
+      notify(ar
+        ? `هذه السنة المالية مُقدَّمة بالفعل. لإجراء تعديلات، أعد فتح الإقرار السابق من قسم "الإقرارات السابقة" في أعلى الصفحة.`
+        : `This fiscal year is already filed. To amend, reopen the existing filing from "Previous filings" at the top of this page.`,
+        'error');
+      /* Force refresh of filings cache and re-render so the "filed" badge
+         appears on this year — fixes the case where local state was stale. */
+      if(window.gl?.filings) window.gl.filings.invalidateCache(currentBiz.id);
+      annWizardState.step = 1;
+      renderAnnStep();
+    } else {
+      notify(ar?`تعذر تسجيل الإقرار: ${detail}`:`Could not record filing: ${detail}`,'error');
+    }
     return;
   }
   try { localStorage.removeItem('gl_annual_wizard'); } catch(e){}
@@ -8323,7 +8397,17 @@ async function qawMarkAsFiled(){
   if(error){
     console.error('[GL] Qawaem mark-as-filed error:', error);
     const detail = error?.message || error?.error || String(error);
-    notify(ar?`تعذر تسجيل الإيداع: ${detail}`:`Could not record filing: ${detail}`,'error');
+    if(detail.includes('filings_active_unique') || detail.includes('duplicate key')){
+      notify(ar
+        ? `قوائم لهذه السنة مُقدَّم بالفعل. لإجراء تعديلات، أعد فتح الإيداع السابق من قسم "الإقرارات السابقة".`
+        : `Qawaem is already filed for this fiscal year. To amend, reopen the existing filing from "Previous filings".`,
+        'error');
+      if(window.gl?.filings) window.gl.filings.invalidateCache(currentBiz.id);
+      qawWizardState.step = 1;
+      renderQawStep();
+    } else {
+      notify(ar?`تعذر تسجيل الإيداع: ${detail}`:`Could not record filing: ${detail}`,'error');
+    }
     return;
   }
   try { localStorage.removeItem('gl_qawaem_wizard'); } catch(e){}
