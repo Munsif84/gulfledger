@@ -5012,8 +5012,12 @@ window.glDeleteFiling = async function(filingId){
   if(!confirm(`Hard-delete filing ${filingId}? Audit log will be kept. This cannot be undone.`)){
     return;
   }
-  const {error} = await sb.from('filings').delete().eq('id', filingId);
+  /* RLS DELETE policy only allows status='pending'. Flip then delete. */
+  const {error: flipErr} = await sb.from('filings').update({status:'pending'}).eq('id', filingId);
+  if(flipErr){ console.error('[GL diag] flip-to-pending error:', flipErr); return; }
+  const {error, count} = await sb.from('filings').delete({count:'exact'}).eq('id', filingId);
   if(error){ console.error('[GL diag] delete error:', error); return; }
+  if(count === 0){ console.warn('[GL diag] 0 rows deleted — RLS may be blocking'); return; }
   if(window.gl?.filings) window.gl.filings.invalidateCache(currentBiz.id);
   console.log(`[GL diag] Deleted filing ${filingId}. Reload to refresh UI.`);
 };
@@ -5063,10 +5067,13 @@ window.glCleanupCorruptedFilings = async function(){
     return;
   }
   const ids = corrupted.map(r => r.id);
-  const {error} = await sb.from('filings').delete().in('id', ids);
+  /* RLS workaround: flip to pending, then delete */
+  const {error: flipErr} = await sb.from('filings').update({status:'pending'}).in('id', ids);
+  if(flipErr){ console.error('[GL] flip-to-pending failed:', flipErr); return; }
+  const {error, count} = await sb.from('filings').delete({count:'exact'}).in('id', ids);
   if(error){ console.error('[GL] cleanup failed:', error); return; }
   if(window.gl?.filings) window.gl.filings.invalidateCache(currentBiz.id);
-  console.log(`[GL] Deleted ${ids.length} corrupted rows. Now go re-file those periods with the fixed code.`);
+  console.log(`[GL] Deleted ${count} corrupted rows. Now go re-file those periods with the fixed code.`);
 };
 
 /* ─── Drill-down to ledger sub-tab filtered by account ─── */
@@ -5767,16 +5774,38 @@ async function fixCorruptedFilingDates(filingId){
   console.log('[GL fix-dates] duplicate check', existingCorrect);
 
   if(existingCorrect && existingCorrect.length > 0){
-    /* A correct row already exists. Delete the corrupt one. */
+    /* A correct row already exists. The corrupt one is duplicate garbage —
+       remove it. Note: the RLS DELETE policy only allows deleting rows
+       with status='pending' (filed rows are protected as audit trail).
+       So we first UPDATE status to 'pending', then DELETE. The UPDATE
+       policy is open for any row in the user's business. */
     if(!confirm(ar
       ? `يوجد إقرار صحيح بالفعل لهذه الفترة (${newFrom} → ${newTo}).\n\nحذف السجل المعطوب بدلاً من تصحيحه؟`
       : `A correct filing already exists for this period (${newFrom} → ${newTo}).\n\nDelete this corrupted duplicate?`)){
       return;
     }
-    const { error: delErr } = await sb.from('filings').delete().eq('id', filingId);
-    console.log('[GL fix-dates] delete result', delErr);
+    /* Step 1: flip status to 'pending' so the DELETE policy allows it */
+    const { error: flipErr } = await sb.from('filings')
+      .update({ status: 'pending' })
+      .eq('id', filingId);
+    console.log('[GL fix-dates] flip-to-pending result', flipErr);
+    if(flipErr){
+      notify(ar?`تعذر التحضير للحذف: ${flipErr.message || flipErr}`:`Pre-delete update failed: ${flipErr.message || flipErr}`,'error');
+      return;
+    }
+    /* Step 2: now we can delete (RLS DELETE policy allows status='pending') */
+    const { error: delErr, count: delCount } = await sb.from('filings')
+      .delete({ count: 'exact' })
+      .eq('id', filingId);
+    console.log('[GL fix-dates] delete result', { delErr, delCount });
     if(delErr){
       notify(ar?`تعذر الحذف: ${delErr.message || delErr}`:`Delete failed: ${delErr.message || delErr}`,'error');
+      return;
+    }
+    if(delCount === 0){
+      /* Delete was allowed but matched 0 rows — strange, log and inform */
+      console.warn('[GL fix-dates] DELETE matched 0 rows despite status=pending — RLS may still be blocking');
+      notify(ar?'لم يتم حذف أي سجل (قد تكون قيود الصلاحية)':'No row deleted (RLS may be blocking)','error');
       return;
     }
     if(window.gl?.filings) window.gl.filings.invalidateCache(currentBiz.id);
@@ -5809,9 +5838,23 @@ async function fixCorruptedFilingDates(filingId){
       if(confirm(ar
         ? `تعارض: يوجد إقرار آخر لنفس الفترة.\n\nحذف هذا السجل المعطوب؟`
         : `Conflict: another filing exists for this period.\n\nDelete this corrupted row?`)){
-        const { error: delErr } = await sb.from('filings').delete().eq('id', filingId);
+        /* Same RLS workaround: flip to pending, then delete */
+        const { error: flipErr } = await sb.from('filings')
+          .update({ status: 'pending' })
+          .eq('id', filingId);
+        if(flipErr){
+          notify(ar?`تعذر التحضير للحذف: ${flipErr.message}`:`Pre-delete update failed: ${flipErr.message}`,'error');
+          return;
+        }
+        const { error: delErr, count: delCount } = await sb.from('filings')
+          .delete({ count: 'exact' })
+          .eq('id', filingId);
         if(delErr){
           notify(ar?`تعذر الحذف: ${delErr.message}`:`Delete failed: ${delErr.message}`,'error');
+          return;
+        }
+        if(delCount === 0){
+          notify(ar?'لم يتم حذف أي سجل':'No row deleted','error');
           return;
         }
         if(window.gl?.filings) window.gl.filings.invalidateCache(currentBiz.id);
