@@ -5602,13 +5602,40 @@ function setFilingType(type, isInit){
     vatWizardState.adjustments = { bad_debts: 0, sales_returns: 0, other: 0, notes: '' };
     vatWizardState.sales = null;
     vatWizardState.purchases = null;
+
+    /* Round B-VAT: detect corrupt period state from pre-fix timezone era.
+       Valid quarter ends: -03-31, -06-30, -09-30, -12-31.
+       Valid month ends: -01-31, -02-28/29, -03-31, etc (last day of month).
+       Corrupt rows from old toISOString bug have wrong endings (-03-30,
+       -06-29, -09-29, -12-30 for quarters). Detect and discard. */
+    const isCorruptVatPeriod = (p) => {
+      if(!p?.fromISO || !p?.toISO) return true;
+      if(p.kind === 'quarterly' || p.frequency === 'quarterly'){
+        const goodQuarterEnds = ['-03-31', '-06-30', '-09-30', '-12-31'];
+        return !goodQuarterEnds.some(g => p.toISO.endsWith(g));
+      }
+      /* Monthly: toISO should be the last day of a month. Check via Date math. */
+      if(p.kind === 'monthly' || p.frequency === 'monthly'){
+        const m = p.toISO.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+        if(!m) return true;
+        const y = parseInt(m[1], 10), mo = parseInt(m[2], 10), d = parseInt(m[3], 10);
+        const lastDay = new Date(y, mo, 0).getDate();
+        return d !== lastDay;
+      }
+      return false;
+    };
+
     try {
       const draftKey = 'gl_vat_wizard_' + (currentBiz?.id || 'default');
       const saved = JSON.parse(localStorage.getItem(draftKey) || 'null');
-      /* 30-day expiry — VAT period is 1 or 3 months, so a draft can be a week or two old */
-      if(saved?.period && new Date(saved.savedAt || 0) > new Date(Date.now() - 30*24*60*60*1000)){
+      if(saved?.period && new Date(saved.savedAt || 0) > new Date(Date.now() - 30*24*60*60*1000)
+         && !isCorruptVatPeriod(saved.period)){
         vatWizardState.period = saved.period;
         vatWizardState.adjustments = saved.adjustments || vatWizardState.adjustments;
+      } else if(saved?.period && isCorruptVatPeriod(saved.period)){
+        console.warn('[GL] Discarding corrupt VAT draft from pre-fix era:', saved.period);
+        localStorage.removeItem(draftKey);
+        vatWizardState.period = null;
       }
     } catch(e){}
     renderVatStep();
@@ -5668,6 +5695,32 @@ async function renderFilingHistory(filingType){
     html += `</div>`;
     html += `<div style="display:flex;flex-direction:column;gap:6px;">`;
 
+    /* Round B-VAT: reopened rows shown FIRST (they're actionable — need
+       re-filing or discard). Discard sets status back to 'pending' then
+       deletes the row, freeing the period so the user can either start
+       fresh (wizard re-detects available periods) or accept that this
+       reopening was a mistake. */
+    const sortedReopened = reopenedRows.slice().sort((a,b) =>
+      new Date(b.updated_at || b.filed_at || 0) - new Date(a.updated_at || a.filed_at || 0)
+    );
+    for(const f of sortedReopened){
+      const periodLabel = `${fmtDate(f.period_from)} → ${fmtDate(f.period_to)}`;
+      html += `
+        <div style="display:flex;align-items:center;gap:10px;padding:10px 12px;background:#fff8e7;border-radius:7px;border:1.5px solid var(--amber);">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:11px;color:#7a4f00;font-weight:700;margin-bottom:3px;">
+              🔓 ${ar?'فترة مُعاد فتحها — بحاجة إلى إعادة تقديم':'Reopened period — needs re-filing'}
+            </div>
+            <div style="font-size:12px;color:var(--muted);">${ar?'الفترة':'Period'}: <span style="color:var(--ink);font-weight:600;">${periodLabel}</span></div>
+            ${f.notes ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;font-style:italic;">${ar?'سبب الفتح':'Reason'}: ${escHTML(f.notes)}</div>` : ''}
+          </div>
+          <button onclick="discardReopenedFiling('${f.id}', '${escHTML(periodLabel)}')" style="padding:5px 10px;background:#fff;border:1px solid var(--muted);color:var(--muted);border-radius:6px;font-family:inherit;font-size:11px;font-weight:700;cursor:pointer;white-space:nowrap;">
+            🗑 ${ar?'تجاهل':'Discard'}
+          </button>
+        </div>
+      `;
+    }
+
     /* Most recent first */
     const sorted = filedRows.slice().sort((a,b) => new Date(b.filed_at) - new Date(a.filed_at));
     for(const f of sorted.slice(0, 10)){
@@ -5708,9 +5761,8 @@ async function renderFilingHistory(filingType){
       }
     }
 
-    if(reopenedRows.length > 0){
-      html += `<div style="font-size:11px;color:var(--amber);margin-top:4px;">⚠ ${ar?`عُدت ${reopenedRows.length} فترة وتحتاج إعادة تقديم`:`${reopenedRows.length} period(s) reopened — re-file pending`}</div>`;
-    }
+    /* Note: reopened-rows count summary removed — each reopened row is now
+       displayed individually above with its own Discard action. */
 
     html += `</div></div>`;
     banner.innerHTML = html;
@@ -5904,6 +5956,50 @@ async function reopenFilingHandler(filingId, periodLabel){
   notify(ar?'✓ تم إعادة فتح الفترة':'✓ Period reopened','success');
   /* Refresh banner */
   renderFilingHistory(currentFilingType);
+}
+
+/* Round B-VAT: discard a reopened filing.
+   When the user opens a reopened row's Discard action, they're saying:
+   "I reopened this by mistake, or I don't want to re-file — just delete
+   the record." This deletes the row entirely (after flipping status to
+   pending to satisfy the RLS DELETE policy), freeing the period so it
+   reverts to being treated as never-filed. */
+async function discardReopenedFiling(filingId, periodLabel){
+  const ar = currentLang === 'ar';
+  if(!confirm(ar
+    ? `تجاهل إعادة فتح الفترة ${periodLabel}؟\n\nسيتم حذف السجل بالكامل والفترة ستُعامل كأنها غير مُقدَّمة. يمكنك تقديمها لاحقاً.`
+    : `Discard reopened filing for ${periodLabel}?\n\nThe record will be fully deleted and the period treated as un-filed. You can file it later.`)){
+    return;
+  }
+  /* RLS DELETE policy requires status='pending' — same workaround used
+     in the corrupt-row delete path. */
+  const { error: flipErr } = await sb.from('filings')
+    .update({ status: 'pending' })
+    .eq('id', filingId);
+  if(flipErr){
+    console.error('[GL] discardReopened flip:', flipErr);
+    notify(ar?`تعذر التحضير: ${flipErr.message}`:`Pre-delete update failed: ${flipErr.message}`,'error');
+    return;
+  }
+  const { error: delErr, count } = await sb.from('filings')
+    .delete({ count: 'exact' })
+    .eq('id', filingId);
+  if(delErr){
+    console.error('[GL] discardReopened delete:', delErr);
+    notify(ar?`تعذر الحذف: ${delErr.message}`:`Delete failed: ${delErr.message}`,'error');
+    return;
+  }
+  if(count === 0){
+    notify(ar?'لم يتم حذف أي سجل':'No row deleted','error');
+    return;
+  }
+  if(window.gl?.filings) window.gl.filings.invalidateCache(currentBiz.id);
+  notify(ar?'✓ تم التجاهل':'✓ Discarded','success');
+  renderFilingHistory(currentFilingType);
+  /* Re-render wizard step so it picks up the now-vacant period */
+  if(currentFilingType === 'annual') renderAnnStep();
+  else if(currentFilingType === 'vat') renderVatStep();
+  else if(currentFilingType === 'qawaem') renderQawStep();
 }
 
 function renderVatStep(){
@@ -6794,21 +6890,34 @@ async function vatMarkAsFiled(){
 const GCC_NATIONALITIES = ['SA','AE','BH','KW','OM','QA'];
 
 async function initAnnualWizard(){
-  /* Default to previous fiscal year */
-  if(!annWizardState.fy){
+  /* Round B-VAT: detect stale corrupt fy state from the pre-fix timezone era */
+  const isCorruptAnnFy = (fy) => {
+    if(!fy?.startISO || !fy?.endISO) return true;
+    const fyStart = currentBiz?.fiscal_year_start || '01-01';
+    const [mm, dd] = fyStart.split('-').map(s => parseInt(s, 10));
+    const expectedStartSuffix = `-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+    return !fy.startISO.endsWith(expectedStartSuffix);
+  };
+
+  /* Default to previous fiscal year — discard any stale corrupt state */
+  if(!annWizardState.fy || isCorruptAnnFy(annWizardState.fy)){
     annWizardState.fy = annDefaultFiscalYear();
   }
   /* Pre-load partners so step 1 has data ready */
   if(!annWizardState.ownership){
     await annLoadOwnership();
   }
-  /* Restore from localStorage if recent */
+  /* Restore from localStorage if recent — but reject corrupt saved state */
   try {
     const saved = JSON.parse(localStorage.getItem('gl_annual_wizard') || 'null');
-    if(saved?.fy && new Date(saved.savedAt || 0) > new Date(Date.now() - 24*60*60*1000)){
+    if(saved?.fy && new Date(saved.savedAt || 0) > new Date(Date.now() - 24*60*60*1000)
+       && !isCorruptAnnFy(saved.fy)){
       annWizardState.fy = saved.fy;
       if(saved.plOverrides) annWizardState.plOverrides = saved.plOverrides;
       if(saved.zakatOverrides) annWizardState.zakatOverrides = saved.zakatOverrides;
+    } else if(saved?.fy && isCorruptAnnFy(saved.fy)){
+      console.warn('[GL] Discarding corrupt Annual draft from pre-fix era:', saved.fy);
+      localStorage.removeItem('gl_annual_wizard');
     }
   } catch(e){}
   renderAnnStep();
@@ -7937,16 +8046,34 @@ let qawWizardState = {
 };
 
 async function initQawaemWizard(){
-  if(!qawWizardState.fy){
+  /* Round B-VAT: detect stale corrupt fy state from the pre-fix timezone era.
+     A correctly-built fy has startISO ending on YYYY-01-01 (for calendar
+     fiscal year) or whatever fiscal_year_start dictates. A corrupt one
+     from the old toISOString bug has startISO ending in -12-31 (the
+     previous-year side of the timezone shift). Discard and rebuild. */
+  const isCorruptFy = (fy) => {
+    if(!fy?.startISO || !fy?.endISO) return true;
+    const fyStart = currentBiz?.fiscal_year_start || '01-01';
+    const [mm, dd] = fyStart.split('-').map(s => parseInt(s, 10));
+    const expectedStartSuffix = `-${String(mm).padStart(2,'0')}-${String(dd).padStart(2,'0')}`;
+    return !fy.startISO.endsWith(expectedStartSuffix);
+  };
+
+  if(!qawWizardState.fy || isCorruptFy(qawWizardState.fy)){
     qawWizardState.fy = annDefaultFiscalYear(); /* reuse the same logic */
   }
-  /* Restore from localStorage if recent */
+  /* Restore from localStorage if recent — but reject corrupt saved state */
   try {
     const saved = JSON.parse(localStorage.getItem('gl_qaw_wizard') || 'null');
-    if(saved?.fy && new Date(saved.savedAt || 0) > new Date(Date.now() - 24*60*60*1000)){
+    if(saved?.fy && new Date(saved.savedAt || 0) > new Date(Date.now() - 24*60*60*1000)
+       && !isCorruptFy(saved.fy)){
       qawWizardState.fy = saved.fy;
       qawWizardState.declaration = saved.declaration || qawWizardState.declaration;
       if(saved.metricsOverrides) qawWizardState.metricsOverrides = saved.metricsOverrides;
+    } else if(saved?.fy && isCorruptFy(saved.fy)){
+      /* Clear the stale draft so it doesn't keep loading */
+      console.warn('[GL] Discarding corrupt Qawaem draft from pre-fix era:', saved.fy);
+      localStorage.removeItem('gl_qaw_wizard');
     }
   } catch(e){}
   qawWizardState.step = 1;
@@ -8076,10 +8203,27 @@ async function renderQawStep1(){
     employee_threshold: EMPLOYEE_THRESHOLD
   };
 
-  /* Deadline */
+  /* Deadline.
+     Round B-VAT: suppress the deadline message entirely when the current
+     FY has been filed for Qawaem. A countdown for a completed filing is
+     just noise. The "already filed" full-screen card above handles the
+     case where the wizard's fy MATCHES a filed row; here we cover the
+     case where the comparison didn't match (stale fy state) — still
+     don't shout "46 days left" if a Qawaem filing for ANY year close
+     to fy.endISO is on record. */
+  let qawFiledForThisFy = false;
+  try {
+    if(window.gl?.filings && currentBiz?.id && fy?.endISO){
+      const filings = await window.gl.filings.getFilings(currentBiz.id, true);
+      qawFiledForThisFy = filings.some(f =>
+        f.filing_type === 'qawaem' && f.status === 'filed' && f.period_to === fy.endISO
+      );
+    }
+  } catch(e){ console.warn('[GL] Qawaem deadline filed-check:', e); }
+
   const ds = qawDeadlineStatus();
   let deadlineHTML = '';
-  if(ds){
+  if(ds && !qawFiledForThisFy){
     const dateStr = ds.date.toLocaleDateString(ar?'ar-SA-u-ca-gregory':'en-GB',{day:'numeric',month:'short',year:'numeric'});
     if(ds.status === 'overdue'){
       deadlineHTML = `<div class="warnings-list" style="margin-top:10px;"><li class="error"><span class="icon">⏰</span><span>${ar?`متأخر ${ds.days} يوم! الموعد كان ${dateStr}`:`Overdue by ${ds.days} day(s)! Was due ${dateStr}`}</span></li></div>`;
