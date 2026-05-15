@@ -2022,6 +2022,436 @@ const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+/* ROUND B-VAT: Filings helper (inlined). Exports on window.gl.filings. */
+/* ════════════════════════════════════════════════════════════════════════════
+   ROUND B-VAT: Shared filings helpers
+   ════════════════════════════════════════════════════════════════════════════
+   Inlined into dashboard.html, accounting.html, invoices.html, finance.html.
+   Single source of truth for filing date math + period close checks.
+   Requires `sb` (Supabase client) and `currentBiz` in scope.
+   All exports go on `window.gl.filings` namespace to avoid collisions. */
+
+(function(){
+  if(window.gl && window.gl.filings) return;  // already loaded
+
+  window.gl = window.gl || {};
+  const F = window.gl.filings = {};
+
+  /* ─── Date utilities ───────────────────────────────────────────────────── */
+
+  /* Add days to a date, returning a new Date (UTC-safe). */
+  function addDays(date, days){
+    const d = new Date(date);
+    d.setDate(d.getDate() + days);
+    return d;
+  }
+
+  /* Add months to a date, returning a new Date. */
+  function addMonths(date, months){
+    const d = new Date(date);
+    d.setMonth(d.getMonth() + months);
+    return d;
+  }
+
+  /* Days between two dates (b - a), integer. */
+  function daysBetween(a, b){
+    return Math.round((new Date(b) - new Date(a)) / (1000 * 60 * 60 * 24));
+  }
+
+  /* ISO date string (YYYY-MM-DD) from a Date. */
+  function isoDate(d){
+    const dt = new Date(d);
+    const y = dt.getFullYear();
+    const m = String(dt.getMonth() + 1).padStart(2, '0');
+    const day = String(dt.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+  }
+  F.isoDate = isoDate;
+  F.daysBetween = daysBetween;
+
+  /* ─── Fiscal year math ─────────────────────────────────────────────────── */
+
+  /* Parse "MM-DD" fiscal year start string → {month, day}. Default 01-01. */
+  function parseFyStart(business){
+    const fyStart = (business?.fiscal_year_start || '01-01').trim();
+    const [mm, dd] = fyStart.split('-').map(n => parseInt(n, 10));
+    return {
+      month: isFinite(mm) ? mm - 1 : 0,  // JS month is 0-indexed
+      day: isFinite(dd) ? dd : 1
+    };
+  }
+
+  /* Compute the fiscal year boundaries for a given reference date.
+     Returns { from: Date, to: Date, label: string }. */
+  F.getFiscalYearFor = function(business, refDate){
+    const ref = refDate ? new Date(refDate) : new Date();
+    const { month, day } = parseFyStart(business);
+
+    // The FY START date that's on or before ref
+    let fyFrom = new Date(ref.getFullYear(), month, day);
+    if(fyFrom > ref){
+      fyFrom = new Date(ref.getFullYear() - 1, month, day);
+    }
+    // FY end = day before next FY start
+    const fyTo = addDays(new Date(fyFrom.getFullYear() + 1, month, day), -1);
+    return {
+      from: fyFrom,
+      to: fyTo,
+      label: `${fyFrom.getFullYear()}`  // e.g., "2026" for FY starting in 2026
+    };
+  };
+
+  /* ─── VAT period math ──────────────────────────────────────────────────── */
+
+  /* Compute the VAT period containing a given date, per business's filing
+     frequency ('monthly' or 'quarterly', default 'quarterly').
+     Returns { from: Date, to: Date, label: string, deadline: Date }. */
+  F.getVatPeriodFor = function(business, refDate){
+    const ref = refDate ? new Date(refDate) : new Date();
+    const freq = (business?.vat_filing_frequency || 'quarterly').toLowerCase();
+
+    if(freq === 'monthly'){
+      const from = new Date(ref.getFullYear(), ref.getMonth(), 1);
+      const to = new Date(ref.getFullYear(), ref.getMonth() + 1, 0); // last day
+      // Deadline: last day of the month following period_to
+      const deadline = new Date(to.getFullYear(), to.getMonth() + 2, 0);
+      return { from, to, deadline,
+        label: `${from.getFullYear()}-${String(from.getMonth() + 1).padStart(2,'0')}` };
+    }
+    // quarterly
+    const q = Math.floor(ref.getMonth() / 3);  // 0..3
+    const from = new Date(ref.getFullYear(), q * 3, 1);
+    const to = new Date(ref.getFullYear(), q * 3 + 3, 0);  // last day of quarter
+    const deadline = new Date(to.getFullYear(), to.getMonth() + 2, 0);
+    return { from, to, deadline, label: `Q${q + 1} ${from.getFullYear()}` };
+  };
+
+  /* Get the NEXT VAT period that's not yet filed.
+     filings = array of filings rows from DB (or empty for first call).
+     Returns same shape as getVatPeriodFor. */
+  F.getNextVatPeriod = function(business, filings){
+    const today = new Date();
+    let probe = today;
+
+    // Start at the CURRENT period; if it's already filed, advance.
+    // Cap at 24 attempts to prevent runaway loops.
+    for(let i = 0; i < 24; i++){
+      const period = F.getVatPeriodFor(business, probe);
+      const isFiled = (filings || []).some(f =>
+        f.filing_type === 'vat' &&
+        f.status === 'filed' &&
+        isoDate(f.period_to) === isoDate(period.to)
+      );
+      if(!isFiled) return period;
+      // Already filed — advance probe to start of next period
+      probe = addDays(period.to, 1);
+    }
+    return F.getVatPeriodFor(business, today);  // fallback
+  };
+
+  /* ─── Annual + Qawaem deadlines ────────────────────────────────────────── */
+
+  /* Annual (Zakat / CIT): deadline = fy_end + 120 days (per ZATCA Article 60
+     of CIT Law and Article 102 of Zakat Regulations). */
+  F.getAnnualDeadline = function(fyEnd){
+    return addDays(fyEnd, 120);
+  };
+
+  /* Qawaem (MoC financial statements): deadline = fy_end + 180 days
+     (per Saudi Companies Law Article 17 — 6 months after FY end). */
+  F.getQawaemDeadline = function(fyEnd){
+    return addDays(fyEnd, 180);
+  };
+
+  /* Get the next un-filed Annual or Qawaem filing for a business.
+     `type` = 'annual' | 'qawaem' */
+  F.getNextAnnualLike = function(business, filings, type){
+    const today = new Date();
+    let fy = F.getFiscalYearFor(business, today);
+
+    // The annual covers a COMPLETED fiscal year. So if we're inside the
+    // current FY, the next annual filing is for the year that just ended.
+    // Try the previous FY first, then current, then advance.
+    let candidate = F.getFiscalYearFor(business, addDays(fy.from, -1));
+
+    for(let i = 0; i < 5; i++){
+      const deadline = (type === 'qawaem')
+        ? F.getQawaemDeadline(candidate.to)
+        : F.getAnnualDeadline(candidate.to);
+      const isFiled = (filings || []).some(f =>
+        f.filing_type === type &&
+        f.status === 'filed' &&
+        isoDate(f.period_to) === isoDate(candidate.to)
+      );
+      // If not filed AND deadline hasn't passed by too much (>365 days
+      // overdue), this is the next filing to surface.
+      if(!isFiled && daysBetween(today, deadline) > -365){
+        return {
+          from: candidate.from,
+          to: candidate.to,
+          deadline,
+          label: candidate.label
+        };
+      }
+      // Advance to next FY
+      candidate = F.getFiscalYearFor(business, addDays(candidate.to, 367));
+    }
+    // Fallback to current FY
+    return {
+      from: fy.from,
+      to: fy.to,
+      deadline: (type === 'qawaem') ? F.getQawaemDeadline(fy.to) : F.getAnnualDeadline(fy.to),
+      label: fy.label
+    };
+  };
+
+  /* ─── Database access ──────────────────────────────────────────────────── */
+
+  /* Fetch all filings for the current business, ordered by period_to desc.
+     Returns array (possibly empty). Caches on window.gl._filingsCache by
+     businessId; pass forceRefetch=true to bypass. */
+  F.getFilings = async function(businessId, forceRefetch){
+    if(!businessId){
+      console.warn('[GL filings] getFilings called without businessId');
+      return [];
+    }
+    window.gl._filingsCache = window.gl._filingsCache || {};
+    if(!forceRefetch && window.gl._filingsCache[businessId]){
+      return window.gl._filingsCache[businessId];
+    }
+    try {
+      const { data, error } = await sb.from('filings')
+        .select('*')
+        .eq('business_id', businessId)
+        .order('period_to', { ascending: false });
+      if(error){
+        // Table might not exist yet (migration not run). Log once, return empty.
+        if(!window.gl._filingsMigrationWarned){
+          console.warn('[GL filings] Could not fetch filings:', error.message,
+                       '— migration may not be applied yet.');
+          window.gl._filingsMigrationWarned = true;
+        }
+        return [];
+      }
+      window.gl._filingsCache[businessId] = data || [];
+      return window.gl._filingsCache[businessId];
+    } catch(e){
+      console.warn('[GL filings] getFilings exception:', e);
+      return [];
+    }
+  };
+
+  /* Invalidate cache after a write. */
+  F.invalidateCache = function(businessId){
+    if(window.gl._filingsCache) delete window.gl._filingsCache[businessId];
+  };
+
+  /* Record a new filing (called from VAT/Annual/Qawaem wizard submit step).
+     Inserts row + audit log entry atomically (sequential — Supabase has
+     no transaction support in JS client; we accept the small risk that
+     the audit log fails after the filing succeeds). */
+  F.recordFiling = async function(params){
+    const {
+      businessId, userId, filingType, periodFrom, periodTo, dueDate,
+      snapshot, externalRef, notes
+    } = params;
+    if(!businessId || !filingType || !periodFrom || !periodTo){
+      console.error('[GL filings] recordFiling: missing required params', params);
+      return { error: 'Missing required params' };
+    }
+
+    const row = {
+      business_id: businessId,
+      user_id: userId || null,
+      filing_type: filingType,
+      period_from: isoDate(periodFrom),
+      period_to: isoDate(periodTo),
+      due_date: dueDate ? isoDate(dueDate) : isoDate(periodTo),
+      status: 'filed',
+      filed_at: new Date().toISOString(),
+      snapshot: snapshot || {},
+      external_ref: externalRef || null,
+      notes: notes || null
+    };
+
+    const { data, error } = await sb.from('filings').insert(row).select().single();
+    if(error){
+      console.error('[GL filings] recordFiling insert error:', error);
+      return { error };
+    }
+
+    // Audit log (fire and forget — log failure but don't fail the filing)
+    try {
+      await sb.from('filings_audit').insert({
+        filing_id: data.id,
+        business_id: businessId,
+        user_id: userId || null,
+        action: 'filed',
+        reason: notes || null,
+        snapshot: snapshot || {}
+      });
+    } catch(e){
+      console.warn('[GL filings] audit log failed (non-fatal):', e);
+    }
+
+    F.invalidateCache(businessId);
+    return { data };
+  };
+
+  /* Reopen a filed period. Marks filing as 'reopened' and logs audit. */
+  F.reopenFiling = async function(filingId, reason, businessId, userId){
+    if(!filingId){
+      console.error('[GL filings] reopenFiling: filingId required');
+      return { error: 'Missing filingId' };
+    }
+    const { data, error } = await sb.from('filings')
+      .update({ status: 'reopened', notes: reason || null })
+      .eq('id', filingId)
+      .select()
+      .single();
+    if(error){
+      console.error('[GL filings] reopenFiling update error:', error);
+      return { error };
+    }
+    try {
+      await sb.from('filings_audit').insert({
+        filing_id: filingId,
+        business_id: businessId,
+        user_id: userId || null,
+        action: 'reopened',
+        reason: reason || null,
+        snapshot: data.snapshot || {}
+      });
+    } catch(e){
+      console.warn('[GL filings] reopen audit log failed (non-fatal):', e);
+    }
+    F.invalidateCache(businessId);
+    return { data };
+  };
+
+  /* ─── Period close check ───────────────────────────────────────────────── */
+
+  /* Is a given date inside a closed (filed) period for ANY filing type?
+     Returns { closed: bool, filing: object|null }
+     If closed=true, filing has the row that closed it (for error messages). */
+  F.isDateInClosedPeriod = async function(businessId, dateISO){
+    const filings = await F.getFilings(businessId);
+    const date = isoDate(dateISO);
+    for(const f of filings){
+      if(f.status !== 'filed') continue;
+      if(date >= isoDate(f.period_from) && date <= isoDate(f.period_to)){
+        return { closed: true, filing: f };
+      }
+    }
+    return { closed: false, filing: null };
+  };
+
+  /* Synchronous version using a pre-fetched filings array. Used in hot
+     paths (e.g. invoice form validation) to avoid an await round-trip. */
+  F.isDateInClosedPeriodSync = function(filings, dateISO){
+    const date = isoDate(dateISO);
+    for(const f of (filings || [])){
+      if(f.status !== 'filed') continue;
+      if(date >= isoDate(f.period_from) && date <= isoDate(f.period_to)){
+        return { closed: true, filing: f };
+      }
+    }
+    return { closed: false, filing: null };
+  };
+
+  /* ─── Convenience: build a compliance card data model ──────────────────── */
+
+  /* Used by dashboard. Returns:
+     [{ type, name_ar, name_en, period_label, dueDate, daysLeft, status, link }, ...]
+     Only includes filings that are within their action window or overdue. */
+  F.getComplianceRows = async function(business, opts){
+    opts = opts || {};
+    const filings = await F.getFilings(business.id);
+
+    const vatPeriod = F.getNextVatPeriod(business, filings);
+    const annualPeriod = F.getNextAnnualLike(business, filings, 'annual');
+    const qawaemPeriod = F.getNextAnnualLike(business, filings, 'qawaem');
+    const today = new Date();
+
+    const rows = [];
+
+    // VAT
+    {
+      const daysLeft = daysBetween(today, vatPeriod.deadline);
+      const window = opts.vatWindow || 30;
+      if(daysLeft <= window){
+        rows.push({
+          type: 'vat',
+          authority: 'ZATCA',
+          icon: '🧾',
+          name_ar: 'إقرار ضريبة القيمة المضافة',
+          name_en: 'VAT Return',
+          period_label: vatPeriod.label,
+          period_from: vatPeriod.from,
+          period_to: vatPeriod.to,
+          dueDate: vatPeriod.deadline,
+          daysLeft,
+          link: 'accounting.html?sub=vat&filing=return'
+        });
+      }
+    }
+
+    // Annual
+    {
+      const daysLeft = daysBetween(today, annualPeriod.deadline);
+      const window = opts.annualWindow || 60;
+      if(daysLeft <= window){
+        rows.push({
+          type: 'annual',
+          authority: 'ZATCA',
+          icon: '📅',
+          name_ar: 'الإقرار السنوي (الزكاة / ضريبة الدخل)',
+          name_en: 'Annual Return (Zakat / Income Tax)',
+          period_label: `FY ${annualPeriod.label}`,
+          period_from: annualPeriod.from,
+          period_to: annualPeriod.to,
+          dueDate: annualPeriod.deadline,
+          daysLeft,
+          link: 'accounting.html?sub=vat&filing=annual'
+        });
+      }
+    }
+
+    // Qawaem
+    {
+      const daysLeft = daysBetween(today, qawaemPeriod.deadline);
+      const window = opts.qawaemWindow || 60;
+      if(daysLeft <= window){
+        rows.push({
+          type: 'qawaem',
+          authority: 'MoC',
+          icon: '📋',
+          name_ar: 'قوائم (وزارة التجارة)',
+          name_en: 'Qawaem (Ministry of Commerce)',
+          period_label: `FY ${qawaemPeriod.label}`,
+          period_from: qawaemPeriod.from,
+          period_to: qawaemPeriod.to,
+          dueDate: qawaemPeriod.deadline,
+          daysLeft,
+          link: 'accounting.html?sub=vat&filing=qawaem'
+        });
+      }
+    }
+
+    return {
+      rows,
+      // For the calm state: when nothing is in window, show the next upcoming
+      nextUpcoming: [
+        { type: 'vat', date: vatPeriod.deadline, label: vatPeriod.label },
+        { type: 'annual', date: annualPeriod.deadline, label: `FY ${annualPeriod.label}` },
+        { type: 'qawaem', date: qawaemPeriod.deadline, label: `FY ${qawaemPeriod.label}` }
+      ].sort((a, b) => a.date - b.date)[0]
+    };
+  };
+
+})();
+
+
 /* ── Global state ── */
 let currentLang = localStorage.getItem('gl_lang') || 'ar';
 let currentUser = null;
@@ -4767,6 +5197,28 @@ async function generateInvoice(){
   }
 
   const totals = computeInvoiceTotals();
+
+  /* Round B-VAT: Period close enforcement.
+     Reject invoices dated inside a filed period (VAT/Annual/Qawaem).
+     To make changes affecting a filed return, user must explicitly reopen
+     the period via Accounting → Filing history. Drafts/previews skip this
+     check — only the real (posted) save path enforces. */
+  const _bvatIssueDate = v('f-date') || todayISO();
+  if(window.gl?.filings && currentBiz?.id){
+    const _bvatCloseCheck = await window.gl.filings.isDateInClosedPeriod(currentBiz.id, _bvatIssueDate);
+    if(_bvatCloseCheck.closed){
+      const f = _bvatCloseCheck.filing;
+      const ar = currentLang === 'ar';
+      const typeLabel = (f.filing_type === 'vat') ? (ar?'إقرار VAT':'VAT Return')
+        : (f.filing_type === 'annual') ? (ar?'الإقرار السنوي':'Annual Return')
+        : (ar?'قوائم':'Qawaem');
+      notify(ar
+        ? `لا يمكن إصدار فاتورة بتاريخ ضمن فترة مُقدَّمة (${typeLabel}). اختر تاريخاً خارج الفترة المغلقة أو أعد فتح الفترة من قسم الإقرارات.`
+        : `Cannot issue invoice dated within a filed period (${typeLabel}). Choose a date outside the closed period, or reopen via Filings.`,
+        'r');
+      throw new Error('period-closed');
+    }
+  }
 
   const payload = {
     user_id: currentUser.id,
