@@ -5720,11 +5720,14 @@ async function renderFilingHistory(filingType){
    because we're working with date strings, not Date objects. */
 async function fixCorruptedFilingDates(filingId){
   const ar = currentLang === 'ar';
+  console.log('[GL fix-dates] start', filingId);
+
   /* Fetch the row first so we can compute the corrected dates */
   const { data: rows, error: fetchErr } = await sb.from('filings')
     .select('id, period_from, period_to, due_date, filing_type')
     .eq('id', filingId)
     .limit(1);
+  console.log('[GL fix-dates] fetch result', { rows, fetchErr });
   if(fetchErr || !rows?.length){
     notify(ar?'تعذر قراءة الإقرار':'Could not read filing','error');
     console.error('[GL] fixCorruptedFilingDates fetch:', fetchErr);
@@ -5732,19 +5735,15 @@ async function fixCorruptedFilingDates(filingId){
   }
   const row = rows[0];
 
-  /* Add 1 day to each date string. Pure string math via Date arithmetic
-     — start from the SAVED string (which is UTC midnight when parsed),
-     add 24h, then format back with isoLocal. This avoids reintroducing
-     the very bug we're fixing. */
+  /* Shift a "YYYY-MM-DD" string forward by 1 calendar day. We avoid
+     toISOString entirely — only local-timezone Date arithmetic. */
   const shiftByOneDay = (isoStr) => {
     if(!isoStr) return null;
-    /* Parse year/month/day directly to avoid timezone games */
     const m = isoStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
     if(!m) return isoStr;
     const y = parseInt(m[1], 10);
     const mo = parseInt(m[2], 10);
     const d = parseInt(m[3], 10);
-    /* Construct in LOCAL time, then add 1 day, then format with local getters */
     const dt = new Date(y, mo - 1, d);
     dt.setDate(dt.getDate() + 1);
     return isoLocal(dt);
@@ -5752,49 +5751,83 @@ async function fixCorruptedFilingDates(filingId){
 
   const newFrom = shiftByOneDay(row.period_from);
   const newTo = shiftByOneDay(row.period_to);
-  /* due_date is also potentially off by 1 if computed at save time */
   const newDue = shiftByOneDay(row.due_date);
+  console.log('[GL fix-dates] computed', { from: row.period_from + '→' + newFrom, to: row.period_to + '→' + newTo });
 
-  const periodLabel = `${row.period_from} → ${row.period_to}  ⇒  ${newFrom} → ${newTo}`;
+  /* First, check if a correctly-dated filing for the same period already
+     exists. If yes, this corrupted row is a duplicate — delete it instead
+     of trying to update (which would hit the unique constraint). */
+  const { data: existingCorrect } = await sb.from('filings')
+    .select('id, period_to, status')
+    .eq('business_id', currentBiz.id)
+    .eq('filing_type', row.filing_type)
+    .eq('period_to', newTo)
+    .eq('status', 'filed')
+    .neq('id', filingId);
+  console.log('[GL fix-dates] duplicate check', existingCorrect);
+
+  if(existingCorrect && existingCorrect.length > 0){
+    /* A correct row already exists. Delete the corrupt one. */
+    if(!confirm(ar
+      ? `يوجد إقرار صحيح بالفعل لهذه الفترة (${newFrom} → ${newTo}).\n\nحذف السجل المعطوب بدلاً من تصحيحه؟`
+      : `A correct filing already exists for this period (${newFrom} → ${newTo}).\n\nDelete this corrupted duplicate?`)){
+      return;
+    }
+    const { error: delErr } = await sb.from('filings').delete().eq('id', filingId);
+    console.log('[GL fix-dates] delete result', delErr);
+    if(delErr){
+      notify(ar?`تعذر الحذف: ${delErr.message || delErr}`:`Delete failed: ${delErr.message || delErr}`,'error');
+      return;
+    }
+    if(window.gl?.filings) window.gl.filings.invalidateCache(currentBiz.id);
+    notify(ar?'✓ تم حذف السجل المكرر':'✓ Duplicate corrupted row deleted','success');
+    renderFilingHistory(currentFilingType);
+    if(currentFilingType === 'annual') renderAnnStep();
+    else if(currentFilingType === 'vat') renderVatStep();
+    else if(currentFilingType === 'qawaem') renderQawStep();
+    return;
+  }
+
+  /* No duplicate — safe to UPDATE the dates in place. */
   if(!confirm(ar
-    ? `سيتم تصحيح التواريخ:\n\n${periodLabel}\n\nالمتابعة؟`
-    : `Will correct dates:\n\n${periodLabel}\n\nProceed?`)){
+    ? `تصحيح التواريخ:\n\nقبل: ${row.period_from} → ${row.period_to}\nبعد: ${newFrom} → ${newTo}\n\nالمتابعة؟`
+    : `Correct dates:\n\nBefore: ${row.period_from} → ${row.period_to}\nAfter:  ${newFrom} → ${newTo}\n\nProceed?`)){
     return;
   }
 
   const { error: updErr } = await sb.from('filings')
     .update({ period_from: newFrom, period_to: newTo, due_date: newDue })
     .eq('id', filingId);
+  console.log('[GL fix-dates] update result', updErr);
+
   if(updErr){
-    /* Most likely cause: unique constraint conflict — a correct-dated
-       filing already exists for this (business, type, period_to). In that
-       case the corrupt row is duplicate garbage — offer to delete it. */
     console.error('[GL] fixCorruptedFilingDates update:', updErr);
-    const detail = updErr.message || String(updErr);
-    if(detail.includes('filings_active_unique') || detail.includes('duplicate key')){
+    /* Belt-and-suspenders: if the constraint trips despite our pre-check
+       (race condition or pre-check missed it), offer hard delete. */
+    const detail = (updErr.message || updErr.error_description || updErr.details || String(updErr)).toLowerCase();
+    if(detail.includes('unique') || detail.includes('duplicate')){
       if(confirm(ar
-        ? 'يوجد إقرار صحيح بالفعل لهذه الفترة. حذف السجل المعطوب؟'
-        : 'A correct filing already exists for this period. Delete this corrupted duplicate?')){
+        ? `تعارض: يوجد إقرار آخر لنفس الفترة.\n\nحذف هذا السجل المعطوب؟`
+        : `Conflict: another filing exists for this period.\n\nDelete this corrupted row?`)){
         const { error: delErr } = await sb.from('filings').delete().eq('id', filingId);
         if(delErr){
-          notify(ar?'تعذر الحذف':'Delete failed','error');
+          notify(ar?`تعذر الحذف: ${delErr.message}`:`Delete failed: ${delErr.message}`,'error');
           return;
         }
         if(window.gl?.filings) window.gl.filings.invalidateCache(currentBiz.id);
-        notify(ar?'✓ تم حذف السجل المكرر':'✓ Duplicate corrupted row deleted','success');
+        notify(ar?'✓ تم حذف السجل المكرر':'✓ Duplicate deleted','success');
         renderFilingHistory(currentFilingType);
+        if(currentFilingType === 'annual') renderAnnStep();
       }
       return;
     }
-    notify(ar?`تعذر التصحيح: ${detail}`:`Could not fix: ${detail}`,'error');
+    notify(ar?`تعذر التصحيح: ${updErr.message || updErr}`:`Could not fix: ${updErr.message || updErr}`,'error');
     return;
   }
 
   if(window.gl?.filings) window.gl.filings.invalidateCache(currentBiz.id);
   notify(ar?'✓ تم تصحيح التواريخ':'✓ Dates corrected','success');
   renderFilingHistory(currentFilingType);
-  /* If wizard is open on a period that just got fixed, re-render so the
-     "FILED" badge appears on that year. */
   if(currentFilingType === 'annual') renderAnnStep();
   else if(currentFilingType === 'vat') renderVatStep();
   else if(currentFilingType === 'qawaem') renderQawStep();
@@ -5894,6 +5927,27 @@ async function renderVatStep1(){
       saveVatDraft();
     }
   }
+
+  /* If ALL candidate VAT periods (prev/current/two-back) are filed, show
+     the calm "all caught up" card instead of step 1. The user has no
+     action to take here — they should view numbers in Reports. */
+  const allVatFiled = periods.every(p => filedSet.has(p.toISO));
+  if(allVatFiled){
+    container.innerHTML = `
+      <div class="wizard-card" style="text-align:center;padding:32px 24px;">
+        <div style="font-size:38px;margin-bottom:12px;">✓</div>
+        <h3 style="color:var(--green);margin-bottom:8px;">${ar?'كل الفترات الضريبية مُقدَّمة':'All tax periods filed'}</h3>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:18px;line-height:1.6;max-width:480px;margin-inline:auto;">
+          ${ar
+            ?'إقرارات ضريبة القيمة المضافة لجميع الفترات المتاحة مغلقة. لإجراء تعديلات، أعد فتح الفترة من قسم "الإقرارات السابقة" أعلاه.'
+            :'VAT returns for all available periods are closed. To amend, reopen the period from "Previous filings" above.'}
+        </div>
+        <div style="font-size:12px;color:var(--muted);">${ar?'لعرض الأرقام، استخدم قسم التقارير.':'To review the numbers, use the Reports section.'}</div>
+      </div>
+    `;
+    return;
+  }
+
   const selectedISO = vatWizardState.period?.fromISO;
 
   container.innerHTML = `
@@ -6866,7 +6920,10 @@ async function renderAnnStep1(){
       .map(f => f.period_to)
   );
 
-  /* If currently selected fy is already filed, switch to first unfiled */
+  /* Round B-VAT: if currently selected fy is already filed, try to switch
+     to the first unfiled candidate. If ALL candidates are filed, we show
+     a calm "everything filed" card instead of the wizard step 1. */
+  const allFiled = candidates.every(c => filedSet.has(c.endISO));
   if(fy && filedSet.has(fy.endISO)){
     const firstOpen = candidates.find(c => !filedSet.has(c.endISO));
     if(firstOpen){
@@ -6875,21 +6932,46 @@ async function renderAnnStep1(){
     }
   }
 
+  /* When ALL candidate years are filed, render a celebratory state and stop.
+     The wizard is "off" — user has nothing to do here. They should go to
+     Reports if they want to view the filed numbers. */
+  if(allFiled){
+    container.innerHTML = `
+      <div class="wizard-card" style="text-align:center;padding:32px 24px;">
+        <div style="font-size:38px;margin-bottom:12px;">✓</div>
+        <h3 style="color:var(--green);margin-bottom:8px;">${ar?'كل السنوات مُقدَّمة':'All fiscal years filed'}</h3>
+        <div style="font-size:13px;color:var(--muted);margin-bottom:18px;line-height:1.6;max-width:480px;margin-inline:auto;">
+          ${ar
+            ?'إقرارات الزكاة / ضريبة الدخل لجميع السنوات المتاحة مغلقة. لإجراء تعديلات على سنة سابقة، أعد فتحها من قسم "الإقرارات السابقة" أعلاه.'
+            :'Zakat / Income Tax filings for all available years are closed. To amend a previous year, reopen it from "Previous filings" above.'}
+        </div>
+        <div style="font-size:12px;color:var(--muted);">${ar?'لعرض الأرقام، استخدم قسم التقارير.':'To review the numbers, use the Reports section.'}</div>
+      </div>
+    `;
+    return;
+  }
+
   const regimeLabel = regime === 'zakat_only'
     ? (ar?'زكاة فقط (ملكية سعودية/خليجية)':'Zakat only (Saudi/GCC owned)')
     : regime === 'cit_only'
     ? (ar?'ضريبة دخل فقط (ملكية أجنبية)':'CIT only (foreign-owned)')
     : (ar?'مختلط: زكاة + ضريبة دخل':'Mixed: Zakat + CIT');
 
+  /* Recompute deadline status AFTER any FY switch above, so it reflects
+     the year we'll actually work on. Suppress entirely if the current
+     fy is already filed — no point warning about a deadline for a year
+     that's done. */
   let deadlineHTML = '';
-  if(ds){
-    const dateStr = ds.date.toLocaleDateString(ar?'ar-SA-u-ca-gregory':'en-GB',{day:'numeric',month:'short',year:'numeric'});
-    if(ds.status === 'overdue'){
-      deadlineHTML = `<div class="warnings-list" style="margin-top:10px;"><li class="error"><span class="icon">⏰</span><span>${ar?`متأخر ${ds.days} يوم! الموعد كان ${dateStr}`:`Overdue by ${ds.days} day(s)! Was due ${dateStr}`}</span></li></div>`;
-    } else if(ds.status === 'due_soon'){
-      deadlineHTML = `<div class="warnings-list" style="margin-top:10px;"><li><span class="icon">⚠</span><span>${ar?`متبقي ${ds.days} يوم على الموعد النهائي (${dateStr})`:`${ds.days} day(s) until deadline (${dateStr})`}</span></li></div>`;
+  const dsCurrent = annDeadlineStatus();
+  const currentFyFiled = annWizardState.fy && filedSet.has(annWizardState.fy.endISO);
+  if(dsCurrent && !currentFyFiled){
+    const dateStr = dsCurrent.date.toLocaleDateString(ar?'ar-SA-u-ca-gregory':'en-GB',{day:'numeric',month:'short',year:'numeric'});
+    if(dsCurrent.status === 'overdue'){
+      deadlineHTML = `<div class="warnings-list" style="margin-top:10px;"><li class="error"><span class="icon">⏰</span><span>${ar?`متأخر ${dsCurrent.days} يوم! الموعد كان ${dateStr}`:`Overdue by ${dsCurrent.days} day(s)! Was due ${dateStr}`}</span></li></div>`;
+    } else if(dsCurrent.status === 'due_soon'){
+      deadlineHTML = `<div class="warnings-list" style="margin-top:10px;"><li><span class="icon">⚠</span><span>${ar?`متبقي ${dsCurrent.days} يوم على الموعد النهائي (${dateStr})`:`${dsCurrent.days} day(s) until deadline (${dateStr})`}</span></li></div>`;
     } else {
-      deadlineHTML = `<div style="margin-top:10px;font-size:12px;color:var(--muted);">${ar?`الموعد النهائي:`:`Deadline:`} <strong style="color:var(--ink);">${dateStr}</strong> (${ds.days} ${ar?'يوم':'days'})</div>`;
+      deadlineHTML = `<div style="margin-top:10px;font-size:12px;color:var(--muted);">${ar?`الموعد النهائي:`:`Deadline:`} <strong style="color:var(--ink);">${dateStr}</strong> (${dsCurrent.days} ${ar?'يوم':'days'})</div>`;
     }
   }
 
