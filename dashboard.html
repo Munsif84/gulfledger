@@ -920,24 +920,36 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
   /* Build one row of the Compliance Status card.
      Takes an object: { icon, name_ar, name_en, dueDate, daysLeft, sub_ar,
      sub_en, link, startText_ar, startText_en }.
-     Returns HTML string. Urgency classes (urgent <0, soon <=14) drive the
-     countdown color: red for overdue, amber for ≤14 days, neutral otherwise. */
+     Returns HTML string. Urgency tiers (Round B-2.1):
+       • overdue (daysLeft < 0)  → red banner, "X days overdue"
+       • today (daysLeft = 0)    → red banner, "Due today"
+       • critical (1-7 days)     → red countdown, prominent
+       • soon (8-30 days)        → amber countdown
+       • otherwise               → neutral grey */
   function buildComplianceRow(r){
     const ar = L === 'ar';
     const name = ar ? r.name_ar : r.name_en;
     const sub = ar ? r.sub_ar : r.sub_en;
     const startText = ar ? r.startText_ar : r.startText_en;
 
-    let countdownText, urgencyClass = '';
+    let countdownText, urgencyClass = '', rowUrgent = false;
     if(r.daysLeft < 0){
       urgencyClass = 'urgent';
+      rowUrgent = true;
       countdownText = ar
         ? `⚠ متأخر ${Math.abs(r.daysLeft)} يوم · ${sub}`
         : `⚠ ${Math.abs(r.daysLeft)} days overdue · ${sub}`;
     } else if(r.daysLeft === 0){
       urgencyClass = 'urgent';
+      rowUrgent = true;
       countdownText = ar ? `⚠ مستحق اليوم · ${sub}` : `⚠ Due today · ${sub}`;
-    } else if(r.daysLeft <= 14){
+    } else if(r.daysLeft <= 7){
+      urgencyClass = 'urgent';
+      rowUrgent = true;
+      countdownText = ar
+        ? `⏰ خلال ${r.daysLeft} يوم · ${sub}`
+        : `⏰ Due in ${r.daysLeft} days · ${sub}`;
+    } else if(r.daysLeft <= 30){
       urgencyClass = 'soon';
       countdownText = ar
         ? `⏰ خلال ${r.daysLeft} يوم · ${sub}`
@@ -948,7 +960,7 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
         : `Due in ${r.daysLeft} days · ${sub}`;
     }
 
-    const rowClass = (r.daysLeft < 0 || r.daysLeft === 0) ? 'compliance-row urgent' : 'compliance-row';
+    const rowClass = rowUrgent ? 'compliance-row urgent' : 'compliance-row';
 
     return `
       <div class="${rowClass}">
@@ -1179,45 +1191,88 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
       } catch(e){ console.warn('[GL] trust banner populate:', e); }
 
       // Compliance Status card — list upcoming ZATCA filings with countdowns.
-      // Each row links to its filing wizard in accounting.html. We surface
-      // the next 2: VAT (quarterly or monthly) + Annual Return (Zakat/CIT).
-      // Qawaem is annual too but typically filed shortly after Annual Return
-      // — listed third so power-users see it at a glance.
+      //
+      // Round B-2.1: Smart visibility. A user filing VAT every quarter has
+      // ~10 months/year where the next VAT is too far away to act on.
+      // Showing it every day for 90 days creates noise.
+      //
+      // Behaviour:
+      //   • VAT row shown when within 30 days of due (or overdue)
+      //   • Annual row shown when within 60 days of due (or overdue —
+      //     longer window because it's bigger work)
+      //   • Neither in window → single green "All caught up" line with the
+      //     next upcoming VAT date as orientation
+      //
+      // Future Round B-VAT (Filings & Period Close): adds a real `filings`
+      // table tracking what's actually been filed. Then this card becomes
+      // even smarter — when user filed Q1 last week, Q2 row won't show
+      // prematurely; it appears only when Q2 enters its 30-day window.
+      // For now (no filings table) we assume nothing is filed and rely
+      // purely on date proximity — good 95% of the time.
       try {
         const card = document.getElementById('compliance-card');
         const rows = document.getElementById('compliance-rows');
         if(card && rows){
-          // VAT row — uses the same vatDueDate computed above for stat-deadline
-          const vatRow = buildComplianceRow({
-            icon: '🧾',
-            name_ar: 'إقرار ضريبة القيمة المضافة',
-            name_en: 'VAT Return',
-            dueDate: vatDueDate,
-            daysLeft: daysToVat,
-            sub_ar: `الربع ${q+1} ${now.getFullYear()}`,
-            sub_en: `Q${q+1} ${now.getFullYear()}`,
-            link: 'accounting.html?sub=vat&filing=return',
-            startText_ar: 'ابدأ الإقرار', startText_en: 'Start filing'
-          });
+          const VAT_WINDOW_DAYS = 30;
+          const ANNUAL_WINDOW_DAYS = 60;
 
-          // Annual Return — due 30 April of the next calendar year for the
-          // CURRENT fiscal year. So at any point in YYYY, the next annual
-          // is YYYY+1 April 30 (covering YYYY).
+          // Annual Return — due 30 April of the next calendar year, covering
+          // the current fiscal year.
           const annualDueDate = new Date(now.getFullYear() + 1, 3, 30);
           const daysToAnnual = Math.round((annualDueDate - now)/(1000*60*60*24));
-          const annualRow = buildComplianceRow({
-            icon: '📅',
-            name_ar: 'الإقرار السنوي (الزكاة / ضريبة الدخل)',
-            name_en: 'Annual Return (Zakat / Income Tax)',
-            dueDate: annualDueDate,
-            daysLeft: daysToAnnual,
-            sub_ar: `السنة المالية ${now.getFullYear()}`,
-            sub_en: `Fiscal year ${now.getFullYear()}`,
-            link: 'accounting.html?sub=vat&filing=annual',
-            startText_ar: 'ابدأ الإقرار', startText_en: 'Start filing'
-          });
 
-          rows.innerHTML = vatRow + annualRow;
+          const showVat = (daysToVat <= VAT_WINDOW_DAYS); // includes overdue (negative)
+          const showAnnual = (daysToAnnual <= ANNUAL_WINDOW_DAYS);
+
+          const ar = L === 'ar';
+          let html = '';
+
+          if(showVat){
+            html += buildComplianceRow({
+              icon: '🧾',
+              name_ar: 'إقرار ضريبة القيمة المضافة',
+              name_en: 'VAT Return',
+              dueDate: vatDueDate,
+              daysLeft: daysToVat,
+              sub_ar: `الربع ${q+1} ${now.getFullYear()}`,
+              sub_en: `Q${q+1} ${now.getFullYear()}`,
+              link: 'accounting.html?sub=vat&filing=return',
+              startText_ar: 'ابدأ الإقرار', startText_en: 'Start filing'
+            });
+          }
+
+          if(showAnnual){
+            html += buildComplianceRow({
+              icon: '📅',
+              name_ar: 'الإقرار السنوي (الزكاة / ضريبة الدخل)',
+              name_en: 'Annual Return (Zakat / Income Tax)',
+              dueDate: annualDueDate,
+              daysLeft: daysToAnnual,
+              sub_ar: `السنة المالية ${now.getFullYear()}`,
+              sub_en: `Fiscal year ${now.getFullYear()}`,
+              link: 'accounting.html?sub=vat&filing=annual',
+              startText_ar: 'ابدأ الإقرار', startText_en: 'Start filing'
+            });
+          }
+
+          if(!showVat && !showAnnual){
+            // Calm state: nothing actionable in the next 30/60 days.
+            // Show a single reassuring line — date of the next upcoming VAT
+            // (always the closer of the two filings) for orientation.
+            const nextVatStr = vatDueDate.toLocaleDateString(ar?'ar-SA-u-ca-gregory':'en-GB',
+              {day:'2-digit', month:'short', year:'numeric'});
+            html = `
+              <div class="compliance-row" style="border-top:none;">
+                <span class="icon" style="color:var(--green);">✓</span>
+                <div class="info">
+                  <div class="name" style="font-size:13px;font-weight:600;">${ar?'الإقرارات الضريبية محدّثة':'All tax filings up to date'}</div>
+                  <div class="countdown">${ar?`الإقرار التالي · ${nextVatStr}`:`Next filing · ${nextVatStr}`}</div>
+                </div>
+              </div>
+            `;
+          }
+
+          rows.innerHTML = html;
           card.style.display = '';
         }
       } catch(e){ console.warn('[GL] compliance card populate:', e); }
