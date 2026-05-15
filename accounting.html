@@ -5013,6 +5013,145 @@ window.glVoidAllUnbalanced = async function(){
   console.log(`[GL] Voided ${ids.length} entries. Reload the page to refresh reports.`);
 };
 
+/* Round B-VAT-2 diagnostic: when the balance sheet doesn't balance but
+   journal entries are individually balanced (DR=CR each), the imbalance
+   is structural. This walks every account and shows exactly where the
+   math goes off.
+
+   The accounting equation: Assets = Liabilities + Equity + (Income - Expense)
+   When all entries are balanced, this MUST hold true at any moment.
+   If it doesn't, one of:
+     1. An account has a non-standard `type` value (not in
+        asset/liability/equity/income/expense)
+     2. An account has a balance on the "wrong" side and the report
+        threshold filter (>0.005) drops it
+     3. Money was posted directly to a parent/header account (the report
+        only sums leaf accounts with a parent_code) */
+window.glDiagnoseBalanceSheet = async function(asAtISO){
+  if(!currentBiz?.id){ console.warn('[GL diag] No business loaded'); return; }
+  const dateLabel = asAtISO || isoLocal(new Date());
+  console.log(`%c[GL BS diag] As at ${dateLabel}`, 'font-weight:bold;color:#1D9E75;');
+
+  /* Compute balances as of asAtISO (default: today) */
+  const bal = await computeAccountBalances(null, asAtISO || null);
+  rebuildAccountMap();
+
+  /* Classify every account that has a balance. Detect unknowns. */
+  const byType = { asset: [], liability: [], equity: [], income: [], expense: [], unknown: [] };
+  const orphanedToParent = [];   /* leaf accounts with no parent_code in chart */
+  const headersWithBalance = []; /* parent accounts that have a posted balance */
+
+  /* First, build a quick set of codes that appear in chart */
+  const codesInChart = new Set(chartOfAccounts.map(a => a.code));
+
+  for(const code in bal){
+    const b = bal[code];
+    if(Math.abs(b.net) < 0.005) continue;  /* zero balance, skip */
+    const acct = chartOfAccounts.find(a => a.code === code);
+    if(!acct){
+      /* journal_lines references an account_code that isn't in chart_of_accounts */
+      orphanedToParent.push({ code, dr: b.dr, cr: b.cr, net: b.net });
+      continue;
+    }
+    if(!acct.parent_code){
+      /* Header / group account with a direct balance — usually means
+         someone posted to the wrong code (parent instead of leaf) */
+      headersWithBalance.push({
+        code: acct.code, name: acct.name_en || acct.name_ar, type: acct.type,
+        dr: b.dr, cr: b.cr, net: b.net
+      });
+      continue;
+    }
+    const t = (acct.type || 'unknown').toLowerCase();
+    const bucket = byType[t] !== undefined ? byType[t] : byType.unknown;
+    bucket.push({
+      code: acct.code,
+      name: acct.name_en || acct.name_ar,
+      type: acct.type,
+      dr: b.dr,
+      cr: b.cr,
+      net: b.net,
+      /* The "expected sign" of net for each type:
+           asset/expense → positive (DR-natured)
+           liability/equity/income → negative (CR-natured) */
+      wrong_side: ((t === 'asset' || t === 'expense') && b.net < -0.005)
+               || ((t === 'liability' || t === 'equity' || t === 'income') && b.net > 0.005)
+    });
+  }
+
+  /* Totals with NO threshold filter (catch wrong-side balances too) */
+  let totalAssetsRaw = 0, totalLiabilitiesRaw = 0, totalEquityRaw = 0;
+  let totalIncomeRaw = 0, totalExpenseRaw = 0;
+  for(const row of byType.asset)     totalAssetsRaw      += row.net;
+  for(const row of byType.liability) totalLiabilitiesRaw += -row.net;
+  for(const row of byType.equity)    totalEquityRaw      += -row.net;
+  for(const row of byType.income)    totalIncomeRaw      += -row.net;
+  for(const row of byType.expense)   totalExpenseRaw     +=  row.net;
+  const retainedEarnings = totalIncomeRaw - totalExpenseRaw;
+
+  /* The full accounting equation:
+       Assets = Liabilities + Equity + (Income - Expense)
+     When closing entries haven't been posted, retained earnings is
+     synthesized from income/expense activity. */
+  const rightSide = totalLiabilitiesRaw + totalEquityRaw + retainedEarnings;
+  const imbalance = totalAssetsRaw - rightSide;
+
+  console.log('%c═══ TOTALS (no threshold filter) ═══', 'font-weight:bold;');
+  console.table([
+    { side: 'Total Assets', amount: totalAssetsRaw.toFixed(2) },
+    { side: 'Total Liabilities', amount: totalLiabilitiesRaw.toFixed(2) },
+    { side: 'Equity (from accounts)', amount: totalEquityRaw.toFixed(2) },
+    { side: 'Retained Earnings (Income − Expense)', amount: retainedEarnings.toFixed(2) },
+    { side: '  → Income total', amount: totalIncomeRaw.toFixed(2) },
+    { side: '  → Expense total', amount: totalExpenseRaw.toFixed(2) },
+    { side: 'Liab + Equity + RE', amount: rightSide.toFixed(2) },
+    { side: 'IMBALANCE (Assets − Right)', amount: imbalance.toFixed(2) }
+  ]);
+
+  if(Math.abs(imbalance) < 0.01){
+    console.log('%c✓ Balance sheet balances at the underlying level — the issue must be in the threshold filter in the report render.', 'color:#1D9E75;font-weight:bold;');
+  } else {
+    console.log('%c⚠ Balance sheet is genuinely imbalanced. See breakdown below.', 'color:#c62828;font-weight:bold;');
+  }
+
+  /* Show wrong-side balances — these often explain imbalances */
+  const wrongSide = [];
+  for(const t of ['asset','liability','equity','income','expense']){
+    for(const row of byType[t]){
+      if(row.wrong_side) wrongSide.push(row);
+    }
+  }
+  if(wrongSide.length > 0){
+    console.log('%c⚠ Accounts with balance on the WRONG SIDE (could indicate misclassification):', 'color:#c9920a;font-weight:bold;');
+    console.table(wrongSide);
+  }
+
+  if(byType.unknown.length > 0){
+    console.log('%c⚠ Accounts with UNKNOWN type (not asset/liability/equity/income/expense):', 'color:#c62828;font-weight:bold;');
+    console.table(byType.unknown);
+  }
+
+  if(orphanedToParent.length > 0){
+    console.log('%c⚠ Journal lines reference account codes NOT in chart_of_accounts:', 'color:#c62828;font-weight:bold;');
+    console.table(orphanedToParent);
+  }
+
+  if(headersWithBalance.length > 0){
+    console.log('%c⚠ Parent/header accounts have direct balances (entries posted to header instead of leaf):', 'color:#c9920a;font-weight:bold;');
+    console.table(headersWithBalance);
+  }
+
+  console.log('Per-type breakdown:');
+  for(const t of ['asset','liability','equity','income','expense','unknown']){
+    if(byType[t].length === 0) continue;
+    console.groupCollapsed(`${t.toUpperCase()} (${byType[t].length} accounts)`);
+    console.table(byType[t]);
+    console.groupEnd();
+  }
+
+  return { totalAssetsRaw, totalLiabilitiesRaw, totalEquityRaw, retainedEarnings, imbalance, wrongSide, headersWithBalance, orphanedToParent, byType };
+};
+
 /* ─── Round B-VAT diagnostic: inspect the filings table directly.
    When the dashboard or wizard appears out of sync with what the user
    thinks they filed, this shows the raw rows so we can see what's
