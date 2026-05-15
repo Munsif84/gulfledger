@@ -693,7 +693,7 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
     <div class="stat">
       <div class="stat-label" data-ar="VAT المستحق" data-en="VAT Payable">VAT المستحق</div>
       <div class="stat-val loading" id="s-vat">—</div>
-      <div class="stat-sub" data-ar="الربع الحالي" data-en="Current quarter">الربع الحالي</div>
+      <div class="stat-sub" id="s-vat-sub" data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
       <div class="stat-deadline" id="s-vat-deadline" style="display:none;"></div>
     </div>
   </div>
@@ -1578,28 +1578,84 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
     const monthStart = now.getFullYear()+'-'+String(now.getMonth()+1).padStart(2,'0')+'-01';
     const monthEnd = now.toISOString().split('T')[0];
     const q = Math.floor(now.getMonth()/3);
-    const qStart = now.getFullYear()+'-'+String(q*3+1).padStart(2,'0')+'-01';
+
+    /* Round B-VAT: compute VAT KPI using the filings helper so it
+       respects monthly/quarterly frequency AND already-filed periods.
+       The KPI shows the NEXT unfiled period — same logic as the
+       compliance card. When user just filed Q1, the KPI advances
+       to Q2 immediately. */
+    let vatPeriodFrom, vatPeriodTo, vatPeriodLabel, vatDueDate;
+    try {
+      if(window.gl?.filings){
+        const filings = await window.gl.filings.getFilings(biz.id, true);
+        const nextVat = window.gl.filings.getNextVatPeriod(biz, filings);
+        vatPeriodFrom = window.gl.filings.isoDate(nextVat.from);
+        vatPeriodTo = window.gl.filings.isoDate(nextVat.to);
+        vatPeriodLabel = nextVat.label;
+        vatDueDate = nextVat.deadline;
+      }
+    } catch(e){ console.warn('[GL] VAT KPI helper failure:', e); }
+    /* Fallback if helper missing — quarterly, current */
+    if(!vatPeriodFrom){
+      vatPeriodFrom = now.getFullYear()+'-'+String(q*3+1).padStart(2,'0')+'-01';
+      const qEnd = new Date(now.getFullYear(), q*3+3, 0);
+      vatPeriodTo = qEnd.toISOString().slice(0,10);
+      vatPeriodLabel = `Q${q+1} ${now.getFullYear()}`;
+      vatDueDate = new Date(now.getFullYear(), q*3+3, 30);
+    }
 
     const {data:allInv}=await sb.from('invoices').select('total,vat_amount,subtotal,issue_date,invoice_number,buyer_name,payment_status,due_date').eq('business_id', biz.id).order('issue_date',{ascending:false});
+
+    /* Also fetch expenses for Input VAT — VAT Payable = Output - Input */
+    const {data:allExpenses} = await sb.from('expenses')
+      .select('vat_amount,vat_recoverable,expense_date,status')
+      .eq('business_id', biz.id)
+      .neq('status','voided');
 
     if(allInv){
       const monthInv=allInv.filter(i=>i.issue_date>=monthStart&&i.issue_date<=monthEnd);
       const monthRev=monthInv.reduce((s,i)=>s+(i.subtotal||0),0);
-      const qInv=allInv.filter(i=>i.issue_date>=qStart&&i.issue_date<=monthEnd);
-      const qVat=qInv.reduce((s,i)=>s+(i.vat_amount||0),0);
+
+      /* Output VAT — invoices in the active VAT period */
+      const periodInv = allInv.filter(i =>
+        i.issue_date >= vatPeriodFrom && i.issue_date <= vatPeriodTo
+      );
+      const outputVAT = periodInv.reduce((s,i) => s + (i.vat_amount || 0), 0);
+
+      /* Input VAT — recoverable VAT from expenses in the active VAT period */
+      const periodExpenses = (allExpenses || []).filter(e =>
+        e.expense_date >= vatPeriodFrom && e.expense_date <= vatPeriodTo
+      );
+      const inputVAT = periodExpenses.reduce((s,e) =>
+        s + (e.vat_recoverable !== false ? (e.vat_amount || 0) : 0), 0
+      );
+
+      const vatPayable = outputVAT - inputVAT;
+
       const sInvoiced = document.getElementById('s-invoiced');
       sInvoiced.textContent='SAR '+fmt(monthRev);
       sInvoiced.classList.remove('loading');
       const sVat = document.getElementById('s-vat');
-      sVat.textContent='SAR '+fmt(qVat);
+      sVat.textContent='SAR '+fmt(Math.max(0, vatPayable));  /* never negative on this KPI */
       sVat.classList.remove('loading');
 
-      // VAT deadline indicator — show "Due in N days" / "متأخر بـ N يوم"
-      const vatDueDate = new Date(now.getFullYear(), q*3+3, 30);
+      /* Subtitle now reflects the real active period */
+      const sVatSub = document.getElementById('s-vat-sub');
+      if(sVatSub){
+        const isMonthly = (biz?.vat_filing_frequency || 'quarterly').toLowerCase() === 'monthly';
+        const periodTypeLabel = isMonthly
+          ? (L==='ar'?'الشهر':'Month')
+          : (L==='ar'?'الربع':'Quarter');
+        sVatSub.textContent = `${periodTypeLabel} · ${vatPeriodLabel}`;
+      }
+
+      /* Deadline — uses helper's vatDueDate which correctly reflects
+         monthly vs quarterly and skips filed periods */
       const daysToVat = Math.round((vatDueDate-now)/(1000*60*60*24));
       const deadlineEl = document.getElementById('s-vat-deadline');
       if(deadlineEl){
         deadlineEl.style.display='inline-block';
+        deadlineEl.classList.remove('urgent');
         if(daysToVat < 0){
           deadlineEl.classList.add('urgent');
           deadlineEl.textContent = L==='ar' ? `⚠ متأخر ${Math.abs(daysToVat)} يوم` : `⚠ ${Math.abs(daysToVat)} days overdue`;
