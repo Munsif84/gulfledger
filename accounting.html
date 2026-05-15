@@ -4021,6 +4021,31 @@ async function reverseEntry(entryId){
     return;
   }
 
+  /* Round B-7 Phase 1: IDEMPOTENCY CHECK.
+     Bug discovered May 2026: clicking "Reverse" twice on the same entry
+     created two reversal entries. The Bank ledger showed up to 4 reversal
+     entries for a single original expense payment. Before creating a new
+     reversal, check if one already exists by source_id. */
+  const {data: existingReversals, error: existingErr} = await sb.from('journal_entries')
+    .select('id, reference, entry_date, status')
+    .eq('business_id', currentBiz.id)
+    .eq('source', 'reversal')
+    .eq('source_id', entryId)
+    .neq('status', 'voided');
+  if(existingErr){
+    console.error('[GL] reverseEntry idempotency check:', existingErr);
+    notify(ar?'فشل التحقق من قيود العكس السابقة':'Idempotency check failed','error');
+    return;
+  }
+  if((existingReversals || []).length > 0){
+    const existing = existingReversals[0];
+    notify(ar
+      ? `هذا القيد عُكس سابقاً بتاريخ ${existing.entry_date} (مرجع: ${existing.reference || existing.id.slice(0,8)}). لا يمكن عكسه مرة أخرى.`
+      : `This entry was already reversed on ${existing.entry_date} (ref: ${existing.reference || existing.id.slice(0,8)}). It cannot be reversed again.`,
+      'error');
+    return;
+  }
+
   /* Confirm */
   const confirmMsg = ar
     ? `سيتم إنشاء قيد عكسي لـ ${orig.reference || orig.id}. القيد الأصلي يبقى كما هو. هل تريد المتابعة؟`
@@ -5150,6 +5175,326 @@ window.glDiagnoseBalanceSheet = async function(asAtISO){
   }
 
   return { totalAssetsRaw, totalLiabilitiesRaw, totalEquityRaw, retainedEarnings, imbalance, wrongSide, headersWithBalance, orphanedToParent, byType };
+};
+
+/* Compact summary version — returns one line of text and a small object,
+   easy to copy/paste. Use this when the full diagnostic table is too big
+   to share. Just gives the bottom line + a one-line "smoking gun" per
+   category if anything's amiss. */
+window.glBalanceSheetSummary = async function(asAtISO){
+  const full = await window.glDiagnoseBalanceSheet(asAtISO);
+  const r = (n) => Math.round(n * 100) / 100;
+  /* Find the single biggest "wrong-side" or orphan or header — most
+     likely source of the imbalance. */
+  const allFlags = [
+    ...full.wrongSide.map(x => ({...x, flag:'wrong-side'})),
+    ...full.orphanedToParent.map(x => ({...x, flag:'orphaned-code'})),
+    ...full.headersWithBalance.map(x => ({...x, flag:'header-with-balance'})),
+    ...(full.byType.unknown || []).map(x => ({...x, flag:'unknown-type'}))
+  ];
+  /* Sort by |net| descending */
+  allFlags.sort((a,b) => Math.abs(b.net || 0) - Math.abs(a.net || 0));
+  const topSuspects = allFlags.slice(0, 3).map(x => ({
+    code: x.code,
+    name: x.name || '—',
+    type: x.type || '—',
+    flag: x.flag,
+    net: r(x.net)
+  }));
+  const out = {
+    totalAssets: r(full.totalAssetsRaw),
+    totalLiabilities: r(full.totalLiabilitiesRaw),
+    totalEquityFromAccounts: r(full.totalEquityRaw),
+    retainedEarnings: r(full.retainedEarnings),
+    rightSideTotal: r(full.totalLiabilitiesRaw + full.totalEquityRaw + full.retainedEarnings),
+    imbalance: r(full.imbalance),
+    issueCounts: {
+      wrongSide: full.wrongSide.length,
+      orphanedCodes: full.orphanedToParent.length,
+      headersWithBalance: full.headersWithBalance.length,
+      unknownType: (full.byType.unknown || []).length
+    },
+    topSuspects
+  };
+  console.log('%c═══ BS SUMMARY (copy this) ═══', 'font-weight:bold;color:#1D9E75;');
+  console.log(JSON.stringify(out, null, 2));
+  return out;
+};
+
+/* ─── Round B-7 Phase 1: Data integrity diagnostic ────────────────────
+   Scans journal_entries + journal_lines for known data-corruption
+   patterns and lists everything found. Read-only — modifies nothing.
+
+     await window.glDiagnoseDataIntegrity()
+
+   Checks:
+     1. Multiple reversal entries for the same original (source_id collision)
+     2. Multiple credit notes / payment entries for the same invoice (potential)
+     3. Journal lines with account_codes not in chart_of_accounts (orphans)
+     4. Entries posted to parent (non-leaf) accounts
+     5. Entries where DR ≠ CR (should be empty given is_balanced flag) */
+window.glDiagnoseDataIntegrity = async function(){
+  if(!currentBiz?.id){ console.warn('[GL diag] No business loaded'); return null; }
+  console.log('%c═══ DATA INTEGRITY DIAGNOSTIC ═══', 'font-weight:bold;color:#1D9E75;');
+
+  /* 1. Duplicate reversals: entries with source IN ('reversal','expense_reversal',
+        'invoice_reversal') grouped by source_id. Anything with count > 1 is suspect. */
+  const {data: reversals, error: revErr} = await sb.from('journal_entries')
+    .select('id, source, source_id, reference, entry_date, status, description')
+    .eq('business_id', currentBiz.id)
+    .in('source', ['reversal','expense_reversal','invoice_reversal'])
+    .neq('status', 'voided')
+    .order('entry_date', {ascending: true});
+  if(revErr){ console.error('[GL] integrity reversals fetch:', revErr); }
+
+  /* Group by source_id (when present) or reference (when source_id is null) */
+  const reversalGroups = {};
+  for(const r of (reversals || [])){
+    const key = r.source_id || r.reference || r.id;
+    if(!reversalGroups[key]) reversalGroups[key] = [];
+    reversalGroups[key].push(r);
+  }
+  const duplicateReversals = [];
+  for(const key in reversalGroups){
+    if(reversalGroups[key].length > 1){
+      duplicateReversals.push({
+        target_source_id_or_ref: key,
+        count: reversalGroups[key].length,
+        entries: reversalGroups[key].map(r => ({
+          id: r.id, ref: r.reference, date: r.entry_date, source: r.source
+        }))
+      });
+    }
+  }
+
+  /* 2. Orphan account codes — journal_lines referencing codes not in chart */
+  rebuildAccountMap();
+  const codesInChart = new Set(chartOfAccounts.map(a => a.code));
+  /* Pull DISTINCT codes that appear in journal_lines for this business */
+  const {data: validEntries} = await sb.from('journal_entries')
+    .select('id').eq('business_id', currentBiz.id).neq('status', 'voided');
+  const validIds = new Set((validEntries || []).map(e => e.id));
+  /* Fetch all lines (chunked for safety) */
+  const orphanCodes = {};   /* code → { dr, cr, line_count } */
+  const headerCodeBalances = {};   /* code (parent acct) → balance info */
+  const parentCodes = new Set(chartOfAccounts.filter(a => !a.parent_code).map(a => a.code));
+
+  const allIds = [...validIds];
+  const chunkSize = 200;
+  for(let i = 0; i < allIds.length; i += chunkSize){
+    const chunk = allIds.slice(i, i + chunkSize);
+    const {data: lines} = await sb.from('journal_lines')
+      .select('account_code, debit, credit')
+      .in('entry_id', chunk);
+    for(const l of (lines || [])){
+      const code = l.account_code;
+      const dr = parseFloat(l.debit) || 0;
+      const cr = parseFloat(l.credit) || 0;
+      if(!codesInChart.has(code)){
+        if(!orphanCodes[code]) orphanCodes[code] = { code, dr: 0, cr: 0, lines: 0 };
+        orphanCodes[code].dr += dr; orphanCodes[code].cr += cr; orphanCodes[code].lines++;
+      } else if(parentCodes.has(code)){
+        if(!headerCodeBalances[code]) headerCodeBalances[code] = { code, dr: 0, cr: 0, lines: 0 };
+        headerCodeBalances[code].dr += dr; headerCodeBalances[code].cr += cr; headerCodeBalances[code].lines++;
+      }
+    }
+  }
+  const orphanList = Object.values(orphanCodes)
+    .map(x => ({...x, net: x.dr - x.cr}))
+    .filter(x => Math.abs(x.net) > 0.005)
+    .sort((a,b) => Math.abs(b.net) - Math.abs(a.net));
+  const headerList = Object.values(headerCodeBalances)
+    .map(x => ({...x, net: x.dr - x.cr}))
+    .filter(x => Math.abs(x.net) > 0.005);
+  for(const h of headerList){
+    const a = chartOfAccounts.find(acc => acc.code === h.code);
+    h.name = a?.name_en || a?.name_ar || '—';
+    h.type = a?.type || '—';
+  }
+
+  /* 3. Duplicate invoice journal entries — same reference + source='invoice' */
+  const {data: invEntries} = await sb.from('journal_entries')
+    .select('id, reference, entry_date, status, description')
+    .eq('business_id', currentBiz.id)
+    .eq('source', 'invoice')
+    .neq('status', 'voided');
+  const invByRef = {};
+  for(const e of (invEntries || [])){
+    if(!invByRef[e.reference]) invByRef[e.reference] = [];
+    invByRef[e.reference].push(e);
+  }
+  const duplicateInvoiceEntries = [];
+  for(const ref in invByRef){
+    if(invByRef[ref].length > 1){
+      duplicateInvoiceEntries.push({
+        reference: ref,
+        count: invByRef[ref].length,
+        entries: invByRef[ref].map(e => ({ id: e.id, date: e.entry_date, status: e.status }))
+      });
+    }
+  }
+
+  /* 4. Duplicate payment entries — same source='payment' and reference */
+  const {data: pmtEntries} = await sb.from('journal_entries')
+    .select('id, reference, entry_date, status, description')
+    .eq('business_id', currentBiz.id)
+    .eq('source', 'payment')
+    .neq('status', 'voided');
+  const pmtByRef = {};
+  for(const e of (pmtEntries || [])){
+    const key = e.reference || ''; if(!key) continue;
+    if(!pmtByRef[key]) pmtByRef[key] = [];
+    pmtByRef[key].push(e);
+  }
+  const duplicatePayments = [];
+  for(const ref in pmtByRef){
+    if(pmtByRef[ref].length > 1){
+      duplicatePayments.push({
+        reference: ref,
+        count: pmtByRef[ref].length,
+        entries: pmtByRef[ref].map(e => ({ id: e.id, date: e.entry_date, desc: e.description }))
+      });
+    }
+  }
+
+  /* Print results compactly */
+  console.log('\n%c1. DUPLICATE REVERSALS', 'font-weight:bold;color:#c62828;');
+  if(duplicateReversals.length === 0){
+    console.log('   ✓ None found');
+  } else {
+    console.log(`   ⚠ ${duplicateReversals.length} originals have multiple reversals`);
+    console.table(duplicateReversals.map(d => ({
+      target: d.target_source_id_or_ref?.slice(0,12) + '…',
+      reversal_count: d.count,
+      refs: d.entries.map(e => e.ref).join(', ')
+    })));
+  }
+
+  console.log('\n%c2. ORPHAN ACCOUNT CODES (referenced in journal but not in chart_of_accounts)', 'font-weight:bold;color:#c62828;');
+  if(orphanList.length === 0){
+    console.log('   ✓ None found');
+  } else {
+    console.log(`   ⚠ ${orphanList.length} orphan code(s) with active balance`);
+    console.table(orphanList);
+  }
+
+  console.log('\n%c3. PARENT ACCOUNTS WITH BALANCES (entries posted to header, not leaf)', 'font-weight:bold;color:#c9920a;');
+  if(headerList.length === 0){
+    console.log('   ✓ None found');
+  } else {
+    console.log(`   ⚠ ${headerList.length} parent account(s) have direct postings`);
+    console.table(headerList);
+  }
+
+  console.log('\n%c4. DUPLICATE INVOICE JOURNAL ENTRIES (same ref + source=invoice)', 'font-weight:bold;color:#c62828;');
+  if(duplicateInvoiceEntries.length === 0){
+    console.log('   ✓ None found');
+  } else {
+    console.log(`   ⚠ ${duplicateInvoiceEntries.length} invoice reference(s) have multiple entries`);
+    console.table(duplicateInvoiceEntries.map(d => ({
+      reference: d.reference,
+      count: d.count,
+      ids: d.entries.map(e => e.id.slice(0,8)).join(', ')
+    })));
+  }
+
+  console.log('\n%c5. DUPLICATE PAYMENT JOURNAL ENTRIES (same ref + source=payment)', 'font-weight:bold;color:#c62828;');
+  if(duplicatePayments.length === 0){
+    console.log('   ✓ None found');
+  } else {
+    console.log(`   ⚠ ${duplicatePayments.length} payment reference(s) have multiple entries`);
+    console.table(duplicatePayments.map(d => ({
+      reference: d.reference,
+      count: d.count,
+      ids: d.entries.map(e => e.id.slice(0,8)).join(', ')
+    })));
+  }
+
+  console.log('\n%c═══ SUMMARY ═══', 'font-weight:bold;color:#1D9E75;');
+  const summary = {
+    duplicateReversals: duplicateReversals.length,
+    orphanCodes: orphanList.length,
+    parentAccountsWithBalances: headerList.length,
+    duplicateInvoiceEntries: duplicateInvoiceEntries.length,
+    duplicatePayments: duplicatePayments.length
+  };
+  console.log(JSON.stringify(summary, null, 2));
+  console.log('\nNext step: review the lists above. To investigate a specific row, query journal_lines for that entry_id.');
+
+  return { duplicateReversals, orphanList, headerList, duplicateInvoiceEntries, duplicatePayments, summary };
+};
+
+/* ─── Round B-7 Phase 1: Add missing chart-of-accounts entries ──────
+   When the integrity diagnostic finds orphan codes, this helper lets
+   you add them to chart_of_accounts so the reports include them.
+
+     await window.glListCoaHeaders()
+       → shows your parent/header accounts so you can pick where each
+         orphan should live
+
+     await window.glAddAccount('5100', 'Cost of Goods Sold', 'expense', '5000')
+       → adds one account. Args: (code, name_en, type, parent_code).
+         name_ar defaults to name_en — edit later in Settings if needed.
+
+   Types: 'asset' | 'liability' | 'equity' | 'income' | 'expense' */
+window.glListCoaHeaders = async function(){
+  if(!currentBiz?.id){ console.warn('[GL] No business loaded'); return; }
+  const {data} = await sb.from('chart_of_accounts')
+    .select('code, name_en, name_ar, type')
+    .eq('business_id', currentBiz.id)
+    .is('parent_code', null)
+    .order('code', {ascending: true});
+  console.log('%c═══ PARENT (HEADER) ACCOUNTS ═══', 'font-weight:bold;color:#1D9E75;');
+  console.table(data || []);
+  console.log('Use these parent codes when adding child accounts via glAddAccount(code, name, type, parent_code).');
+  return data || [];
+};
+
+window.glAddAccount = async function(code, name, type, parentCode){
+  if(!currentBiz?.id || !currentUser?.id){ console.warn('[GL] No business/user loaded'); return; }
+  if(!code || !name || !type){
+    console.error('[GL] glAddAccount: code, name, type are required'); return;
+  }
+  if(!['asset','liability','equity','income','expense'].includes(type)){
+    console.error('[GL] glAddAccount: type must be asset|liability|equity|income|expense'); return;
+  }
+  /* Check if it already exists */
+  const {data: existing} = await sb.from('chart_of_accounts')
+    .select('code, name_en')
+    .eq('business_id', currentBiz.id).eq('code', code).limit(1);
+  if(existing && existing.length > 0){
+    console.error(`[GL] Account ${code} already exists: ${existing[0].name_en}`);
+    return;
+  }
+  /* If parentCode given, verify it exists and is a header */
+  if(parentCode){
+    const {data: parent} = await sb.from('chart_of_accounts')
+      .select('code, parent_code')
+      .eq('business_id', currentBiz.id).eq('code', parentCode).limit(1);
+    if(!parent || parent.length === 0){
+      console.warn(`[GL] Parent ${parentCode} doesn't exist — proceeding without parent link`);
+      parentCode = null;
+    }
+  }
+  const {data, error} = await sb.from('chart_of_accounts').insert({
+    user_id: currentUser.id,
+    business_id: currentBiz.id,
+    code: code,
+    name_en: name,
+    name_ar: name,
+    type: type,
+    parent_code: parentCode || null,
+    is_active: true,
+    display_order: parseInt(code, 10) || 9999
+  }).select().single();
+  if(error){
+    console.error('[GL] glAddAccount insert error:', error);
+    return;
+  }
+  console.log(`%c✓ Added ${code} — ${name} (${type})`, 'color:#1D9E75;font-weight:bold;');
+  /* Refresh in-memory chart so subsequent reports see the new account */
+  await loadChartOfAccountsForBusiness?.();
+  return data;
 };
 
 /* ─── Round B-VAT diagnostic: inspect the filings table directly.

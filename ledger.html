@@ -1299,6 +1299,33 @@ function openNewEntry() {
 
 /* ── REVERSE / ADJUST JOURNAL ENTRY ── */
 async function reverseJournalEntry(entryId, ref) {
+  /* Round B-7 Phase 1: IDEMPOTENCY CHECK.
+     Bug discovered May 2026: clicking "Reverse" multiple times on the
+     same entry created multiple reversal entries. The Bank ledger showed
+     up to 4 reversals of one expense payment. Block re-reversal. */
+  const {data: existingReversals} = await sb.from('journal_entries')
+    .select('id, reference, entry_date')
+    .eq('business_id', currentBiz?.id || '')
+    .eq('source', 'expense_reversal')
+    .eq('reference', 'REV-' + ref)
+    .neq('status', 'voided')
+    .limit(1);
+  if(existingReversals && existingReversals.length > 0){
+    const ex = existingReversals[0];
+    notify(L==='ar'
+      ? `هذا القيد عُكس سابقاً بتاريخ ${ex.entry_date} (${ex.reference}). لا يمكن عكسه مرة أخرى.`
+      : `Already reversed on ${ex.entry_date} (${ex.reference}). Cannot reverse again.`, 'r');
+    return;
+  }
+  /* Also: if the original entry's status is already 'reversed', block.
+     Belt-and-suspenders since the entry should be marked at the end of
+     this function but might not be if a previous run failed mid-way. */
+  const entryToReverse = entries.find(e => e.id === entryId);
+  if(entryToReverse && entryToReverse.status === 'reversed'){
+    notify(L==='ar' ? 'القيد عُكس بالفعل' : 'Entry already reversed', 'r');
+    return;
+  }
+
   if(!confirm(L==='ar'
     ?`عكس القيد ${ref}؟ سيتم ترحيل قيد عكسي متوازن لإلغاء هذا القيد.`
     :`Reverse entry ${ref}? A balanced reversing entry will be posted.`)) return;
