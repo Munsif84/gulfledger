@@ -1979,6 +1979,25 @@ function setText(id, v){ const el = document.getElementById(id); if(el) el.textC
 function fmt(n){ return (parseFloat(n) || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2}); }
 function fmtInt(n){ return (parseInt(n) || 0).toLocaleString('en-US'); }
 function escHTML(s){ if(s == null) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); }
+
+/* Round B-VAT timezone fix: local-safe ISO date formatter.
+   Using `d.toISOString().slice(0,10)` is UTC-based and shifts dates back
+   by 1 day in positive timezones (e.g. Saudi UTC+3): new Date(2025,0,1)
+   is local Jan 1 at midnight, which is UTC Dec 31 at 21:00 — toISOString
+   then returns "2024-12-31". This helper uses LOCAL getters consistently
+   so the saved date matches what the user picked. Use this everywhere a
+   Date object built from new Date(y, m, d) needs to be persisted or
+   compared as a YYYY-MM-DD string. */
+function isoLocal(d){
+  if(!d) return null;
+  const dt = (d instanceof Date) ? d : new Date(d);
+  if(isNaN(dt.getTime())) return null;
+  const y = dt.getFullYear();
+  const m = String(dt.getMonth() + 1).padStart(2, '0');
+  const day = String(dt.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
+
 function getNameAr(o){ return o?.name_ar || o?.name || ''; }
 function getNameEn(o){ return o?.name_en || ''; }
 function displayName(o){
@@ -2305,8 +2324,7 @@ function periodRange(name){
     from = new Date(2000, 0, 1);
     to = new Date(y+10, 11, 31);
   }
-  const iso = d => d.toISOString().slice(0,10);
-  return [iso(from), iso(to)];
+  return [isoLocal(from), isoLocal(to)];
 }
 
 function previousPeriodRange(name){
@@ -2328,8 +2346,7 @@ function previousPeriodRange(name){
   } else {
     return [null, null];
   }
-  const iso = d => d.toISOString().slice(0,10);
-  return [iso(from), iso(to)];
+  return [isoLocal(from), isoLocal(to)];
 }
 
 /* Estimate progress through a period — returns "12 of 90 days" or similar */
@@ -5001,6 +5018,57 @@ window.glDeleteFiling = async function(filingId){
   console.log(`[GL diag] Deleted filing ${filingId}. Reload to refresh UI.`);
 };
 
+/* Round B-VAT cleanup: identify filings saved with the timezone-shifted
+   dates from the earlier bug. A correctly-saved annual filing for a
+   calendar-fiscal-year business should have period_to ending on Dec 31
+   (e.g. "2024-12-31"). The bug saved them as "YYYY-12-30" with period_from
+   in the PREVIOUS calendar year. This helper finds those rows. */
+window.glFindCorruptedFilings = async function(){
+  if(!currentBiz?.id){ console.warn('[GL diag] No business loaded'); return []; }
+  const {data, error} = await sb.from('filings')
+    .select('id, filing_type, status, period_from, period_to, filed_at')
+    .eq('business_id', currentBiz.id);
+  if(error){ console.error(error); return []; }
+  /* Heuristic: detect rows where period_from is Dec 31 OR period_to ends in -12-30.
+     Both are signatures of the timezone shift for calendar fiscal years.
+     For VAT quarters: a quarter should end on the LAST day of mar/jun/sep/dec
+     (31/30/30/31). Bug-shifted rows end on the day BEFORE that. */
+  const corrupted = (data || []).filter(f => {
+    const from = f.period_from || '';
+    const to = f.period_to || '';
+    /* Annual / Qawaem: period_from Dec 31 is a strong signal (bug-shifted) */
+    if((f.filing_type === 'annual' || f.filing_type === 'qawaem') && from.endsWith('-12-31') && to.endsWith('-12-30')){
+      return true;
+    }
+    /* VAT quarter: ends on 30 Mar / 29 Jun / 29 Sep / 30 Dec instead of 31/30/30/31 */
+    if(f.filing_type === 'vat'){
+      const badQuarterEnds = ['-03-30', '-06-29', '-09-29', '-12-30'];
+      if(badQuarterEnds.some(b => to.endsWith(b))) return true;
+    }
+    return false;
+  });
+  console.log(`[GL diag] Found ${corrupted.length} filings with timezone-corrupted dates:`);
+  console.table(corrupted);
+  if(corrupted.length > 0){
+    console.log('To delete all corrupted rows: await window.glCleanupCorruptedFilings()');
+  }
+  return corrupted;
+};
+
+window.glCleanupCorruptedFilings = async function(){
+  const corrupted = await window.glFindCorruptedFilings();
+  if(corrupted.length === 0){ console.log('[GL] Nothing to clean.'); return; }
+  if(!confirm(`Delete ${corrupted.length} timezone-corrupted filing(s)? You'll need to re-file these periods (which is the point — the new dates will be correct).`)){
+    console.log('[GL] Cancelled.');
+    return;
+  }
+  const ids = corrupted.map(r => r.id);
+  const {error} = await sb.from('filings').delete().in('id', ids);
+  if(error){ console.error('[GL] cleanup failed:', error); return; }
+  if(window.gl?.filings) window.gl.filings.invalidateCache(currentBiz.id);
+  console.log(`[GL] Deleted ${ids.length} corrupted rows. Now go re-file those periods with the fixed code.`);
+};
+
 /* ─── Drill-down to ledger sub-tab filtered by account ─── */
 function drillToLedger(accountCode){
   switchSubtab('ledger');
@@ -5432,7 +5500,7 @@ function vatCandidatePeriods(){
   const now = new Date();
   const y = now.getFullYear();
   const m = now.getMonth();
-  const fmt = d => d.toISOString().slice(0,10);
+  const fmt = d => isoLocal(d);
   const monthAr = ['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
   const monthEn = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
 
@@ -6536,11 +6604,10 @@ function annDefaultFiscalYear(){
   const startDate = new Date(prevFyYear, mm-1, dd);
   const endDate = new Date(prevFyYear+1, mm-1, dd);
   endDate.setDate(endDate.getDate() - 1);
-  const iso = d => d.toISOString().slice(0,10);
   /* Label: just use end-year if calendar */
   const isCalendar = (mm === 1 && dd === 1);
-  const label = isCalendar ? String(prevFyYear) : `${iso(startDate)} → ${iso(endDate)}`;
-  return { year: prevFyYear, startISO: iso(startDate), endISO: iso(endDate), label, isCalendar };
+  const label = isCalendar ? String(prevFyYear) : `${isoLocal(startDate)} → ${isoLocal(endDate)}`;
+  return { year: prevFyYear, startISO: isoLocal(startDate), endISO: isoLocal(endDate), label, isCalendar };
 }
 
 async function annLoadOwnership(){
@@ -6646,13 +6713,12 @@ async function renderAnnStep1(){
     const startDate = new Date(startYear, mm-1, dd);
     const endDate = new Date(startYear+1, mm-1, dd);
     endDate.setDate(endDate.getDate() - 1);
-    const iso = d => d.toISOString().slice(0,10);
     const isCalendar = (mm === 1 && dd === 1);
     candidates.push({
       year: startYear,
-      startISO: iso(startDate),
-      endISO: iso(endDate),
-      label: isCalendar ? String(startYear) : `${iso(startDate)} → ${iso(endDate)}`,
+      startISO: isoLocal(startDate),
+      endISO: isoLocal(endDate),
+      label: isCalendar ? String(startYear) : `${isoLocal(startDate)} → ${isoLocal(endDate)}`,
       isCalendar,
       sub: off === 1 ? (ar?'السنة السابقة (الأكثر شيوعاً)':'Previous fiscal year (most common)')
          : off === 2 ? (ar?'قبل سنتين':'Two years ago')
@@ -6780,11 +6846,10 @@ function annPickFiscalYear(year){
   const startDate = new Date(year, mm-1, dd);
   const endDate = new Date(year+1, mm-1, dd);
   endDate.setDate(endDate.getDate() - 1);
-  const iso = d => d.toISOString().slice(0,10);
   const isCalendar = (mm === 1 && dd === 1);
   annWizardState.fy = {
-    year, startISO: iso(startDate), endISO: iso(endDate),
-    label: isCalendar ? String(year) : `${iso(startDate)} → ${iso(endDate)}`,
+    year, startISO: isoLocal(startDate), endISO: isoLocal(endDate),
+    label: isCalendar ? String(year) : `${isoLocal(startDate)} → ${isoLocal(endDate)}`,
     isCalendar
   };
   saveAnnDraft();
