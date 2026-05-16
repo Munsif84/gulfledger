@@ -1540,6 +1540,15 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
           <span class="meta-label" data-ar="أمر الشراء · PO No. (اختياري)" data-en="PO No. · أمر الشراء (optional)">أمر الشراء · PO No. (اختياري)</span>
           <input type="text" class="meta-input" id="f-po-num" placeholder="PO-2026-001" dir="ltr">
         </div>
+        <!-- Print format picker — B2C only. B2B is always A4 Tax (locked, ZATCA). -->
+        <div class="meta-cell" id="format-cell" style="display:none;">
+          <span class="meta-label" data-ar="شكل الطباعة · Print Format" data-en="Print Format · شكل الطباعة">شكل الطباعة · Print Format</span>
+          <select class="meta-input" id="f-format" onchange="this.dataset.userTouched='1'">
+            <option value="a4_quick" data-ar="فاتورة مبسطة A4" data-en="A4 Simplified">A4 Simplified · مبسطة A4</option>
+            <option value="thermal_80" data-ar="حراري 80mm" data-en="Thermal 80mm">Thermal 80mm · حراري</option>
+            <option value="thermal_58" data-ar="حراري 58mm" data-en="Thermal 58mm">Thermal 58mm · حراري</option>
+          </select>
+        </div>
       </div>
 
       <!-- ZATCA banner (Tax mode only) -->
@@ -4362,6 +4371,10 @@ async function openInvoiceModal(){
   renderItems();
   renderTotals();
 
+  /* Reset format dropdown user-touched flag so biz default re-applies for new invoice */
+  const fmtEl = document.getElementById('f-format');
+  if(fmtEl) delete fmtEl.dataset.userTouched;
+
   document.getElementById('invoice-modal').classList.add('show');
   document.body.style.overflow = 'hidden';
 }
@@ -4479,6 +4492,23 @@ function setInvType(type){
   meta.classList.remove('cols-3');
   document.getElementById('po-cell').style.display = isTax ? '' : 'none';
   document.getElementById('duedate-cell').style.display = isTax ? '' : 'none';
+  /* Print format picker: B2C only. Pre-select biz default on first show. */
+  const fmtCell = document.getElementById('format-cell');
+  if(fmtCell){
+    fmtCell.style.display = isTax ? 'none' : '';
+    if(!isTax){
+      const dropdown = document.getElementById('f-format');
+      if(dropdown && !dropdown.dataset.userTouched){
+        /* Only auto-fill if user hasn't manually picked yet (preserves their choice on type toggle) */
+        const cached = (function(){
+          try{ return localStorage.getItem('gl_default_b2c_format'); }catch(e){ return null; }
+        })();
+        const def = cached || currentBiz?.default_b2c_format || 'a4_quick';
+        const valid = ['a4_quick','thermal_80','thermal_58'];
+        dropdown.value = valid.includes(def) ? def : 'a4_quick';
+      }
+    }
+  }
 
   /* Round 4h.2.1: Mark-as-paid block — visible only for B2C (Quick) invoices.
      B2B invoices are typically credit; payment recorded separately when received. */
@@ -4635,6 +4665,30 @@ function getEffectiveInvoiceType(){
     return 'export';
   }
   return formType;
+}
+
+/* Returns the print format that should be stored on the invoice record.
+   B2B and Export → 'a4_tax' (locked, ZATCA-compliant).
+   B2C → user choice from #f-format dropdown if present, else biz default, else 'a4_quick'. */
+function getEffectiveInvoiceFormat(){
+  const type = getEffectiveInvoiceType();
+  if(type === 'b2b' || type === 'export'){
+    /* Tax invoices are always A4 Tax. No exceptions — needed for full buyer block & ZATCA. */
+    return 'a4_tax';
+  }
+  /* B2C: prefer the per-invoice dropdown selection */
+  const dropdown = document.getElementById('f-format');
+  const fromDropdown = dropdown?.value;
+  const valid = ['a4_quick','thermal_80','thermal_58'];
+  if(fromDropdown && valid.includes(fromDropdown)) return fromDropdown;
+  /* Fallback chain: localStorage cache → biz column → 'a4_quick' */
+  const cached = (function(){
+    try{ return localStorage.getItem('gl_default_b2c_format'); }catch(e){ return null; }
+  })();
+  if(cached && valid.includes(cached)) return cached;
+  const bizDefault = currentBiz?.default_b2c_format;
+  if(bizDefault && valid.includes(bizDefault)) return bizDefault;
+  return 'a4_quick';
 }
 
 /* Country dropdown change handler — show/hide the warning hint. */
@@ -4992,6 +5046,7 @@ async function saveDraft(){
     business_id: currentBiz?.id,
     invoice_number: v('f-invnum'),
     invoice_type: getEffectiveInvoiceType(),
+    invoice_format: getEffectiveInvoiceFormat(),
     issue_date: v('f-date') || todayISO(),
     due_date: v('f-duedate') || null,
     buyer_name: selectedCustomer ? custNameAr(selectedCustomer) : '',
@@ -5113,6 +5168,7 @@ async function previewInvoice(){
     business_id: currentBiz?.id,
     invoice_number: draftNumber,
     invoice_type: getEffectiveInvoiceType(),
+    invoice_format: getEffectiveInvoiceFormat(),
     issue_date: v('f-date') || todayISO(),
     due_date: v('f-duedate') || null,
     buyer_name: selectedCustomer ? custNameAr(selectedCustomer) : '',
@@ -5281,6 +5337,7 @@ async function generateInvoice(){
     business_id: currentBiz?.id,
     invoice_number: v('f-invnum'),
     invoice_type: getEffectiveInvoiceType(),
+    invoice_format: getEffectiveInvoiceFormat(),
     issue_date: v('f-date') || todayISO(),
     due_date: v('f-duedate') || null,
     buyer_name: selectedCustomer ? custNameAr(selectedCustomer) : '',

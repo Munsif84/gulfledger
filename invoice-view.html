@@ -1003,12 +1003,26 @@ function applyFormat(fmt){
   const labels = {a4_tax:'A4 Tax', a4_quick:'A4 Simplified', thermal_80:'Thermal 80mm', thermal_58:'Thermal 58mm'};
   const lbl = document.getElementById('current-format-label');
   if(lbl) lbl.textContent = labels[fmt] || labels.a4_tax;
+
+  /* Filter dropdown options based on invoice type:
+     - B2B / Export → A4 Tax only (locked, no thermal/simplified)
+     - B2C          → 3 B2C options only (a4_quick, thermal_80, thermal_58) */
+  const invType = currentInvoice?.invoice_type;
+  const isTaxInvoice = (invType === 'b2b' || invType === 'export');
   document.querySelectorAll('.format-picker-option').forEach(o => {
-    const isActive = o.dataset.fmt === fmt;
-    o.classList.toggle('active', isActive);
+    const optFmt = o.dataset.fmt;
+    const isActive = optFmt === fmt;
+    /* Visibility: B2B sees only a4_tax. B2C sees only the 3 B2C options. */
+    const allowed = isTaxInvoice ? (optFmt === 'a4_tax') : (optFmt !== 'a4_tax');
+    o.style.display = allowed ? '' : 'none';
+    o.classList.toggle('active', isActive && allowed);
     const check = o.querySelector('.fmt-check');
-    if(check) check.textContent = isActive ? '✓' : '';
+    if(check) check.textContent = (isActive && allowed) ? '✓' : '';
   });
+  /* If only one option remains for this invoice, hide the dropdown caret to signal it's locked */
+  const pickerBtn = document.querySelector('.format-picker-btn .caret');
+  if(pickerBtn) pickerBtn.style.visibility = isTaxInvoice ? 'hidden' : '';
+
   /* Update URL to reflect override (without reload) so sharing the URL preserves the format */
   try{
     const url = new URL(window.location.href);
@@ -1221,14 +1235,35 @@ async function init(){
       document.documentElement.style.setProperty('--blue', currentBiz.brand_color);
     }
 
-    /* Detect & apply invoice format: URL param > biz default > 'a4_tax' fallback */
+    /* Detect & apply invoice format.
+       v2 (post-migration) resolution order:
+       1. URL ?format= override (per-print only, never persisted) — for one-off reprints
+       2. invoice.invoice_format from the record itself (set at creation time)
+       3. Legacy fallback derived from invoice_type:
+            b2b / export → 'a4_tax' (always — ZATCA compliance)
+            b2c          → biz.default_b2c_format → 'a4_quick'
+       This means changing biz settings NEVER changes how old invoices look. */
+    const valid = ['a4_tax','a4_quick','thermal_80','thermal_58'];
     const urlFmt = params.get('format');
-    const bizFmt = currentBiz?.default_invoice_format;
-    const detectedFmt = (urlFmt && ['a4_tax','a4_quick','thermal_80','thermal_58'].includes(urlFmt))
-                        ? urlFmt
-                        : (bizFmt || 'a4_tax');
+    const recordFmt = currentInvoice?.invoice_format;
+    const invType = currentInvoice?.invoice_type;
+    let detectedFmt;
+    if(urlFmt && valid.includes(urlFmt)){
+      detectedFmt = urlFmt;
+    } else if(recordFmt && valid.includes(recordFmt)){
+      /* Invoice has its own format — use it. Tax invoices always saved as a4_tax. */
+      detectedFmt = recordFmt;
+    } else if(invType === 'b2b' || invType === 'export'){
+      /* Legacy B2B/export with no stored format — always A4 Tax */
+      detectedFmt = 'a4_tax';
+    } else {
+      /* Legacy B2C with no stored format — use biz preference or a4_quick */
+      const bizB2c = currentBiz?.default_b2c_format;
+      detectedFmt = (bizB2c && ['a4_quick','thermal_80','thermal_58'].includes(bizB2c)) ? bizB2c : 'a4_quick';
+    }
     applyFormat(detectedFmt);
-    console.log('[GL invoice-view] format:', detectedFmt, '(url:', urlFmt, ', biz:', bizFmt, ')');
+    console.log('[GL invoice-view] format:', detectedFmt,
+                '(url:', urlFmt, ', record:', recordFmt, ', type:', invType, ')');
 
     /* Render the invoice */
     console.log('[GL invoice-view] Rendering...');
