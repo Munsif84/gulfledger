@@ -18,9 +18,27 @@
 <script>
 /* Apply language before render — prevents flash */
 (function(){
-  var lang=localStorage.getItem('gl_lang')||'ar';
-  document.documentElement.setAttribute('lang',lang);
-  document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
+  var lang = localStorage.getItem('gl_lang') || 'ar';
+  document.documentElement.setAttribute('lang', lang);
+  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+  /* Swap all data-ar/data-en text BEFORE first paint of body content.
+     Runs as soon as DOMContentLoaded fires, which is before page-init flows
+     call applyLang(). Eliminates the visible Arabic→English wipe on page nav. */
+  function swapLangText(){
+    try {
+      var els = document.querySelectorAll('[data-ar][data-en]');
+      var attr = 'data-' + lang;
+      for(var i = 0; i < els.length; i++){
+        var v = els[i].getAttribute(attr);
+        if(v != null) els[i].textContent = v;
+      }
+    } catch(e){ /* silent — page-init applyLang will retry */ }
+  }
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', swapLangText, {once:true});
+  } else {
+    swapLangText();
+  }
 })();
 
 /* Suppress visual jank when language/direction flips:

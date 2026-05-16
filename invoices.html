@@ -273,6 +273,24 @@
   var lang = localStorage.getItem('gl_lang') || 'ar';
   document.documentElement.setAttribute('lang', lang);
   document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+  /* Swap all data-ar/data-en text BEFORE first paint of body content.
+     Runs as soon as DOMContentLoaded fires, which is before page-init flows
+     call applyLang(). Eliminates the visible Arabic→English wipe on page nav. */
+  function swapLangText(){
+    try {
+      var els = document.querySelectorAll('[data-ar][data-en]');
+      var attr = 'data-' + lang;
+      for(var i = 0; i < els.length; i++){
+        var v = els[i].getAttribute(attr);
+        if(v != null) els[i].textContent = v;
+      }
+    } catch(e){ /* silent — page-init applyLang will retry */ }
+  }
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', swapLangText, {once:true});
+  } else {
+    swapLangText();
+  }
 })();
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -480,8 +498,8 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   border-radius:12px;
   padding:10px 0;
   position:sticky;
-  top:90px;
-  height:calc(100vh - 90px - 36px);
+  top:88px;
+  height:calc(100vh - 88px - 24px);
   overflow-y:auto;
   overflow-x:hidden;
 }
@@ -877,7 +895,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .payment-summary-row.amt{font-weight:700;color:var(--ink);font-family:'DM Mono',monospace;}
 
 /* ─── TOAST ─── */
-.toast{position:fixed;top:90px;left:50%;transform:translateX(-50%);padding:11px 22px;border-radius:8px;font-size:13px;z-index:10000;color:#fff;font-weight:600;font-family:inherit;text-align:center;max-width:90vw;box-shadow:0 8px 24px rgba(0,0,0,0.15);animation:toastIn .3s;}
+.toast{position:fixed;top:88px;left:50%;transform:translateX(-50%);padding:11px 22px;border-radius:8px;font-size:13px;z-index:10000;color:#fff;font-weight:600;font-family:inherit;text-align:center;max-width:90vw;box-shadow:0 8px 24px rgba(0,0,0,0.15);animation:toastIn .3s;}
 @keyframes toastIn{from{transform:translate(-50%,-20px);opacity:0}to{transform:translate(-50%,0);opacity:1}}
 .toast.green{background:var(--green);}
 .toast.red{background:var(--red);}
@@ -1193,6 +1211,16 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:'DM Mo
   .nav-biz { max-width: 130px; }
 }
 
+
+/* Toolbar row stability — Batch A fix.
+   Prevents filter dropdowns + buttons from wrapping awkwardly when filter
+   content (e.g. period selection) changes width.
+   - .filter-select stays its content size, never shrinks below.
+   - .search-wrap shrinks first when toolbar is constrained.
+   - whole row wraps together only when truly out of room. */
+.toolbar .filter-select{flex-shrink:0;}
+.toolbar .search-wrap{min-width:0;}
+.toolbar-left{min-width:0;}
 </style>
 </head>
 <body>
