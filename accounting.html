@@ -3461,6 +3461,65 @@ const COA_MIGRATION_MAP = Object.freeze({
   '7900': '8700'   /* Other Expenses → Miscellaneous Operating */
 });
 
+/* ─── Subcategory inference (legacy chart safety) ────────────────────────
+   Used by P&L renderer, Zakat report, Qawaem report to bucket accounts
+   into the right P&L section (cost_of_sales / opex_selling / opex_admin /
+   etc.). For accounts with explicit subcategory column → use it. For SOCPA
+   accounts → look up the SOCPA_CHART_OF_ACCOUNTS definition. For legacy
+   accounts → use name-keyword matching FIRST, then code-prefix fallback.
+
+   Code-prefix alone is unreliable for legacy charts because users (and
+   older default seed functions) often put admin items like Rent, Utilities,
+   Office Supplies under 5xxx codes — these are NOT cost_of_sales.
+   Misclassifying them inflates Gross Profit / Gross Margin artificially. */
+function inferAccountSubcategory(acct){
+  if(!acct) return null;
+  if(acct.subcategory) return acct.subcategory;
+  const socpa = SOCPA_CHART_OF_ACCOUNTS.find(s => s.code === acct.code);
+  if(socpa) return socpa.subcategory;
+
+  const c = acct.code || '';
+  const nm = ((acct.name_en || '') + ' ' + (acct.name_ar || '')).toLowerCase();
+
+  if(acct.type === 'income'){
+    if(/return|allowance|refund|مرتجع|مرتجعات/.test(nm)) return 'contra_revenue';
+    if(/interest|gain|misc|other|أخرى|فوائد|أرباح/.test(nm) && !/sales|revenue|إيراد|مبيع/.test(nm)) return 'other_revenue';
+    if(c.startsWith('43')) return 'other_revenue';
+    return 'operating_revenue';
+  }
+  if(acct.type === 'expense'){
+    /* True COGS — must mention cost of goods/sales or specific COGS components */
+    if(/cogs|cost of goods|cost of sales|materials|raw material|direct labor|freight in|inventory adjustment|تكلفة البضاعة|تكلفة المبيعات|مواد خام|أجور مباشرة|شحن وارد/.test(nm)){
+      return 'cost_of_sales';
+    }
+    /* Finance costs */
+    if(/interest expense|finance cost|loan interest|فوائد قرض|مصاريف تمويل|تكلفة تمويل/.test(nm)) return 'finance_cost';
+    if(/bank charge|bank fee|bank commission|عمولة بنك|رسوم بنك|عمولات بنكية/.test(nm)) return 'finance_cost';
+    /* Tax expenses */
+    if(/zakat|income tax|withholding|زكاة|ضريبة دخل|ضريبة استقطاع/.test(nm)) return 'tax_expense';
+    /* Non-deductible / Other */
+    if(/entertainment|donation|penalty|fine|gift|ضيافة|ترفيه|تبرع|غرامة|مخالفة|هدية/.test(nm)) return 'non_deductible_expense';
+    /* Selling */
+    if(/marketing|advertising|sales commission|sales travel|تسويق|إعلان|عمولة مبيعات|سفر مبيعات/.test(nm)) return 'opex_selling';
+    /* Admin (most things) */
+    if(/rent|utilities|electricity|water|telecom|internet|insurance|salary|salaries|wages|payroll|gosi|admin|office|stationery|supplies|legal|professional|consulting|accounting|audit|depreciation|maintenance|repair|government fee|govt|vehicle|fuel|transport|travel|إيجار|مرافق|كهرباء|ماء|اتصال|إنترنت|تأمين|راتب|رواتب|أجور|تأمينات|قرطاسية|مكتب|قانون|محام|محاسب|تدقيق|إهلاك|صيانة|إصلاح|حكومي|رسوم حكومية|مركبة|سيارة|وقود|بنزين|نقل|مواصلات|سفر/.test(nm)){
+      return 'opex_admin';
+    }
+
+    /* Code-range fallback — but 5xxx is intentionally NOT cost_of_sales
+       because legacy charts have admin items there. Force user to name
+       something as COGS explicitly to land in cost_of_sales. */
+    if(c.startsWith('5')) return 'opex_admin';
+    if(c.startsWith('6')) return 'opex_selling';
+    if(c.startsWith('7')) return 'opex_admin';
+    if(c.startsWith('8')) return 'opex_other';
+    if(c.startsWith('91')) return 'finance_cost';
+    if(c.startsWith('92')) return 'tax_expense';
+    return 'opex_admin';
+  }
+  return null;
+}
+
 /* Lookup account by code from chart_of_accounts (fast O(1) via map) */
 const _accountMap = {};
 function rebuildAccountMap(){
@@ -4617,29 +4676,9 @@ async function renderPL(period){
     }
   }
 
-  /* Subcategory inference for legacy charts without a subcategory column */
-  const inferSubcategory = (acct) => {
-    if(acct.subcategory) return acct.subcategory;
-    /* Try SOCPA chart lookup */
-    const socpa = SOCPA_CHART_OF_ACCOUNTS.find(s => s.code === acct.code);
-    if(socpa) return socpa.subcategory;
-    /* Heuristics by code range */
-    const c = acct.code;
-    if(acct.type === 'income'){
-      if(c.startsWith('43')) return 'other_revenue';
-      return 'operating_revenue';
-    }
-    if(acct.type === 'expense'){
-      if(c.startsWith('5')) return 'cost_of_sales';
-      if(c.startsWith('6')) return 'opex_selling';
-      if(c.startsWith('7')) return 'opex_admin';
-      if(c.startsWith('8')) return 'opex_other';
-      if(c.startsWith('91')) return 'finance_cost';
-      if(c.startsWith('92')) return 'tax_expense';
-      return 'opex_admin';   /* safe default */
-    }
-    return null;
-  };
+  /* Subcategory inference — use the shared module-level helper which
+     applies name-keyword matching before code-prefix fallback. */
+  const inferSubcategory = inferAccountSubcategory;
 
   /* Get leaf accounts (those with a parent) — only these have postings */
   const leafAccts = chartOfAccounts.filter(a => a.parent_code).sort((a,b)=>a.code.localeCompare(b.code));
@@ -7178,28 +7217,10 @@ async function computeZakatComplianceReport(fyYear){
   let cogs = 0, opexSelling = 0, opexAdmin = 0, opexOther = 0;
   let financeCost = 0, taxExpense = 0, otherIncome = 0, contraRevenue = 0;
   rebuildAccountMap();
-  /* Subcategory inferer for legacy charts */
-  const inferSC = (acct) => {
-    if(acct.subcategory) return acct.subcategory;
-    const socpa = SOCPA_CHART_OF_ACCOUNTS.find(s => s.code === acct.code);
-    if(socpa) return socpa.subcategory;
-    const c = acct.code;
-    if(acct.type === 'income'){
-      if(c.startsWith('43')) return 'other_revenue';
-      if(c.startsWith('419')) return 'contra_revenue';
-      return 'operating_revenue';
-    }
-    if(acct.type === 'expense'){
-      if(c.startsWith('5')) return 'cost_of_sales';
-      if(c.startsWith('6')) return 'opex_selling';
-      if(c.startsWith('7')) return 'opex_admin';
-      if(c.startsWith('8')) return 'opex_other';
-      if(c.startsWith('91')) return 'finance_cost';
-      if(c.startsWith('92')) return 'tax_expense';
-      return 'opex_admin';
-    }
-    return null;
-  };
+  /* Use shared helper which applies name-keyword matching before code prefix
+     fallback — protects against legacy 5xxx accounts that are actually admin
+     expenses (Rent, Utilities, etc.) wrongly inflating Gross Profit. */
+  const inferSC = inferAccountSubcategory;
   for(const a of chartOfAccounts){
     if(!a.parent_code) continue;
     const b = balances[a.code];
@@ -7354,27 +7375,8 @@ async function computeQawaemComplianceReport(fyYear){
   /* Round B-PL-Structure: subcategory breakdown */
   let cogs = 0, opexSelling = 0, opexAdmin = 0, opexOther = 0;
   let financeCost = 0, taxExpense = 0, otherIncome = 0, contraRevenue = 0;
-  const inferSC = (acct) => {
-    if(acct.subcategory) return acct.subcategory;
-    const socpa = SOCPA_CHART_OF_ACCOUNTS.find(s => s.code === acct.code);
-    if(socpa) return socpa.subcategory;
-    const c = acct.code;
-    if(acct.type === 'income'){
-      if(c.startsWith('43')) return 'other_revenue';
-      if(c.startsWith('419')) return 'contra_revenue';
-      return 'operating_revenue';
-    }
-    if(acct.type === 'expense'){
-      if(c.startsWith('5')) return 'cost_of_sales';
-      if(c.startsWith('6')) return 'opex_selling';
-      if(c.startsWith('7')) return 'opex_admin';
-      if(c.startsWith('8')) return 'opex_other';
-      if(c.startsWith('91')) return 'finance_cost';
-      if(c.startsWith('92')) return 'tax_expense';
-      return 'opex_admin';
-    }
-    return null;
-  };
+  /* Use shared helper — name-keyword matching for legacy chart safety */
+  const inferSC = inferAccountSubcategory;
   for(const a of chartOfAccounts){
     if(!a.parent_code) continue;
     const b = plBal[a.code];
