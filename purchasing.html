@@ -458,6 +458,15 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           <span class="icon">📋</span>
           <span data-ar="طلبات الشراء" data-en="Purchase Orders">طلبات الشراء</span>
         </button>
+        <!-- AP Round 2: Bills tab. Pulls from `expenses` table (the canonical bill record).
+             Provides discoverability for AP — users coming to "Purchasing" now find
+             a "Bills" tab next to "Purchase Orders" which is the natural mental model.
+             Editing happens in finance.html via the existing expense drawer. -->
+        <button class="sidebar-link" id="tab-bills" onclick="switchTab('bills')">
+          <span class="icon">💸</span>
+          <span data-ar="فواتير الموردين" data-en="Bills">فواتير الموردين</span>
+          <span class="count-badge" id="count-bills">0</span>
+        </button>
         <button class="sidebar-link" id="tab-imports" onclick="switchTab('imports')">
           <span class="icon">🌍</span>
           <span data-ar="الاستيراد والتصدير" data-en="Imports & Exports">الاستيراد والتصدير</span>
@@ -601,6 +610,64 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
       <div class="loading-state">
         <div class="loading-spinner">📋</div>
         <div data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════
+       PANE: BILLS (AP Round 2)
+       Lists supplier bills from the `expenses` table. The expenses table IS the
+       canonical AP record — it has supplier_id, due_date, payment_status,
+       receipt attachment, journal posting. Editing happens in finance.html
+       via the existing expense drawer (single source of truth — we don't build
+       a parallel editor here).
+  ════════════════════════════════════════════════ -->
+  <div id="pane-bills" style="display:none;">
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="label" data-ar="إجمالي الفواتير" data-en="Total Bills">إجمالي الفواتير</div>
+        <div class="value" id="stat-bills-total">0</div>
+        <div class="sub" data-ar="هذا العام" data-en="This year">هذا العام</div>
+      </div>
+      <div class="stat-card amber">
+        <div class="label" data-ar="المبلغ المستحق" data-en="Outstanding">المبلغ المستحق</div>
+        <div class="value" id="stat-bills-outstanding">SAR 0</div>
+        <div class="sub" data-ar="غير مدفوع" data-en="Unpaid">غير مدفوع</div>
+      </div>
+      <div class="stat-card red">
+        <div class="label" data-ar="فواتير متأخرة" data-en="Overdue">فواتير متأخرة</div>
+        <div class="value" id="stat-bills-overdue">0</div>
+        <div class="sub" data-ar="بعد تاريخ الاستحقاق" data-en="Past due date">بعد تاريخ الاستحقاق</div>
+      </div>
+      <div class="stat-card green">
+        <div class="label" data-ar="مدفوع هذا الشهر" data-en="Paid This Month">مدفوع هذا الشهر</div>
+        <div class="value" id="stat-bills-paid-month">SAR 0</div>
+        <div class="sub" data-ar="إجمالي المدفوعات" data-en="Total payments">إجمالي المدفوعات</div>
+      </div>
+    </div>
+
+    <div class="toolbar">
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" class="search-input" id="search-bills" placeholder="البحث برقم الفاتورة أو اسم المورد..." oninput="renderBills()">
+      </div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+        <select class="filter-select" id="filter-bills-status" onchange="renderBills()">
+          <option value="all" data-ar="كل الحالات" data-en="All statuses">كل الحالات</option>
+          <option value="unpaid" data-ar="غير مدفوع" data-en="Unpaid">غير مدفوع</option>
+          <option value="partial" data-ar="مدفوع جزئياً" data-en="Partial">مدفوع جزئياً</option>
+          <option value="paid" data-ar="مدفوع" data-en="Paid">مدفوع</option>
+          <option value="overdue" data-ar="متأخر" data-en="Overdue">متأخر</option>
+        </select>
+        <a href="finance.html?tab=expenses&action=new_expense" class="btn btn-primary" style="text-decoration:none;">
+          + <span data-ar="فاتورة جديدة" data-en="New Bill">فاتورة جديدة</span>
+        </a>
+      </div>
+    </div>
+
+    <div class="bills-table-wrap" id="bills-table-wrap">
+      <div class="loading-state" style="padding:40px;text-align:center;color:var(--muted);">
+        <span data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</span>
       </div>
     </div>
   </div>
@@ -1007,7 +1074,7 @@ async function init(){
 
     /* URL → which tab. Default to 'suppliers'. */
     const tab = (window.location.search.match(/tab=([a-z]+)/)?.[1]) || 'suppliers';
-    if(['suppliers','products','orders','imports'].includes(tab)) switchTab(tab);
+    if(['suppliers','products','orders','bills','imports'].includes(tab)) switchTab(tab);
 
     /* Round 3b: honor ?sort=&dir= URL params for the products view */
     const sortParam = window.location.search.match(/sort=([a-z_]+)/)?.[1];
@@ -1263,6 +1330,194 @@ function poStatusBadge(status){
   const m = map[status] || map.draft;
   return `<span style="background:${m.bg};color:${m.fg};padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;display:inline-block;">${ar?m.ar:m.en}</span>`;
 }
+
+/* ═══════════════════════════════════════════════════════
+   AP ROUND 2 — BILLS TAB
+   
+   Reads from `expenses` table (the canonical AP record).
+   Editing is delegated to finance.html via the existing expense drawer.
+   This pane is read-only: list, filter, click → navigate to edit.
+═══════════════════════════════════════════════════════ */
+let allBills = null;     /* null = not yet loaded, [] = loaded but empty */
+
+async function loadBills(){
+  /* Pull from expenses table — supplier bills are stored there as the canonical
+     AP record (has supplier_id, total, payment_status, due_date, etc.). */
+  if(!currentBiz?.id){
+    document.getElementById('bills-table-wrap').innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted);">' +
+      (currentLang === 'ar' ? 'لم يتم تحميل بيانات المنشأة' : 'Business not loaded') + '</div>';
+    return;
+  }
+  /* Limit to current year by default to keep query fast.
+     Users with longer history can adjust this later via a filter (future round). */
+  const yearStart = new Date().getFullYear() + '-01-01';
+  const {data, error} = await sb.from('expenses')
+    .select('id,expense_number,expense_date,supplier_id,vendor_name_snapshot,vendor_invoice_number,vendor_invoice_date,description,total,amount_paid,payment_status,due_date,status')
+    .eq('business_id', currentBiz.id)
+    .neq('status', 'voided')
+    .gte('expense_date', yearStart)
+    .order('expense_date', {ascending: false});
+  if(error){
+    console.error('[GL] loadBills:', error);
+    allBills = [];
+    document.getElementById('bills-table-wrap').innerHTML =
+      '<div style="padding:40px;text-align:center;color:var(--red);">' + escHTML(error.message || 'Error') + '</div>';
+    return;
+  }
+  allBills = data || [];
+  computeBillStats();
+  renderBills();
+}
+
+function computeBillStats(){
+  if(!allBills) return;
+  let total = 0, outstanding = 0, overdue = 0, paidThisMonth = 0;
+  const today = new Date().toISOString().split('T')[0];
+  const monthStart = today.slice(0, 7) + '-01';
+
+  for(const b of allBills){
+    total++;
+    const billTotal = parseFloat(b.total) || 0;
+    const paid = parseFloat(b.amount_paid) || 0;
+    const balance = billTotal - paid;
+    if(balance > 0.005){
+      outstanding += balance;
+      if(b.due_date && b.due_date < today) overdue++;
+    }
+    /* "Paid this month" = bills with amount_paid > 0 AND payment date this month.
+       Without a separate payments table, we proxy this with expense_date as a
+       reasonable approximation. This stat is best-effort. */
+    if(paid > 0.005 && b.expense_date >= monthStart){
+      paidThisMonth += Math.min(paid, billTotal);
+    }
+  }
+  setText('stat-bills-total', total);
+  setText('stat-bills-outstanding', 'SAR ' + fmt(outstanding));
+  setText('stat-bills-overdue', overdue);
+  setText('stat-bills-paid-month', 'SAR ' + fmt(paidThisMonth));
+  setText('count-bills', total);
+}
+
+function renderBills(){
+  const wrap = document.getElementById('bills-table-wrap');
+  if(!allBills){ return; }                /* not yet loaded */
+  if(!wrap) return;
+  const ar = currentLang === 'ar';
+
+  const search = (v('search-bills') || '').toLowerCase().trim();
+  const statusFilter = v('filter-bills-status') || 'all';
+  const today = new Date().toISOString().split('T')[0];
+
+  const filtered = allBills.filter(b => {
+    /* Status filter */
+    if(statusFilter !== 'all'){
+      const total = parseFloat(b.total) || 0;
+      const paid = parseFloat(b.amount_paid) || 0;
+      const balance = total - paid;
+      const isOverdue = balance > 0.005 && b.due_date && b.due_date < today;
+      let effStatus;
+      if(balance <= 0.005) effStatus = 'paid';
+      else if(paid > 0.005) effStatus = 'partial';
+      else effStatus = 'unpaid';
+      if(statusFilter === 'overdue'){
+        if(!isOverdue) return false;
+      } else if(effStatus !== statusFilter){
+        return false;
+      }
+    }
+    /* Search */
+    if(search){
+      const supplierName = (b.vendor_name_snapshot || resolveSupplierName(b.supplier_id) || '').toLowerCase();
+      const expNum = (b.expense_number || '').toLowerCase();
+      const vendorInv = (b.vendor_invoice_number || '').toLowerCase();
+      if(!supplierName.includes(search) && !expNum.includes(search) && !vendorInv.includes(search)){
+        return false;
+      }
+    }
+    return true;
+  });
+
+  if(filtered.length === 0){
+    wrap.innerHTML = `<div style="padding:60px 20px;text-align:center;color:var(--muted);">
+      <div style="font-size:42px;margin-bottom:10px;opacity:0.5;">💸</div>
+      <div style="font-weight:600;color:var(--ink);margin-bottom:6px;">${ar ? 'لا توجد فواتير' : 'No bills found'}</div>
+      <div style="font-size:13px;">${ar ? 'استخدم زر "فاتورة جديدة" لتسجيل فاتورة من مورد' : 'Use "New Bill" to record a supplier bill'}</div>
+    </div>`;
+    return;
+  }
+
+  const rows = filtered.map(b => {
+    const total = parseFloat(b.total) || 0;
+    const paid = parseFloat(b.amount_paid) || 0;
+    const balance = total - paid;
+    const isOverdue = balance > 0.005 && b.due_date && b.due_date < today;
+    let badge;
+    if(balance <= 0.005){
+      badge = `<span style="background:#dcfce7;color:#166534;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;">${ar?'مدفوع':'Paid'}</span>`;
+    } else if(isOverdue){
+      badge = `<span style="background:#fee2e2;color:#991b1b;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;">${ar?'متأخر':'Overdue'}</span>`;
+    } else if(paid > 0.005){
+      badge = `<span style="background:#fef3c7;color:#92400e;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;">${ar?'جزئي':'Partial'}</span>`;
+    } else {
+      badge = `<span style="background:#fef3c7;color:#92400e;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;">${ar?'غير مدفوع':'Unpaid'}</span>`;
+    }
+    const supplierName = b.vendor_name_snapshot || resolveSupplierName(b.supplier_id) || (ar ? '—' : '—');
+    const dueDate = b.due_date ? formatDateDMY(b.due_date) : '—';
+    const expDate = b.expense_date ? formatDateDMY(b.expense_date) : '—';
+    /* Link to finance.html with the expense id — opens the drawer for editing.
+       The expenseId param handling already exists in finance.html (line ~2373). */
+    return `<tr class="bill-row" onclick="window.location.href='finance.html?expense=${b.id}'" style="cursor:pointer;">
+      <td style="font-family:'DM Mono',monospace;font-weight:600;">${escHTML(b.expense_number || '—')}</td>
+      <td>${escHTML(supplierName)}${b.vendor_invoice_number ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">${ar?'فاتورة المورد:':'Inv:'} ${escHTML(b.vendor_invoice_number)}</div>` : ''}</td>
+      <td>${expDate}</td>
+      <td>${dueDate}</td>
+      <td class="num">SAR ${fmt(total)}</td>
+      <td class="num">SAR ${fmt(paid)}</td>
+      <td class="num"><strong>SAR ${fmt(balance)}</strong></td>
+      <td>${badge}</td>
+    </tr>`;
+  }).join('');
+
+  wrap.innerHTML = `<div style="overflow-x:auto;background:#fff;border:1px solid var(--border);border-radius:8px;">
+    <table style="width:100%;border-collapse:collapse;">
+      <thead style="background:var(--bg);border-bottom:2px solid var(--border);">
+        <tr>
+          <th style="text-align:start;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'الرقم':'Bill #'}</th>
+          <th style="text-align:start;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'المورد':'Supplier'}</th>
+          <th style="text-align:start;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'تاريخ الفاتورة':'Bill Date'}</th>
+          <th style="text-align:start;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'الاستحقاق':'Due'}</th>
+          <th style="text-align:end;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'الإجمالي':'Total'}</th>
+          <th style="text-align:end;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'المدفوع':'Paid'}</th>
+          <th style="text-align:end;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'الرصيد':'Balance'}</th>
+          <th style="text-align:start;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'الحالة':'Status'}</th>
+        </tr>
+      </thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
+/* Helper: get supplier display name from id, using already-loaded suppliers cache. */
+function resolveSupplierName(supplierId){
+  if(!supplierId || !allSuppliers) return null;
+  const s = allSuppliers.find(x => x.id === supplierId);
+  if(!s) return null;
+  return currentLang === 'ar' ? (s.name_ar || s.name_en) : (s.name_en || s.name_ar);
+}
+
+/* Date formatter for bill rows. Existing fmt() handles money; bills use DMY format. */
+function formatDateDMY(iso){
+  if(!iso) return '—';
+  const d = new Date(iso);
+  if(isNaN(d)) return '—';
+  return String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear();
+}
+
+/* AP Round 2: hover affordance for bill rows */
+const _billsHoverCSS = document.createElement('style');
+_billsHoverCSS.textContent = `.bill-row{transition:background .15s;} .bill-row:hover{background:var(--tint);} .bill-row td{padding:12px;border-bottom:1px solid var(--border);font-size:13px;} .bill-row td.num{text-align:end;font-family:'DM Mono',monospace;font-weight:600;}`;
+document.head.appendChild(_billsHoverCSS);
+
 
 /* ───── PO CREATE MODAL ───── */
 async function openPOModal(prefill){
@@ -2095,12 +2350,17 @@ function formatDateTime(iso){
    TAB SWITCHING
 ═══════════════════════════════════════════════════════ */
 function switchTab(name){
-  ['suppliers','products','orders','imports'].forEach(t => {
+  ['suppliers','products','orders','bills','imports'].forEach(t => {
     document.getElementById('tab-' + t)?.classList.toggle('active', t === name);
     const pane = document.getElementById('pane-' + t);
     if(pane) pane.style.display = t === name ? '' : 'none';
   });
   history.replaceState(null, '', '?tab=' + name);
+  /* AP Round 2: lazy-load bills on first open of the Bills tab.
+     Avoids slowing the initial page paint with an extra query. */
+  if(name === 'bills' && !allBills){
+    loadBills();
+  }
 }
 
 /* ═══════════════════════════════════════════════════════

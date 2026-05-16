@@ -256,6 +256,14 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
   .compliance-row .action{margin-inline-start:30px;}
 }
 
+/* AP Round 2: AR/AP cashflow cards on dashboard */
+.cashflow-card:hover{border-color:var(--blue)!important;box-shadow:0 2px 8px rgba(0,108,53,0.08);}
+.cashflow-card:hover ~ * .cashflow-arrow,
+.cashflow-card:hover > div:last-child{opacity:0.8!important;color:var(--blue)!important;}
+@media(max-width:700px){
+  .cashflow-row{grid-template-columns:1fr!important;}
+}
+
 /* STATS — with skeleton loading state */
 .stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:28px;}
 .stat{background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 18px;min-width:0;position:relative;}
@@ -731,6 +739,42 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
       <div class="stat-sub" id="s-vat-sub" data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
       <div class="stat-deadline" id="s-vat-deadline" style="display:none;"></div>
     </div>
+  </div>
+
+  <!-- ═══════════════════════════════════════════════════════
+       AR / AP Cashflow row (AP Round 2)
+       Pair of clickable cards: money owed to you (AR) and money you owe (AP).
+       Click navigates to the relevant page. Surfaces AP discoverability
+       which was the main UX gap users hit. -->
+  <div class="cashflow-row" id="cashflow-row" style="display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:28px;">
+    <a href="invoices.html?filter=unpaid" class="cashflow-card cashflow-ar" id="cashflow-ar-card"
+       style="text-decoration:none;color:inherit;background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:16px;transition:border-color .15s,box-shadow .15s;cursor:pointer;">
+      <div style="font-size:32px;flex-shrink:0;">📥</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">
+          <span data-ar="مستحقات لك (ذمم مدينة)" data-en="Outstanding from Customers">مستحقات لك (ذمم مدينة)</span>
+        </div>
+        <div class="cashflow-val" id="cashflow-ar-val" style="font-size:22px;font-weight:800;font-family:'DM Mono',monospace;color:var(--blue);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">—</div>
+        <div class="cashflow-sub" id="cashflow-ar-sub" style="font-size:12px;color:var(--muted);margin-top:2px;">
+          <span data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</span>
+        </div>
+      </div>
+      <div style="font-size:20px;color:var(--muted);opacity:0.4;">←</div>
+    </a>
+    <a href="purchasing.html?tab=bills" class="cashflow-card cashflow-ap" id="cashflow-ap-card"
+       style="text-decoration:none;color:inherit;background:var(--white);border:1px solid var(--border);border-radius:12px;padding:16px 20px;display:flex;align-items:center;gap:16px;transition:border-color .15s,box-shadow .15s;cursor:pointer;">
+      <div style="font-size:32px;flex-shrink:0;">📤</div>
+      <div style="flex:1;min-width:0;">
+        <div style="font-size:12px;color:var(--muted);font-weight:600;text-transform:uppercase;letter-spacing:.05em;margin-bottom:4px;">
+          <span data-ar="عليك للموردين (ذمم دائنة)" data-en="Owed to Suppliers">عليك للموردين (ذمم دائنة)</span>
+        </div>
+        <div class="cashflow-val" id="cashflow-ap-val" style="font-size:22px;font-weight:800;font-family:'DM Mono',monospace;color:var(--amber);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">—</div>
+        <div class="cashflow-sub" id="cashflow-ap-sub" style="font-size:12px;color:var(--muted);margin-top:2px;">
+          <span data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</span>
+        </div>
+      </div>
+      <div style="font-size:20px;color:var(--muted);opacity:0.4;">←</div>
+    </a>
   </div>
 
   <!-- Compliance Status (Round B-VAT) — data-driven via filings table.
@@ -1638,11 +1682,12 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
       vatDueDate = new Date(now.getFullYear(), q*3+3, 30);
     }
 
-    const {data:allInv}=await sb.from('invoices').select('total,vat_amount,subtotal,issue_date,invoice_number,buyer_name,payment_status,due_date').eq('business_id', biz.id).order('issue_date',{ascending:false});
+    const {data:allInv}=await sb.from('invoices').select('total,vat_amount,subtotal,issue_date,invoice_number,buyer_name,payment_status,due_date,amount_paid').eq('business_id', biz.id).order('issue_date',{ascending:false});
 
-    /* Also fetch expenses for Input VAT — VAT Payable = Output - Input */
+    /* Also fetch expenses for Input VAT — VAT Payable = Output - Input.
+       AP Round 2: also pulls total, amount_paid, due_date for the cashflow widget. */
     const {data:allExpenses} = await sb.from('expenses')
-      .select('vat_amount,vat_recoverable,expense_date,status')
+      .select('vat_amount,vat_recoverable,expense_date,status,total,amount_paid,due_date,payment_status')
       .eq('business_id', biz.id)
       .neq('status','voided');
 
@@ -1861,6 +1906,54 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
     const profEl=document.getElementById('s-profit');
     profEl.textContent='SAR '+fmt(Math.abs(profit));
     profEl.className='stat-val '+(profit>=0?'c-green':'c-red');
+
+    /* AP Round 2: AR/AP cashflow cards.
+       Compute outstanding (unpaid balance) from already-loaded data. */
+    const todayStr = new Date().toISOString().split('T')[0];
+    let arOutstanding = 0, arUnpaidCount = 0, arOverdueCount = 0;
+    for(const inv of (allInv || [])){
+      const total = parseFloat(inv.total) || 0;
+      const paid = parseFloat(inv.amount_paid) || 0;
+      const balance = total - paid;
+      if(balance > 0.005){
+        arOutstanding += balance;
+        arUnpaidCount++;
+        if(inv.due_date && inv.due_date < todayStr) arOverdueCount++;
+      }
+    }
+    let apOutstanding = 0, apUnpaidCount = 0, apOverdueCount = 0;
+    for(const e of (allExpenses || [])){
+      const total = parseFloat(e.total) || 0;
+      const paid = parseFloat(e.amount_paid) || 0;
+      const balance = total - paid;
+      if(balance > 0.005){
+        apOutstanding += balance;
+        apUnpaidCount++;
+        if(e.due_date && e.due_date < todayStr) apOverdueCount++;
+      }
+    }
+    const arVal = document.getElementById('cashflow-ar-val');
+    const arSub = document.getElementById('cashflow-ar-sub');
+    if(arVal){
+      arVal.textContent = 'SAR ' + fmt(arOutstanding);
+      const subTxt = arUnpaidCount === 0
+        ? (L==='ar' ? 'لا فواتير معلقة' : 'No unpaid invoices')
+        : (L==='ar'
+            ? `${arUnpaidCount} ${arUnpaidCount===1?'فاتورة':'فواتير'}${arOverdueCount>0?` · ${arOverdueCount} متأخرة`:''}`
+            : `${arUnpaidCount} ${arUnpaidCount===1?'invoice':'invoices'}${arOverdueCount>0?` · ${arOverdueCount} overdue`:''}`);
+      if(arSub) arSub.textContent = subTxt;
+    }
+    const apVal = document.getElementById('cashflow-ap-val');
+    const apSub = document.getElementById('cashflow-ap-sub');
+    if(apVal){
+      apVal.textContent = 'SAR ' + fmt(apOutstanding);
+      const subTxt = apUnpaidCount === 0
+        ? (L==='ar' ? 'لا فواتير معلقة' : 'No unpaid bills')
+        : (L==='ar'
+            ? `${apUnpaidCount} ${apUnpaidCount===1?'فاتورة':'فواتير'}${apOverdueCount>0?` · ${apOverdueCount} متأخرة`:''}`
+            : `${apUnpaidCount} ${apUnpaidCount===1?'bill':'bills'}${apOverdueCount>0?` · ${apOverdueCount} overdue`:''}`);
+      if(apSub) apSub.textContent = subTxt;
+    }
 
     // Stock alerts — clean act-item design with proper success state
     const {data:items}=await sb.from('inventory_items').select('name,current_qty,alert_level,unit').eq('business_id', biz.id);
