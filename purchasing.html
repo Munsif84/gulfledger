@@ -1076,8 +1076,17 @@ async function loadAll(){
 }
 
 async function loadSuppliers(){
+  /* AP Round 1: load only suppliers that provide goods.
+     The suppliers table is polymorphic — usage_type can be 'inventory', 'expense', 'both', or NULL.
+     Expense-only vendors (e.g. Saudi Electricity, rent landlord) belong in finance.html's
+     Vendors tab, not in the Purchasing → Suppliers tab.
+     
+     NULL handling: legacy records (created before usage_type was being set) are treated as
+     'inventory' since purchasing.html was their origin. After ap-round-1 migration runs,
+     all rows will have a non-NULL usage_type, but we tolerate NULL here for safety. */
   const {data, error} = await sb.from('suppliers')
     .select('*').eq('business_id', currentBiz?.id || '')
+    .or('usage_type.eq.inventory,usage_type.eq.both,usage_type.is.null')
     .order('name_ar', {ascending: true});
   if(error){ console.error('Suppliers load:', error); allSuppliers = []; return; }
   allSuppliers = data || [];
@@ -2346,13 +2355,24 @@ async function saveSupplier(){
     contact_person: v('sup-contact-person') || null,
     street_name: v('sup-address') || null,
     notes: v('sup-notes') || null,
+    /* AP Round 1: explicitly classify as goods supplier.
+       Originating page is purchasing.html, which is for inventory suppliers only.
+       Users who need to add an expense vendor (e.g. utilities, rent) go to finance.html's
+       Vendors tab. Suppliers that provide BOTH goods and services should be created
+       in either page and edited later to set usage_type='both' (planned UI in a future round). */
+    usage_type: 'inventory',
     is_active: true,
     updated_at: new Date().toISOString()
   };
 
   let error;
   if(currentSupplierId){
-    ({error} = await sb.from('suppliers').update(payload).eq('id', currentSupplierId));
+    /* AP Round 1: when EDITING, don't overwrite usage_type — preserves 'both' classifications.
+       A supplier originally classified as 'both' (sells goods AND services) should keep that
+       classification when edited from purchasing.html. Only the insert path sets it. */
+    const editPayload = {...payload};
+    delete editPayload.usage_type;
+    ({error} = await sb.from('suppliers').update(editPayload).eq('id', currentSupplierId));
   } else {
     const result = await sb.from('suppliers').insert(payload).select().single();
     error = result.error;
