@@ -19,6 +19,33 @@
   document.documentElement.setAttribute('lang', lang);
   document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
 })();
+
+/* Suppress visual jank when language/direction flips:
+   - watch <html dir>/<html lang> for changes
+   - add lang-switching class → CSS disables all transitions/animations
+   - remove class on next frame so the page renders in the new direction instantly */
+(function(){
+  var lockTimer = null;
+  function flash(){
+    document.documentElement.classList.add('lang-switching');
+    if(lockTimer) clearTimeout(lockTimer);
+    lockTimer = setTimeout(function(){
+      document.documentElement.classList.remove('lang-switching');
+    }, 220);
+  }
+  if(typeof MutationObserver !== 'undefined'){
+    var obs = new MutationObserver(function(muts){
+      for(var i=0;i<muts.length;i++){
+        var m = muts[i];
+        if(m.type==='attributes' && (m.attributeName==='dir' || m.attributeName==='lang')){
+          flash(); break;
+        }
+      }
+    });
+    obs.observe(document.documentElement, {attributes:true, attributeFilter:['dir','lang']});
+  }
+})();
+
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
@@ -40,6 +67,16 @@
 <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@300;400;500&family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
 
 <style>
+
+/* Suppress transitions during language/direction switch — eliminates fold/wipe jank */
+html.lang-switching,
+html.lang-switching *,
+html.lang-switching *::before,
+html.lang-switching *::after {
+  transition: none !important;
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+}
 :root {
   /* Original variable names preserved to avoid breaking other html files. */
   /* Note: --blue and --sky are actually green hex values (Saudi flag green palette). */

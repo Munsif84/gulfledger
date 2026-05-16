@@ -22,6 +22,33 @@
   document.documentElement.setAttribute('lang',lang);
   document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
 })();
+
+/* Suppress visual jank when language/direction flips:
+   - watch <html dir>/<html lang> for changes
+   - add lang-switching class → CSS disables all transitions/animations
+   - remove class on next frame so the page renders in the new direction instantly */
+(function(){
+  var lockTimer = null;
+  function flash(){
+    document.documentElement.classList.add('lang-switching');
+    if(lockTimer) clearTimeout(lockTimer);
+    lockTimer = setTimeout(function(){
+      document.documentElement.classList.remove('lang-switching');
+    }, 220);
+  }
+  if(typeof MutationObserver !== 'undefined'){
+    var obs = new MutationObserver(function(muts){
+      for(var i=0;i<muts.length;i++){
+        var m = muts[i];
+        if(m.type==='attributes' && (m.attributeName==='dir' || m.attributeName==='lang')){
+          flash(); break;
+        }
+      }
+    });
+    obs.observe(document.documentElement, {attributes:true, attributeFilter:['dir','lang']});
+  }
+})();
+
 </script>
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <meta name="robots" content="noindex,nofollow">
@@ -36,6 +63,16 @@
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <style>
+
+/* Suppress transitions during language/direction switch — eliminates fold/wipe jank */
+html.lang-switching,
+html.lang-switching *,
+html.lang-switching *::before,
+html.lang-switching *::after {
+  transition: none !important;
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+}
 :root{
   --navy:#1A3C2A;--blue:#006C35;--sky:#3DAA65;--light:#A8D9BC;--tint:#E6F4EC;
   --green:#1D9E75;--red:#C62828;--amber:#C9920A;--ink:#0D2618;--muted:#4A7A5E;
@@ -46,7 +83,7 @@
 /* Tajawal primary, Cairo fallback (Cairo loaded for legacy compatibility with other pages) */
 body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--ink);}
 
-.topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;}
+.topnav{height:44px;min-height:44px;box-sizing:border-box;background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;}
 .nav-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
 .nav-bars{display:flex;gap:5px;height:36px;}
 .nav-bar{width:5px;border-radius:2px;}
@@ -590,8 +627,6 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
       <button class="lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button>
       <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
     </div>
-    <div class="nav-divider"></div>
-    <span class="nav-biz" id="biz-name" title="">...</span>
     <div class="profile-menu" id="profile-menu">
       <button class="profile-trigger" onclick="toggleProfileMenu(event)" aria-haspopup="true" aria-expanded="false" aria-label="Profile menu">
         <span class="profile-avatar" id="profile-avatar">👤</span>
@@ -1556,8 +1591,7 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
     currentBiz._myRole = role;
     const name = pickLang(biz, 'name');
     const bizEl = document.getElementById('biz-name');
-    bizEl.textContent = name;
-    bizEl.title = name;
+    if(bizEl){ bizEl.textContent = name; bizEl.title = name; }
     document.getElementById('dash-title').textContent = (L==='ar'?'مرحباً، ':'Welcome, ') + name;
     if(!biz.trn) document.getElementById('setup-banner').style.display = 'flex';
     applyPlanGating(biz.plan || 'starter');
@@ -1977,7 +2011,7 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
     badge.style.cssText='font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;margin-right:8px;'
       +(plan==='pro'?'background:#f5f3ff;color:#6d28d9;':plan==='business'?'background:var(--tint);color:var(--blue);':'background:#f0fdf4;color:var(--green);');
     badge.textContent=plan==='pro'?'Pro':plan==='business'?'Business':'Starter';
-    document.getElementById('biz-name').after(badge);
+    document.getElementById('biz-name')?.after(badge);
 
     if(!allowed.includes('inventory')){
       // Lock nav
@@ -2195,8 +2229,8 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
     Object.assign(currentBiz, payload);
     /* Update biz name in topnav and welcome */
     const newName = pickLang(currentBiz, 'name');
-    document.getElementById('biz-name').textContent = newName;
-    document.getElementById('biz-name').title = newName;
+    (document.getElementById('biz-name')||{}).textContent = newName;
+    (document.getElementById('biz-name')||{}).title = newName;
     document.getElementById('dash-title').textContent = (L==='ar'?'مرحباً، ':'Welcome, ') + newName;
     /* Hide setup banner if it was visible */
     const banner = document.getElementById('setup-banner');

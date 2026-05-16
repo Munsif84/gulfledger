@@ -13,8 +13,45 @@
     document.documentElement.setAttribute('lang', lang);
     document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
   })();
+
+/* Suppress visual jank when language/direction flips:
+   - watch <html dir>/<html lang> for changes
+   - add lang-switching class → CSS disables all transitions/animations
+   - remove class on next frame so the page renders in the new direction instantly */
+(function(){
+  var lockTimer = null;
+  function flash(){
+    document.documentElement.classList.add('lang-switching');
+    if(lockTimer) clearTimeout(lockTimer);
+    lockTimer = setTimeout(function(){
+      document.documentElement.classList.remove('lang-switching');
+    }, 220);
+  }
+  if(typeof MutationObserver !== 'undefined'){
+    var obs = new MutationObserver(function(muts){
+      for(var i=0;i<muts.length;i++){
+        var m = muts[i];
+        if(m.type==='attributes' && (m.attributeName==='dir' || m.attributeName==='lang')){
+          flash(); break;
+        }
+      }
+    });
+    obs.observe(document.documentElement, {attributes:true, attributeFilter:['dir','lang']});
+  }
+})();
+
 </script>
 <style>
+
+/* Suppress transitions during language/direction switch — eliminates fold/wipe jank */
+html.lang-switching,
+html.lang-switching *,
+html.lang-switching *::before,
+html.lang-switching *::after {
+  transition: none !important;
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+}
 :root{
   --navy:#1A3C2A;--blue:#006C35;--sky:#3DAA65;--light:#A8D9BC;--tint:#E6F4EC;
   --green:#1D9E75;--red:#C62828;--amber:#C9920A;--ink:#0D2618;--muted:#4A7A5E;
@@ -22,7 +59,7 @@
 }
 *{margin:0;padding:0;box-sizing:border-box;}
 html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;}
-.topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:300;box-shadow:0 2px 8px rgba(0,0,0,0.15);}
+.topnav{height:44px;min-height:44px;box-sizing:border-box;background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:300;box-shadow:0 2px 8px rgba(0,0,0,0.15);}
 .nav-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
 .nav-bars{display:flex;gap:5px;height:36px;}
 .nav-bar{width:5px;border-radius:2px;}
@@ -619,8 +656,6 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
       <button class="lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button>
       <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
     </div>
-    <div class="nav-divider"></div>
-    <span class="nav-biz" id="biz-name" title="">...</span>
     <div class="profile-menu" id="profile-menu">
       <button class="profile-trigger" onclick="toggleProfileMenu(event)" aria-haspopup="true" aria-expanded="false" aria-label="Profile menu">
         <span class="profile-avatar" id="profile-avatar">👤</span>
@@ -4690,7 +4725,7 @@ async function init(){
   }
   currentBiz = biz;
   currentBiz._myRole = role;
-  document.getElementById('biz-name').textContent = pickLang(biz, 'name');
+  (document.getElementById('biz-name')||{}).textContent = pickLang(biz, 'name');
 
   /* Load customers (for Customer Statement dropdown) — non-blocking */
   loadCustomersForDropdown();

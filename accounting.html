@@ -19,6 +19,36 @@
 -->
 <html lang="ar" dir="rtl">
 <head>
+<script>
+/* Set language/direction before content paints (prevents flash on reload) */
+(function(){
+  var lang = localStorage.getItem('gl_lang') || 'ar';
+  document.documentElement.setAttribute('lang', lang);
+  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+})();
+/* Suppress visual jank when language/direction flips */
+(function(){
+  var lockTimer = null;
+  function flash(){
+    document.documentElement.classList.add('lang-switching');
+    if(lockTimer) clearTimeout(lockTimer);
+    lockTimer = setTimeout(function(){
+      document.documentElement.classList.remove('lang-switching');
+    }, 220);
+  }
+  if(typeof MutationObserver !== 'undefined'){
+    var obs = new MutationObserver(function(muts){
+      for(var i=0;i<muts.length;i++){
+        var m = muts[i];
+        if(m.type==='attributes' && (m.attributeName==='dir' || m.attributeName==='lang')){
+          flash(); break;
+        }
+      }
+    });
+    obs.observe(document.documentElement, {attributes:true, attributeFilter:['dir','lang']});
+  }
+})();
+</script>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1.0, user-scalable=no">
 <title>المحاسبة · GulfLedger</title>
@@ -465,6 +495,16 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 })();
 </script>
 <style>
+
+/* Suppress transitions during language/direction switch — eliminates fold/wipe jank */
+html.lang-switching,
+html.lang-switching *,
+html.lang-switching *::before,
+html.lang-switching *::after {
+  transition: none !important;
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+}
 :root{
   --navy:#1A3C2A;--blue:#006C35;--sky:#3DAA65;--light:#A8D9BC;--tint:#E6F4EC;
   --green:#1D9E75;--red:#C62828;--amber:#C9920A;--ink:#0D2618;--muted:#4A7A5E;
@@ -474,7 +514,7 @@ const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--ink);min-height:100vh;}
 
 /* ─── TOP NAV ─── */
-.topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:300;box-shadow:0 2px 8px rgba(0,0,0,0.15);}
+.topnav{height:44px;min-height:44px;box-sizing:border-box;background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:300;box-shadow:0 2px 8px rgba(0,0,0,0.15);}
 .nav-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
 .nav-bars{display:flex;gap:5px;height:36px;}
 .nav-bar{width:5px;border-radius:2px;}
@@ -1482,8 +1522,6 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
       <button class="lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button>
       <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
     </div>
-    <div class="nav-divider"></div>
-    <span class="nav-biz" id="biz-name" title="">...</span>
     <div class="profile-menu" id="profile-menu">
       <button class="profile-trigger" onclick="toggleProfileMenu(event)" aria-haspopup="true" aria-expanded="false" aria-label="Profile menu">
         <span class="profile-avatar" id="profile-avatar">👤</span>
@@ -6786,6 +6824,215 @@ window.glBackfillCOGS = async function(opts = {}){
   console.log(`\n✓ Backfilled ${ok} invoice(s), ${fail} failed, ${skippedExisting} already existed`);
   console.log('Re-run glBalanceSheetSummary() and refresh Reports → P&L to see the impact.');
   return { ok, fail, skippedExisting };
+};
+
+/* ─── Inspect a specific invoice (full detail) ────────────────────────
+   Shows everything we know about an invoice: line items (with item_id
+   linkage status), inventory movements, COGS journal entry (if any).
+   Use this to diagnose why a specific invoice is missing COGS.
+
+   Usage:
+     await window.glInspectInvoice('INV-2026-208')                       */
+window.glInspectInvoice = async function(invoiceNumber){
+  if(!currentBiz?.id){ console.warn('[GL] No business loaded'); return null; }
+  console.log(`%c═══ INVOICE INSPECTION: ${invoiceNumber} ═══`, 'font-weight:bold;color:#1D9E75;');
+
+  /* 1. Invoice header + line items */
+  const {data: invs, error} = await sb.from('invoices')
+    .select('id, invoice_number, issue_date, buyer_name, subtotal, vat_amount, total, status, location_id, invoice_items(id, item_id, description, description_ar, quantity, unit_price, subtotal, sort_order)')
+    .eq('business_id', currentBiz.id)
+    .eq('invoice_number', invoiceNumber)
+    .limit(1);
+  if(error || !invs?.length){
+    console.error('[GL] Invoice not found:', error);
+    return null;
+  }
+  const inv = invs[0];
+
+  console.log('\n📄 INVOICE:', {
+    id: inv.id,
+    number: inv.invoice_number,
+    date: inv.issue_date,
+    customer: inv.buyer_name,
+    subtotal: inv.subtotal,
+    vat: inv.vat_amount,
+    total: inv.total,
+    status: inv.status,
+    location_id: inv.location_id
+  });
+
+  /* 2. Line items — show item linkage */
+  console.log(`\n📦 LINE ITEMS (${(inv.invoice_items || []).length}):`);
+  console.table((inv.invoice_items || []).sort((a,b)=>a.sort_order - b.sort_order).map(it => ({
+    line: it.sort_order,
+    description: it.description || it.description_ar,
+    item_id: it.item_id || '— FREE TEXT (not linked) —',
+    quantity: it.quantity,
+    unit_price: it.unit_price,
+    subtotal: it.subtotal
+  })));
+
+  /* 3. Look up inventory items by item_id (if any are linked) */
+  const linkedIds = (inv.invoice_items || []).map(i => i.item_id).filter(Boolean);
+  if(linkedIds.length > 0){
+    const {data: items} = await sb.from('inventory_items')
+      .select('id, name, sku, cost_price, current_qty')
+      .in('id', linkedIds);
+    console.log(`\n🔗 LINKED INVENTORY ITEMS (${(items||[]).length}):`);
+    console.table((items || []).map(it => ({
+      item_id: it.id,
+      name: it.name,
+      sku: it.sku,
+      current_cost_price: it.cost_price,
+      current_qty: it.current_qty
+    })));
+  } else {
+    console.log('\n⚠ NO line items are linked to inventory_items. All lines are free-text.');
+    console.log('  → This is why no COGS was posted. The system doesn\'t know what was sold.');
+    console.log('  → To fix: void this invoice and recreate using the inventory dropdown,');
+    console.log('    OR manually post a COGS journal entry using glPostCogsForInvoice().');
+  }
+
+  /* 4. Inventory movements for this invoice */
+  const {data: mvts} = await sb.from('inventory_movements')
+    .select('item_id, movement_type, quantity, unit_cost, balance_after, movement_date, note')
+    .eq('business_id', currentBiz.id)
+    .eq('reference', invoiceNumber)
+    .order('movement_date', {ascending:true});
+  console.log(`\n📊 INVENTORY MOVEMENTS (${(mvts || []).length}):`);
+  if((mvts || []).length === 0){
+    console.log('  (none — explains why backfill mode="movements" can\'t recover COGS for this invoice)');
+  } else {
+    console.table(mvts);
+  }
+
+  /* 5. Journal entries for this invoice */
+  const {data: entries} = await sb.from('journal_entries')
+    .select('id, reference, description, entry_date, status, source, journal_lines(account_code, account_name, debit, credit, description)')
+    .eq('business_id', currentBiz.id)
+    .like('reference', invoiceNumber + '%');
+  console.log(`\n📒 JOURNAL ENTRIES (${(entries || []).length}):`);
+  for(const e of (entries || [])){
+    console.log(`  ${e.reference} (${e.entry_date}, status=${e.status}): ${e.description}`);
+    console.table(e.journal_lines || []);
+  }
+
+  /* 6. Check: does a -COGS entry exist? */
+  const cogsEntry = (entries || []).find(e => (e.reference || '').endsWith('-COGS'));
+  if(cogsEntry){
+    console.log(`\n✓ This invoice HAS a COGS entry: ${cogsEntry.reference}`);
+  } else {
+    console.log(`\n✗ This invoice has NO COGS entry.`);
+    console.log('  To post one manually, use:');
+    console.log(`    await window.glPostCogsForInvoice('${invoiceNumber}', <cogs_amount_in_SAR>)`);
+  }
+
+  return {
+    invoice: inv,
+    movements: mvts || [],
+    journal_entries: entries || [],
+    has_cogs_entry: !!cogsEntry,
+    linked_inventory_count: linkedIds.length,
+    free_text_count: (inv.invoice_items || []).length - linkedIds.length
+  };
+};
+
+/* ─── Manually post a COGS entry for a specific invoice ────────────────
+   When an invoice was created without inventory linkage (free-text line
+   items) and you know what the actual cost was — e.g., you have a paper
+   receipt or supplier invoice for the goods — use this to post the COGS
+   journal entry retroactively.
+
+   Posts: Dr COGS / Cr Inventory (just like autoPostInvoice would have).
+
+   Usage:
+     await window.glPostCogsForInvoice('INV-2026-208', 218000)
+     // Will dry-run, show what will post, ask for confirmation
+
+   Skips if a '-COGS' entry already exists.                            */
+window.glPostCogsForInvoice = async function(invoiceNumber, cogsAmount){
+  if(!currentBiz?.id || !currentUser?.id){ console.warn('[GL] No business loaded'); return null; }
+  if(!invoiceNumber || !(cogsAmount > 0)){
+    console.error('[GL] Usage: glPostCogsForInvoice("INV-2026-208", 218000)');
+    return null;
+  }
+
+  /* Look up invoice */
+  const {data: invs, error: invErr} = await sb.from('invoices')
+    .select('id, invoice_number, issue_date, subtotal, status')
+    .eq('business_id', currentBiz.id)
+    .eq('invoice_number', invoiceNumber)
+    .limit(1);
+  if(invErr || !invs?.length){
+    console.error('[GL] Invoice not found:', invErr);
+    return null;
+  }
+  const inv = invs[0];
+
+  /* Check for existing COGS entry */
+  const cogsRef = invoiceNumber + '-COGS';
+  const {data: existing} = await sb.from('journal_entries')
+    .select('id, reference').eq('reference', cogsRef).eq('business_id', currentBiz.id).limit(1);
+  if(existing?.length){
+    console.warn(`[GL] A COGS entry already exists for ${invoiceNumber}. Delete it first if you want to repost.`);
+    console.warn(`     Entry id: ${existing[0].id}`);
+    return null;
+  }
+
+  /* Show what will be posted */
+  const cogsCode = (currentBiz.chart_version === 'socpa_v1') ? '5110' : '5100';
+  const invCode  = (currentBiz.chart_version === 'socpa_v1') ? '1330' : '1300';
+  const margin = inv.subtotal > 0 ? ((inv.subtotal - cogsAmount)/inv.subtotal*100).toFixed(1) : 'n/a';
+
+  console.log(`%c═══ MANUAL COGS POST ═══`, 'font-weight:bold;color:#1D9E75;');
+  console.log(`Invoice: ${invoiceNumber}`);
+  console.log(`Date:    ${inv.issue_date}`);
+  console.log(`Sale:    SAR ${inv.subtotal.toLocaleString()}`);
+  console.log(`COGS:    SAR ${cogsAmount.toLocaleString()}`);
+  console.log(`Gross Margin: ${margin}%`);
+  console.log(`\nWill post:`);
+  console.log(`  Dr ${cogsCode} COGS                ${cogsAmount}`);
+  console.log(`     Cr ${invCode} Inventory          ${cogsAmount}`);
+
+  if(!confirm(`Post manual COGS of SAR ${cogsAmount.toLocaleString()} for ${invoiceNumber}?\n\nDr ${cogsCode} COGS / Cr ${invCode} Inventory\nThis will reduce inventory on the balance sheet and reduce gross profit.`)){
+    console.log('Cancelled.');
+    return null;
+  }
+
+  /* Insert journal entry */
+  const {data: entry, error: entErr} = await sb.from('journal_entries').insert({
+    user_id: currentUser.id,
+    business_id: currentBiz.id,
+    entry_date: inv.issue_date,
+    reference: cogsRef,
+    description: 'COGS manual post — ' + invoiceNumber,
+    source: 'invoice_manual',
+    source_id: inv.id,
+    status: 'posted',
+    is_balanced: true
+  }).select().single();
+  if(entErr || !entry){
+    console.error('[GL] Insert entry failed:', entErr);
+    return null;
+  }
+
+  const {error: linesErr} = await sb.from('journal_lines').insert([
+    {entry_id:entry.id, user_id:currentUser.id, account_code:cogsCode,
+     account_name:'تكلفة البضاعة المباعة', debit:cogsAmount, credit:0,
+     description:'COGS manual — ' + invoiceNumber},
+    {entry_id:entry.id, user_id:currentUser.id, account_code:invCode,
+     account_name:'المخزون', debit:0, credit:cogsAmount,
+     description:'Inventory out (manual) — ' + invoiceNumber}
+  ]);
+  if(linesErr){
+    console.error('[GL] Insert lines failed:', linesErr);
+    /* Rollback header */
+    await sb.from('journal_entries').delete().eq('id', entry.id);
+    return null;
+  }
+
+  console.log(`✓ Posted COGS entry ${entry.id} for ${invoiceNumber}`);
+  return { entry_id: entry.id, cogs: cogsAmount, margin_pct: margin };
 };
 
 /* ─── Round B-PL-Structure Phase E: Discount tracking KPI ─────────────
