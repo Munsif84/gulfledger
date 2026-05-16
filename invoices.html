@@ -2022,6 +2022,60 @@ const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   ROUND B-PL-Structure: Semantic account code constants (SOCPA-aligned)
+   ═══════════════════════════════════════════════════════════════════════════
+   All journal-posting code MUST use these constants instead of hardcoded codes.
+   This is the single source of truth for invoices.html.
+   
+   MIGRATION SAFETY: USE_SOCPA_CODES flag controls which set is active:
+     - false (default): use LEGACY codes — safe for pre-migration databases
+     - true: use new SOCPA codes — flip ONLY after running glMigrateChartOfAccounts
+   
+   The migration tool will set window._gl_use_socpa_codes = true after a
+   successful migration; this flag overrides the static default below.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const USE_SOCPA_CODES_DEFAULT = false;  /* flip to true after migration */
+
+function _useSocpa(){
+  if(typeof window !== 'undefined' && window._gl_use_socpa_codes != null){
+    return !!window._gl_use_socpa_codes;
+  }
+  return USE_SOCPA_CODES_DEFAULT;
+}
+
+const CODE = Object.freeze({
+  /* Assets */
+  get AR(){           return _useSocpa() ? '1210' : '1200'; },
+  get INVENTORY(){    return _useSocpa() ? '1330' : '1300'; },
+  get VAT_INPUT(){    return _useSocpa() ? '1500' : '2220'; },
+  
+  /* Liabilities */
+  get AP(){           return _useSocpa() ? '2110' : '2100'; },
+  get VAT_OUTPUT(){   return '2210'; },  /* unchanged */
+  get VAT_PAYABLE_NET(){ return _useSocpa() ? '2220' : '2200'; },
+  
+  /* Revenue */
+  get SALES_STANDARD(){    return _useSocpa() ? '4110' : '4100'; },
+  get SALES_ZERO_RATED(){  return _useSocpa() ? '4120' : '4100'; },
+  get SALES_EXEMPT(){      return _useSocpa() ? '4130' : '4100'; },
+  get SALES_EXPORT(){      return _useSocpa() ? '4140' : '4100'; },
+  get SALES_RETURNS(){     return _useSocpa() ? '4190' : '4100'; },
+  get SERVICE_STANDARD(){  return _useSocpa() ? '4210' : '4200'; },
+  
+  /* COGS */
+  get COGS(){              return _useSocpa() ? '5110' : '5100'; },
+  
+  /* Helper: returns the correct sales account based on VAT rate */
+  salesAccountForVatRate(vatPct){
+    const p = Number(vatPct) || 0;
+    if(!_useSocpa()) return this.SALES_STANDARD;  /* legacy: only one sales code */
+    if(p >= 14.5) return this.SALES_STANDARD;
+    if(p === 0) return this.SALES_ZERO_RATED;
+    return this.SALES_STANDARD;
+  }
+});
+
 /* ROUND B-VAT: Filings helper (inlined). Exports on window.gl.filings. */
 /* ════════════════════════════════════════════════════════════════════════════
    ROUND B-VAT: Shared filings helpers
@@ -2737,6 +2791,8 @@ async function init(){
   }
   currentBiz = biz;
   currentBiz._myRole = role;
+  /* Round B-PL-Structure: drive CODE.* (legacy vs SOCPA) from chart_version */
+  window._gl_use_socpa_codes = (currentBiz.chart_version === 'socpa_v1');
   setText('biz-name', pickLang(biz, 'name'));
   document.getElementById('biz-name').title = pickLang(biz, 'name');
   if(biz.brand_color) localStorage.setItem('gl_brand_color', biz.brand_color);
@@ -2916,7 +2972,7 @@ async function autoRecordB2CPayment(invoiceId, invoiceNumber, total){
         await sb.from('journal_lines').insert([
           {entry_id:entry.id, user_id:currentUser.id, account_code:accountCode, account_name:accountName,
            debit:total, credit:0, description:currentLang==='ar'?'استلام دفعة':'Payment received'},
-          {entry_id:entry.id, user_id:currentUser.id, account_code:'1200', account_name:currentLang==='ar'?'ذمم مدينة تجارية':'Trade Receivables',
+          {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:currentLang==='ar'?'ذمم مدينة تجارية':'Trade Receivables',
            debit:0, credit:total, description:currentLang==='ar'?'إقفال ذمة':'Clear receivable'}
         ]);
       }
@@ -3116,11 +3172,11 @@ async function reverseInvoiceById(invoiceId){
       }).select().single();
       if(entry){
         await sb.from('journal_lines').insert([
-          {entry_id:entry.id, user_id:currentUser.id, account_code:'4000', account_name:ar?'المبيعات':'Sales',
+          {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.SALES_STANDARD, account_name:ar?'المبيعات':'Sales',
            debit:inv.subtotal, credit:0, description:ar?'عكس مبيعات':'Reverse sales'},
-          {entry_id:entry.id, user_id:currentUser.id, account_code:'2210', account_name:ar?'ضريبة القيمة المضافة المستحقة':'VAT Output',
+          {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.VAT_OUTPUT, account_name:ar?'ضريبة القيمة المضافة المستحقة':'VAT Output',
            debit:inv.vat_amount, credit:0, description:ar?'عكس ضريبة':'Reverse VAT'},
-          {entry_id:entry.id, user_id:currentUser.id, account_code:'1200', account_name:ar?'ذمم مدينة تجارية':'Trade Receivables',
+          {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:ar?'ذمم مدينة تجارية':'Trade Receivables',
            debit:0, credit:inv.total, description:ar?'إقفال ذمة':'Clear receivable'}
         ]);
       }
@@ -3556,19 +3612,19 @@ async function saveManualNote(){
       if(entry){
         const lines = isCredit
           ? [
-              {entry_id:entry.id, user_id:currentUser.id, account_code:'4000', account_name:ar?'المبيعات':'Sales',
+              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.SALES_STANDARD, account_name:ar?'المبيعات':'Sales',
                debit:subtotal, credit:0, description:ar?'عكس مبيعات':'Reverse sales'},
-              {entry_id:entry.id, user_id:currentUser.id, account_code:'2210', account_name:ar?'ضريبة القيمة المضافة المستحقة':'VAT Output',
+              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.VAT_OUTPUT, account_name:ar?'ضريبة القيمة المضافة المستحقة':'VAT Output',
                debit:vatAmount, credit:0, description:ar?'عكس ضريبة':'Reverse VAT'},
-              {entry_id:entry.id, user_id:currentUser.id, account_code:'1200', account_name:ar?'ذمم مدينة تجارية':'Trade Receivables',
+              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:ar?'ذمم مدينة تجارية':'Trade Receivables',
                debit:0, credit:total, description:ar?'إقفال ذمة جزئي':'Partial AR clear'}
             ]
           : [
-              {entry_id:entry.id, user_id:currentUser.id, account_code:'1200', account_name:ar?'ذمم مدينة تجارية':'Trade Receivables',
+              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:ar?'ذمم مدينة تجارية':'Trade Receivables',
                debit:total, credit:0, description:ar?'إضافة ذمة':'Add AR'},
-              {entry_id:entry.id, user_id:currentUser.id, account_code:'4000', account_name:ar?'المبيعات':'Sales',
+              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.SALES_STANDARD, account_name:ar?'المبيعات':'Sales',
                debit:0, credit:subtotal, description:ar?'إيراد إضافي':'Additional revenue'},
-              {entry_id:entry.id, user_id:currentUser.id, account_code:'2210', account_name:ar?'ضريبة القيمة المضافة المستحقة':'VAT Output',
+              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.VAT_OUTPUT, account_name:ar?'ضريبة القيمة المضافة المستحقة':'VAT Output',
                debit:0, credit:vatAmount, description:ar?'ضريبة إضافية':'Additional VAT'}
             ];
         await sb.from('journal_lines').insert(lines);
@@ -5460,10 +5516,10 @@ async function generateInvoice(){
         }
         if(cogsEntryId){
           await sb.from('journal_lines').insert([
-            {entry_id:cogsEntryId, user_id:currentUser.id, account_code:'5100', account_name:'تكلفة البضاعة المباعة',
+            {entry_id:cogsEntryId, user_id:currentUser.id, account_code:CODE.COGS, account_name:'تكلفة البضاعة المباعة',
              debit:totalCOGS, credit:0,
              description:(currentLang==='ar'?'تكلفة مبيعات — ':'COGS — ') + payload.invoice_number},
-            {entry_id:cogsEntryId, user_id:currentUser.id, account_code:'1300', account_name:'المخزون',
+            {entry_id:cogsEntryId, user_id:currentUser.id, account_code:CODE.INVENTORY, account_name:'المخزون',
              debit:0, credit:totalCOGS,
              description:(currentLang==='ar'?'إخراج من المخزون — ':'Inventory out — ') + payload.invoice_number}
           ]);
@@ -5620,13 +5676,13 @@ async function autoPostInvoice(invoice){
     if(error || !entry){console.warn('Auto-post error:', error?.message);return;}
 
     await sb.from('journal_lines').insert([
-      {entry_id:entry.id, user_id:currentUser.id, account_code:'1200', account_name:'ذمم مدينة تجارية',
+      {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:'ذمم مدينة تجارية',
        debit:total, credit:0,
        description:(currentLang==='ar'?'مستحقات من ':'Receivable from ') + (invoice.buyer_name||'عميل')},
-      {entry_id:entry.id, user_id:currentUser.id, account_code:'4100', account_name:'إيرادات المبيعات',
+      {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.SALES_STANDARD, account_name:'إيرادات المبيعات',
        debit:0, credit:revenue,
        description:(currentLang==='ar'?'إيرادات مبيعات — ':'Sales — ') + ref},
-      {entry_id:entry.id, user_id:currentUser.id, account_code:'2200', account_name:'ضريبة القيمة المضافة — مخرجات',
+      {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.VAT_OUTPUT, account_name:'ضريبة القيمة المضافة — مخرجات',
        debit:0, credit:vat,
        description:'VAT مخرجات 15% — ' + ref}
     ]);
@@ -6161,7 +6217,7 @@ async function confirmPayment(){
       await sb.from('journal_lines').insert([
         {entry_id:entry.id, user_id:currentUser.id, account_code:accountCode, account_name:accountName,
          debit:amount, credit:0, description:currentLang==='ar'?'استلام من عميل':'Received from customer'},
-        {entry_id:entry.id, user_id:currentUser.id, account_code:'1200', account_name:currentLang==='ar'?'ذمم مدينة تجارية':'Trade Receivables',
+        {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:currentLang==='ar'?'ذمم مدينة تجارية':'Trade Receivables',
          debit:0, credit:amount, description:currentLang==='ar'?'إقفال ذمة':'Clear receivable'}
       ]);
     }

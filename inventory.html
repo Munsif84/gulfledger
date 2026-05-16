@@ -1726,6 +1726,26 @@ const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   ROUND B-PL-Structure: Semantic account code constants (SOCPA-aligned)
+   See invoices.html for full documentation.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const USE_SOCPA_CODES_DEFAULT = false;
+function _useSocpa(){
+  if(typeof window !== 'undefined' && window._gl_use_socpa_codes != null){
+    return !!window._gl_use_socpa_codes;
+  }
+  return USE_SOCPA_CODES_DEFAULT;
+}
+const CODE = Object.freeze({
+  get AR(){           return _useSocpa() ? '1210' : '1200'; },
+  get INVENTORY(){    return _useSocpa() ? '1330' : '1300'; },
+  get VAT_INPUT(){    return _useSocpa() ? '1500' : '2220'; },
+  get AP(){           return _useSocpa() ? '2110' : '2100'; },
+  get VAT_OUTPUT(){   return '2210'; },
+  get COGS(){              return _useSocpa() ? '5110' : '5100'; }
+});
+
 /* ROUND B-VAT: Filings helper (inlined). Exports on window.gl.filings. */
 /* ════════════════════════════════════════════════════════════════════════════
    ROUND B-VAT: Shared filings helpers
@@ -2315,6 +2335,8 @@ async function init(){
     }
     currentBiz = biz;
     currentBiz._myRole = role;
+    /* Round B-PL-Structure: drive CODE.* (legacy vs SOCPA) from chart_version */
+    window._gl_use_socpa_codes = (currentBiz.chart_version === 'socpa_v1');
     setText('biz-name', getNameAr(biz) || getNameEn(biz) || '...');
 
     /* Apply lang */
@@ -4543,7 +4565,7 @@ async function postReceiptJournal(receipt, items, subtotal, vatAmount, total, pa
   const lines = [{
     entry_id: entry.id,
     user_id: currentUser.id,
-    account_code: '1300',
+    account_code: CODE.INVENTORY,
     account_name: currentLang==='ar' ? 'المخزون' : 'Inventory',
     debit: subtotal,
     credit: 0,
@@ -4551,11 +4573,12 @@ async function postReceiptJournal(receipt, items, subtotal, vatAmount, total, pa
   }];
 
   /* DR Input VAT (if any) */
+  /* BUGFIX Round B-PL-Structure: was posting to 2210 (VAT Output) — wrong account. */
   if(vatAmount > 0){
     lines.push({
       entry_id: entry.id,
       user_id: currentUser.id,
-      account_code: '2210',
+      account_code: CODE.VAT_INPUT,
       account_name: currentLang==='ar' ? 'ضريبة المدخلات' : 'Input VAT',
       debit: vatAmount,
       credit: 0,
@@ -5392,11 +5415,11 @@ async function postReceiptVoidJournal(receipt){
       debit: total, credit: 0, description: desc }
   ];
   if(vatAmount > 0){
-    lines.push({ entry_id: entry.id, user_id: currentUser.id, account_code: '2210',
+    lines.push({ entry_id: entry.id, user_id: currentUser.id, account_code: CODE.VAT_INPUT,
       account_name: currentLang==='ar' ? 'ضريبة المدخلات' : 'Input VAT',
       debit: 0, credit: vatAmount, description: desc });
   }
-  lines.push({ entry_id: entry.id, user_id: currentUser.id, account_code: '1300',
+  lines.push({ entry_id: entry.id, user_id: currentUser.id, account_code: CODE.INVENTORY,
     account_name: currentLang==='ar' ? 'المخزون' : 'Inventory',
     debit: 0, credit: subtotal, description: desc });
 

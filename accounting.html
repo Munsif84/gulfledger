@@ -2070,6 +2070,9 @@ async function init(){
   }
   currentBiz = biz;
   currentBiz._myRole = role;
+  /* Wire chart_version → in-memory flag so CODE.* across all pages returns
+     the correct codes. Set BEFORE any posting code can run. */
+  window._gl_use_socpa_codes = (currentBiz.chart_version === 'socpa_v1');
   setText('biz-name', displayName(currentBiz) || currentBiz.name || '—');
 
   setLang(currentLang);
@@ -2174,6 +2177,57 @@ function populateTrustBanner(){
     : `Last updated · ${dateStr}`;
 }
 
+/* Round B-PL-Structure Phase 0: ensure critical accounts always exist.
+   Idempotent — checks chart_of_accounts and inserts only the codes that
+   are missing. Runs every time accounting page loads. Critical accounts
+   are those the journal-posting code (invoices.html etc.) references:
+     5100 — COGS (now mapped from old code → 5110 in new chart, but legacy
+            invoices still post to 5100)
+     1600 — Other Current Assets
+     2220 — VAT Payable Net
+   These guarantee the BS will balance going forward. Without them,
+   journal entries reference codes not in chart_of_accounts → orphans. */
+const CRITICAL_ACCOUNTS = [
+  /* Code 5100 — COGS. Legacy invoice posting still uses this code, so we keep
+     it active even after the SOCPA migration introduces 5110. After running
+     glMigrateChartOfAccounts, journal_lines.account_code 5100 → 5110, but the
+     5100 entry stays in chart_of_accounts as inactive (history preservation).
+     For new businesses, 5100 is the header and 5110 is the leaf. */
+  { code:'5100', name_en:'Cost of Goods Sold',        name_ar:'تكلفة البضاعة المباعة', type:'expense', parent_code:null },
+  { code:'1600', name_en:'Other Current Assets',      name_ar:'أصول متداولة أخرى',    type:'asset',   parent_code:null },
+  { code:'2220', name_en:'VAT Payable',               name_ar:'ضريبة القيمة المضافة المستحقة', type:'liability', parent_code:null }
+];
+
+async function selfHealCriticalAccounts(){
+  if(!currentBiz?.id || !currentUser?.id) return;
+  /* Skip after SOCPA migration — the new chart provides these accounts with
+     different codes/structure. Re-adding the legacy codes here would resurrect
+     orphans we just marked inactive. */
+  if(currentBiz.chart_version === 'socpa_v1') return;
+  const existingCodes = new Set(chartOfAccounts.map(a => a.code));
+  const toInsert = CRITICAL_ACCOUNTS.filter(a => !existingCodes.has(a.code));
+  if(toInsert.length === 0) return;
+  console.log(`[GL self-heal] Adding ${toInsert.length} critical missing accounts:`, toInsert.map(a => a.code));
+  const rows = toInsert.map(a => ({
+    user_id: currentUser.id,
+    business_id: currentBiz.id,
+    code: a.code,
+    name_en: a.name_en,
+    name_ar: a.name_ar,
+    type: a.type,
+    parent_code: a.parent_code,
+    is_active: true,
+    display_order: parseInt(a.code, 10) || 9999
+  }));
+  const {error} = await sb.from('chart_of_accounts').insert(rows);
+  if(error){
+    console.warn('[GL self-heal] insert error (non-fatal):', error.message);
+    return;
+  }
+  window._gl_seeded_critical = true;
+  console.log('[GL self-heal] ✓ Critical accounts added. BS imbalance should drop on next reload.');
+}
+
 async function loadCoreData(){
   /* Chart of accounts — needed by Ledger and Reports */
   const {data:coa, error: coaErr} = await sb.from('chart_of_accounts')
@@ -2203,6 +2257,26 @@ async function loadCoreData(){
           .order('display_order', {ascending:true});
         chartOfAccounts = coa2 || [];
       }
+    }
+
+    /* ─── Round B-PL-Structure Phase 0: self-healing critical-accounts check ──
+       Before this round, journal-posting code in invoices.html (and others)
+       could post to account codes that weren't in chart_of_accounts for
+       certain businesses. The diagnostic found three orphan codes:
+         5100 (COGS) — biggest, ~100k off-balance
+         1600 (asset)
+         2220 (VAT Payable)
+       This self-healing block ensures those exist with proper type/parent
+       on every accounting page load. Idempotent — only inserts if missing. */
+    await selfHealCriticalAccounts();
+
+    /* Re-fetch in case we just inserted any */
+    if(window._gl_seeded_critical){
+      const {data:coa3} = await sb.from('chart_of_accounts')
+        .select('*').eq('business_id', currentBiz?.id || '').eq('is_active', true)
+        .order('display_order', {ascending:true});
+      chartOfAccounts = coa3 || chartOfAccounts;
+      window._gl_seeded_critical = false;
     }
   }
 
@@ -2403,13 +2477,9 @@ function periodLabel(name){
   return ar ? 'كل الفترات' : 'All time';
 }
 
-function setHealthPeriod(p){
-  healthPeriod = p;
-  document.querySelectorAll('.period-pill').forEach(b => {
-    b.classList.toggle('on', b.dataset.period === p);
-  });
-  loadAndRenderHealth();
-}
+/* setHealthPeriod canonical definition is below (~line 2990); the earlier
+   stub-style declaration was redundant. Period pill toggling is now handled
+   inline within loadAndRenderHealth/render functions. */
 
 /* Compute next VAT return due based on user's filing frequency */
 function nextVatDueDate(){
@@ -3098,6 +3168,298 @@ function setLedgerView(name){
   document.getElementById('lview-coa-pane').style.display = (name === 'coa') ? '' : 'none';
   if(name === 'coa') renderChartOfAccounts();
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   ROUND B-PL-STRUCTURE: SOCPA-ALIGNED CHART OF ACCOUNTS
+   ─────────────────────────────────────────────────────────────────
+   This is the master chart of accounts for GulfLedger, designed to:
+     • Comply with SOCPA-endorsed IFRS for SMEs
+     • Support ZATCA filing automation (sales split by VAT class)
+     • Support by-function P&L (Cost of Sales / Gross Profit / OpEx)
+     • Support by-nature P&L (subcategory tags for grouping)
+     • Support Saudi labor law tracking (GOSI, EOSB)
+     • Support WHT requirements (local + foreign)
+
+   Each account has:
+     code         - 4-digit string
+     name_en      - English name
+     name_ar      - Arabic name
+     type         - asset|liability|equity|income|expense
+     subcategory  - drives by-function P&L grouping (see below)
+     parent_code  - null for headers, otherwise parent
+     is_header    - true if this is a group/header (no postings to it directly)
+     normal       - 'DR' or 'CR' (natural balance side)
+
+   Subcategories:
+     current_asset / non_current_asset / contra_asset
+     current_liability / non_current_liability
+     equity
+     operating_revenue / other_revenue / contra_revenue
+     cost_of_sales (5xxx — appears above Gross Profit in by-function P&L)
+     opex_selling / opex_admin / opex_other (below Gross Profit)
+     finance_cost / tax_expense (below Operating Profit)
+     non_deductible_expense (excluded from tax base)
+   ═══════════════════════════════════════════════════════════════════ */
+
+const SOCPA_CHART_OF_ACCOUNTS = [
+  /* 1xxx ASSETS */
+  { code:'1000', name_en:'Current Assets',                     name_ar:'الأصول المتداولة',                type:'asset',     subcategory:'current_asset',      parent_code:null,    is_header:true,  normal:'DR' },
+  { code:'1100', name_en:'Cash on Hand',                       name_ar:'النقد في الصندوق',                type:'asset',     subcategory:'current_asset',      parent_code:'1000', is_header:false, normal:'DR' },
+  { code:'1110', name_en:'Petty Cash',                         name_ar:'عهدة نقدية',                       type:'asset',     subcategory:'current_asset',      parent_code:'1000', is_header:false, normal:'DR' },
+  { code:'1120', name_en:'Bank — Operating',                   name_ar:'البنك — الحساب التشغيلي',          type:'asset',     subcategory:'current_asset',      parent_code:'1000', is_header:false, normal:'DR' },
+  { code:'1121', name_en:'Bank — Savings',                     name_ar:'البنك — حساب الادخار',             type:'asset',     subcategory:'current_asset',      parent_code:'1000', is_header:false, normal:'DR' },
+  { code:'1130', name_en:'Cheques in Hand',                    name_ar:'شيكات تحت التحصيل',               type:'asset',     subcategory:'current_asset',      parent_code:'1000', is_header:false, normal:'DR' },
+  { code:'1200', name_en:'Trade Receivables',                  name_ar:'ذمم مدينة تجارية',                 type:'asset',     subcategory:'current_asset',      parent_code:'1000', is_header:true,  normal:'DR' },
+  { code:'1210', name_en:'AR — Current (0-30d)',               name_ar:'ذمم مدينة — جارية',                type:'asset',     subcategory:'current_asset',      parent_code:'1200', is_header:false, normal:'DR' },
+  { code:'1220', name_en:'AR — 31-60 days',                    name_ar:'ذمم مدينة — 31-60 يوم',           type:'asset',     subcategory:'current_asset',      parent_code:'1200', is_header:false, normal:'DR' },
+  { code:'1230', name_en:'AR — 61-90 days',                    name_ar:'ذمم مدينة — 61-90 يوم',           type:'asset',     subcategory:'current_asset',      parent_code:'1200', is_header:false, normal:'DR' },
+  { code:'1240', name_en:'AR — Over 90 days',                  name_ar:'ذمم مدينة — أكثر من 90 يوم',      type:'asset',     subcategory:'current_asset',      parent_code:'1200', is_header:false, normal:'DR' },
+  { code:'1290', name_en:'Allowance for Doubtful Accounts',    name_ar:'مخصص الديون المشكوك بها',          type:'asset',     subcategory:'contra_asset',       parent_code:'1200', is_header:false, normal:'CR' },
+  { code:'1300', name_en:'Inventory',                          name_ar:'المخزون',                           type:'asset',     subcategory:'current_asset',      parent_code:'1000', is_header:true,  normal:'DR' },
+  { code:'1310', name_en:'Inventory — Raw Materials',          name_ar:'المخزون — المواد الخام',           type:'asset',     subcategory:'current_asset',      parent_code:'1300', is_header:false, normal:'DR' },
+  { code:'1320', name_en:'Inventory — WIP',                    name_ar:'المخزون — تحت التشغيل',           type:'asset',     subcategory:'current_asset',      parent_code:'1300', is_header:false, normal:'DR' },
+  { code:'1330', name_en:'Inventory — Finished Goods',         name_ar:'المخزون — تامة الصنع',             type:'asset',     subcategory:'current_asset',      parent_code:'1300', is_header:false, normal:'DR' },
+  { code:'1340', name_en:'Inventory — Goods in Transit',       name_ar:'المخزون — في الطريق',              type:'asset',     subcategory:'current_asset',      parent_code:'1300', is_header:false, normal:'DR' },
+  { code:'1400', name_en:'Prepaid Expenses',                   name_ar:'مصاريف مدفوعة مقدماً',             type:'asset',     subcategory:'current_asset',      parent_code:'1000', is_header:false, normal:'DR' },
+  { code:'1410', name_en:'Prepaid Rent',                       name_ar:'إيجار مدفوع مقدماً',               type:'asset',     subcategory:'current_asset',      parent_code:'1000', is_header:false, normal:'DR' },
+  { code:'1420', name_en:'Prepaid Insurance',                  name_ar:'تأمين مدفوع مقدماً',               type:'asset',     subcategory:'current_asset',      parent_code:'1000', is_header:false, normal:'DR' },
+  { code:'1450', name_en:'Accrued Receivables',                name_ar:'إيرادات مستحقة',                    type:'asset',     subcategory:'current_asset',      parent_code:'1000', is_header:false, normal:'DR' },
+  { code:'1500', name_en:'VAT Input (Recoverable)',            name_ar:'ضريبة القيمة المضافة — مدخلات',    type:'asset',     subcategory:'current_asset',      parent_code:'1000', is_header:false, normal:'DR' },
+  { code:'1550', name_en:'Income Tax Receivable',              name_ar:'ضريبة دخل مستحقة الاسترداد',       type:'asset',     subcategory:'current_asset',      parent_code:'1000', is_header:false, normal:'DR' },
+  { code:'1560', name_en:'Withholding Tax Recoverable',        name_ar:'ضريبة استقطاع مستحقة الاسترداد',   type:'asset',     subcategory:'current_asset',      parent_code:'1000', is_header:false, normal:'DR' },
+  { code:'1600', name_en:'Other Current Assets',               name_ar:'أصول متداولة أخرى',                type:'asset',     subcategory:'current_asset',      parent_code:'1000', is_header:false, normal:'DR' },
+  { code:'1700', name_en:'Non-Current Assets',                 name_ar:'الأصول غير المتداولة',              type:'asset',     subcategory:'non_current_asset',  parent_code:null,    is_header:true,  normal:'DR' },
+  { code:'1710', name_en:'Land',                               name_ar:'الأراضي',                           type:'asset',     subcategory:'non_current_asset',  parent_code:'1700', is_header:false, normal:'DR' },
+  { code:'1720', name_en:'Buildings',                          name_ar:'المباني',                           type:'asset',     subcategory:'non_current_asset',  parent_code:'1700', is_header:false, normal:'DR' },
+  { code:'1730', name_en:'Plant & Machinery',                  name_ar:'الآلات والمعدات',                  type:'asset',     subcategory:'non_current_asset',  parent_code:'1700', is_header:false, normal:'DR' },
+  { code:'1740', name_en:'Vehicles',                           name_ar:'المركبات',                          type:'asset',     subcategory:'non_current_asset',  parent_code:'1700', is_header:false, normal:'DR' },
+  { code:'1750', name_en:'Furniture & Fixtures',               name_ar:'الأثاث والتجهيزات',                type:'asset',     subcategory:'non_current_asset',  parent_code:'1700', is_header:false, normal:'DR' },
+  { code:'1760', name_en:'IT Equipment',                       name_ar:'معدات تقنية المعلومات',           type:'asset',     subcategory:'non_current_asset',  parent_code:'1700', is_header:false, normal:'DR' },
+  { code:'1770', name_en:'Intangible Assets',                  name_ar:'الأصول غير الملموسة',              type:'asset',     subcategory:'non_current_asset',  parent_code:'1700', is_header:false, normal:'DR' },
+  { code:'1790', name_en:'Accumulated Depreciation',           name_ar:'مجمع الإهلاك',                      type:'asset',     subcategory:'contra_asset',       parent_code:'1700', is_header:false, normal:'CR' },
+
+  /* 2xxx LIABILITIES */
+  { code:'2000', name_en:'Current Liabilities',                name_ar:'الخصوم المتداولة',                  type:'liability', subcategory:'current_liability',     parent_code:null,    is_header:true,  normal:'CR' },
+  { code:'2100', name_en:'Trade Payables',                     name_ar:'ذمم دائنة تجارية',                  type:'liability', subcategory:'current_liability',     parent_code:'2000', is_header:false, normal:'CR' },
+  { code:'2150', name_en:'Goods Received Clearing',            name_ar:'حساب استلام البضاعة (مؤقت)',        type:'liability', subcategory:'current_liability',     parent_code:'2000', is_header:false, normal:'CR' },
+  { code:'2200', name_en:'VAT Liabilities',                    name_ar:'التزامات ضريبة القيمة المضافة',     type:'liability', subcategory:'current_liability',     parent_code:'2000', is_header:true,  normal:'CR' },
+  { code:'2210', name_en:'VAT Output (on Sales)',              name_ar:'ضريبة القيمة المضافة — مخرجات',     type:'liability', subcategory:'current_liability',     parent_code:'2200', is_header:false, normal:'CR' },
+  { code:'2220', name_en:'VAT Payable (Net to ZATCA)',         name_ar:'ضريبة القيمة المضافة المستحقة',     type:'liability', subcategory:'current_liability',     parent_code:'2200', is_header:false, normal:'CR' },
+  { code:'2230', name_en:'VAT Reverse-Charge Payable',         name_ar:'ضريبة القيمة المضافة العكسية',      type:'liability', subcategory:'current_liability',     parent_code:'2200', is_header:false, normal:'CR' },
+  { code:'2300', name_en:'Payroll Liabilities',                name_ar:'التزامات الرواتب',                  type:'liability', subcategory:'current_liability',     parent_code:'2000', is_header:true,  normal:'CR' },
+  { code:'2310', name_en:'Salaries Payable',                   name_ar:'رواتب مستحقة الدفع',                type:'liability', subcategory:'current_liability',     parent_code:'2300', is_header:false, normal:'CR' },
+  { code:'2320', name_en:'GOSI Payable',                       name_ar:'التأمينات الاجتماعية المستحقة',     type:'liability', subcategory:'current_liability',     parent_code:'2300', is_header:false, normal:'CR' },
+  { code:'2330', name_en:'EOSB Accrual (Short-term)',          name_ar:'مكافأة نهاية الخدمة قصيرة الأجل',   type:'liability', subcategory:'current_liability',     parent_code:'2300', is_header:false, normal:'CR' },
+  { code:'2340', name_en:'Withholding Tax — Local Payable',    name_ar:'ضريبة استقطاع — محلية',             type:'liability', subcategory:'current_liability',     parent_code:'2300', is_header:false, normal:'CR' },
+  { code:'2400', name_en:'Tax Liabilities',                    name_ar:'التزامات الضرائب',                  type:'liability', subcategory:'current_liability',     parent_code:'2000', is_header:true,  normal:'CR' },
+  { code:'2410', name_en:'Zakat Payable',                      name_ar:'الزكاة المستحقة',                   type:'liability', subcategory:'current_liability',     parent_code:'2400', is_header:false, normal:'CR' },
+  { code:'2420', name_en:'Income Tax Payable (CIT)',           name_ar:'ضريبة الدخل المستحقة',              type:'liability', subcategory:'current_liability',     parent_code:'2400', is_header:false, normal:'CR' },
+  { code:'2430', name_en:'Withholding Tax — Foreign Payable',  name_ar:'ضريبة استقطاع — أجنبية',            type:'liability', subcategory:'current_liability',     parent_code:'2400', is_header:false, normal:'CR' },
+  { code:'2500', name_en:'Accrued Expenses',                   name_ar:'مصاريف مستحقة الدفع',               type:'liability', subcategory:'current_liability',     parent_code:'2000', is_header:false, normal:'CR' },
+  { code:'2600', name_en:'Short-term Loans',                   name_ar:'قروض قصيرة الأجل',                  type:'liability', subcategory:'current_liability',     parent_code:'2000', is_header:false, normal:'CR' },
+  { code:'2700', name_en:'Deferred Revenue',                   name_ar:'إيرادات مؤجلة',                     type:'liability', subcategory:'current_liability',     parent_code:'2000', is_header:false, normal:'CR' },
+  { code:'2800', name_en:'Non-Current Liabilities',            name_ar:'الخصوم غير المتداولة',              type:'liability', subcategory:'non_current_liability', parent_code:null,    is_header:true,  normal:'CR' },
+  { code:'2810', name_en:'Long-term Loans',                    name_ar:'قروض طويلة الأجل',                  type:'liability', subcategory:'non_current_liability', parent_code:'2800', is_header:false, normal:'CR' },
+  { code:'2820', name_en:'EOSB Reserve (Long-term)',           name_ar:'مكافأة نهاية الخدمة طويلة الأجل',   type:'liability', subcategory:'non_current_liability', parent_code:'2800', is_header:false, normal:'CR' },
+
+  /* 3xxx EQUITY */
+  { code:'3000', name_en:'Equity',                             name_ar:'حقوق الملكية',                      type:'equity', subcategory:'equity', parent_code:null,    is_header:true,  normal:'CR' },
+  { code:'3100', name_en:'Share Capital',                      name_ar:'رأس المال',                          type:'equity', subcategory:'equity', parent_code:'3000', is_header:false, normal:'CR' },
+  { code:'3150', name_en:'Capital Contributions',              name_ar:'مساهمات رأس المال',                 type:'equity', subcategory:'equity', parent_code:'3000', is_header:false, normal:'CR' },
+  { code:'3200', name_en:'Retained Earnings',                  name_ar:'الأرباح المحتجزة',                  type:'equity', subcategory:'equity', parent_code:'3000', is_header:false, normal:'CR' },
+  { code:'3300', name_en:'Owner\'s Drawings',                  name_ar:'المسحوبات',                          type:'equity', subcategory:'equity', parent_code:'3000', is_header:false, normal:'DR' },
+  { code:'3400', name_en:'Dividends Declared',                 name_ar:'توزيعات الأرباح المعلنة',           type:'equity', subcategory:'equity', parent_code:'3000', is_header:false, normal:'DR' },
+  { code:'3500', name_en:'Statutory Reserve',                  name_ar:'الاحتياطي النظامي',                  type:'equity', subcategory:'equity', parent_code:'3000', is_header:false, normal:'CR' },
+
+  /* 4xxx REVENUE */
+  { code:'4000', name_en:'Operating Revenue',                  name_ar:'الإيرادات التشغيلية',               type:'income', subcategory:'operating_revenue', parent_code:null,    is_header:true,  normal:'CR' },
+  { code:'4100', name_en:'Sales Revenue',                      name_ar:'إيرادات المبيعات',                  type:'income', subcategory:'operating_revenue', parent_code:'4000', is_header:true,  normal:'CR' },
+  { code:'4110', name_en:'Sales — Standard Rated (15% VAT)',   name_ar:'مبيعات قياسية 15%',                 type:'income', subcategory:'operating_revenue', parent_code:'4100', is_header:false, normal:'CR' },
+  { code:'4120', name_en:'Sales — Zero Rated',                 name_ar:'مبيعات بالمعدل الصفري',             type:'income', subcategory:'operating_revenue', parent_code:'4100', is_header:false, normal:'CR' },
+  { code:'4130', name_en:'Sales — Exempt',                     name_ar:'مبيعات معفاة',                       type:'income', subcategory:'operating_revenue', parent_code:'4100', is_header:false, normal:'CR' },
+  { code:'4140', name_en:'Sales — Export',                     name_ar:'مبيعات تصدير',                       type:'income', subcategory:'operating_revenue', parent_code:'4100', is_header:false, normal:'CR' },
+  { code:'4190', name_en:'Sales Returns & Allowances',         name_ar:'مرتجعات مبيعات',                     type:'income', subcategory:'contra_revenue',    parent_code:'4100', is_header:false, normal:'DR' },
+  { code:'4200', name_en:'Service Revenue',                    name_ar:'إيرادات الخدمات',                   type:'income', subcategory:'operating_revenue', parent_code:'4000', is_header:true,  normal:'CR' },
+  { code:'4210', name_en:'Service Revenue — Standard Rated',   name_ar:'إيرادات خدمات قياسية',              type:'income', subcategory:'operating_revenue', parent_code:'4200', is_header:false, normal:'CR' },
+  { code:'4220', name_en:'Service Revenue — Zero Rated',       name_ar:'إيرادات خدمات بالمعدل الصفري',      type:'income', subcategory:'operating_revenue', parent_code:'4200', is_header:false, normal:'CR' },
+  { code:'4300', name_en:'Other Income',                       name_ar:'إيرادات أخرى',                       type:'income', subcategory:'other_revenue',     parent_code:null,    is_header:true,  normal:'CR' },
+  { code:'4310', name_en:'Interest Income',                    name_ar:'إيرادات فوائد',                     type:'income', subcategory:'other_revenue',     parent_code:'4300', is_header:false, normal:'CR' },
+  { code:'4320', name_en:'FX Gain',                            name_ar:'أرباح فروق العملة',                 type:'income', subcategory:'other_revenue',     parent_code:'4300', is_header:false, normal:'CR' },
+  { code:'4330', name_en:'Gain on Asset Disposal',             name_ar:'أرباح بيع أصول',                    type:'income', subcategory:'other_revenue',     parent_code:'4300', is_header:false, normal:'CR' },
+  { code:'4340', name_en:'Miscellaneous Income',               name_ar:'إيرادات متنوعة',                    type:'income', subcategory:'other_revenue',     parent_code:'4300', is_header:false, normal:'CR' },
+
+  /* 5xxx COST OF SALES (only meaningful for by-function P&L) */
+  { code:'5000', name_en:'Cost of Sales',                      name_ar:'تكلفة المبيعات',                     type:'expense', subcategory:'cost_of_sales', parent_code:null,    is_header:true,  normal:'DR' },
+  { code:'5100', name_en:'Cost of Goods Sold',                 name_ar:'تكلفة البضاعة المباعة',              type:'expense', subcategory:'cost_of_sales', parent_code:'5000', is_header:true,  normal:'DR' },
+  { code:'5110', name_en:'COGS — Materials/Purchases',         name_ar:'تكلفة — مواد ومشتريات',              type:'expense', subcategory:'cost_of_sales', parent_code:'5100', is_header:false, normal:'DR' },
+  { code:'5120', name_en:'COGS — Direct Labor',                name_ar:'تكلفة — أجور مباشرة',                type:'expense', subcategory:'cost_of_sales', parent_code:'5100', is_header:false, normal:'DR' },
+  { code:'5130', name_en:'COGS — Manufacturing Overhead',      name_ar:'تكلفة — مصاريف صناعية',              type:'expense', subcategory:'cost_of_sales', parent_code:'5100', is_header:false, normal:'DR' },
+  { code:'5140', name_en:'COGS — Freight In',                  name_ar:'تكلفة — مصاريف شحن داخل',            type:'expense', subcategory:'cost_of_sales', parent_code:'5100', is_header:false, normal:'DR' },
+  { code:'5150', name_en:'Inventory Write-offs',               name_ar:'إعدامات مخزون',                       type:'expense', subcategory:'cost_of_sales', parent_code:'5100', is_header:false, normal:'DR' },
+  { code:'5160', name_en:'Inventory Adjustments',              name_ar:'تسويات مخزون',                        type:'expense', subcategory:'cost_of_sales', parent_code:'5100', is_header:false, normal:'DR' },
+  { code:'5200', name_en:'Cost of Services',                   name_ar:'تكلفة الخدمات',                       type:'expense', subcategory:'cost_of_sales', parent_code:'5000', is_header:false, normal:'DR' },
+
+  /* 6xxx SELLING EXPENSES */
+  { code:'6000', name_en:'Selling Expenses',                   name_ar:'مصاريف البيع',                       type:'expense', subcategory:'opex_selling', parent_code:null,    is_header:true,  normal:'DR' },
+  { code:'6100', name_en:'Salesperson Salaries',               name_ar:'رواتب موظفي المبيعات',               type:'expense', subcategory:'opex_selling', parent_code:'6000', is_header:false, normal:'DR' },
+  { code:'6110', name_en:'Sales Commissions',                  name_ar:'عمولات المبيعات',                    type:'expense', subcategory:'opex_selling', parent_code:'6000', is_header:false, normal:'DR' },
+  { code:'6200', name_en:'Marketing & Advertising',            name_ar:'مصاريف التسويق والإعلان',            type:'expense', subcategory:'opex_selling', parent_code:'6000', is_header:false, normal:'DR' },
+  { code:'6210', name_en:'Digital Marketing',                  name_ar:'تسويق رقمي',                          type:'expense', subcategory:'opex_selling', parent_code:'6000', is_header:false, normal:'DR' },
+  { code:'6300', name_en:'Sales Travel',                       name_ar:'سفر المبيعات',                        type:'expense', subcategory:'opex_selling', parent_code:'6000', is_header:false, normal:'DR' },
+  { code:'6400', name_en:'Shipping & Delivery (outbound)',     name_ar:'شحن وتوصيل (مبيعات)',                type:'expense', subcategory:'opex_selling', parent_code:'6000', is_header:false, normal:'DR' },
+  { code:'6500', name_en:'Sales Office Expenses',              name_ar:'مصاريف مكتب المبيعات',               type:'expense', subcategory:'opex_selling', parent_code:'6000', is_header:false, normal:'DR' },
+
+  /* 7xxx GENERAL & ADMINISTRATIVE EXPENSES */
+  { code:'7000', name_en:'General & Administrative',           name_ar:'مصاريف عمومية وإدارية',              type:'expense', subcategory:'opex_admin', parent_code:null,    is_header:true,  normal:'DR' },
+  { code:'7100', name_en:'Administrative Salaries',            name_ar:'رواتب إدارية',                        type:'expense', subcategory:'opex_admin', parent_code:'7000', is_header:false, normal:'DR' },
+  { code:'7110', name_en:'GOSI Employer Contribution',         name_ar:'مساهمة صاحب العمل في التأمينات',    type:'expense', subcategory:'opex_admin', parent_code:'7000', is_header:false, normal:'DR' },
+  { code:'7120', name_en:'EOSB Expense',                       name_ar:'مصروف مكافأة نهاية الخدمة',         type:'expense', subcategory:'opex_admin', parent_code:'7000', is_header:false, normal:'DR' },
+  { code:'7130', name_en:'Employee Benefits',                  name_ar:'مزايا الموظفين',                      type:'expense', subcategory:'opex_admin', parent_code:'7000', is_header:false, normal:'DR' },
+  { code:'7140', name_en:'Staff Training',                     name_ar:'تدريب الموظفين',                      type:'expense', subcategory:'opex_admin', parent_code:'7000', is_header:false, normal:'DR' },
+  { code:'7200', name_en:'Rent — Office',                      name_ar:'إيجار المكتب',                        type:'expense', subcategory:'opex_admin', parent_code:'7000', is_header:false, normal:'DR' },
+  { code:'7210', name_en:'Rent — Warehouse',                   name_ar:'إيجار المستودع',                      type:'expense', subcategory:'opex_admin', parent_code:'7000', is_header:false, normal:'DR' },
+  { code:'7300', name_en:'Utilities',                          name_ar:'المرافق',                             type:'expense', subcategory:'opex_admin', parent_code:'7000', is_header:false, normal:'DR' },
+  { code:'7310', name_en:'Electricity',                        name_ar:'الكهرباء',                            type:'expense', subcategory:'opex_admin', parent_code:'7000', is_header:false, normal:'DR' },
+  { code:'7320', name_en:'Water',                              name_ar:'المياه',                              type:'expense', subcategory:'opex_admin', parent_code:'7000', is_header:false, normal:'DR' },
+  { code:'7400', name_en:'Telecom & Internet',                 name_ar:'الاتصالات والإنترنت',                type:'expense', subcategory:'opex_admin', parent_code:'7000', is_header:false, normal:'DR' },
+  { code:'7500', name_en:'Insurance',                          name_ar:'التأمين',                             type:'expense', subcategory:'opex_admin', parent_code:'7000', is_header:false, normal:'DR' },
+  { code:'7600', name_en:'Legal & Professional Fees',          name_ar:'الرسوم القانونية والمهنية',          type:'expense', subcategory:'opex_admin', parent_code:'7000', is_header:false, normal:'DR' },
+  { code:'7700', name_en:'Stationery & Office Supplies',       name_ar:'القرطاسية ومستلزمات المكتب',         type:'expense', subcategory:'opex_admin', parent_code:'7000', is_header:false, normal:'DR' },
+  { code:'7800', name_en:'Maintenance & Repair',               name_ar:'الصيانة والإصلاح',                   type:'expense', subcategory:'opex_admin', parent_code:'7000', is_header:false, normal:'DR' },
+  { code:'7900', name_en:'Depreciation — G&A Assets',          name_ar:'إهلاك أصول إدارية',                  type:'expense', subcategory:'opex_admin', parent_code:'7000', is_header:false, normal:'DR' },
+  { code:'7910', name_en:'Amortization',                       name_ar:'إطفاء أصول غير ملموسة',              type:'expense', subcategory:'opex_admin', parent_code:'7000', is_header:false, normal:'DR' },
+
+  /* 8xxx OTHER OPERATING EXPENSES */
+  { code:'8000', name_en:'Other Operating Expenses',           name_ar:'مصاريف تشغيلية أخرى',                type:'expense', subcategory:'opex_other', parent_code:null,    is_header:true,  normal:'DR' },
+  { code:'8100', name_en:'Bad Debt Expense',                   name_ar:'مصروف ديون معدومة',                  type:'expense', subcategory:'opex_other',              parent_code:'8000', is_header:false, normal:'DR' },
+  { code:'8200', name_en:'FX Loss',                            name_ar:'خسائر فروق العملة',                  type:'expense', subcategory:'opex_other',              parent_code:'8000', is_header:false, normal:'DR' },
+  { code:'8300', name_en:'Bank Charges & Fees',                name_ar:'عمولات وأتعاب بنكية',                type:'expense', subcategory:'opex_other',              parent_code:'8000', is_header:false, normal:'DR' },
+  { code:'8400', name_en:'Entertainment',                      name_ar:'ضيافة',                               type:'expense', subcategory:'non_deductible_expense',  parent_code:'8000', is_header:false, normal:'DR' },
+  { code:'8500', name_en:'Donations',                          name_ar:'تبرعات',                              type:'expense', subcategory:'non_deductible_expense',  parent_code:'8000', is_header:false, normal:'DR' },
+  { code:'8600', name_en:'Penalties & Fines',                  name_ar:'غرامات وعقوبات',                    type:'expense', subcategory:'non_deductible_expense',  parent_code:'8000', is_header:false, normal:'DR' },
+  { code:'8700', name_en:'Miscellaneous Operating Expenses',   name_ar:'مصاريف تشغيلية متنوعة',              type:'expense', subcategory:'opex_other',              parent_code:'8000', is_header:false, normal:'DR' },
+
+  /* 9xxx FINANCE COSTS + TAX EXPENSES */
+  { code:'9000', name_en:'Finance Costs',                      name_ar:'تكاليف تمويلية',                     type:'expense', subcategory:'finance_cost', parent_code:null,    is_header:true,  normal:'DR' },
+  { code:'9100', name_en:'Interest Expense',                   name_ar:'فوائد على القروض',                   type:'expense', subcategory:'finance_cost', parent_code:'9000', is_header:false, normal:'DR' },
+  { code:'9110', name_en:'Loan Fees',                          name_ar:'عمولات قروض',                         type:'expense', subcategory:'finance_cost', parent_code:'9000', is_header:false, normal:'DR' },
+  { code:'9200', name_en:'Tax Expenses',                       name_ar:'مصاريف الضرائب',                     type:'expense', subcategory:'tax_expense', parent_code:null,    is_header:true,  normal:'DR' },
+  { code:'9210', name_en:'Zakat Expense',                      name_ar:'مصروف الزكاة',                       type:'expense', subcategory:'tax_expense', parent_code:'9200', is_header:false, normal:'DR' },
+  { code:'9220', name_en:'Income Tax Expense (CIT)',           name_ar:'مصروف ضريبة الدخل',                  type:'expense', subcategory:'tax_expense', parent_code:'9200', is_header:false, normal:'DR' },
+  { code:'9230', name_en:'Withholding Tax Expense',            name_ar:'مصروف ضريبة الاستقطاع',             type:'expense', subcategory:'tax_expense', parent_code:'9200', is_header:false, normal:'DR' }
+];
+
+/* Semantic account-code constants. Use these everywhere instead of magic strings.
+   If we ever renumber the chart, update CODE here in one place. */
+const CODE = Object.freeze({
+  /* Cash & Bank */
+  CASH:              '1100',
+  PETTY_CASH:        '1110',
+  BANK_OPERATING:    '1120',
+  BANK_SAVINGS:      '1121',
+  /* AR & related */
+  AR:                '1210',           /* default leaf — Current bucket */
+  AR_31_60:          '1220',
+  AR_61_90:          '1230',
+  AR_OVER_90:        '1240',
+  ALLOWANCE_DOUBTFUL:'1290',
+  /* Inventory */
+  INVENTORY:         '1330',           /* default leaf — Finished Goods */
+  INVENTORY_RAW:     '1310',
+  INVENTORY_WIP:     '1320',
+  /* Prepaids & taxes */
+  PREPAID_EXPENSES:  '1400',
+  VAT_INPUT:         '1500',
+  /* AP */
+  AP:                '2100',
+  GR_CLEARING:       '2150',
+  /* VAT */
+  VAT_OUTPUT:        '2210',
+  VAT_PAYABLE_NET:   '2220',
+  /* Payroll */
+  SALARIES_PAYABLE:  '2310',
+  GOSI_PAYABLE:      '2320',
+  EOSB_ACCRUAL:      '2330',
+  /* Tax */
+  ZAKAT_PAYABLE:     '2410',
+  CIT_PAYABLE:       '2420',
+  WHT_FOREIGN:       '2430',
+  /* Loans */
+  LOAN_SHORT:        '2600',
+  LOAN_LONG:         '2810',
+  /* Equity */
+  SHARE_CAPITAL:     '3100',
+  RETAINED_EARNINGS: '3200',
+  DRAWINGS:          '3300',
+  /* Revenue */
+  SALES_STANDARD:    '4110',
+  SALES_ZERO:        '4120',
+  SALES_EXEMPT:      '4130',
+  SALES_EXPORT:      '4140',
+  SALES_RETURNS:     '4190',
+  SERVICE_REVENUE:   '4210',
+  OTHER_INCOME:      '4340',
+  INTEREST_INCOME:   '4310',
+  /* COGS */
+  COGS:              '5110',           /* default leaf — Materials/Purchases */
+  COGS_LABOR:        '5120',
+  COGS_FREIGHT:      '5140',
+  /* OpEx */
+  RENT_OFFICE:       '7200',
+  SALARIES_ADMIN:    '7100',
+  UTILITIES:         '7300',
+  TELECOM:           '7400',
+  BANK_CHARGES:      '8300',
+  /* Tax expense */
+  ZAKAT_EXPENSE:     '9210',
+  CIT_EXPENSE:       '9220'
+});
+
+/* Migration mapping: old account codes → new account codes.
+   Used by glMigrateChartOfAccounts to update existing journal_lines.
+   If old==new, no row update needed for that code.
+   This map covers the chart that was in legacy ledger.html and that
+   the seed function would have populated. */
+const COA_MIGRATION_MAP = Object.freeze({
+  '1100': '1100',  /* Cash — keep */
+  '1101': '1120',  /* Bank → Bank — Operating */
+  '1200': '1210',  /* Trade Receivables → AR — Current bucket */
+  '1300': '1330',  /* Inventory → Inventory — Finished Goods */
+  '1400': '1400',  /* Prepaid — keep */
+  '1500': '1720',  /* Fixed Assets — Buildings → Buildings */
+  '1600': '1730',  /* Fixed Assets — Equipment → Plant & Machinery */
+  '1700': '1790',  /* Accumulated Depreciation — keep */
+  '2100': '2100',  /* Trade Payables — keep */
+  '2150': '2150',  /* GR Clearing — keep */
+  '2200': '2220',  /* VAT Payable Net — keep */
+  '2210': '2210',  /* VAT Output — keep */
+  '2220': '1500',  /* VAT Input → moved to assets side */
+  '2300': '2600',  /* Short-term Loans → 2600 */
+  '2400': '2500',  /* Accrued Expenses → 2500 */
+  '2500': '2810',  /* Long-term Loans → 2810 */
+  '3100': '3100',  /* Share Capital — keep */
+  '3200': '3200',  /* Retained Earnings — keep */
+  '3300': '3300',  /* Drawings — keep */
+  '4100': '4110',  /* Sales → Sales Standard Rated */
+  '4200': '4210',  /* Service Revenue → Service Standard Rated */
+  '4300': '4340',  /* Other Income → Miscellaneous Income */
+  '5100': '5110',  /* COGS → COGS Materials/Purchases */
+  '6100': '7200',  /* Rent → Rent Office */
+  '6200': '7100',  /* Salaries → Administrative Salaries */
+  '6300': '7300',  /* Utilities — keep */
+  '6400': '6300',  /* Transport & Fuel → Sales Travel */
+  '6500': '6200',  /* Marketing → Marketing & Advertising */
+  '6600': '7700',  /* Stationery → keep */
+  '6700': '7800',  /* Maintenance — keep */
+  '6800': '7400',  /* Telecom → keep */
+  '6900': '7500',  /* Insurance → keep */
+  '7000': '7600',  /* Legal & Professional → keep */
+  '7100': '8400',  /* Entertainment → keep */
+  '7200': '7900',  /* Depreciation → Depreciation G&A */
+  '7300': '8300',  /* Bank Charges — keep */
+  '7800': '9210',  /* Zakat → Zakat Expense */
+  '7900': '8700'   /* Other Expenses → Miscellaneous Operating */
+});
 
 /* Lookup account by code from chart_of_accounts (fast O(1) via map) */
 const _accountMap = {};
@@ -4220,16 +4582,33 @@ async function loadAndRenderReport(){
   if(loading) loading.style.display = 'none';
 }
 
-/* ─── PROFIT & LOSS ─── */
+/* ─── PROFIT & LOSS — Round B-PL-Structure ──────────────────────────
+   The new P&L renderer reads businesses.pl_format and renders:
+   • 'by_function' → Sales, COGS, Gross Profit, OpEx, Operating Profit, Net Profit
+   • 'by_nature'   → Revenue, Personnel/Rent/Depreciation/etc, Operating Profit, Net Profit
+   • 'mixed' or default → falls back to by_function if any cost_of_sales activity exists,
+                          else by_nature
+
+   Subcategory tags drive the grouping:
+     operating_revenue, contra_revenue, other_revenue
+     cost_of_sales
+     opex_selling, opex_admin, opex_other
+     finance_cost, tax_expense, non_deductible_expense
+
+   For accounts without a subcategory tag (legacy chart), we infer:
+     - income type → operating_revenue (unless code starts with 43xx)
+     - expense type → opex_admin (safe default)
+*/
 async function renderPL(period){
   const ar = currentLang === 'ar';
   const compare = document.getElementById('report-compare')?.checked && period !== 'all';
   const [fromISO, toISO] = periodRange(period);
 
+  /* Read business's P&L format preference */
+  const plFormat = currentBiz?.pl_format || 'by_function';   /* default: by_function for goods */
+
   /* Current period balances */
   const curBal = await computeAccountBalances(fromISO, toISO);
-
-  /* Previous-period balances (only if comparing) */
   let prevBal = null;
   if(compare){
     const [prevFrom, prevTo] = previousPeriodRange(period);
@@ -4238,60 +4617,315 @@ async function renderPL(period){
     }
   }
 
-  /* Walk chart of accounts: income (CR balance) and expense (DR balance) leaf accounts */
-  const incomeAccts = chartOfAccounts.filter(a => a.type === 'income' && a.parent_code).sort((a,b)=>a.code.localeCompare(b.code));
-  const expenseAccts = chartOfAccounts.filter(a => a.type === 'expense' && a.parent_code).sort((a,b)=>a.code.localeCompare(b.code));
+  /* Subcategory inference for legacy charts without a subcategory column */
+  const inferSubcategory = (acct) => {
+    if(acct.subcategory) return acct.subcategory;
+    /* Try SOCPA chart lookup */
+    const socpa = SOCPA_CHART_OF_ACCOUNTS.find(s => s.code === acct.code);
+    if(socpa) return socpa.subcategory;
+    /* Heuristics by code range */
+    const c = acct.code;
+    if(acct.type === 'income'){
+      if(c.startsWith('43')) return 'other_revenue';
+      return 'operating_revenue';
+    }
+    if(acct.type === 'expense'){
+      if(c.startsWith('5')) return 'cost_of_sales';
+      if(c.startsWith('6')) return 'opex_selling';
+      if(c.startsWith('7')) return 'opex_admin';
+      if(c.startsWith('8')) return 'opex_other';
+      if(c.startsWith('91')) return 'finance_cost';
+      if(c.startsWith('92')) return 'tax_expense';
+      return 'opex_admin';   /* safe default */
+    }
+    return null;
+  };
 
-  let totalIncome = 0, totalIncomePrev = 0;
-  let totalExpense = 0, totalExpensePrev = 0;
+  /* Get leaf accounts (those with a parent) — only these have postings */
+  const leafAccts = chartOfAccounts.filter(a => a.parent_code).sort((a,b)=>a.code.localeCompare(b.code));
+
+  /* Bucket leaf accounts by subcategory */
+  const buckets = {
+    operating_revenue: [],
+    contra_revenue: [],
+    other_revenue: [],
+    cost_of_sales: [],
+    opex_selling: [],
+    opex_admin: [],
+    opex_other: [],
+    non_deductible_expense: [],
+    finance_cost: [],
+    tax_expense: []
+  };
+  for(const a of leafAccts){
+    if(!['income','expense'].includes(a.type)) continue;
+    const sc = inferSubcategory(a);
+    if(buckets[sc]) buckets[sc].push(a);
+    else if(a.type === 'income') buckets.operating_revenue.push(a);
+    else buckets.opex_admin.push(a);
+  }
 
   const formatVal = (n) => 'SAR ' + fmt(n);
 
-  function renderRow(a, valNow, valPrev){
-    /* Hide rows with no activity in either period */
-    if(Math.abs(valNow) < 0.005 && (!compare || Math.abs(valPrev || 0) < 0.005)) return '';
-    const accountFilterUrl = `?sub=ledger&account=${encodeURIComponent(a.code)}`;
+  /* Compute total for a bucket. Returns {now, prev}. For income/contra_revenue,
+     value = -net (CR is positive). For expense, value = net (DR is positive). */
+  const bucketTotal = (bucket) => {
+    let now = 0, prev = 0;
+    for(const a of bucket){
+      const b = curBal[a.code];
+      const bp = prevBal?.[a.code];
+      if(a.type === 'income'){
+        if(b) now += -b.net;
+        if(bp) prev += -bp.net;
+      } else {
+        if(b) now += b.net;
+        if(bp) prev += bp.net;
+      }
+    }
+    return { now, prev };
+  };
+
+  /* Render a row for one account. Hides zero-activity rows. */
+  function renderRow(a){
+    const b = curBal[a.code];
+    const bp = prevBal?.[a.code];
+    const v = (a.type === 'income') ? (b ? -b.net : 0) : (b ? b.net : 0);
+    const vp = (a.type === 'income') ? (bp ? -bp.net : 0) : (bp ? bp.net : 0);
+    if(Math.abs(v) < 0.005 && (!compare || Math.abs(vp) < 0.005)) return '';
     return `
       <div class="report-row" onclick="drillToLedger('${a.code}')" title="${ar?'انقر للتفاصيل':'Click for details'}">
         <span class="acct-code">${escHTML(a.code)}</span>
         <span class="acct-name">${escHTML(ar ? (a.name_ar || a.name_en || a.code) : (a.name_en || a.name_ar || a.code))}</span>
-        <span class="val">${formatVal(valNow)}</span>
-        ${compare ? `<span class="val compare">${formatVal(valPrev || 0)}</span>` : ''}
+        <span class="val">${formatVal(v)}</span>
+        ${compare ? `<span class="val compare">${formatVal(vp)}</span>` : ''}
       </div>`;
   }
 
-  let incomeRowsHTML = '';
-  for(const a of incomeAccts){
-    const b = curBal[a.code];
-    const v = b ? -b.net : 0; /* income = credit-natured, net is DR-CR which is negative for income */
-    const bp = prevBal?.[a.code];
-    const vp = bp ? -bp.net : 0;
-    totalIncome += v;
-    totalIncomePrev += vp;
-    incomeRowsHTML += renderRow(a, v, vp);
+  /* Render a labeled subtotal row */
+  function subtotalRow(labelAr, labelEn, totals, options = {}){
+    const { strong = true, indent = false } = options;
+    return `
+      <div class="report-row subtotal" style="${indent?'padding-left:20px;':''}${strong?'':'font-weight:600;'}">
+        <span class="acct-code"></span>
+        <span class="acct-name">${ar ? labelAr : labelEn}</span>
+        <span class="val">${formatVal(totals.now)}</span>
+        ${compare ? `<span class="val compare">${formatVal(totals.prev)}</span>` : ''}
+      </div>`;
   }
 
-  let expenseRowsHTML = '';
-  for(const a of expenseAccts){
-    const b = curBal[a.code];
-    const v = b ? b.net : 0; /* expense = debit-natured, net is positive for normal expense balance */
-    const bp = prevBal?.[a.code];
-    const vp = bp ? bp.net : 0;
-    totalExpense += v;
-    totalExpensePrev += vp;
-    expenseRowsHTML += renderRow(a, v, vp);
+  /* Compute all section totals */
+  const totRev = bucketTotal(buckets.operating_revenue);
+  const totContra = bucketTotal(buckets.contra_revenue);
+  const totOtherIncome = bucketTotal(buckets.other_revenue);
+  const totCOGS = bucketTotal(buckets.cost_of_sales);
+  const totSelling = bucketTotal(buckets.opex_selling);
+  const totAdmin = bucketTotal(buckets.opex_admin);
+  const totOpexOther = bucketTotal(buckets.opex_other);
+  const totNonDed = bucketTotal(buckets.non_deductible_expense);
+  const totFinance = bucketTotal(buckets.finance_cost);
+  const totTax = bucketTotal(buckets.tax_expense);
+
+  /* Net revenue = operating revenue − contra revenue */
+  const netRev = { now: totRev.now - totContra.now, prev: totRev.prev - totContra.prev };
+  /* Gross Profit = Net revenue − COGS */
+  const grossProfit = { now: netRev.now - totCOGS.now, prev: netRev.prev - totCOGS.prev };
+  /* Gross Margin % */
+  const grossMargin = netRev.now > 0 ? (grossProfit.now / netRev.now * 100) : 0;
+  const grossMarginPrev = netRev.prev > 0 ? (grossProfit.prev / netRev.prev * 100) : 0;
+  /* Total OpEx = selling + admin + other + non-deductible */
+  const totOpex = {
+    now: totSelling.now + totAdmin.now + totOpexOther.now + totNonDed.now,
+    prev: totSelling.prev + totAdmin.prev + totOpexOther.prev + totNonDed.prev
+  };
+  /* Operating Profit (EBIT) = Gross Profit − OpEx */
+  const ebit = {
+    now: grossProfit.now - totOpex.now,
+    prev: grossProfit.prev - totOpex.prev
+  };
+  /* Profit Before Tax = EBIT + Other Income − Finance Costs */
+  const pbt = {
+    now: ebit.now + totOtherIncome.now - totFinance.now,
+    prev: ebit.prev + totOtherIncome.prev - totFinance.prev
+  };
+  /* Net Profit = PBT − Tax expense */
+  const netProfit = {
+    now: pbt.now - totTax.now,
+    prev: pbt.prev - totTax.prev
+  };
+
+  /* Decide effective format: 'by_function' or 'by_nature'.
+     If pl_format is 'mixed' or there's no COGS activity, fall back to 'by_nature'. */
+  let effectiveFormat = plFormat;
+  if(plFormat === 'mixed') effectiveFormat = (Math.abs(totCOGS.now) > 0.005) ? 'by_function' : 'by_nature';
+  if(plFormat === 'by_function' && Math.abs(totCOGS.now) < 0.005){
+    /* No COGS activity — show by_function structure anyway for goods businesses,
+       but Gross Profit row will just equal Net Revenue */
   }
 
-  const profit = totalIncome - totalExpense;
-  const profitPrev = totalIncomePrev - totalExpensePrev;
+  reportData = {
+    type: 'pl', period, fromISO, toISO,
+    plFormat: effectiveFormat,
+    totalIncome: totRev.now + totOtherIncome.now - totContra.now,
+    totalExpense: totCOGS.now + totOpex.now + totFinance.now + totTax.now,
+    profit: netProfit.now,
+    grossProfit: grossProfit.now,
+    grossMargin,
+    operatingProfit: ebit.now,
+    compare
+  };
 
-  reportData = { type: 'pl', period, fromISO, toISO, totalIncome, totalExpense, profit, totalIncomePrev, totalExpensePrev, profitPrev, compare };
+  /* Render rows for a bucket. Returns HTML string. */
+  const renderBucket = (bucket) => bucket.map(renderRow).join('');
+
+  /* Build the HTML based on effective format */
+  let bodyHTML = '';
+
+  if(effectiveFormat === 'by_function'){
+    /* ─── BY FUNCTION ─── */
+    bodyHTML = `
+      <div class="report-section">
+        <div class="report-section-title">${ar ? 'الإيرادات' : 'Revenue'}</div>
+        ${renderBucket(buckets.operating_revenue) || `<div style="color:var(--muted);padding:8px;font-size:12px;">${ar?'لا توجد إيرادات':'No revenue recorded'}</div>`}
+        ${buckets.contra_revenue.length > 0 ? `
+          ${renderBucket(buckets.contra_revenue)}
+        ` : ''}
+        ${subtotalRow('صافي الإيرادات','Net Revenue', netRev)}
+      </div>
+
+      ${(Math.abs(totCOGS.now) > 0.005 || buckets.cost_of_sales.length > 0) ? `
+      <div class="report-section">
+        <div class="report-section-title">${ar ? 'تكلفة المبيعات' : 'Cost of Sales'}</div>
+        ${renderBucket(buckets.cost_of_sales) || `<div style="color:var(--muted);padding:8px;font-size:12px;">${ar?'لا توجد تكاليف مبيعات':'No cost of sales'}</div>`}
+        ${subtotalRow('إجمالي تكلفة المبيعات','Total Cost of Sales', totCOGS)}
+      </div>
+
+      <div class="report-row subtotal" style="background:rgba(29,158,117,0.08);font-size:14px;font-weight:800;padding:10px 12px;">
+        <span class="acct-code"></span>
+        <span class="acct-name">${ar ? '🟢 إجمالي الربح' : '🟢 GROSS PROFIT'} <span style="font-size:11px;font-weight:600;color:var(--muted);margin-inline-start:8px;">${ar?'هامش':'Margin'}: ${grossMargin.toFixed(1)}%</span></span>
+        <span class="val" style="color:${grossProfit.now >= 0 ? 'var(--green)' : 'var(--red)'};">${formatVal(grossProfit.now)}</span>
+        ${compare ? `<span class="val compare" style="color:${grossProfit.prev >= 0 ? 'var(--green)' : 'var(--red)'};">${formatVal(grossProfit.prev)}<br><span style="font-size:10px;font-weight:600;">${grossMarginPrev.toFixed(1)}%</span></span>` : ''}
+      </div>
+      ` : ''}
+
+      ${(buckets.opex_selling.length > 0 || buckets.opex_admin.length > 0 || buckets.opex_other.length > 0 || buckets.non_deductible_expense.length > 0) ? `
+      <div class="report-section">
+        <div class="report-section-title">${ar ? 'المصاريف التشغيلية' : 'Operating Expenses'}</div>
+        ${buckets.opex_selling.length > 0 ? `
+          <div class="report-row" style="font-weight:600;color:var(--muted);font-size:11px;text-transform:uppercase;padding-top:8px;">
+            <span></span><span>${ar?'مصاريف البيع':'Selling Expenses'}</span><span></span>${compare?'<span></span>':''}
+          </div>
+          ${renderBucket(buckets.opex_selling)}
+          ${subtotalRow('إجمالي مصاريف البيع','Total Selling', totSelling, { indent: true, strong: false })}
+        ` : ''}
+        ${buckets.opex_admin.length > 0 ? `
+          <div class="report-row" style="font-weight:600;color:var(--muted);font-size:11px;text-transform:uppercase;padding-top:8px;">
+            <span></span><span>${ar?'مصاريف عمومية وإدارية':'General & Administrative'}</span><span></span>${compare?'<span></span>':''}
+          </div>
+          ${renderBucket(buckets.opex_admin)}
+          ${subtotalRow('إجمالي العمومية والإدارية','Total G&A', totAdmin, { indent: true, strong: false })}
+        ` : ''}
+        ${buckets.opex_other.length > 0 ? `
+          <div class="report-row" style="font-weight:600;color:var(--muted);font-size:11px;text-transform:uppercase;padding-top:8px;">
+            <span></span><span>${ar?'مصاريف تشغيلية أخرى':'Other Operating Expenses'}</span><span></span>${compare?'<span></span>':''}
+          </div>
+          ${renderBucket(buckets.opex_other)}
+        ` : ''}
+        ${buckets.non_deductible_expense.length > 0 ? renderBucket(buckets.non_deductible_expense) : ''}
+        ${subtotalRow('إجمالي المصاريف التشغيلية','Total Operating Expenses', totOpex)}
+      </div>
+      ` : ''}
+
+      <div class="report-row subtotal" style="background:rgba(0,108,53,0.08);font-size:14px;font-weight:800;padding:10px 12px;">
+        <span class="acct-code"></span>
+        <span class="acct-name">${ar ? '🔵 الربح التشغيلي (EBIT)' : '🔵 OPERATING PROFIT (EBIT)'}</span>
+        <span class="val" style="color:${ebit.now >= 0 ? 'var(--blue)' : 'var(--red)'};">${formatVal(ebit.now)}</span>
+        ${compare ? `<span class="val compare" style="color:${ebit.prev >= 0 ? 'var(--blue)' : 'var(--red)'};">${formatVal(ebit.prev)}</span>` : ''}
+      </div>
+
+      ${(buckets.other_revenue.length > 0 || buckets.finance_cost.length > 0) ? `
+      <div class="report-section" style="margin-top:14px;">
+        <div class="report-section-title">${ar ? 'بنود غير تشغيلية' : 'Non-operating Items'}</div>
+        ${renderBucket(buckets.other_revenue)}
+        ${renderBucket(buckets.finance_cost)}
+      </div>
+      ` : ''}
+
+      ${buckets.tax_expense.length > 0 ? `
+      <div class="report-section">
+        <div class="report-section-title">${ar ? 'الضرائب' : 'Taxes'}</div>
+        ${renderBucket(buckets.tax_expense)}
+      </div>
+      ` : ''}
+
+      <div class="report-total ${netProfit.now >= 0 ? 'profit' : 'loss'}">
+        <span class="acct-code"></span>
+        <span class="lbl">${netProfit.now >= 0 ? (ar?'صافي الربح':'NET PROFIT') : (ar?'صافي الخسارة':'NET LOSS')}</span>
+        <span class="val">${formatVal(Math.abs(netProfit.now))}</span>
+        ${compare ? `<span class="val compare">${formatVal(Math.abs(netProfit.prev))}</span>` : ''}
+      </div>
+    `;
+  } else {
+    /* ─── BY NATURE ─── */
+    bodyHTML = `
+      <div class="report-section">
+        <div class="report-section-title">${ar ? 'الإيرادات' : 'Revenue'}</div>
+        ${renderBucket(buckets.operating_revenue)}
+        ${buckets.contra_revenue.length > 0 ? renderBucket(buckets.contra_revenue) : ''}
+        ${renderBucket(buckets.other_revenue)}
+        ${subtotalRow('إجمالي الإيرادات','Total Revenue', {
+          now: totRev.now - totContra.now + totOtherIncome.now,
+          prev: totRev.prev - totContra.prev + totOtherIncome.prev
+        })}
+      </div>
+
+      <div class="report-section">
+        <div class="report-section-title">${ar ? 'المصاريف بحسب الطبيعة' : 'Expenses by Nature'}</div>
+        ${renderBucket(buckets.cost_of_sales)}
+        ${renderBucket(buckets.opex_selling)}
+        ${renderBucket(buckets.opex_admin)}
+        ${renderBucket(buckets.opex_other)}
+        ${renderBucket(buckets.non_deductible_expense)}
+        ${renderBucket(buckets.finance_cost)}
+        ${subtotalRow('إجمالي المصاريف','Total Expenses', {
+          now: totCOGS.now + totOpex.now + totFinance.now,
+          prev: totCOGS.prev + totOpex.prev + totFinance.prev
+        })}
+      </div>
+
+      <div class="report-row subtotal" style="background:rgba(0,108,53,0.08);font-size:14px;font-weight:800;padding:10px 12px;">
+        <span class="acct-code"></span>
+        <span class="acct-name">${ar ? '🔵 الربح التشغيلي' : '🔵 OPERATING PROFIT'}</span>
+        <span class="val" style="color:${ebit.now >= 0 ? 'var(--blue)' : 'var(--red)'};">${formatVal(ebit.now + totOtherIncome.now - totFinance.now)}</span>
+        ${compare ? `<span class="val compare" style="color:${ebit.prev >= 0 ? 'var(--blue)' : 'var(--red)'};">${formatVal(ebit.prev + totOtherIncome.prev - totFinance.prev)}</span>` : ''}
+      </div>
+
+      ${buckets.tax_expense.length > 0 ? `
+      <div class="report-section">
+        <div class="report-section-title">${ar ? 'الضرائب' : 'Taxes'}</div>
+        ${renderBucket(buckets.tax_expense)}
+      </div>
+      ` : ''}
+
+      <div class="report-total ${netProfit.now >= 0 ? 'profit' : 'loss'}">
+        <span class="acct-code"></span>
+        <span class="lbl">${netProfit.now >= 0 ? (ar?'صافي الربح':'NET PROFIT') : (ar?'صافي الخسارة':'NET LOSS')}</span>
+        <span class="val">${formatVal(Math.abs(netProfit.now))}</span>
+        ${compare ? `<span class="val compare">${formatVal(Math.abs(netProfit.prev))}</span>` : ''}
+      </div>
+    `;
+  }
+
+  /* Format indicator badge */
+  const formatBadge = `
+    <span style="display:inline-block;padding:3px 10px;background:rgba(0,108,53,0.08);border:1px solid var(--light);color:var(--blue);border-radius:999px;font-size:10px;font-weight:700;margin-inline-start:8px;letter-spacing:.04em;">
+      ${effectiveFormat === 'by_function' ? (ar?'حسب الوظيفة':'BY FUNCTION') : (ar?'حسب الطبيعة':'BY NATURE')}
+    </span>`;
 
   document.getElementById('report-content').innerHTML = `
     <div class="report-doc">
       <div class="report-header">
         <div class="biz-name">${escHTML(displayName(currentBiz) || currentBiz?.name || '—')}</div>
-        <div class="report-title">${ar ? 'قائمة الدخل (الأرباح والخسائر)' : 'Profit & Loss Statement'}</div>
+        <div class="report-title">${ar ? 'قائمة الدخل (الأرباح والخسائر)' : 'Profit & Loss Statement'} ${formatBadge}</div>
         <div class="report-subtitle">${reportPeriodSubtitle(period, false)}</div>
       </div>
 
@@ -4301,36 +4935,54 @@ async function renderPL(period){
         ${compare ? `<span class="val compare">${ar?'الفترة السابقة':'Previous'}</span>` : ''}
       </div>
 
-      <div class="report-section">
-        <div class="report-section-title">${ar ? 'الإيرادات' : 'Income'}</div>
-        ${incomeRowsHTML || `<div style="color:var(--muted);padding:8px;font-size:12px;">${ar?'لا توجد إيرادات':'No income recorded'}</div>`}
-        <div class="report-row subtotal">
-          <span class="acct-code"></span>
-          <span class="acct-name">${ar?'إجمالي الإيرادات':'Total Income'}</span>
-          <span class="val">${formatVal(totalIncome)}</span>
-          ${compare ? `<span class="val compare">${formatVal(totalIncomePrev)}</span>` : ''}
-        </div>
-      </div>
-
-      <div class="report-section">
-        <div class="report-section-title">${ar ? 'المصروفات' : 'Expenses'}</div>
-        ${expenseRowsHTML || `<div style="color:var(--muted);padding:8px;font-size:12px;">${ar?'لا توجد مصروفات':'No expenses recorded'}</div>`}
-        <div class="report-row subtotal">
-          <span class="acct-code"></span>
-          <span class="acct-name">${ar?'إجمالي المصروفات':'Total Expenses'}</span>
-          <span class="val">${formatVal(totalExpense)}</span>
-          ${compare ? `<span class="val compare">${formatVal(totalExpensePrev)}</span>` : ''}
-        </div>
-      </div>
-
-      <div class="report-total ${profit >= 0 ? 'profit' : 'loss'}">
-        <span class="acct-code"></span>
-        <span class="lbl">${profit >= 0 ? (ar?'صافي الربح':'NET PROFIT') : (ar?'صافي الخسارة':'NET LOSS')}</span>
-        <span class="val">${formatVal(Math.abs(profit))}</span>
-        ${compare ? `<span class="val compare">${formatVal(Math.abs(profitPrev))}</span>` : ''}
-      </div>
+      ${bodyHTML}
     </div>
   `;
+}
+
+/* ─── PROFIT & LOSS (legacy renderer, kept for safety — not called from setReportView anymore) ─── */
+async function renderPL_legacy_flat(period){
+  const ar = currentLang === 'ar';
+  const compare = document.getElementById('report-compare')?.checked && period !== 'all';
+  const [fromISO, toISO] = periodRange(period);
+  const curBal = await computeAccountBalances(fromISO, toISO);
+  let prevBal = null;
+  if(compare){
+    const [prevFrom, prevTo] = previousPeriodRange(period);
+    if(prevFrom) prevBal = await computeAccountBalances(prevFrom, prevTo);
+  }
+  const incomeAccts = chartOfAccounts.filter(a => a.type === 'income' && a.parent_code).sort((a,b)=>a.code.localeCompare(b.code));
+  const expenseAccts = chartOfAccounts.filter(a => a.type === 'expense' && a.parent_code).sort((a,b)=>a.code.localeCompare(b.code));
+  let totalIncome = 0, totalIncomePrev = 0, totalExpense = 0, totalExpensePrev = 0;
+  const formatVal = (n) => 'SAR ' + fmt(n);
+  function renderRow(a, valNow, valPrev){
+    if(Math.abs(valNow) < 0.005 && (!compare || Math.abs(valPrev || 0) < 0.005)) return '';
+    return `
+      <div class="report-row" onclick="drillToLedger('${a.code}')">
+        <span class="acct-code">${escHTML(a.code)}</span>
+        <span class="acct-name">${escHTML(ar ? (a.name_ar || a.name_en || a.code) : (a.name_en || a.name_ar || a.code))}</span>
+        <span class="val">${formatVal(valNow)}</span>
+        ${compare ? `<span class="val compare">${formatVal(valPrev || 0)}</span>` : ''}
+      </div>`;
+  }
+  let incomeRowsHTML = '';
+  for(const a of incomeAccts){
+    const b = curBal[a.code]; const v = b ? -b.net : 0;
+    const bp = prevBal?.[a.code]; const vp = bp ? -bp.net : 0;
+    totalIncome += v; totalIncomePrev += vp;
+    incomeRowsHTML += renderRow(a, v, vp);
+  }
+  let expenseRowsHTML = '';
+  for(const a of expenseAccts){
+    const b = curBal[a.code]; const v = b ? b.net : 0;
+    const bp = prevBal?.[a.code]; const vp = bp ? bp.net : 0;
+    totalExpense += v; totalExpensePrev += vp;
+    expenseRowsHTML += renderRow(a, v, vp);
+  }
+  const profit = totalIncome - totalExpense;
+  const profitPrev = totalIncomePrev - totalExpensePrev;
+  reportData = { type: 'pl', period, fromISO, toISO, totalIncome, totalExpense, profit, totalIncomePrev, totalExpensePrev, profitPrev, compare };
+  /* HTML omitted — kept for reference, not called */
 }
 
 /* ─── BALANCE SHEET ─── */
@@ -5497,7 +6149,529 @@ window.glAddAccount = async function(code, name, type, parentCode){
   return data;
 };
 
-/* ─── Round B-VAT diagnostic: inspect the filings table directly.
+/* ─── Round B-PL-Structure: full SOCPA chart of accounts migration ─────
+   Replaces the existing chart with the SOCPA_CHART_OF_ACCOUNTS structure,
+   renumbering journal_lines per COA_MIGRATION_MAP.
+
+   This is a substantial migration. Always run dry-run FIRST:
+
+     await window.glMigrateChartOfAccounts({ dryRun: true })
+
+   That produces a full report of what would change. After review:
+
+     await window.glMigrateChartOfAccounts({ dryRun: false })
+
+   to actually execute.
+
+   The migration:
+     1. INSERTs any SOCPA accounts not yet in chart_of_accounts
+        (idempotent — skips existing codes)
+     2. UPDATEs journal_lines.account_code per COA_MIGRATION_MAP
+     3. UPDATEs journal_lines.account_name to match the new account
+     4. Marks old codes inactive in chart_of_accounts (don't delete —
+        preserves history)
+     5. Returns a summary of everything that changed                       */
+window.glMigrateChartOfAccounts = async function(opts = {}){
+  const dryRun = opts.dryRun !== false;  /* default to dry-run for safety */
+  if(!currentBiz?.id || !currentUser?.id){
+    console.error('[GL] No business/user loaded');
+    return;
+  }
+  console.log(`%c═══ COA MIGRATION ${dryRun ? '(DRY RUN)' : '(EXECUTING)'} ═══`, 'font-weight:bold;color:#1D9E75;');
+  console.log('Business:', currentBiz.name || currentBiz.id);
+
+  /* Pre-flight: verify schema migration round-b-pl-structure.sql has been run.
+     If not, the chart_version column doesn't exist and post-migration the
+     CODE.* getters can't be told to use SOCPA codes (other tabs would still
+     post to legacy codes). Refuse to proceed. */
+  if(!dryRun){
+    const probe = await sb.from('businesses')
+      .select('chart_version, pl_format, business_type')
+      .eq('id', currentBiz.id)
+      .limit(1);
+    if(probe.error){
+      const errStr = String(probe.error.message || probe.error);
+      if(errStr.includes('chart_version') || errStr.includes('pl_format')){
+        console.error('%c[GL] ABORTING — schema migration not run', 'color:#c62828;font-weight:bold;');
+        console.error('   Run migrations/round-b-pl-structure.sql in Supabase SQL editor first.');
+        console.error('   Then refresh and try glMigrateChartOfAccounts again.');
+        return { errors: ['schema migration not run'] };
+      }
+    }
+  }
+
+  const report = {
+    accountsToAdd: [],
+    accountsAlreadyExist: [],
+    accountsToRenumber: [],       /* {old, new, line_count} */
+    accountsToMarkInactive: [],
+    linesToUpdate: 0,
+    errors: []
+  };
+
+  /* Step 1: Fetch existing chart for this business */
+  const {data: existingCoa, error: coaErr} = await sb.from('chart_of_accounts')
+    .select('code, name_en, name_ar, type, parent_code, is_active')
+    .eq('business_id', currentBiz.id);
+  if(coaErr){
+    console.error('[GL] Fetch existing chart failed:', coaErr);
+    report.errors.push('fetch existing chart: ' + coaErr.message);
+    return report;
+  }
+  const existingCodes = new Set((existingCoa || []).map(a => a.code));
+  console.log(`Found ${existingCodes.size} existing accounts`);
+
+  /* Step 2: Identify SOCPA accounts not yet present */
+  for(const newAcct of SOCPA_CHART_OF_ACCOUNTS){
+    if(existingCodes.has(newAcct.code)){
+      report.accountsAlreadyExist.push(newAcct.code);
+    } else {
+      report.accountsToAdd.push(newAcct);
+    }
+  }
+  console.log(`To add: ${report.accountsToAdd.length} new accounts`);
+  console.log(`Already exist: ${report.accountsAlreadyExist.length} accounts`);
+
+  /* Step 3: Identify journal_lines that need renumbering */
+  /* Fetch all journal entries for this business (not voided) */
+  const {data: entries} = await sb.from('journal_entries')
+    .select('id').eq('business_id', currentBiz.id).neq('status','voided');
+  const entryIds = (entries || []).map(e => e.id);
+  console.log(`Found ${entryIds.length} journal entries to scan`);
+
+  /* Chunk-fetch journal_lines and count by account_code */
+  const codeUsage = {};   /* old_code → line_count */
+  const chunkSize = 200;
+  for(let i = 0; i < entryIds.length; i += chunkSize){
+    const chunk = entryIds.slice(i, i + chunkSize);
+    const {data: lines} = await sb.from('journal_lines')
+      .select('account_code')
+      .in('entry_id', chunk);
+    for(const l of (lines || [])){
+      codeUsage[l.account_code] = (codeUsage[l.account_code] || 0) + 1;
+    }
+  }
+
+  /* For each old code that's actively used, determine if it needs renumbering */
+  for(const oldCode in codeUsage){
+    const newCode = COA_MIGRATION_MAP[oldCode];
+    if(!newCode){
+      /* This code isn't in our migration map. Either it's already a new
+         SOCPA code (no change needed) or it's an unknown code that needs
+         human review. */
+      if(!SOCPA_CHART_OF_ACCOUNTS.find(a => a.code === oldCode)){
+        report.errors.push(`Unknown account code ${oldCode} (${codeUsage[oldCode]} lines) — no migration mapping`);
+      }
+      continue;
+    }
+    if(newCode === oldCode) continue;   /* no renumbering needed */
+    report.accountsToRenumber.push({
+      old: oldCode,
+      new: newCode,
+      line_count: codeUsage[oldCode]
+    });
+    report.linesToUpdate += codeUsage[oldCode];
+  }
+
+  /* Step 4: identify codes to mark inactive (old codes that map to new codes) */
+  for(const oldCode in COA_MIGRATION_MAP){
+    const newCode = COA_MIGRATION_MAP[oldCode];
+    if(newCode === oldCode) continue;
+    if(existingCodes.has(oldCode)){
+      report.accountsToMarkInactive.push(oldCode);
+    }
+  }
+
+  /* DRY-RUN: print report and stop */
+  if(dryRun){
+    console.log('%c\n══ DRY RUN — NO CHANGES MADE ══', 'font-weight:bold;color:#c9920a;');
+    console.log(`Will ADD ${report.accountsToAdd.length} new accounts:`);
+    console.table(report.accountsToAdd.map(a => ({ code:a.code, name:a.name_en, type:a.type })).slice(0, 30));
+    if(report.accountsToAdd.length > 30) console.log(`  ...and ${report.accountsToAdd.length - 30} more`);
+    console.log(`\nWill RENUMBER ${report.accountsToRenumber.length} account codes (${report.linesToUpdate} journal_lines):`);
+    console.table(report.accountsToRenumber);
+    console.log(`\nWill MARK INACTIVE ${report.accountsToMarkInactive.length} old accounts (preserves history):`);
+    console.log(report.accountsToMarkInactive);
+    if(report.errors.length > 0){
+      console.log('%c\n⚠ WARNINGS:', 'color:#c62828;font-weight:bold;');
+      report.errors.forEach(e => console.log('  ', e));
+    }
+    console.log(`\nTo execute the migration, run:`);
+    console.log(`  %cawait window.glMigrateChartOfAccounts({ dryRun: false })`, 'font-family:monospace;background:#f0fdf4;padding:2px 6px;border-radius:4px;');
+    return report;
+  }
+
+  /* EXECUTE PATH */
+  console.log('%c\n══ EXECUTING MIGRATION ══', 'font-weight:bold;color:#c62828;');
+  if(!confirm(`Migrate chart of accounts? This will:\n• Add ${report.accountsToAdd.length} new accounts\n• Renumber ${report.linesToUpdate} journal_lines across ${report.accountsToRenumber.length} accounts\n• Mark ${report.accountsToMarkInactive.length} old accounts inactive\n\nThis cannot be automatically rolled back. Continue?`)){
+    console.log('[GL] Migration cancelled by user');
+    return report;
+  }
+
+  /* 4a: INSERT new accounts */
+  if(report.accountsToAdd.length > 0){
+    const inserts = report.accountsToAdd.map(a => ({
+      user_id: currentUser.id,
+      business_id: currentBiz.id,
+      code: a.code,
+      name_en: a.name_en,
+      name_ar: a.name_ar,
+      type: a.type,
+      parent_code: a.parent_code,
+      is_active: true,
+      display_order: parseInt(a.code, 10) || 9999
+    }));
+    /* Insert in chunks of 50 */
+    for(let i = 0; i < inserts.length; i += 50){
+      const chunk = inserts.slice(i, i + 50);
+      const {error} = await sb.from('chart_of_accounts').insert(chunk);
+      if(error){
+        console.error(`[GL] Insert chunk ${i}:`, error);
+        report.errors.push('insert: ' + error.message);
+      }
+    }
+    console.log(`  ✓ Inserted ${report.accountsToAdd.length} new accounts`);
+  }
+
+  /* 4b: UPDATE journal_lines for renumbering.
+     CRITICAL: must use a two-phase rename. The migration map contains chains
+     like '2200' → '2220' AND '2220' → '1500'. A naive sequential rename
+     would either (a) merge unrelated codes if 2200→2220 runs first, or
+     (b) lose lines if 2220→1500 runs first then 2200→2220 also fires.
+     Solution: pass 1 moves everything to a unique tmp code (e.g. '_tmp_5110'),
+     pass 2 moves tmp → final. No collisions possible. */
+  if(report.accountsToRenumber.length > 0){
+    /* PHASE 1: old → tmp_<new>  */
+    for(const r of report.accountsToRenumber){
+      const tmpCode = '_tmp_' + r.new;
+      const newAcct = SOCPA_CHART_OF_ACCOUNTS.find(a => a.code === r.new);
+      const newName = newAcct ? newAcct.name_ar : r.new;
+
+      const {data: bizEntries} = await sb.from('journal_entries')
+        .select('id').eq('business_id', currentBiz.id);
+      const bizEntryIds = (bizEntries || []).map(e => e.id);
+
+      let totalUpdated = 0;
+      for(let i = 0; i < bizEntryIds.length; i += 200){
+        const chunk = bizEntryIds.slice(i, i + 200);
+        const {error, count} = await sb.from('journal_lines')
+          .update({ account_code: tmpCode, account_name: newName }, { count: 'exact' })
+          .eq('account_code', r.old)
+          .in('entry_id', chunk);
+        if(error){
+          console.error(`[GL] Renumber phase1 ${r.old}→${tmpCode}:`, error);
+          report.errors.push(`renumber phase1 ${r.old}→${tmpCode}: ${error.message}`);
+        } else if(count){
+          totalUpdated += count;
+        }
+      }
+      console.log(`  ✓ Phase 1: ${r.old} → ${tmpCode}: ${totalUpdated} lines`);
+    }
+
+    /* PHASE 2: tmp_<new> → <new> */
+    for(const r of report.accountsToRenumber){
+      const tmpCode = '_tmp_' + r.new;
+      const {data: bizEntries} = await sb.from('journal_entries')
+        .select('id').eq('business_id', currentBiz.id);
+      const bizEntryIds = (bizEntries || []).map(e => e.id);
+
+      let totalUpdated = 0;
+      for(let i = 0; i < bizEntryIds.length; i += 200){
+        const chunk = bizEntryIds.slice(i, i + 200);
+        const {error, count} = await sb.from('journal_lines')
+          .update({ account_code: r.new }, { count: 'exact' })
+          .eq('account_code', tmpCode)
+          .in('entry_id', chunk);
+        if(error){
+          console.error(`[GL] Renumber phase2 ${tmpCode}→${r.new}:`, error);
+          report.errors.push(`renumber phase2 ${tmpCode}→${r.new}: ${error.message}`);
+        } else if(count){
+          totalUpdated += count;
+        }
+      }
+      console.log(`  ✓ Phase 2: ${tmpCode} → ${r.new}: ${totalUpdated} lines`);
+    }
+  }
+
+  /* 4c: Mark old codes inactive (don't delete — preserves history if anyone queries the old code) */
+  if(report.accountsToMarkInactive.length > 0){
+    const {error} = await sb.from('chart_of_accounts')
+      .update({ is_active: false })
+      .eq('business_id', currentBiz.id)
+      .in('code', report.accountsToMarkInactive);
+    if(error){
+      console.error('[GL] Mark inactive:', error);
+      report.errors.push('mark inactive: ' + error.message);
+    } else {
+      console.log(`  ✓ Marked ${report.accountsToMarkInactive.length} old accounts inactive`);
+    }
+  }
+
+  /* 4d: Refresh in-memory chart */
+  await loadChartOfAccountsForBusiness?.();
+
+  /* 4e: Mark business as migrated — persist to DB and flip in-memory flag.
+     This causes CODE.AR, CODE.SALES_STANDARD, etc. in invoices.html /
+     inventory.html / finance.html to start returning the new SOCPA codes
+     instead of the legacy ones. */
+  const {error: versionErr} = await sb.from('businesses')
+    .update({ chart_version: 'socpa_v1' })
+    .eq('id', currentBiz.id);
+  if(versionErr){
+    const errStr = String(versionErr.message || versionErr);
+    if(errStr.includes('chart_version')){
+      console.error('%c[GL] CRITICAL: chart_version column missing!', 'color:#c62828;font-weight:bold;');
+      console.error('   The schema migration round-b-pl-structure.sql has NOT been run.');
+      console.error('   Journal posting will continue using LEGACY codes (1200/4100/5100/etc.)');
+      console.error('   even though the chart_of_accounts table now has the new SOCPA codes.');
+      console.error('   Run the SQL migration, then refresh — _gl_use_socpa_codes will be set.');
+      report.errors.push('chart_version column missing — schema migration not run');
+    } else {
+      console.error('[GL] Failed to persist chart_version:', versionErr);
+      report.errors.push('persist chart_version: ' + errStr);
+    }
+    /* Still flip the flag in memory so the rest of THIS session uses SOCPA codes */
+    window._gl_use_socpa_codes = true;
+    console.log('  ⚠ In-memory flag flipped, but persistence failed. New tabs will fall back to legacy until SQL migration is run.');
+  } else {
+    if(currentBiz) currentBiz.chart_version = 'socpa_v1';
+    window._gl_use_socpa_codes = true;
+    console.log('  ✓ Business marked as chart_version=socpa_v1 (flag flipped, persisted)');
+  }
+
+  console.log('%c\n══ MIGRATION COMPLETE ══', 'font-weight:bold;color:#1D9E75;');
+  console.log(`Summary:`);
+  console.log(`  Accounts added: ${report.accountsToAdd.length}`);
+  console.log(`  Codes renumbered: ${report.accountsToRenumber.length}`);
+  console.log(`  Journal lines updated: ${report.linesToUpdate}`);
+  console.log(`  Old codes marked inactive: ${report.accountsToMarkInactive.length}`);
+  if(report.errors.length > 0){
+    console.log('%c⚠ ERRORS:', 'color:#c62828;font-weight:bold;');
+    report.errors.forEach(e => console.log('  ', e));
+  }
+  console.log('\nNext: re-run glDiagnoseBalanceSheet() and glBalanceSheetSummary() to verify.');
+  console.log('All NEW journal postings will now use SOCPA codes automatically.');
+  return report;
+};
+
+/* ─── Round B-PL-Structure Phase E: Discount tracking KPI ─────────────
+   IFRS 15 mandates revenue is recorded NET of discounts (Method A).
+   So discounts don't appear as a separate P&L line — they're silently
+   absorbed into revenue. But management still needs to know:
+     "How much did we give in discounts this period?"
+   This computes that from the invoice tables. Returns:
+     {
+       grossSales: number,           sales before any discount
+       totalDiscount: number,        invoice-level + line-level
+       discountPct: number,          totalDiscount/grossSales × 100
+       byCustomer: [{name, discount}],
+       byPeriod: [{month, discount}]
+     }
+   This is for KPI display only — never written to the P&L.            */
+window.glComputeDiscountKPI = async function(fromISO, toISO){
+  if(!currentBiz?.id){ console.warn('[GL] No business loaded'); return null; }
+
+  /* Fetch invoices in period */
+  const {data: invoices} = await sb.from('invoices')
+    .select('id, invoice_number, issue_date, buyer_name, subtotal, total, vat_amount, discount_amount, discount_pct, invoice_items(qty, unit_price, discount_pct)')
+    .eq('business_id', currentBiz.id)
+    .gte('issue_date', fromISO || '1900-01-01')
+    .lte('issue_date', toISO || '2099-12-31')
+    .neq('status', 'draft').neq('status', 'voided');
+
+  let grossSales = 0;            /* what total would have been without any discount */
+  let totalInvoiceLevelDisc = 0;
+  let totalLineLevelDisc = 0;
+  const byCustomer = {};
+  const byMonth = {};
+
+  for(const inv of (invoices || [])){
+    /* Sum line-level discounts: qty × unit_price × (discount_pct/100) */
+    let lineDisc = 0;
+    let lineGrossSubtotal = 0;
+    for(const item of (inv.invoice_items || [])){
+      const qty = parseFloat(item.qty) || 0;
+      const unit = parseFloat(item.unit_price) || 0;
+      const discPct = parseFloat(item.discount_pct) || 0;
+      const gross = qty * unit;
+      const disc = gross * (discPct / 100);
+      lineGrossSubtotal += gross;
+      lineDisc += disc;
+    }
+    /* Invoice-level discount is on top of line-level */
+    const invDiscAmount = parseFloat(inv.discount_amount) || 0;
+    const invDiscPct = parseFloat(inv.discount_pct) || 0;
+    /* Use the explicit discount_amount if present, otherwise compute from pct */
+    let invDisc = invDiscAmount;
+    if(invDisc <= 0 && invDiscPct > 0){
+      /* discount_pct applied to (line_gross - line_disc) */
+      invDisc = (lineGrossSubtotal - lineDisc) * (invDiscPct / 100);
+    }
+
+    const totalDiscOnInv = lineDisc + invDisc;
+    const grossOnInv = lineGrossSubtotal;   /* what subtotal would have been without any discount */
+
+    grossSales += grossOnInv;
+    totalLineLevelDisc += lineDisc;
+    totalInvoiceLevelDisc += invDisc;
+
+    if(totalDiscOnInv > 0.005){
+      const cust = inv.buyer_name || '—';
+      if(!byCustomer[cust]) byCustomer[cust] = 0;
+      byCustomer[cust] += totalDiscOnInv;
+
+      const month = (inv.issue_date || '').slice(0, 7);   /* YYYY-MM */
+      if(!byMonth[month]) byMonth[month] = 0;
+      byMonth[month] += totalDiscOnInv;
+    }
+  }
+
+  const totalDiscount = totalInvoiceLevelDisc + totalLineLevelDisc;
+  const discountPct = grossSales > 0 ? (totalDiscount / grossSales * 100) : 0;
+  const netSales = grossSales - totalDiscount;
+
+  /* Top 5 customers by discount given */
+  const byCustomerArr = Object.entries(byCustomer)
+    .map(([name, disc]) => ({ name, discount: Math.round(disc*100)/100 }))
+    .sort((a,b) => b.discount - a.discount)
+    .slice(0, 5);
+
+  /* Months sorted chronologically */
+  const byMonthArr = Object.entries(byMonth)
+    .map(([month, disc]) => ({ month, discount: Math.round(disc*100)/100 }))
+    .sort((a,b) => a.month.localeCompare(b.month));
+
+  return {
+    period: { fromISO, toISO },
+    grossSales: Math.round(grossSales*100)/100,
+    netSales: Math.round(netSales*100)/100,
+    totalDiscount: Math.round(totalDiscount*100)/100,
+    discountPct: Math.round(discountPct*10)/10,
+    byInvoiceLevel: Math.round(totalInvoiceLevelDisc*100)/100,
+    byLineLevel: Math.round(totalLineLevelDisc*100)/100,
+    byCustomer: byCustomerArr,
+    byMonth: byMonthArr
+  };
+};
+
+/* ─── Round B-PL-Structure: VAT Input remediation tool ───────────────
+   Historical bug: finance.html (expenses) and inventory.html (receipts)
+   posted recoverable Input VAT to account_code '2210' — which is the
+   VAT OUTPUT account (sales VAT). Input VAT should live at '2220'
+   (legacy) or '1500' (SOCPA).
+   
+   Impact:
+   - VAT Output balance is inflated by the Input VAT amounts
+   - VAT Input balance shows 0 (or wrong-side)
+   - Net VAT Payable calc is wrong → ZATCA VAT filings under-reported
+   - Balance sheet imbalance can result if accounts are wrongly classified
+   
+   This tool scans for journal_lines on 2210 that look like Input VAT
+   (sourced from 'expense' or 'stock_receipt' entries) and offers to
+   move them to 2220. Idempotent. Dry-run first.
+   
+   Usage:
+     await window.glDiagnoseVatMiscoding()              // scan only
+     await window.glDiagnoseVatMiscoding({fix:true})    // execute
+*/
+window.glDiagnoseVatMiscoding = async function(opts = {}){
+  if(!currentBiz?.id){ console.warn('[GL] No business loaded'); return null; }
+  const fix = !!opts.fix;
+  
+  /* Step 1: find all journal_entries with source = 'expense' or 'stock_receipt'
+     that have at least one line on 2210 */
+  const {data: entries, error: e1} = await sb.from('journal_entries')
+    .select('id, source, source_id, reference, entry_date, description')
+    .eq('business_id', currentBiz.id)
+    .in('source', ['expense', 'stock_receipt', 'receipt']);
+  if(e1){ console.error('[GL] Entries fetch error:', e1); return null; }
+  if(!entries?.length){
+    console.log('%c[GL] No expense/receipt entries found.', 'color:#888;');
+    return { found: 0, fixed: 0 };
+  }
+  
+  const entryIds = entries.map(e => e.id);
+  const {data: lines, error: e2} = await sb.from('journal_lines')
+    .select('id, entry_id, account_code, account_name, debit, credit, description')
+    .in('entry_id', entryIds)
+    .eq('account_code', '2210');
+  if(e2){ console.error('[GL] Lines fetch error:', e2); return null; }
+  
+  /* Filter: these are lines on 2210 from expense/receipt entries.
+     If account_name mentions 'مدخلات' or 'Input', it's miscoded. */
+  const misc = (lines || []).filter(l => {
+    const n = (l.account_name || '').toLowerCase();
+    return n.includes('مدخلات') || n.includes('input') || n.includes('receivable');
+  });
+  
+  if(!misc.length){
+    console.log('%c[GL] No miscoded VAT Input lines found on 2210.', 'color:#1D9E75;font-weight:bold;');
+    return { found: 0, fixed: 0 };
+  }
+  
+  let totalDebit = 0, totalCredit = 0;
+  misc.forEach(l => {
+    totalDebit += parseFloat(l.debit) || 0;
+    totalCredit += parseFloat(l.credit) || 0;
+  });
+  
+  console.log('%c═══ VAT MISCODING DIAGNOSTIC ═══', 'font-weight:bold;color:#C9920A;');
+  console.log(`Found ${misc.length} journal_lines on 2210 that are actually VAT Input.`);
+  console.log(`  Total debit (expense VAT): SAR ${totalDebit.toFixed(2)}`);
+  console.log(`  Total credit (voided VAT): SAR ${totalCredit.toFixed(2)}`);
+  console.log(`  Net effect on 2210: SAR ${(totalDebit - totalCredit).toFixed(2)} debit (wrong side for VAT Output liability)`);
+  console.log('');
+  console.log('Sample (first 5):');
+  console.table(misc.slice(0, 5).map(l => ({
+    id: l.id.substring(0, 8),
+    account_code: l.account_code,
+    account_name: (l.account_name || '').substring(0, 30),
+    debit: parseFloat(l.debit) || 0,
+    credit: parseFloat(l.credit) || 0
+  })));
+  
+  if(!fix){
+    console.log('%cDRY RUN — no changes made.', 'font-weight:bold;color:#888;');
+    console.log('To execute: window.glDiagnoseVatMiscoding({fix:true})');
+    return { found: misc.length, fixed: 0, totalDebit, totalCredit };
+  }
+  
+  /* Execute fix: update account_code from 2210 to 2220 on each line */
+  if(!confirm(`Move ${misc.length} VAT Input lines from 2210 to 2220? This cannot be undone via this tool.`)){
+    console.log('Cancelled.');
+    return { found: misc.length, fixed: 0 };
+  }
+  
+  /* Ensure 2220 exists in CoA first */
+  const has2220 = chartOfAccounts.find(a => a.code === '2220');
+  if(!has2220){
+    console.warn('[GL] Account 2220 missing from chart_of_accounts. Run selfHealCriticalAccounts() first or add it manually via glAddAccount.');
+    return { found: misc.length, fixed: 0, error: 'account_2220_missing' };
+  }
+  
+  /* Update in chunks of 200 */
+  let fixed = 0;
+  for(let i = 0; i < misc.length; i += 200){
+    const chunk = misc.slice(i, i + 200);
+    const ids = chunk.map(l => l.id);
+    const {error} = await sb.from('journal_lines')
+      .update({ account_code: '2220', account_name: 'ضريبة القيمة المضافة — مدخلات' })
+      .in('id', ids);
+    if(error){
+      console.error(`[GL] Update chunk ${i} failed:`, error);
+      break;
+    }
+    fixed += chunk.length;
+    console.log(`  Updated ${fixed}/${misc.length}...`);
+  }
+  
+  console.log(`%c✓ Reclassified ${fixed} VAT Input lines from 2210 → 2220`, 'color:#1D9E75;font-weight:bold;');
+  console.log('Re-run window.glBalanceSheetSummary() to verify the balance sheet improves.');
+  return { found: misc.length, fixed, totalDebit, totalCredit };
+};
+
+
+/* Diagnose filings — list raw filing rows for the current business.
    When the dashboard or wizard appears out of sync with what the user
    thinks they filed, this shows the raw rows so we can see what's
    actually saved vs what's claimed. Use from devtools:
@@ -6000,15 +7174,59 @@ async function computeZakatComplianceReport(fyYear){
   /* P&L for the fiscal year — uses computeAccountBalances() */
   const balances = await computeAccountBalances(fy.fromISO, fy.toISO);
   let revenue = 0, totalExpenses = 0;
+  /* Round B-PL-Structure: break down by subcategory for richer P&L */
+  let cogs = 0, opexSelling = 0, opexAdmin = 0, opexOther = 0;
+  let financeCost = 0, taxExpense = 0, otherIncome = 0, contraRevenue = 0;
   rebuildAccountMap();
+  /* Subcategory inferer for legacy charts */
+  const inferSC = (acct) => {
+    if(acct.subcategory) return acct.subcategory;
+    const socpa = SOCPA_CHART_OF_ACCOUNTS.find(s => s.code === acct.code);
+    if(socpa) return socpa.subcategory;
+    const c = acct.code;
+    if(acct.type === 'income'){
+      if(c.startsWith('43')) return 'other_revenue';
+      if(c.startsWith('419')) return 'contra_revenue';
+      return 'operating_revenue';
+    }
+    if(acct.type === 'expense'){
+      if(c.startsWith('5')) return 'cost_of_sales';
+      if(c.startsWith('6')) return 'opex_selling';
+      if(c.startsWith('7')) return 'opex_admin';
+      if(c.startsWith('8')) return 'opex_other';
+      if(c.startsWith('91')) return 'finance_cost';
+      if(c.startsWith('92')) return 'tax_expense';
+      return 'opex_admin';
+    }
+    return null;
+  };
   for(const a of chartOfAccounts){
     if(!a.parent_code) continue;
     const b = balances[a.code];
     if(!b) continue;
-    if(a.type === 'income') revenue += -b.net;
-    else if(a.type === 'expense') totalExpenses += b.net;
+    const sc = inferSC(a);
+    if(a.type === 'income'){
+      const v = -b.net;
+      if(sc === 'operating_revenue') revenue += v;
+      else if(sc === 'contra_revenue') contraRevenue += -v;  /* contra is DR-natured */
+      else if(sc === 'other_revenue') otherIncome += v;
+    } else if(a.type === 'expense'){
+      totalExpenses += b.net;
+      if(sc === 'cost_of_sales') cogs += b.net;
+      else if(sc === 'opex_selling') opexSelling += b.net;
+      else if(sc === 'opex_admin') opexAdmin += b.net;
+      else if(sc === 'opex_other' || sc === 'non_deductible_expense') opexOther += b.net;
+      else if(sc === 'finance_cost') financeCost += b.net;
+      else if(sc === 'tax_expense') taxExpense += b.net;
+      else opexAdmin += b.net;
+    }
   }
-  const accountingProfit = revenue - totalExpenses;
+  const netRevenue = revenue - contraRevenue;
+  const grossProfit = netRevenue - cogs;
+  const totalOpex = opexSelling + opexAdmin + opexOther;
+  const operatingProfit = grossProfit - totalOpex;
+  const profitBeforeTax = operatingProfit + otherIncome - financeCost;
+  const accountingProfit = profitBeforeTax - taxExpense;
   /* For the report view we don't apply add-back/deduction overrides
      — those are the wizard's job. Show the raw accounting profit as
      adjusted profit for now. The wizard will refine it at filing time. */
@@ -6037,7 +7255,18 @@ async function computeZakatComplianceReport(fyYear){
   return {
     fy,
     ownership,
-    pl: { revenue, totalExpenses, accountingProfit, totalAddBacks, totalDeductions, adjustedProfit },
+    pl: {
+      revenue, netRevenue, contraRevenue,
+      cogs, grossProfit,
+      opexSelling, opexAdmin, opexOther, totalOpex,
+      operatingProfit,
+      otherIncome, financeCost,
+      profitBeforeTax,
+      taxExpense,
+      totalExpenses,
+      accountingProfit,
+      totalAddBacks, totalDeductions, adjustedProfit
+    },
     computed: { regime, zakatBase, zakatTotal, zakatSaudiShare, taxableProfit, citTotal, citForeignShare, grandTotal },
     filingStatus
   };
@@ -6074,9 +7303,14 @@ function renderZakatComplianceReportHTML(report){
 
       <div class="form201-section">
         <div class="form201-section-title">${ar?'قائمة الدخل':'Income Statement'}</div>
-        <div class="form201-row"><span class="box-num">A</span><span class="lbl">${ar?'الإيرادات':'Revenue'}</span><span class="val">${fmt(pl.revenue)}</span><span class="val"></span></div>
-        <div class="form201-row"><span class="box-num">B</span><span class="lbl">${ar?'إجمالي المصروفات':'Total Expenses'}</span><span class="val">${fmt(pl.totalExpenses)}</span><span class="val"></span></div>
-        <div class="form201-row totals"><span class="box-num">C</span><span class="lbl">${ar?(pl.accountingProfit>=0?'الربح المحاسبي':'الخسارة المحاسبية'):(pl.accountingProfit>=0?'Accounting Profit':'Accounting Loss')}</span><span class="val">${fmt(Math.abs(pl.accountingProfit))}</span><span class="val"></span></div>
+        <div class="form201-row"><span class="box-num">A</span><span class="lbl">${ar?'صافي الإيرادات':'Net Revenue'}</span><span class="val">${fmt(pl.netRevenue || pl.revenue)}</span><span class="val"></span></div>
+        ${pl.cogs > 0.005 ? `<div class="form201-row"><span class="box-num">B</span><span class="lbl">${ar?'(تكلفة المبيعات)':'(Cost of Sales)'}</span><span class="val">(${fmt(pl.cogs)})</span><span class="val"></span></div>
+        <div class="form201-row totals" style="background:rgba(29,158,117,0.06);"><span class="box-num">C</span><span class="lbl">${ar?'إجمالي الربح':'Gross Profit'} <span style="font-size:10px;color:var(--muted);">(${pl.netRevenue>0?(pl.grossProfit/pl.netRevenue*100).toFixed(1):0}%)</span></span><span class="val">${fmt(pl.grossProfit)}</span><span class="val"></span></div>` : ''}
+        ${(pl.totalOpex || 0) > 0.005 ? `<div class="form201-row"><span class="box-num">D</span><span class="lbl">${ar?'(المصاريف التشغيلية)':'(Operating Expenses)'}</span><span class="val">(${fmt(pl.totalOpex)})</span><span class="val"></span></div>` : ''}
+        ${(pl.operatingProfit !== undefined && Math.abs(pl.operatingProfit) > 0.005) ? `<div class="form201-row totals" style="background:rgba(0,108,53,0.06);"><span class="box-num">E</span><span class="lbl">${ar?'الربح التشغيلي (EBIT)':'Operating Profit (EBIT)'}</span><span class="val">${fmt(pl.operatingProfit)}</span><span class="val"></span></div>` : ''}
+        ${(pl.otherIncome || 0) > 0.005 ? `<div class="form201-row"><span class="box-num">F</span><span class="lbl">${ar?'إيرادات أخرى':'Other Income'}</span><span class="val">+${fmt(pl.otherIncome)}</span><span class="val"></span></div>` : ''}
+        ${(pl.financeCost || 0) > 0.005 ? `<div class="form201-row"><span class="box-num">G</span><span class="lbl">${ar?'(تكاليف تمويلية)':'(Finance Costs)'}</span><span class="val">(${fmt(pl.financeCost)})</span><span class="val"></span></div>` : ''}
+        <div class="form201-row totals"><span class="box-num">H</span><span class="lbl">${ar?(pl.accountingProfit>=0?'الربح المحاسبي قبل الزكاة/الضريبة':'الخسارة المحاسبية'):(pl.accountingProfit>=0?'Accounting Profit (Pre-Zakat/CIT)':'Accounting Loss')}</span><span class="val">${fmt(Math.abs(pl.accountingProfit))}</span><span class="val"></span></div>
       </div>
 
       ${showZakat ? `
@@ -6117,14 +7351,56 @@ async function computeQawaemComplianceReport(fyYear){
   rebuildAccountMap();
   const plBal = await computeAccountBalances(fy.fromISO, fy.toISO);
   let revenue = 0, expenses = 0;
+  /* Round B-PL-Structure: subcategory breakdown */
+  let cogs = 0, opexSelling = 0, opexAdmin = 0, opexOther = 0;
+  let financeCost = 0, taxExpense = 0, otherIncome = 0, contraRevenue = 0;
+  const inferSC = (acct) => {
+    if(acct.subcategory) return acct.subcategory;
+    const socpa = SOCPA_CHART_OF_ACCOUNTS.find(s => s.code === acct.code);
+    if(socpa) return socpa.subcategory;
+    const c = acct.code;
+    if(acct.type === 'income'){
+      if(c.startsWith('43')) return 'other_revenue';
+      if(c.startsWith('419')) return 'contra_revenue';
+      return 'operating_revenue';
+    }
+    if(acct.type === 'expense'){
+      if(c.startsWith('5')) return 'cost_of_sales';
+      if(c.startsWith('6')) return 'opex_selling';
+      if(c.startsWith('7')) return 'opex_admin';
+      if(c.startsWith('8')) return 'opex_other';
+      if(c.startsWith('91')) return 'finance_cost';
+      if(c.startsWith('92')) return 'tax_expense';
+      return 'opex_admin';
+    }
+    return null;
+  };
   for(const a of chartOfAccounts){
     if(!a.parent_code) continue;
     const b = plBal[a.code];
     if(!b) continue;
-    if(a.type === 'income') revenue += -b.net;
-    else if(a.type === 'expense') expenses += b.net;
+    const sc = inferSC(a);
+    if(a.type === 'income'){
+      const v = -b.net;
+      if(sc === 'operating_revenue') revenue += v;
+      else if(sc === 'contra_revenue') contraRevenue += -v;
+      else if(sc === 'other_revenue') otherIncome += v;
+    } else if(a.type === 'expense'){
+      expenses += b.net;
+      if(sc === 'cost_of_sales') cogs += b.net;
+      else if(sc === 'opex_selling') opexSelling += b.net;
+      else if(sc === 'opex_admin') opexAdmin += b.net;
+      else if(sc === 'opex_other' || sc === 'non_deductible_expense') opexOther += b.net;
+      else if(sc === 'finance_cost') financeCost += b.net;
+      else if(sc === 'tax_expense') taxExpense += b.net;
+      else opexAdmin += b.net;
+    }
   }
-  const netProfit = revenue - expenses;
+  const netRevenue = revenue - contraRevenue;
+  const grossProfit = netRevenue - cogs;
+  const totalOpex = opexSelling + opexAdmin + opexOther;
+  const operatingProfit = grossProfit - totalOpex;
+  const netProfit = operatingProfit + otherIncome - financeCost - taxExpense;
 
   /* Balance Sheet at FY end (cumulative since inception) */
   const bsBal = await computeAccountBalances(null, fy.toISO);
@@ -6148,7 +7424,14 @@ async function computeQawaemComplianceReport(fyYear){
 
   return {
     fy,
-    plData: { revenue, expenses, netProfit },
+    plData: {
+      revenue, netRevenue, contraRevenue,
+      cogs, grossProfit,
+      opexSelling, opexAdmin, opexOther, totalOpex,
+      operatingProfit, otherIncome, financeCost, taxExpense,
+      expenses,
+      netProfit
+    },
     bsData: { totalAssets, totalLiabilities, totalEquity, retainedEarnings, balanced },
     filingStatus
   };
@@ -6180,9 +7463,15 @@ function renderQawaemComplianceReportHTML(report){
 
       <div class="form201-section">
         <div class="form201-section-title">${ar?'قائمة الدخل':'Income Statement'}</div>
-        <div class="form201-row totals"><span class="box-num">P1</span><span class="lbl">${ar?'الإيرادات':'Revenue'}</span><span class="val">${fmt(m.plData.revenue)}</span><span class="val"></span></div>
-        <div class="form201-row"><span class="box-num">P2</span><span class="lbl">${ar?'إجمالي المصروفات':'Total Expenses'}</span><span class="val">${fmt(m.plData.expenses)}</span><span class="val"></span></div>
-        <div class="form201-row totals"><span class="box-num">P3</span><span class="lbl">${ar?(m.plData.netProfit>=0?'صافي الربح':'صافي الخسارة'):(m.plData.netProfit>=0?'Net Profit':'Net Loss')}</span><span class="val">${fmt(Math.abs(m.plData.netProfit))}</span><span class="val"></span></div>
+        <div class="form201-row totals"><span class="box-num">P1</span><span class="lbl">${ar?'صافي الإيرادات':'Net Revenue'}</span><span class="val">${fmt(m.plData.netRevenue || m.plData.revenue)}</span><span class="val"></span></div>
+        ${(m.plData.cogs || 0) > 0.005 ? `<div class="form201-row"><span class="box-num">P2</span><span class="lbl">${ar?'(تكلفة المبيعات)':'(Cost of Sales)'}</span><span class="val">(${fmt(m.plData.cogs)})</span><span class="val"></span></div>
+        <div class="form201-row totals" style="background:rgba(29,158,117,0.06);"><span class="box-num">P3</span><span class="lbl">${ar?'إجمالي الربح':'Gross Profit'} <span style="font-size:10px;color:var(--muted);">(${(m.plData.netRevenue||0)>0?(m.plData.grossProfit/m.plData.netRevenue*100).toFixed(1):0}%)</span></span><span class="val">${fmt(m.plData.grossProfit)}</span><span class="val"></span></div>` : ''}
+        ${(m.plData.totalOpex || 0) > 0.005 ? `<div class="form201-row"><span class="box-num">P4</span><span class="lbl">${ar?'(المصاريف التشغيلية)':'(Operating Expenses)'}</span><span class="val">(${fmt(m.plData.totalOpex)})</span><span class="val"></span></div>` : ''}
+        ${(m.plData.operatingProfit !== undefined && Math.abs(m.plData.operatingProfit) > 0.005) ? `<div class="form201-row totals" style="background:rgba(0,108,53,0.06);"><span class="box-num">P5</span><span class="lbl">${ar?'الربح التشغيلي (EBIT)':'Operating Profit (EBIT)'}</span><span class="val">${fmt(m.plData.operatingProfit)}</span><span class="val"></span></div>` : ''}
+        ${(m.plData.otherIncome || 0) > 0.005 ? `<div class="form201-row"><span class="box-num">P6</span><span class="lbl">${ar?'إيرادات أخرى':'Other Income'}</span><span class="val">+${fmt(m.plData.otherIncome)}</span><span class="val"></span></div>` : ''}
+        ${(m.plData.financeCost || 0) > 0.005 ? `<div class="form201-row"><span class="box-num">P7</span><span class="lbl">${ar?'(تكاليف تمويلية)':'(Finance Costs)'}</span><span class="val">(${fmt(m.plData.financeCost)})</span><span class="val"></span></div>` : ''}
+        ${(m.plData.taxExpense || 0) > 0.005 ? `<div class="form201-row"><span class="box-num">P8</span><span class="lbl">${ar?'(الضرائب والزكاة)':'(Taxes & Zakat)'}</span><span class="val">(${fmt(m.plData.taxExpense)})</span><span class="val"></span></div>` : ''}
+        <div class="form201-row totals"><span class="box-num">P9</span><span class="lbl">${ar?(m.plData.netProfit>=0?'صافي الربح':'صافي الخسارة'):(m.plData.netProfit>=0?'Net Profit':'Net Loss')}</span><span class="val">${fmt(Math.abs(m.plData.netProfit))}</span><span class="val"></span></div>
       </div>
 
       <div class="form201-section">

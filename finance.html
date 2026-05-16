@@ -15,6 +15,29 @@ const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
 const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   ROUND B-PL-Structure: Semantic account code constants (SOCPA-aligned)
+   ═══════════════════════════════════════════════════════════════════════════
+   See invoices.html for full documentation.
+   ═══════════════════════════════════════════════════════════════════════════ */
+const USE_SOCPA_CODES_DEFAULT = false;
+function _useSocpa(){
+  if(typeof window !== 'undefined' && window._gl_use_socpa_codes != null){
+    return !!window._gl_use_socpa_codes;
+  }
+  return USE_SOCPA_CODES_DEFAULT;
+}
+const CODE = Object.freeze({
+  get AR(){           return _useSocpa() ? '1210' : '1200'; },
+  get INVENTORY(){    return _useSocpa() ? '1330' : '1300'; },
+  get VAT_INPUT(){    return _useSocpa() ? '1500' : '2220'; },
+  get AP(){           return _useSocpa() ? '2110' : '2100'; },
+  get VAT_OUTPUT(){   return '2210'; },
+  get VAT_PAYABLE_NET(){ return _useSocpa() ? '2220' : '2200'; },
+  get SALES_STANDARD(){    return _useSocpa() ? '4110' : '4100'; },
+  get COGS(){              return _useSocpa() ? '5110' : '5100'; }
+});
+
 /* ROUND B-VAT: Filings helper (inlined). Exports on window.gl.filings. */
 /* ════════════════════════════════════════════════════════════════════════════
    ROUND B-VAT: Shared filings helpers
@@ -2299,6 +2322,8 @@ async function init(){
   }
   currentBiz = biz;
   currentBiz._myRole = role;
+  /* Round B-PL-Structure: drive CODE.* (legacy vs SOCPA) from chart_version */
+  window._gl_use_socpa_codes = (currentBiz.chart_version === 'socpa_v1');
   setText('biz-name', displayName(currentBiz) || currentBiz.name || '—');
 
   setLang(currentLang);
@@ -5652,12 +5677,13 @@ async function postExpenseJournal(expense, cat){
       debit: expenseDebit, credit: 0,
       description: expense.description
     });
-    /* Input VAT only if recoverable — account 2210 (VAT receivable from gov) */
+    /* Input VAT only if recoverable — account 2220 (VAT receivable from gov).
+       BUGFIX Round B-PL-Structure: was posting to 2210 (VAT Output) — wrong account. */
     if(recoverable && vatAmount > 0){
       lines.push({
         entry_id: entry.id,
         user_id: currentUser.id,
-        account_code: '2210',
+        account_code: CODE.VAT_INPUT,
         account_name: ar ? 'ضريبة القيمة المضافة - مدخلات' : 'VAT Receivable (Input)',
         debit: vatAmount, credit: 0,
         description: expense.description
@@ -6416,7 +6442,7 @@ async function postExpenseVoidJournal(exp){
       lines.push({
         entry_id: entry.id,
         user_id: currentUser.id,
-        account_code: '2210',
+        account_code: CODE.VAT_INPUT,
         account_name: ar ? 'ضريبة القيمة المضافة - مدخلات' : 'VAT Receivable (Input)',
         debit: 0, credit: vatAmount,
         description: 'Void: ' + exp.description

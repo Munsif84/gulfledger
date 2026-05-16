@@ -1199,6 +1199,41 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
               <option value="10-01">1 أكتوبر · Oct 1</option>
             </select>
           </div>
+          <div class="field">
+            <div class="field-label">
+              <span data-ar="نوع النشاط" data-en="Business Type">نوع النشاط</span>
+              <span style="font-size:11px;color:var(--muted);font-weight:400;margin-inline-start:6px;" data-ar="(يحدد تنسيق التقارير المناسب)" data-en="(suggests the right P&L format)">(يحدد تنسيق التقارير المناسب)</span>
+            </div>
+            <select id="loc-business-type">
+              <option value="" data-ar="— غير محدد —" data-en="— Not set —">— غير محدد —</option>
+              <option value="wholesale" data-ar="تجارة الجملة" data-en="Wholesale">تجارة الجملة</option>
+              <option value="retail" data-ar="تجارة التجزئة" data-en="Retail">تجارة التجزئة</option>
+              <option value="trading" data-ar="تجارة عامة (استيراد/تصدير)" data-en="Trading (import/export)">تجارة عامة (استيراد/تصدير)</option>
+              <option value="manufacturing" data-ar="صناعة وتصنيع" data-en="Manufacturing">صناعة وتصنيع</option>
+              <option value="construction" data-ar="مقاولات وإنشاءات" data-en="Construction/Contracting">مقاولات وإنشاءات</option>
+              <option value="services" data-ar="خدمات عامة" data-en="General Services">خدمات عامة</option>
+              <option value="consulting" data-ar="استشارات" data-en="Consulting">استشارات</option>
+              <option value="professional" data-ar="مهن حرة (محاماة/محاسبة/طب)" data-en="Professional services">مهن حرة (محاماة/محاسبة/طب)</option>
+              <option value="saas" data-ar="برمجيات / SaaS" data-en="Software / SaaS">برمجيات / SaaS</option>
+              <option value="technology" data-ar="تقنية معلومات" data-en="Technology / IT">تقنية معلومات</option>
+              <option value="hospitality" data-ar="فنادق ومطاعم" data-en="Hospitality / Restaurants">فنادق ومطاعم</option>
+              <option value="restaurant" data-ar="مطاعم وكافيهات" data-en="Restaurants / Cafés">مطاعم وكافيهات</option>
+              <option value="healthcare" data-ar="صحة وطب" data-en="Healthcare">صحة وطب</option>
+              <option value="real_estate" data-ar="عقارات" data-en="Real Estate">عقارات</option>
+              <option value="other" data-ar="أخرى" data-en="Other">أخرى</option>
+            </select>
+          </div>
+          <div class="field">
+            <div class="field-label">
+              <span data-ar="تنسيق قائمة الدخل" data-en="P&L Format">تنسيق قائمة الدخل</span>
+              <span style="font-size:11px;color:var(--muted);font-weight:400;margin-inline-start:6px;" data-ar="(يحدد كيفية عرض المصاريف)" data-en="(determines how expenses are grouped)">(يحدد كيفية عرض المصاريف)</span>
+            </div>
+            <select id="loc-pl-format">
+              <option value="by_function" selected data-ar="حسب الوظيفة — مناسب لتجارة الجملة والتجزئة والصناعة (يظهر إجمالي الربح)" data-en="By Function — for wholesale/retail/manufacturing (shows Gross Profit)">حسب الوظيفة — مناسب لتجارة الجملة والتجزئة والصناعة (يظهر إجمالي الربح)</option>
+              <option value="by_nature" data-ar="حسب الطبيعة — مناسب للخدمات والاستشارات والبرمجيات" data-en="By Nature — for services/consulting/SaaS">حسب الطبيعة — مناسب للخدمات والاستشارات والبرمجيات</option>
+              <option value="mixed" data-ar="مختلط — يتكيف تلقائياً مع طبيعة الحسابات" data-en="Mixed — adapts automatically to account activity">مختلط — يتكيف تلقائياً مع طبيعة الحسابات</option>
+            </select>
+          </div>
         </div>
       </div>
       <div class="section-foot">
@@ -1778,6 +1813,8 @@ function populateAllForms(){
   setVal('loc-language', b.default_language || 'ar');
   setVal('loc-date-format', b.date_format || 'DD/MM/YYYY');
   setVal('loc-fiscal-year', b.fiscal_year_start || '01-01');
+  setVal('loc-business-type', b.business_type || '');
+  setVal('loc-pl-format', b.pl_format || 'by_function');
 
   /* Account */
   setVal('account-email', currentUser?.email || '');
@@ -2520,15 +2557,38 @@ async function saveInventoryAnalytics(){
    LOCALIZATION SAVE
 ═══════════════════════════════════════════════════════ */
 async function saveLocalization(){
+  const businessType = v('loc-business-type') || null;
+  const plFormatSelected = v('loc-pl-format') || 'by_function';
+
   const payload = {
     default_language: v('loc-language') || 'ar',
     date_format: v('loc-date-format') || 'DD/MM/YYYY',
     fiscal_year_start: v('loc-fiscal-year') || '01-01',
+    business_type: businessType,
+    pl_format: plFormatSelected,
     updated_at: new Date().toISOString()
   };
 
-  const {error} = await sb.from('businesses').update(payload).eq('id', currentBiz.id);
+  let {error} = await sb.from('businesses').update(payload).eq('id', currentBiz.id);
   if(error){
+    /* If schema migration round-b-pl-structure.sql hasn't been run yet,
+       business_type / pl_format columns won't exist. Retry without them. */
+    const errStr = String(error.message || error);
+    if(errStr.includes('business_type') || errStr.includes('pl_format')){
+      console.warn('[GL settings] Schema migration not run; saving without pl_format/business_type:', errStr);
+      const fallback = {...payload};
+      delete fallback.business_type;
+      delete fallback.pl_format;
+      const retry = await sb.from('businesses').update(fallback).eq('id', currentBiz.id);
+      if(retry.error){
+        notify(retry.error.message, 'error');
+        return;
+      }
+      Object.assign(currentBiz, fallback);
+      showSaveStatus('localization');
+      notify(currentLang==='ar'?'⚠ تم الحفظ جزئياً — قم بتشغيل migration الجديد':'⚠ Saved partially — run new migration', 'warning');
+      return;
+    }
     notify(error.message, 'error');
     return;
   }
@@ -2536,6 +2596,37 @@ async function saveLocalization(){
   showSaveStatus('localization');
   notify(currentLang==='ar'?'✅ تم حفظ التفضيلات':'✅ Preferences saved', 'success');
 }
+
+/* Auto-suggest P&L format when business_type changes.
+   User can override if they want — we never overwrite a user's explicit pick. */
+function _suggestPlFormatForBusinessType(){
+  const bt = v('loc-business-type');
+  if(!bt) return;
+  /* Wholesale/retail/trading/manufacturing → by-function (Gross Profit matters) */
+  const byFunction = ['wholesale','retail','trading','manufacturing'];
+  /* Services/saas/consulting/professional → by-nature (no COGS) */
+  const byNature = ['services','consulting','professional','saas','technology','real_estate','healthcare'];
+  /* Mixed for hospitality and construction (food cost + service personnel) */
+  const mixed = ['hospitality','restaurant','construction'];
+
+  let suggested;
+  if(byFunction.includes(bt)) suggested = 'by_function';
+  else if(byNature.includes(bt)) suggested = 'by_nature';
+  else if(mixed.includes(bt)) suggested = 'mixed';
+  else return;
+
+  /* Only auto-set if user hasn't already saved a non-default pl_format */
+  const current = v('loc-pl-format');
+  const currentSaved = currentBiz?.pl_format;
+  /* If their current dropdown matches their saved value (i.e. they haven't manually picked), update it */
+  if(current === currentSaved){
+    setVal('loc-pl-format', suggested);
+  }
+}
+
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('loc-business-type')?.addEventListener('change', _suggestPlFormatForBusinessType);
+});
 
 /* ═══════════════════════════════════════════════════════
    ACCOUNT ACTIONS
