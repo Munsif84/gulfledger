@@ -6493,6 +6493,240 @@ window.glMigrateChartOfAccounts = async function(opts = {}){
   return report;
 };
 
+/* ─── Round B-PL-Structure: COGS diagnostic ───────────────────────────
+   For each invoice in the period, checks whether:
+   • The invoice's items had a cost_price > 0 at sale time
+   • A COGS journal entry was posted (reference = '<invoice>-COGS')
+   • The COGS amount looks reasonable vs the sale total
+
+   Surfaces invoices that should have COGS but don't, plus the underlying
+   cause (missing cost_price on the item, FIFO drain returning 0, etc.).
+
+   Use from devtools:
+     await window.glDiagnoseCOGS('2026-04-01','2026-06-30')
+
+   Returns: { totalSales, totalCOGS, grossMargin,
+              invoicesMissingCOGS:[...],
+              itemsWithZeroCost:[...] }                                  */
+window.glDiagnoseCOGS = async function(fromISO, toISO){
+  if(!currentBiz?.id){ console.warn('[GL] No business loaded'); return null; }
+  console.log(`%c═══ COGS DIAGNOSTIC ${fromISO} → ${toISO} ═══`, 'font-weight:bold;color:#1D9E75;');
+
+  /* 1. Fetch invoices in period */
+  const {data: invoices, error: invErr} = await sb.from('invoices')
+    .select('id, invoice_number, issue_date, buyer_name, subtotal, total, status, invoice_items(id, item_id, qty, unit_price, cost_at_take)')
+    .eq('business_id', currentBiz.id)
+    .gte('issue_date', fromISO)
+    .lte('issue_date', toISO)
+    .order('issue_date', {ascending:true});
+  if(invErr){ console.error('[GL] invoice fetch:', invErr); return null; }
+
+  console.log(`Found ${invoices?.length || 0} invoices in period`);
+
+  /* 2. Fetch all COGS journal entries for the business */
+  const {data: cogsEntries} = await sb.from('journal_entries')
+    .select('id, reference, entry_date, journal_lines(account_code, debit, credit)')
+    .eq('business_id', currentBiz.id)
+    .like('reference', '%-COGS')
+    .gte('entry_date', fromISO)
+    .lte('entry_date', toISO);
+  const cogsByInvoice = {};
+  for(const e of (cogsEntries || [])){
+    const invNum = (e.reference || '').replace(/-COGS$/, '');
+    const cogsAmt = (e.journal_lines || []).reduce((s,l) => s + (l.debit || 0), 0) / 2;
+    /* Above counts both debit AND credit (each line in a balanced entry has one).
+       Actually debit total = COGS amount (DR COGS) + 0 (CR Inventory) so:  */
+    const cogsTotal = (e.journal_lines || [])
+      .filter(l => (l.account_code || '').startsWith('5') || (l.account_code || '') === '5100' || (l.account_code || '') === '5110')
+      .reduce((s,l) => s + (l.debit || 0), 0);
+    cogsByInvoice[invNum] = cogsTotal;
+  }
+
+  /* 3. Cross-reference */
+  const invoicesMissingCOGS = [];
+  const invoicesWithCOGS = [];
+  const itemsWithZeroCost = [];
+  let totalSales = 0, totalCOGSPosted = 0;
+
+  for(const inv of (invoices || [])){
+    if(inv.status === 'void' || inv.status === 'cancelled') continue;
+    const sale = inv.subtotal || 0;
+    totalSales += sale;
+
+    const posted = cogsByInvoice[inv.invoice_number];
+    if(posted != null && posted > 0){
+      totalCOGSPosted += posted;
+      invoicesWithCOGS.push({
+        invoice: inv.invoice_number,
+        date: inv.issue_date,
+        customer: inv.buyer_name,
+        sale: sale,
+        cogs: posted,
+        margin_pct: sale > 0 ? Number(((sale - posted)/sale*100).toFixed(1)) : null
+      });
+    } else {
+      /* Check items — do any have non-zero cost? */
+      const itemList = (inv.invoice_items || []).map(it => ({
+        item_id: it.item_id,
+        qty: it.qty,
+        unit_price: it.unit_price,
+        cost_at_take: it.cost_at_take,
+        line_cogs_should_be: (it.cost_at_take || 0) * (it.qty || 0)
+      }));
+      const expectedCogs = itemList.reduce((s,i) => s + i.line_cogs_should_be, 0);
+      const zeroCostItems = itemList.filter(i => !(i.cost_at_take > 0));
+
+      invoicesMissingCOGS.push({
+        invoice: inv.invoice_number,
+        date: inv.issue_date,
+        customer: inv.buyer_name,
+        sale: sale,
+        expected_cogs: expectedCogs,
+        zero_cost_items: zeroCostItems.length,
+        total_items: itemList.length
+      });
+      for(const z of zeroCostItems){
+        itemsWithZeroCost.push({invoice: inv.invoice_number, ...z});
+      }
+    }
+  }
+
+  const grossProfit = totalSales - totalCOGSPosted;
+  const grossMargin = totalSales > 0 ? (grossProfit/totalSales*100).toFixed(1) : null;
+
+  console.log('\n📊 SUMMARY:');
+  console.log(`  Total Sales (subtotal):      SAR ${totalSales.toLocaleString()}`);
+  console.log(`  Total COGS posted:           SAR ${totalCOGSPosted.toLocaleString()}`);
+  console.log(`  Gross Profit:                SAR ${grossProfit.toLocaleString()}`);
+  console.log(`  Gross Margin %:              ${grossMargin}%`);
+  console.log(`  Invoices WITH cogs entry:    ${invoicesWithCOGS.length}`);
+  console.log(`  Invoices MISSING cogs entry: ${invoicesMissingCOGS.length}`);
+
+  if(invoicesMissingCOGS.length > 0){
+    console.log('\n%c⚠ INVOICES WITH NO COGS ENTRY (likely cost_price=0 at sale time):', 'color:#c62828;font-weight:bold;');
+    console.table(invoicesMissingCOGS.slice(0, 30));
+    if(invoicesMissingCOGS.length > 30) console.log(`  ...and ${invoicesMissingCOGS.length - 30} more`);
+  }
+  if(itemsWithZeroCost.length > 0){
+    console.log('\n%c⚠ INVOICE LINES WITH cost_at_take=0:', 'color:#c62828;font-weight:bold;');
+    console.table(itemsWithZeroCost.slice(0, 30));
+    console.log('\nTo fix going forward: ensure each stock receipt has a unit_cost > 0.');
+    console.log('To backfill: run window.glBackfillCOGS() — recomputes COGS for past invoices using current item cost_price.');
+  }
+
+  return { totalSales, totalCOGS: totalCOGSPosted, grossProfit, grossMargin, invoicesWithCOGS, invoicesMissingCOGS, itemsWithZeroCost };
+};
+
+/* ─── Round B-PL-Structure: COGS backfill tool ───────────────────────
+   For invoices that don't have a COGS journal entry, retroactively create
+   one using the item's CURRENT cost_price as a best-guess estimate.
+
+   This is NOT ideal — the proper fix is to set cost_price BEFORE invoicing.
+   But for historical data where cost_price was zero at invoice time but is
+   now set on the item, this provides a reasonable reconstruction.
+
+   Usage:
+     await window.glBackfillCOGS({ dryRun:true,  fromISO:'2026-01-01', toISO:'2026-12-31' })
+     await window.glBackfillCOGS({ dryRun:false, fromISO:'2026-01-01', toISO:'2026-12-31' })   */
+window.glBackfillCOGS = async function(opts = {}){
+  const dryRun = opts.dryRun !== false;
+  const fromISO = opts.fromISO || '2020-01-01';
+  const toISO = opts.toISO || isoLocal(new Date());
+  if(!currentBiz?.id || !currentUser?.id){ console.warn('[GL] No business loaded'); return null; }
+
+  console.log(`%c═══ COGS BACKFILL ${dryRun ? '(DRY RUN)' : '(EXECUTING)'} ═══`, 'font-weight:bold;color:#1D9E75;');
+
+  /* Fetch invoices with no COGS entry */
+  const diag = await window.glDiagnoseCOGS(fromISO, toISO);
+  if(!diag || diag.invoicesMissingCOGS.length === 0){
+    console.log('Nothing to backfill.');
+    return diag;
+  }
+
+  /* Fetch current cost_price for all items referenced */
+  const {data: items} = await sb.from('inventory_items')
+    .select('id, name, cost_price').eq('business_id', currentBiz.id);
+  const costById = {};
+  for(const it of (items || [])) costById[it.id] = it.cost_price || 0;
+
+  /* Compute the new COGS for each missing invoice */
+  const toBackfill = [];
+  for(const inv of diag.invoicesMissingCOGS){
+    /* Re-fetch the full invoice (with items) by invoice_number */
+    const {data: full} = await sb.from('invoices')
+      .select('id, invoice_number, issue_date, invoice_items(item_id, qty)')
+      .eq('business_id', currentBiz.id)
+      .eq('invoice_number', inv.invoice).limit(1);
+    if(!full || !full.length) continue;
+    const invFull = full[0];
+    let total = 0;
+    for(const it of (invFull.invoice_items || [])){
+      const cost = costById[it.item_id] || 0;
+      total += cost * (it.qty || 0);
+    }
+    if(total > 0){
+      toBackfill.push({
+        invoice_id: invFull.id,
+        invoice_number: invFull.invoice_number,
+        date: invFull.issue_date,
+        new_cogs: Number(total.toFixed(2))
+      });
+    }
+  }
+
+  console.log(`Will backfill ${toBackfill.length} invoice(s)`);
+  console.table(toBackfill.slice(0,30));
+
+  if(dryRun){
+    console.log('\nTo execute: window.glBackfillCOGS({ dryRun:false })');
+    return { wouldBackfill: toBackfill };
+  }
+
+  if(!confirm(`Backfill COGS for ${toBackfill.length} invoices? Each will create a new journal entry with reference '<invoice>-COGS'.`)){
+    console.log('Cancelled.');
+    return null;
+  }
+
+  /* Execute */
+  let ok = 0, fail = 0;
+  for(const b of toBackfill){
+    try {
+      const cogsRef = b.invoice_number + '-COGS';
+      const {data: entry, error: entErr} = await sb.from('journal_entries').insert({
+        user_id: currentUser.id,
+        business_id: currentBiz.id,
+        entry_date: b.date,
+        reference: cogsRef,
+        description: 'COGS backfill — ' + b.invoice_number,
+        source: 'invoice_backfill',
+        source_id: b.invoice_id,
+        status: 'posted',
+        is_balanced: true
+      }).select().single();
+      if(entErr || !entry){ fail++; continue; }
+
+      const cogsCode = (currentBiz.chart_version === 'socpa_v1') ? '5110' : '5100';
+      const invCode  = (currentBiz.chart_version === 'socpa_v1') ? '1330' : '1300';
+      const {error: linesErr} = await sb.from('journal_lines').insert([
+        {entry_id:entry.id, user_id:currentUser.id, account_code:cogsCode,
+         account_name:'تكلفة البضاعة المباعة', debit:b.new_cogs, credit:0,
+         description:'COGS backfill — ' + b.invoice_number},
+        {entry_id:entry.id, user_id:currentUser.id, account_code:invCode,
+         account_name:'المخزون', debit:0, credit:b.new_cogs,
+         description:'Inventory out (backfill) — ' + b.invoice_number}
+      ]);
+      if(linesErr){ fail++; } else { ok++; }
+    } catch(e){
+      console.error('backfill error:', e);
+      fail++;
+    }
+  }
+
+  console.log(`\n✓ Backfilled ${ok} invoice(s), ${fail} failed`);
+  console.log('Re-run glBalanceSheetSummary() and renderPL to see the change.');
+  return { ok, fail };
+};
+
 /* ─── Round B-PL-Structure Phase E: Discount tracking KPI ─────────────
    IFRS 15 mandates revenue is recorded NET of discounts (Method A).
    So discounts don't appear as a separate P&L line — they're silently
