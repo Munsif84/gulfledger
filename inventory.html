@@ -965,6 +965,13 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
       <select id="cat-filter" onchange="renderItems()" style="padding:8px 12px;border:1px solid var(--border);border-radius:7px;font-family:inherit;font-size:13px;background:#fff;min-width:180px;">
         <option value="" data-ar="كل الفئات · All Categories" data-en="All Categories · كل الفئات">كل الفئات · All Categories</option>
       </select>
+      <!-- Industry indicator: tells user which industry the category list reflects.
+           Hover the badge to open settings where industry can be changed. -->
+      <a href="settings.html#tax-profile" id="industry-indicator" class="industry-pill"
+         title="${currentLang==='ar' ? 'تعتمد الفئات على قطاع المنشأة — اضغط للتغيير في الإعدادات' : 'Categories are based on your business industry — click to change in Settings'}"
+         style="display:none;text-decoration:none;font-size:11px;color:var(--muted);padding:6px 10px;border:1px dashed var(--border);border-radius:7px;background:#fff;white-space:nowrap;">
+        <span data-ar="القطاع" data-en="Industry">القطاع</span>: <span id="industry-indicator-value" style="font-weight:700;color:var(--ink);"></span>
+      </a>
       <a class="btn btn-ghost btn-sm" href="locations.html" title="${currentLang==='ar'?'إدارة المواقع':'Manage Locations'}" style="padding:6px 10px;">
         ⚙️
       </a>
@@ -3247,11 +3254,12 @@ function renderItems(){
   /* Round 4d: Stock-availability focused columns.
      Removed: Sale Price (POS/procurement concern), Barcode (low signal in stock view).
      Added: Reorder Point (so user sees the threshold next to current qty).
-     Kept: Name, SKU, Category, Cost, Stock, Stock Value. */
+     Kept: Name, SKU, Category, Sub-category, Cost, Stock, Stock Value. */
   const cols = [
     { label: arHeaders ? 'الاسم' : 'Name', cls: '' },
     { label: arHeaders ? 'SKU' : 'SKU', cls: 'num' },
     { label: arHeaders ? 'الفئة' : 'Category', cls: '' },
+    { label: arHeaders ? 'الفئة الفرعية' : 'Sub-category', cls: '' },
     { label: arHeaders ? 'التكلفة' : 'Cost', cls: 'num' },
     { label: arHeaders ? 'المخزون الحالي' : 'On Hand', cls: 'center' },
     { label: arHeaders ? 'حد الطلب' : 'Reorder Point', cls: 'center' },
@@ -3278,7 +3286,8 @@ function renderItems(){
             <tr class="clickable" onclick="openItemDrawer('${it.id}')">
               <td><strong>${escHTML(name)}</strong>${it.unit ? `<span style="font-size:11px;color:var(--muted);margin-inline-start:4px;">${escHTML(it.unit)}</span>` : ''}</td>
               <td class="num">${escHTML(it.sku || '—')}</td>
-              <td>${escHTML(categoryBreadcrumb(it.category_id) || it.category || '—')}</td>
+              <td>${escHTML(categoryParentName(it.category_id) || it.category || '—')}</td>
+              <td>${escHTML(categorySubName(it.category_id) || '—')}</td>
               <td class="num" style="color:var(--muted);">${fmt(cost)}</td>
               <td class="center"><span class="stock-badge ${stockClass}">${stockLabel}</span></td>
               <td class="center" style="color:var(--muted);">${reorder > 0 ? fmt(reorder) : '—'}</td>
@@ -5086,6 +5095,32 @@ function categoryBreadcrumb(catId){
   return (parent ? categoryName(parent.id) : '?') + sep + categoryName(catId);
 }
 
+/* Return just the parent's name for a category. If the cat IS a root, return its
+   own name (because a root tagged item belongs to that parent at the top level).
+   Used in the Category column when we display Parent + Child in two separate cells. */
+function categoryParentName(catId){
+  if(!catId) return null;
+  const cat = _catById.get(catId);
+  if(!cat) return null;
+  if(!cat.parent_id){
+    /* It IS a root — return its own name as the "parent" */
+    return categoryName(catId);
+  }
+  return categoryName(cat.parent_id);
+}
+
+/* Return just the child name for a category. Null if it's a root (no sub-category). */
+function categorySubName(catId){
+  if(!catId) return null;
+  const cat = _catById.get(catId);
+  if(!cat) return null;
+  if(!cat.parent_id){
+    /* Root — no sub-category */
+    return null;
+  }
+  return categoryName(catId);
+}
+
 /* Get list of root (top-level) categories — parent_id is null.
    Used to populate the parent dropdown in the item modal. */
 function getRootCategories(){
@@ -5225,6 +5260,52 @@ function populateCategoryFilter(){
   }
   sel.innerHTML = html;
   if(current) sel.value = current;
+
+  /* Industry indicator: show which business industry drove this category list.
+     This makes the link between Settings → Industry and inventory categories visible. */
+  updateIndustryIndicator();
+}
+
+/* Display the current business's industry as a pill next to the category filter.
+   Hidden if no industry set. Click navigates to settings to change it. */
+function updateIndustryIndicator(){
+  const pill = document.getElementById('industry-indicator');
+  const valEl = document.getElementById('industry-indicator-value');
+  if(!pill || !valEl) return;
+  const ind = currentBiz?.industry;
+  if(!ind){
+    pill.style.display = 'none';
+    return;
+  }
+  pill.style.display = '';
+  valEl.textContent = industryDisplayName(ind);
+}
+
+/* Industry code → bilingual display name. Mirrors the dropdown options
+   defined in settings.html so the indicator wording matches. */
+function industryDisplayName(code){
+  const ar = currentLang === 'ar';
+  const NAMES = {
+    general:           {ar: 'عام',                   en: 'General'},
+    retail:            {ar: 'تجزئة',                 en: 'Retail'},
+    services:          {ar: 'خدمات',                 en: 'Services'},
+    manufacturing:     {ar: 'تصنيع',                 en: 'Manufacturing'},
+    construction:      {ar: 'مقاولات',               en: 'Construction'},
+    hospitality:       {ar: 'ضيافة ومطاعم',          en: 'Hospitality'},
+    healthcare:        {ar: 'صحة',                   en: 'Healthcare'},
+    education:         {ar: 'تعليم',                 en: 'Education'},
+    real_estate:       {ar: 'عقارات',                en: 'Real Estate'},
+    technology:        {ar: 'تقنية',                 en: 'Technology'},
+    banking:           {ar: 'بنوك',                  en: 'Banking'},
+    insurance:         {ar: 'تأمين',                 en: 'Insurance'},
+    telecom:           {ar: 'اتصالات',               en: 'Telecom'},
+    natural_gas:       {ar: 'غاز طبيعي',             en: 'Natural Gas'},
+    oil_gas_upstream:  {ar: 'نفط وغاز',              en: 'Oil & Gas'},
+    other:             {ar: 'أخرى',                  en: 'Other'}
+  };
+  const n = NAMES[code];
+  if(!n) return code;
+  return ar ? n.ar : n.en;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -6365,7 +6446,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-07</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-07 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-08</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-08 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>

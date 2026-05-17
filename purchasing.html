@@ -685,7 +685,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
     </div>
   </div>
 
-  <!-- Bills tab moved to finance.html (Round v2026.05.17-06).
+  <!-- Bills tab moved to finance.html (Round v2026.05.17-08).
        AP belongs in Finance, not Purchasing. -->
 
   <!-- ════════════════════════════════════════════════
@@ -939,26 +939,28 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
       <div class="field-row double">
         <div class="field">
           <div class="field-label">
-            <span data-ar="الفئة" data-en="Category">الفئة</span>
+            <span data-ar="الفئة الرئيسية" data-en="Category">الفئة الرئيسية</span>
           </div>
-          <select id="item-category">
+          <select id="item-category-parent" onchange="onCategoryParentChange()">
             <option value="">— <span data-ar="اختر فئة" data-en="Select category">اختر فئة</span> —</option>
-            <option value="food_beverage">🍽 طعام ومشروبات · Food &amp; Beverage</option>
-            <option value="grocery">🛒 بقالة · Grocery</option>
-            <option value="clothing">👕 ملابس · Clothing</option>
-            <option value="electronics">📱 إلكترونيات · Electronics</option>
-            <option value="home_appliance">🏠 أجهزة منزلية · Home Appliances</option>
-            <option value="furniture">🪑 أثاث · Furniture</option>
-            <option value="cosmetics">💄 تجميل وعطور · Cosmetics &amp; Perfume</option>
-            <option value="pharmacy">💊 صيدلية · Pharmacy</option>
-            <option value="stationery">✏️ قرطاسية · Stationery</option>
-            <option value="hardware">🔧 عدد ومواد بناء · Hardware &amp; Building</option>
-            <option value="auto_parts">🚗 قطع غيار · Auto Parts</option>
-            <option value="services">🛠 خدمات · Services</option>
-            <option value="raw_materials">📦 مواد خام · Raw Materials</option>
-            <option value="other">📋 أخرى · Other</option>
+            <!-- Populated dynamically from categories table (filtered by current biz industry) -->
+          </select>
+          <!-- Hidden: stores the final chosen category_id (child if picked, else parent). -->
+          <input type="hidden" id="item-category-id" value="">
+        </div>
+        <div class="field" id="item-subcategory-wrap" style="display:none;">
+          <div class="field-label">
+            <span data-ar="الفئة الفرعية" data-en="Sub-category">الفئة الفرعية</span>
+            <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
+          </div>
+          <select id="item-category-child" onchange="onCategoryChildChange()">
+            <option value="">— <span data-ar="(عام)" data-en="(general)">(عام)</span> —</option>
+            <!-- Populated when parent changes -->
           </select>
         </div>
+      </div>
+
+      <div class="field-row double">
         <div class="field">
           <div class="field-label">
             <span data-ar="حد إعادة الطلب" data-en="Reorder Point">حد إعادة الطلب</span>
@@ -966,6 +968,9 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           </div>
           <input type="number" id="item-reorder-point" class="mono" placeholder="0" step="0.001" min="0" dir="ltr">
           <div class="field-hint" data-ar="تنبيه عند الانخفاض" data-en="Alert when stock falls below">تنبيه عند الانخفاض</div>
+        </div>
+        <div class="field">
+          <!-- Reserved for future field; keeps row layout consistent. -->
         </div>
       </div>
 
@@ -1172,7 +1177,7 @@ async function init(){
 }
 
 async function loadAll(){
-  await Promise.all([loadSuppliers(), loadItems(), loadLastReceiptCosts(), loadPOs(), loadLocations()]);
+  await Promise.all([loadSuppliers(), loadItems(), loadLastReceiptCosts(), loadPOs(), loadLocations(), loadCategories()]);
   renderSuppliers();
   renderProducts();
   renderPOs();
@@ -1208,6 +1213,168 @@ async function loadItems(){
     .order('name_ar', {ascending: true});
   if(error){ console.error('Items load:', error); allItems = []; return; }
   allItems = data || [];
+}
+
+/* ═══════════════════════════════════════════════════════
+   CATEGORIES (R-3, May 2026) — same module as in inventory.html.
+   Centralized here so the product modal's category picker works
+   in this file too. Kept consistent so both files behave identically.
+═══════════════════════════════════════════════════════ */
+let allCategories = [];
+let _catById = new Map();
+let _catByCode = new Map();
+let _catChildren = new Map();
+
+async function loadCategories(){
+  if(!currentBiz?.id){
+    allCategories = [];
+    indexCategories();
+    return;
+  }
+  const industry = currentBiz.industry || 'general';
+  const {data, error} = await sb.from('categories')
+    .select('*')
+    .or(`business_id.eq.${currentBiz.id},and(is_system.eq.true,or(industry_tag.is.null,industry_tag.cs.{${industry}},industry_tag.cs.{universal}))`)
+    .eq('domain', 'inventory')
+    .eq('is_active', true)
+    .order('parent_id', {nullsFirst: true})
+    .order('sort_order', {ascending: true});
+  if(error){
+    console.error('[GL purchasing] loadCategories', error);
+    allCategories = [];
+    indexCategories();
+    return;
+  }
+  allCategories = data || [];
+  indexCategories();
+}
+
+function indexCategories(){
+  _catById = new Map();
+  _catByCode = new Map();
+  _catChildren = new Map();
+  for(const c of allCategories){
+    _catById.set(c.id, c);
+    if(c.code) _catByCode.set(c.code, c);
+    if(c.parent_id){
+      if(!_catChildren.has(c.parent_id)) _catChildren.set(c.parent_id, []);
+      _catChildren.get(c.parent_id).push(c);
+    }
+  }
+}
+
+function categoryName(idOrCode){
+  if(!idOrCode) return null;
+  let cat = _catById.get(idOrCode) || _catByCode.get(idOrCode);
+  if(!cat) return null;
+  return currentLang === 'ar' ? (cat.name_ar || cat.name_en) : (cat.name_en || cat.name_ar);
+}
+
+/* Return just the parent's name for a category (or self if root). For two-column display. */
+function categoryParentName(catId){
+  if(!catId) return null;
+  const cat = _catById.get(catId);
+  if(!cat) return null;
+  if(!cat.parent_id){
+    /* It IS a root — return its own name */
+    return categoryName(catId);
+  }
+  return categoryName(cat.parent_id);
+}
+
+/* Return just the child's name for a category (null if the cat is a root itself). */
+function categorySubName(catId){
+  if(!catId) return null;
+  const cat = _catById.get(catId);
+  if(!cat) return null;
+  if(!cat.parent_id){
+    /* Root — no sub */
+    return null;
+  }
+  return categoryName(catId);
+}
+
+function getRootCategories(){
+  return allCategories.filter(c => !c.parent_id);
+}
+
+function getChildCategories(parentId){
+  return _catChildren.get(parentId) || [];
+}
+
+/* ─── Category picker UI helpers (shared signature with inventory.html) ─── */
+function populateCategoryParents(selectedCategoryId){
+  const sel = document.getElementById('item-category-parent');
+  if(!sel) return;
+  const ar = currentLang === 'ar';
+  const roots = getRootCategories();
+  const placeholder = ar ? '— اختر فئة —' : '— Select category —';
+  let html = `<option value="">${placeholder}</option>`;
+  for(const r of roots){
+    const name = ar ? (r.name_ar || r.name_en) : (r.name_en || r.name_ar);
+    html += `<option value="${r.id}">${escHTML(name)}</option>`;
+  }
+  sel.innerHTML = html;
+  let parentToSelect = '';
+  let childToSelect = '';
+  if(selectedCategoryId){
+    const cat = _catById.get(selectedCategoryId);
+    if(cat){
+      if(cat.parent_id){
+        parentToSelect = cat.parent_id;
+        childToSelect = cat.id;
+      } else {
+        parentToSelect = cat.id;
+      }
+    }
+  }
+  sel.value = parentToSelect;
+  populateCategoryChildren(parentToSelect, childToSelect);
+  setVal('item-category-id', childToSelect || parentToSelect || '');
+}
+
+function populateCategoryChildren(parentId, selectedChildId){
+  const sel = document.getElementById('item-category-child');
+  const wrap = document.getElementById('item-subcategory-wrap');
+  if(!sel || !wrap) return;
+  const ar = currentLang === 'ar';
+  if(!parentId){
+    sel.innerHTML = '';
+    wrap.style.display = 'none';
+    return;
+  }
+  const children = getChildCategories(parentId);
+  if(children.length === 0){
+    sel.innerHTML = '';
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = '';
+  const generalLabel = ar ? '— (عام) —' : '— (general) —';
+  let html = `<option value="">${generalLabel}</option>`;
+  for(const c of children){
+    const name = ar ? (c.name_ar || c.name_en) : (c.name_en || c.name_ar);
+    html += `<option value="${c.id}">${escHTML(name)}</option>`;
+  }
+  sel.innerHTML = html;
+  sel.value = selectedChildId || '';
+}
+
+function onCategoryParentChange(){
+  const parentId = v('item-category-parent');
+  populateCategoryChildren(parentId, '');
+  const wrap = document.getElementById('item-subcategory-wrap');
+  if(!parentId){
+    setVal('item-category-id', '');
+  } else {
+    setVal('item-category-id', parentId);
+  }
+}
+
+function onCategoryChildChange(){
+  const childId = v('item-category-child');
+  const parentId = v('item-category-parent');
+  setVal('item-category-id', childId || parentId || '');
 }
 
 /* Round 3b: For each item, find the most recent stock_receipt_items.unit_cost.
@@ -1364,7 +1531,7 @@ function poStatusBadge(status){
   return `<span style="background:${m.bg};color:${m.fg};padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;display:inline-block;">${ar?m.ar:m.en}</span>`;
 }
 
-/* Bills tab markup + JS moved to finance.html (Round v2026.05.17-06) */
+/* Bills tab markup + JS moved to finance.html (Round v2026.05.17-08) */
 
 
 /* ───── PO CREATE MODAL ───── */
@@ -2563,29 +2730,11 @@ async function deleteSupplier(){
 }
 
 /* ═══════════════════════════════════════════════════════
-   ROUND 3b: CATEGORY HELPER (mirrors inventory.html)
+   ROUND 3b: CATEGORY HELPER — REMOVED (R-3 May 2026)
+   Old CATEGORY_LABELS dict + categoryLabel function deleted.
+   Replaced by the categories table + categoryName/categoryParentName/categorySubName
+   helpers defined above (near loadCategories).
 ═══════════════════════════════════════════════════════ */
-const CATEGORY_LABELS = {
-  food_beverage:  { ar: '🍽 طعام ومشروبات',  en: '🍽 Food & Beverage' },
-  grocery:        { ar: '🛒 بقالة',           en: '🛒 Grocery' },
-  clothing:       { ar: '👕 ملابس',           en: '👕 Clothing' },
-  electronics:    { ar: '📱 إلكترونيات',     en: '📱 Electronics' },
-  home_appliance: { ar: '🏠 أجهزة منزلية',   en: '🏠 Home Appliances' },
-  furniture:      { ar: '🪑 أثاث',            en: '🪑 Furniture' },
-  cosmetics:      { ar: '💄 تجميل وعطور',     en: '💄 Cosmetics' },
-  pharmacy:       { ar: '💊 صيدلية',          en: '💊 Pharmacy' },
-  stationery:     { ar: '✏️ قرطاسية',         en: '✏️ Stationery' },
-  hardware:       { ar: '🔧 عدد ومواد بناء',  en: '🔧 Hardware' },
-  auto_parts:     { ar: '🚗 قطع غيار',        en: '🚗 Auto Parts' },
-  services:       { ar: '🛠 خدمات',           en: '🛠 Services' },
-  raw_materials:  { ar: '📦 مواد خام',        en: '📦 Raw Materials' },
-  other:          { ar: '📋 أخرى',            en: '📋 Other' }
-};
-function categoryLabel(code){
-  const c = CATEGORY_LABELS[code];
-  if(!c) return code || '—';
-  return currentLang === 'ar' ? c.ar : c.en;
-}
 
 /* ═══════════════════════════════════════════════════════
    ROUND 3b: AUDIT LOG (mirrors inventory.html — used by deleteItem)
@@ -2686,6 +2835,7 @@ function computeProductStats(){
 const PRODUCT_COLS = [
   { key: 'name',         ar: 'المنتج',           en: 'Product',           cls: '',    sortable: true },
   { key: 'category',     ar: 'الفئة',            en: 'Category',          cls: '',    sortable: true },
+  { key: 'subcategory',  ar: 'الفئة الفرعية',    en: 'Sub-category',      cls: '',    sortable: true },
   { key: 'qty',          ar: 'المخزون',          en: 'Stock',             cls: 'num', sortable: true },
   { key: 'cost',         ar: 'تكلفة مخزّنة',     en: 'Stored Cost',       cls: 'num', sortable: true },
   { key: 'last_cost',    ar: 'آخر تكلفة استلام', en: 'Last Receipt Cost', cls: 'num', sortable: true },
@@ -2780,7 +2930,8 @@ function renderProducts(){
           <strong>${escHTML(name)}</strong>
           ${it.sku ? `<div class="cell-subtitle">${escHTML(it.sku)}</div>` : ''}
         </td>
-        <td>${escHTML(it.category ? categoryLabel(it.category) : '—')}</td>
+        <td>${escHTML(categoryParentName(it.category_id) || it.category || '—')}</td>
+        <td>${escHTML(categorySubName(it.category_id) || '—')}</td>
         <td class="num">${stockCell}</td>
         <td class="num">SAR ${fmt(m.cost)}${mismatchIcon}</td>
         <td class="num">${lastCostCell}</td>
@@ -2819,8 +2970,12 @@ function sortCompare(a, b, col, dir){
       bv = (displayName(b.item) || '').toLowerCase();
       return sign * av.localeCompare(bv);
     case 'category':
-      av = (a.item.category || '').toLowerCase();
-      bv = (b.item.category || '').toLowerCase();
+      av = (categoryParentName(a.item.category_id) || a.item.category || '').toLowerCase();
+      bv = (categoryParentName(b.item.category_id) || b.item.category || '').toLowerCase();
+      return sign * av.localeCompare(bv);
+    case 'subcategory':
+      av = (categorySubName(a.item.category_id) || '').toLowerCase();
+      bv = (categorySubName(b.item.category_id) || '').toLowerCase();
       return sign * av.localeCompare(bv);
     case 'qty':       av = a.m.qty;          bv = b.m.qty;          break;
     case 'cost':      av = a.m.cost;         bv = b.m.cost;         break;
@@ -2881,7 +3036,8 @@ function openItemModal(id){
     setVal('item-cost-price', it.cost_price || '');
     setVal('item-sale-price', it.sale_price || '');
     setVal('item-current-qty', it.current_qty || 0);
-    setVal('item-category', it.category || '');
+    /* R-3: hierarchical category picker */
+    populateCategoryParents(it.category_id || null);
     setVal('item-reorder-point', it.reorder_point || '');
     setVal('item-notes', it.notes || '');
   } else {
@@ -2889,7 +3045,7 @@ function openItemModal(id){
      'item-sale-price','item-reorder-point','item-notes'].forEach(f => setVal(f,''));
     setVal('item-unit', 'pcs');
     setVal('item-current-qty', '0');
-    setVal('item-category', '');
+    populateCategoryParents(null);
     setVal('item-sku', nextItemSKU());
   }
 }
@@ -2925,6 +3081,14 @@ async function saveItem(){
     return;
   }
 
+  /* R-3: category — new FK + legacy text in sync. */
+  const chosenCatId = v('item-category-id') || null;
+  let legacyCatText = null;
+  if(chosenCatId){
+    const cat = _catById.get(chosenCatId);
+    legacyCatText = cat?.code || null;
+  }
+
   const payload = {
     user_id: currentUser.id,
     business_id: currentBiz.id,
@@ -2936,7 +3100,8 @@ async function saveItem(){
     unit: v('item-unit') || 'pcs',
     cost_price: parseFloat(v('item-cost-price')) || 0,
     sale_price: salePrice,
-    category: v('item-category') || null,
+    category_id: chosenCatId,
+    category: legacyCatText,
     reorder_point: parseFloat(v('item-reorder-point')) || 0,
     notes: v('item-notes') || null,
     is_active: true,
@@ -3164,7 +3329,7 @@ document.addEventListener('keydown', function(e){
 });
 </script>
 
-<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-06</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-06 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-08</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-08 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
