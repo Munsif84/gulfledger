@@ -671,7 +671,7 @@ body.format-thermal-58 .t-cut{
   <!-- ═══════ Mode-specific page headers ═══════ -->
   <!-- Preview mode header (draft, pre-generation) -->
   <div class="inv-page-header" id="preview-header" style="display:none;">
-    <a href="invoices.html" class="inv-page-back">
+    <a href="javascript:void(0)" onclick="goBack()" class="inv-page-back">
       <span class="arrow">←</span>
       <span data-ar="رجوع" data-en="Back">رجوع</span>
     </a>
@@ -691,9 +691,9 @@ body.format-thermal-58 .t-cut{
 
   <!-- Seller mode header -->
   <div class="inv-page-header" id="seller-header" style="display:none;">
-    <a href="invoices.html" class="inv-page-back">
+    <a href="javascript:void(0)" onclick="goBack()" class="inv-page-back">
       <span class="arrow">←</span>
-      <span data-ar="الفواتير" data-en="Invoices">الفواتير</span>
+      <span data-ar="رجوع" data-en="Back">رجوع</span>
     </a>
     <div class="inv-page-actions">
       <button class="btn btn-primary" id="btn-pay" onclick="onPayClick()">
@@ -1265,6 +1265,7 @@ async function init(){
 
     /* Render the document. Matches invoice-view's sequence:
        renderInvoice → renderItems → applyMode → applyLang → hide loading → show content */
+    currentMode = 'seller';  /* credit notes are always seller-mode (no public token yet) */
     renderInvoice();
     if(typeof renderItems === 'function') renderItems(currentItems);
     if(typeof applyMode === 'function') applyMode();
@@ -1290,6 +1291,74 @@ async function init(){
   } catch(e){
     console.error('[GL credit-note-view] init error:', e);
     showError(currentLang==='ar' ? 'فشل التحميل' : 'Load failed', e.message || String(e));
+  }
+}
+
+/* Browser-history-aware back button. If the user arrived from another page
+   in the app (invoices list, customer detail, etc.), `history.back()` returns
+   them there. If they opened the credit note directly (e.g. from a shared
+   URL or bookmark), there's nothing to go back to — fall through to invoices list. */
+function goBack(){
+  if(document.referrer && document.referrer.includes(window.location.host) &&
+     !document.referrer.includes('credit-note-view') &&
+     !document.referrer.includes('debit-note-view')){
+    history.back();
+  } else {
+    window.location.href = 'invoices.html';
+  }
+}
+
+/* Reveal seller-mode chrome — adapted from invoice-view's applyMode.
+   Credit notes only support seller mode (no public token yet), so this is
+   simpler than the invoice version. */
+function applyMode(){
+  /* Seller chrome */
+  show('seller-header', 'flex');
+  show('status-bar', 'flex');
+  renderStatusBar();
+
+  /* Credit notes don't have a "Pay" button — hide it */
+  hide('btn-pay');
+
+  /* Voided credit note: hide refund button via the more-menu */
+  if(currentCN?.status === 'voided'){
+    const reverseBtn = document.querySelector('.more-menu-item.danger');
+    if(reverseBtn) reverseBtn.style.display = 'none';
+  }
+
+  /* No buyer mobile: hide WhatsApp option */
+  if(!currentInvoice.buyer_mobile){
+    hide('menu-whatsapp');
+  }
+}
+
+/* Status bar for credit notes — shows CN-specific status, ZATCA pill */
+function renderStatusBar(){
+  const cn = currentCN;
+  const ar = currentLang === 'ar';
+  const pills = [];
+
+  /* Credit note status pill */
+  if(cn.status === 'voided'){
+    pills.push(`<span class="status-pill pill-voided">↩ ${ar?'ملغي':'Voided'}</span>`);
+  } else if(cn.refund_recorded){
+    pills.push(`<span class="status-pill pill-paid">💵 ${ar?'مُسترد':'Refunded'}</span>`);
+  } else {
+    pills.push(`<span class="status-pill pill-unpaid">📋 ${ar?'صادر':'Issued'}</span>`);
+  }
+
+  /* ZATCA pill — credit notes follow invoice ZATCA status (Phase 1: QR only) */
+  pills.push(`<span class="status-pill pill-zatca-soon">🔜 ${ar?'زاتكا قريباً':'ZATCA Coming Soon'}</span>`);
+
+  setHTML('status-pills', pills.join(''));
+
+  /* Last updated */
+  if(cn.updated_at){
+    const d = new Date(cn.updated_at);
+    const dd = d.toISOString().slice(0,10);
+    if(typeof formatDateDDMMYYYY === 'function'){
+      set('status-updated', `${ar?'آخر تحديث':'Last updated'}: ${formatDateDDMMYYYY(dd)} ${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}`);
+    }
   }
 }
 
