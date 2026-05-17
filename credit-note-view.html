@@ -618,7 +618,7 @@ body.format-thermal-58 .t-cut{
   body{background:#fff!important;margin:0;padding:0;}
   .inv-page-header,.inv-status-bar,.pay-cta-banner,
   .inv-public-footer,.share-modal-overlay,.notify,
-  .preview-banner{display:none!important;}
+  .preview-banner,.no-print,#cn-ref-banner{display:none!important;}
   .inv-doc-wrap{padding:0!important;background:#fff!important;display:block!important;}
   .invoice-paper{box-shadow:none!important;border-radius:0!important;margin:0!important;}
   *{-webkit-print-color-adjust:exact!important;print-color-adjust:exact!important;}
@@ -1353,10 +1353,13 @@ async function init(){
    (invoices list, customer detail, ledger, etc.) instead of always going to
    invoices.html. Falls back to invoices.html only when there's no history. */
 function goBack(){
-  if(document.referrer && document.referrer.includes(window.location.host) &&
-     !document.referrer.includes('credit-note-view') &&
-     !document.referrer.includes('debit-note-view')){
-    history.back();
+  /* Reliable browser-back. If we have history, use it — the browser knows what
+     "previous page" means even when document.referrer is empty (which happens
+     with some referrer-policy settings or when arrived via location.href=).
+     Only fall back to invoices.html if the user truly has no history (e.g.
+     opened the page directly in a new tab from a bookmark). */
+  if(window.history.length > 1){
+    window.history.back();
   } else {
     window.location.href = 'invoices.html';
   }
@@ -1422,9 +1425,21 @@ let originalInvoice = null;
 function insertOriginalInvoiceReference(){
   const cn = currentCN;
   if(!cn?.original_invoice_id) return;
-  /* Add a banner above the document body showing the reference */
+
+  /* Filter the reason — don't show system/migration text to users.
+     Real user-entered reasons are short and human-readable. Migration jargon
+     starts with words like "Backfill" or contains technical phrases. */
+  const reason = (cn.reason || '').trim();
+  const isSystemReason = !reason || /^(backfill|migration|auto[- ]?reverse|system[- ])/i.test(reason)
+    || reason.toLowerCase().includes('integration');
+  const cleanReason = isSystemReason ? null : reason;
+
   const refBanner = document.createElement('div');
   refBanner.id = 'cn-ref-banner';
+  /* Class 'no-print' is a hook for print CSS — this banner is chrome (seller view only),
+     not part of the legal credit note document. Already covered by .inv-page-* hides
+     during print, but we add 'no-print' here for clarity and to allow print-targeted CSS. */
+  refBanner.className = 'no-print';
   refBanner.style.cssText = 'background:#FEF3C7;border:1px solid #FCD34D;border-radius:8px;padding:10px 14px;margin:10px 22px;font-size:13px;color:#78350F;display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;';
   const ar = currentLang === 'ar';
   refBanner.innerHTML = `
@@ -1434,7 +1449,7 @@ function insertOriginalInvoiceReference(){
         ${escapeHTML(cn.original_invoice_number || '—')}
       </a>
     </div>
-    ${cn.reason ? `<div style="color:#92400E;font-size:12px;"><strong>${ar?'السبب:':'Reason:'}</strong> ${escapeHTML(cn.reason)}</div>` : ''}
+    ${cleanReason ? `<div style="color:#92400E;font-size:12px;"><strong>${ar?'السبب:':'Reason:'}</strong> ${escapeHTML(cleanReason)}</div>` : ''}
   `;
   /* Insert before .inv-doc-wrap if present */
   const wrap = document.querySelector('.inv-doc-wrap');
