@@ -342,6 +342,12 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,108,53,0.12);}
 .field textarea{resize:vertical;min-height:60px;}
 .field-hint{font-size:11px;color:var(--muted);margin-top:3px;}
+/* Pill-group selector — used by supplier usage-type field. Copied from finance.html
+   to keep the supplier modal's UX consistent across pages. */
+.pill-group{display:inline-flex;background:var(--tint);border-radius:9px;padding:3px;gap:2px;}
+.pill-btn{padding:6px 14px;font-family:inherit;font-size:13px;font-weight:600;border:none;background:transparent;color:var(--muted);border-radius:7px;cursor:pointer;display:inline-flex;align-items:center;gap:5px;transition:all .15s;}
+.pill-btn:hover{color:var(--blue);}
+.pill-btn.on{background:#fff;color:var(--blue);box-shadow:0 1px 2px rgba(0,0,0,0.05);}
 .section-title-sm{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:14px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--tint);}
 
 /* Notification */
@@ -562,6 +568,12 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         <span class="search-icon">🔍</span>
         <input type="text" class="search-input" id="search-suppliers" placeholder="البحث باسم المورد..." oninput="renderSuppliers()">
       </div>
+      <select class="filter-select" id="filter-supplier-type" onchange="renderSuppliers()" style="font-weight:600;">
+        <option value="all" data-ar="كل الأنواع · All types" data-en="All types · كل الأنواع">كل الأنواع · All types</option>
+        <option value="inventory" data-ar="🏭 موردي البضائع" data-en="🏭 Goods Suppliers">🏭 موردي البضائع</option>
+        <option value="expense" data-ar="🏢 موردي الخدمات" data-en="🏢 Service Vendors">🏢 موردي الخدمات</option>
+        <option value="both" data-ar="🔄 يقدمون الاثنين" data-en="🔄 Both">🔄 يقدمون الاثنين</option>
+      </select>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-secondary" onclick="loadAll()" data-ar="↻ تحديث" data-en="↻ Refresh">↻ تحديث</button>
         <button class="btn btn-primary" onclick="openSupplierModal()">
@@ -849,6 +861,28 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           <span class="opt">(optional)</span>
         </div>
         <input type="text" id="sup-address" placeholder="المدينة، الحي، الشارع">
+      </div>
+      <!-- Usage type: distinguishes goods-supplier (inventory) vs service-vendor (expense).
+           Mirrors the same field in finance.html — this is the canonical supplier master now,
+           so it must be set here. Defaults to 'inventory' since purchasing.html is primarily
+           used for goods suppliers (PO workflow). -->
+      <div class="field">
+        <div class="field-label">
+          <span data-ar="نوع الاستخدام" data-en="Usage Type">نوع الاستخدام</span>
+          <span class="field-hint" data-ar="(يحدد أين يظهر هذا المورد في النظام)" data-en="(determines where this supplier appears)">(يحدد أين يظهر هذا المورد في النظام)</span>
+        </div>
+        <div class="pill-group">
+          <button type="button" class="pill-btn on" id="sup-type-inventory" onclick="setSupplierType('inventory')">
+            🏭 <span data-ar="مخزون" data-en="Inventory">مخزون</span>
+          </button>
+          <button type="button" class="pill-btn" id="sup-type-expense" onclick="setSupplierType('expense')">
+            🏢 <span data-ar="مصاريف" data-en="Expense">مصاريف</span>
+          </button>
+          <button type="button" class="pill-btn" id="sup-type-both" onclick="setSupplierType('both')">
+            🔄 <span data-ar="كلاهما" data-en="Both">كلاهما</span>
+          </button>
+        </div>
+        <input type="hidden" id="sup-usage-type" value="inventory">
       </div>
       <div class="field">
         <div class="field-label">
@@ -1201,17 +1235,12 @@ async function loadAll(){
 }
 
 async function loadSuppliers(){
-  /* AP Round 1: load only suppliers that provide goods.
-     The suppliers table is polymorphic — usage_type can be 'inventory', 'expense', 'both', or NULL.
-     Expense-only vendors (e.g. Saudi Electricity, rent landlord) belong in finance.html's
-     Vendors tab, not in the Purchasing → Suppliers tab.
-     
-     NULL handling: legacy records (created before usage_type was being set) are treated as
-     'inventory' since purchasing.html was their origin. After ap-round-1 migration runs,
-     all rows will have a non-NULL usage_type, but we tolerate NULL here for safety. */
+  /* Architecture Round (Stage 1): purchasing.html is the canonical supplier master.
+     Loads ALL suppliers regardless of usage_type (inventory, expense, both, null).
+     The Suppliers tab applies a UI-level filter chip so users can narrow the
+     visible list without changing what gets persisted. */
   const {data, error} = await sb.from('suppliers')
     .select('*').eq('business_id', currentBiz?.id || '')
-    .or('usage_type.eq.inventory,usage_type.eq.both,usage_type.is.null')
     .order('name_ar', {ascending: true});
   if(error){ console.error('Suppliers load:', error); allSuppliers = []; return; }
   allSuppliers = data || [];
@@ -2524,9 +2553,20 @@ function computeStats(){
 function renderSuppliers(){
   const wrap = document.getElementById('suppliers-table-wrap');
   const search = v('search-suppliers').toLowerCase();
+  const typeFilter = v('filter-supplier-type') || 'all';
   const ar = currentLang === 'ar';
 
   let suppliers = allSuppliers.slice();
+
+  /* Filter by usage_type chip. 'all' shows everything; specific value matches
+     including NULL→inventory normalization for legacy rows. */
+  if(typeFilter !== 'all'){
+    suppliers = suppliers.filter(s => {
+      const t = s.usage_type || 'inventory';
+      return t === typeFilter;
+    });
+  }
+
   if(search){
     suppliers = suppliers.filter(s =>
       (s.name_ar||'').toLowerCase().includes(search) ||
@@ -2556,6 +2596,7 @@ function renderSuppliers(){
   /* Sortable column definitions — keys feed sortCompareSupplier(). */
   const cols = [
     { key: 'name',         ar: 'الاسم',           en: 'Name',            cls: '',       sortable: true  },
+    { key: 'usage_type',   ar: 'النوع',           en: 'Type',            cls: 'center', sortable: false },
     { key: 'supplier_code',ar: 'الرمز',           en: 'Code',            cls: 'num',    sortable: true  },
     { key: 'mobile',       ar: 'الجوال',          en: 'Mobile',          cls: 'num',    sortable: true  },
     { key: 'trn',          ar: 'الرقم الضريبي',   en: 'TRN',             cls: 'num',    sortable: true  },
@@ -2582,9 +2623,21 @@ function renderSuppliers(){
         ${suppliers.map(s => {
           const name = displayName(s);
           const outstanding = parseFloat(s.total_outstanding) || 0;
+          /* Type badge — shows where this supplier is relevant.
+             Inventory (goods), Expense (services), or Both. */
+          const t = s.usage_type || 'inventory';
+          let typeBadge;
+          if(t === 'expense'){
+            typeBadge = `<span style="background:#f3e8ff;color:#6b21a8;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;">🏢 ${ar?'خدمات':'Service'}</span>`;
+          } else if(t === 'both'){
+            typeBadge = `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;">🔄 ${ar?'الاثنين':'Both'}</span>`;
+          } else {
+            typeBadge = `<span style="background:#e0f2fe;color:#075985;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;">🏭 ${ar?'بضائع':'Goods'}</span>`;
+          }
           return `
             <tr class="clickable" onclick="openSupplierModal('${s.id}')">
               <td><strong>${escHTML(name)}</strong></td>
+              <td class="center">${typeBadge}</td>
               <td class="num">${escHTML(s.supplier_code || '—')}</td>
               <td class="num">${escHTML(s.mobile || '—')}</td>
               <td class="num">${escHTML(s.trn || '—')}</td>
@@ -2685,6 +2738,15 @@ function viewPurchasesForSupplier(supplierId){
 /* ═══════════════════════════════════════════════════════
    SUPPLIER MODAL — create/edit
 ═══════════════════════════════════════════════════════ */
+/* Toggle the usage-type pill selector + sync hidden input.
+   Mirrors finance.html's setVendorType so behavior is identical across pages. */
+function setSupplierType(type){
+  setVal('sup-usage-type', type);
+  ['inventory','expense','both'].forEach(t => {
+    document.getElementById('sup-type-'+t)?.classList.toggle('on', t === type);
+  });
+}
+
 function openSupplierModal(id){
   currentSupplierId = id || null;
   document.getElementById('supplier-modal').classList.add('open');
@@ -2709,11 +2771,18 @@ function openSupplierModal(id){
     const addrParts = [s.street_name, s.district, s.city].filter(Boolean);
     setVal('sup-address', addrParts.join('، ') || '');
     setVal('sup-notes', s.notes || '');
+    /* Preserve existing usage_type — fall back to 'inventory' for older records
+       that may have null (purchasing was inventory-only historically). */
+    setSupplierType(s.usage_type || 'inventory');
   } else {
     ['sup-name-ar','sup-name-en','sup-mobile','sup-email','sup-trn','sup-cr',
      'sup-contact-person','sup-address','sup-notes'].forEach(f => setVal(f,''));
     setVal('sup-payment-terms','30');
     setVal('sup-code', nextSupplierCode());
+    /* New suppliers created from purchasing.html default to 'inventory' —
+       this page is primarily for goods suppliers. User can switch via the pill
+       if creating an expense vendor or both-type supplier from here. */
+    setSupplierType('inventory');
   }
 }
 
@@ -2753,24 +2822,22 @@ async function saveSupplier(){
     contact_person: v('sup-contact-person') || null,
     street_name: v('sup-address') || null,
     notes: v('sup-notes') || null,
-    /* AP Round 1: explicitly classify as goods supplier.
-       Originating page is purchasing.html, which is for inventory suppliers only.
-       Users who need to add an expense vendor (e.g. utilities, rent) go to finance.html's
-       Vendors tab. Suppliers that provide BOTH goods and services should be created
-       in either page and edited later to set usage_type='both' (planned UI in a future round). */
-    usage_type: 'inventory',
+    /* Architecture Round (Stage 1): purchasing.html is now the canonical supplier
+       master. Users choose usage_type explicitly via the pill selector. Default
+       on the form is 'inventory' (most common case here), but users can pick
+       'expense' or 'both' to create vendors that finance.html will also see. */
+    usage_type: v('sup-usage-type') || 'inventory',
     is_active: true,
     updated_at: new Date().toISOString()
   };
 
   let error;
   if(currentSupplierId){
-    /* AP Round 1: when EDITING, don't overwrite usage_type — preserves 'both' classifications.
-       A supplier originally classified as 'both' (sells goods AND services) should keep that
-       classification when edited from purchasing.html. Only the insert path sets it. */
-    const editPayload = {...payload};
-    delete editPayload.usage_type;
-    ({error} = await sb.from('suppliers').update(editPayload).eq('id', currentSupplierId));
+    /* Edit path: usage_type is now editable from this form (the pill selector
+       reflects the supplier's current value when modal opens). This lets users
+       reclassify a supplier — e.g. promote 'inventory' to 'both' when the same
+       supplier starts providing services too. */
+    ({error} = await sb.from('suppliers').update(payload).eq('id', currentSupplierId));
   } else {
     const result = await sb.from('suppliers').insert(payload).select().single();
     error = result.error;
@@ -3421,7 +3488,7 @@ document.addEventListener('keydown', function(e){
 });
 </script>
 
-<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-03</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-03 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-04</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-04 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
