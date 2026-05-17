@@ -30,7 +30,13 @@
       var attr = 'data-' + lang;
       for(var i = 0; i < els.length; i++){
         var v = els[i].getAttribute(attr);
-        if(v != null) els[i].textContent = v;
+        if(v == null) continue;
+        /* If the data-* value contains HTML markup (e.g. <br> or <span> for
+           typography purposes on landing pages), use innerHTML so it renders.
+           Values come from the page's HTML source (trusted), not user input.
+           For plain text (the overwhelming majority), use textContent for speed. */
+        if(v.indexOf('<') !== -1) els[i].innerHTML = v;
+        else els[i].textContent = v;
       }
     } catch(e){ /* silent — page-init applyLang will retry */ }
   }
@@ -1709,11 +1715,21 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
     const {data:allInv}=await sb.from('invoices').select('total,vat_amount,subtotal,issue_date,invoice_number,buyer_name,payment_status,due_date,amount_paid').eq('business_id', biz.id).order('issue_date',{ascending:false});
 
     /* Also fetch expenses for Input VAT — VAT Payable = Output - Input.
-       AP Round 2: also pulls total, amount_paid, due_date for the cashflow widget. */
-    const {data:allExpenses} = await sb.from('expenses')
-      .select('vat_amount,vat_recoverable,expense_date,status,total,amount_paid,due_date,payment_status')
-      .eq('business_id', biz.id)
-      .neq('status','voided');
+       AP Round 2: also pulls total, amount_paid, due_date for the cashflow widget.
+       AP Round 3: ALSO pulls stock_receipts so the "Owed to suppliers" total
+       includes goods-supplier bills (was only counting service-vendor expenses). */
+    const [allExpensesResult, allReceiptsResult] = await Promise.all([
+      sb.from('expenses')
+        .select('vat_amount,vat_recoverable,expense_date,status,total,amount_paid,due_date,payment_status')
+        .eq('business_id', biz.id)
+        .neq('status','voided'),
+      sb.from('stock_receipts')
+        .select('total,amount_paid,due_date,payment_status,status,receipt_date')
+        .eq('business_id', biz.id)
+        .neq('status','voided')
+    ]);
+    const allExpenses = allExpensesResult.data;
+    const allReceipts = allReceiptsResult.data;
 
     if(allInv){
       const monthInv=allInv.filter(i=>i.issue_date>=monthStart&&i.issue_date<=monthEnd);
@@ -1946,6 +1962,7 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
       }
     }
     let apOutstanding = 0, apUnpaidCount = 0, apOverdueCount = 0;
+    /* Service-vendor bills */
     for(const e of (allExpenses || [])){
       const total = parseFloat(e.total) || 0;
       const paid = parseFloat(e.amount_paid) || 0;
@@ -1954,6 +1971,18 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
         apOutstanding += balance;
         apUnpaidCount++;
         if(e.due_date && e.due_date < todayStr) apOverdueCount++;
+      }
+    }
+    /* Goods-supplier bills (inventory stock receipts).
+       Same shape as expenses (total, amount_paid, due_date) — represents AP debt. */
+    for(const r of (allReceipts || [])){
+      const total = parseFloat(r.total) || 0;
+      const paid = parseFloat(r.amount_paid) || 0;
+      const balance = total - paid;
+      if(balance > 0.005){
+        apOutstanding += balance;
+        apUnpaidCount++;
+        if(r.due_date && r.due_date < todayStr) apOverdueCount++;
       }
     }
     const arVal = document.getElementById('cashflow-ar-val');
@@ -2419,7 +2448,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-01</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-01 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-03</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-03 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>

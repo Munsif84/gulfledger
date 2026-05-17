@@ -33,7 +33,13 @@
       var attr = 'data-' + lang;
       for(var i = 0; i < els.length; i++){
         var v = els[i].getAttribute(attr);
-        if(v != null) els[i].textContent = v;
+        if(v == null) continue;
+        /* If the data-* value contains HTML markup (e.g. <br> or <span> for
+           typography purposes on landing pages), use innerHTML so it renders.
+           Values come from the page's HTML source (trusted), not user input.
+           For plain text (the overwhelming majority), use textContent for speed. */
+        if(v.indexOf('<') !== -1) els[i].innerHTML = v;
+        else els[i].textContent = v;
       }
     } catch(e){}
   }
@@ -250,6 +256,14 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 /* Tables */
 .table-wrap{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:visible;}
 .table-scroll{overflow-x:auto;border-radius:12px;}
+
+/* Products tab specifically: when many products and many columns, the native
+   horizontal scrollbar appears at the very bottom of the (tall) content.
+   User has to scroll the whole page down to find it. Bounding the scroll
+   container's height to ~viewport keeps the H-scrollbar visible without
+   scrolling away from the column headers. The thead is already sticky inside. */
+#pane-products .table-scroll{max-height:calc(100vh - 280px);overflow:auto;}
+#pane-products .table-scroll thead{position:sticky;top:0;z-index:5;background:#fff;}
 .tbl{width:100%;border-collapse:collapse;font-size:14px;}
 .tbl th,.tbl td{text-align:start;}
 .tbl th{padding:10px 14px;background:var(--tint);color:var(--ink);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-bottom:1px solid var(--border);white-space:nowrap;}
@@ -1385,30 +1399,92 @@ function poStatusBadge(status){
 let allBills = null;     /* null = not yet loaded, [] = loaded but empty */
 
 async function loadBills(){
-  /* Pull from expenses table — supplier bills are stored there as the canonical
-     AP record (has supplier_id, total, payment_status, due_date, etc.). */
+  /* Pull from BOTH:
+     1. expenses table — service-vendor bills (rent, utilities, supplies, etc.)
+     2. stock_receipts table — goods-supplier bills (inventory purchases)
+     Both represent AP (supplier debt). We UNION them into a single Bills view
+     because that's what the operator cares about: "what do I owe my suppliers".
+     Distinguished by a synthetic `source` field so click-through routes correctly. */
   if(!currentBiz?.id){
     document.getElementById('bills-table-wrap').innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted);">' +
       (currentLang === 'ar' ? 'لم يتم تحميل بيانات المنشأة' : 'Business not loaded') + '</div>';
     return;
   }
-  /* Limit to current year by default to keep query fast.
-     Users with longer history can adjust this later via a filter (future round). */
+  /* Limit to current year by default to keep query fast. */
   const yearStart = new Date().getFullYear() + '-01-01';
-  const {data, error} = await sb.from('expenses')
-    .select('id,expense_number,expense_date,supplier_id,vendor_name_snapshot,vendor_invoice_number,vendor_invoice_date,description,total,amount_paid,payment_status,due_date,status')
-    .eq('business_id', currentBiz.id)
-    .neq('status', 'voided')
-    .gte('expense_date', yearStart)
-    .order('expense_date', {ascending: false});
-  if(error){
-    console.error('[GL] loadBills:', error);
+
+  /* Load both in parallel for speed */
+  const [expensesResult, receiptsResult] = await Promise.all([
+    sb.from('expenses')
+      .select('id,expense_number,expense_date,supplier_id,vendor_name_snapshot,vendor_invoice_number,vendor_invoice_date,description,total,amount_paid,payment_status,due_date,status')
+      .eq('business_id', currentBiz.id)
+      .neq('status', 'voided')
+      .gte('expense_date', yearStart)
+      .order('expense_date', {ascending: false}),
+    sb.from('stock_receipts')
+      .select('id,receipt_number,receipt_date,supplier_id,supplier_invoice_number,po_number,total,amount_paid,payment_status,due_date,status,notes')
+      .eq('business_id', currentBiz.id)
+      .neq('status', 'voided')
+      .gte('receipt_date', yearStart)
+      .order('receipt_date', {ascending: false})
+  ]);
+
+  if(expensesResult.error){
+    console.error('[GL] loadBills expenses:', expensesResult.error);
+  }
+  if(receiptsResult.error){
+    console.error('[GL] loadBills receipts:', receiptsResult.error);
+  }
+  /* If BOTH failed, surface the error. Otherwise proceed with whatever loaded. */
+  if(expensesResult.error && receiptsResult.error){
     allBills = [];
     document.getElementById('bills-table-wrap').innerHTML =
-      '<div style="padding:40px;text-align:center;color:var(--red);">' + escHTML(error.message || 'Error') + '</div>';
+      '<div style="padding:40px;text-align:center;color:var(--red);">' + escHTML(expensesResult.error.message || 'Error') + '</div>';
     return;
   }
-  allBills = data || [];
+
+  /* Normalize both sources into a unified bill shape.
+     Common fields: id, number, date, supplier_id, supplier_name_snapshot,
+                    supplier_invoice_number, description, total, amount_paid,
+                    payment_status, due_date, status, source */
+  const expenseBills = (expensesResult.data || []).map(e => ({
+    id: e.id,
+    number: e.expense_number,
+    date: e.expense_date,
+    supplier_id: e.supplier_id,
+    supplier_name_snapshot: e.vendor_name_snapshot,
+    supplier_invoice_number: e.vendor_invoice_number,
+    description: e.description,
+    total: e.total,
+    amount_paid: e.amount_paid,
+    payment_status: e.payment_status,
+    due_date: e.due_date,
+    status: e.status,
+    source: 'expense'
+  }));
+  const receiptBills = (receiptsResult.data || []).map(r => ({
+    id: r.id,
+    number: r.receipt_number,
+    date: r.receipt_date,
+    supplier_id: r.supplier_id,
+    supplier_name_snapshot: null,  /* stock_receipts doesn't snapshot supplier name — resolve via supplier_id */
+    supplier_invoice_number: r.supplier_invoice_number,
+    description: r.po_number ? ('PO ' + r.po_number) : (r.notes || ''),
+    total: r.total,
+    amount_paid: r.amount_paid,
+    payment_status: r.payment_status,
+    due_date: r.due_date,
+    status: r.status,
+    source: 'stock_receipt'
+  }));
+
+  /* Combine + sort by date descending */
+  allBills = [...expenseBills, ...receiptBills].sort((a, b) => {
+    if(a.date < b.date) return 1;
+    if(a.date > b.date) return -1;
+    return 0;
+  });
+
   computeBillStats();
   renderBills();
 }
@@ -1428,10 +1504,10 @@ function computeBillStats(){
       outstanding += balance;
       if(b.due_date && b.due_date < today) overdue++;
     }
-    /* "Paid this month" = bills with amount_paid > 0 AND payment date this month.
-       Without a separate payments table, we proxy this with expense_date as a
+    /* "Paid this month" = bills with amount_paid > 0 AND bill date this month.
+       Without a separate payments table, we proxy this with bill date as a
        reasonable approximation. This stat is best-effort. */
-    if(paid > 0.005 && b.expense_date >= monthStart){
+    if(paid > 0.005 && b.date >= monthStart){
       paidThisMonth += Math.min(paid, billTotal);
     }
   }
@@ -1469,12 +1545,12 @@ function renderBills(){
         return false;
       }
     }
-    /* Search */
+    /* Search — supplier name, bill #, or supplier's own invoice # */
     if(search){
-      const supplierName = (b.vendor_name_snapshot || resolveSupplierName(b.supplier_id) || '').toLowerCase();
-      const expNum = (b.expense_number || '').toLowerCase();
-      const vendorInv = (b.vendor_invoice_number || '').toLowerCase();
-      if(!supplierName.includes(search) && !expNum.includes(search) && !vendorInv.includes(search)){
+      const supplierName = (b.supplier_name_snapshot || resolveSupplierName(b.supplier_id) || '').toLowerCase();
+      const billNum = (b.number || '').toLowerCase();
+      const supplierInv = (b.supplier_invoice_number || '').toLowerCase();
+      if(!supplierName.includes(search) && !billNum.includes(search) && !supplierInv.includes(search)){
         return false;
       }
     }
@@ -1505,15 +1581,32 @@ function renderBills(){
     } else {
       badge = `<span style="background:#fef3c7;color:#92400e;padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;">${ar?'غير مدفوع':'Unpaid'}</span>`;
     }
-    const supplierName = b.vendor_name_snapshot || resolveSupplierName(b.supplier_id) || (ar ? '—' : '—');
+    const supplierName = b.supplier_name_snapshot || resolveSupplierName(b.supplier_id) || (ar ? '—' : '—');
     const dueDate = b.due_date ? formatDateDMY(b.due_date) : '—';
-    const expDate = b.expense_date ? formatDateDMY(b.expense_date) : '—';
-    /* Link to finance.html with the expense id — opens the drawer for editing.
-       The expenseId param handling already exists in finance.html (line ~2373). */
-    return `<tr class="bill-row" onclick="window.location.href='finance.html?expense=${b.id}'" style="cursor:pointer;">
-      <td style="font-family:'DM Mono',monospace;font-weight:600;">${escHTML(b.expense_number || '—')}</td>
-      <td>${escHTML(supplierName)}${b.vendor_invoice_number ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">${ar?'فاتورة المورد:':'Inv:'} ${escHTML(b.vendor_invoice_number)}</div>` : ''}</td>
-      <td>${expDate}</td>
+    const billDate = b.date ? formatDateDMY(b.date) : '—';
+
+    /* Source badge: indicates whether this is a service-vendor bill (expense)
+       or a goods-supplier bill (stock receipt). Helps the operator understand
+       what kind of liability they're looking at. */
+    let sourceBadge;
+    if(b.source === 'stock_receipt'){
+      sourceBadge = `<span style="background:#e0f2fe;color:#075985;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;" title="${ar?'سند استلام بضاعة':'Stock Receipt'}">📦 ${ar?'بضاعة':'Goods'}</span>`;
+    } else {
+      sourceBadge = `<span style="background:#f3e8ff;color:#6b21a8;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;" title="${ar?'مصروف':'Expense'}">📋 ${ar?'مصروف':'Expense'}</span>`;
+    }
+
+    /* Smart click-through routing:
+       - expense → finance.html (opens expense edit drawer)
+       - stock_receipt → inventory.html (opens receipt detail)  */
+    const targetUrl = b.source === 'stock_receipt'
+      ? `inventory.html?receipt=${b.id}`
+      : `finance.html?expense=${b.id}`;
+
+    return `<tr class="bill-row" onclick="window.location.href='${targetUrl}'" style="cursor:pointer;">
+      <td style="font-family:'DM Mono',monospace;font-weight:600;">${escHTML(b.number || '—')}</td>
+      <td>${sourceBadge}</td>
+      <td>${escHTML(supplierName)}${b.supplier_invoice_number ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">${ar?'فاتورة المورد:':'Inv:'} ${escHTML(b.supplier_invoice_number)}</div>` : ''}</td>
+      <td>${billDate}</td>
       <td>${dueDate}</td>
       <td class="num">SAR ${fmt(total)}</td>
       <td class="num">SAR ${fmt(paid)}</td>
@@ -1527,6 +1620,7 @@ function renderBills(){
       <thead style="background:var(--bg);border-bottom:2px solid var(--border);">
         <tr>
           <th style="text-align:start;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'الرقم':'Bill #'}</th>
+          <th style="text-align:start;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'النوع':'Type'}</th>
           <th style="text-align:start;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'المورد':'Supplier'}</th>
           <th style="text-align:start;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'تاريخ الفاتورة':'Bill Date'}</th>
           <th style="text-align:start;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'الاستحقاق':'Due'}</th>
@@ -3327,7 +3421,7 @@ document.addEventListener('keydown', function(e){
 });
 </script>
 
-<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-01</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-01 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-03</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-03 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>

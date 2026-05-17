@@ -37,7 +37,13 @@
       var attr = 'data-' + lang;
       for(var i = 0; i < els.length; i++){
         var v = els[i].getAttribute(attr);
-        if(v != null) els[i].textContent = v;
+        if(v == null) continue;
+        /* If the data-* value contains HTML markup (e.g. <br> or <span> for
+           typography purposes on landing pages), use innerHTML so it renders.
+           Values come from the page's HTML source (trusted), not user input.
+           For plain text (the overwhelming majority), use textContent for speed. */
+        if(v.indexOf('<') !== -1) els[i].innerHTML = v;
+        else els[i].textContent = v;
       }
     } catch(e){}
   }
@@ -2430,6 +2436,30 @@ async function init(){
     /* Stock Valuation moved to Reports — redirect old links */
     else if(tab === 'valuation'){ location.href = 'reports.html#stock_valuation'; return; }
 
+    /* Deep-link to a specific stock receipt (?receipt=UUID).
+       Used by the Bills tab in purchasing.html to navigate from a goods-supplier
+       bill row to its source receipt. Auto-switches to the Receive tab and
+       highlights the matching row so the user finds their bill quickly. */
+    const receiptId = window.location.search.match(/receipt=([a-f0-9-]+)/)?.[1];
+    if(receiptId){
+      switchTab('receive');
+      /* Wait for receipts to load + render, then highlight the row */
+      setTimeout(() => {
+        const tryHighlight = () => {
+          const row = document.querySelector(`tr[data-receipt-id="${receiptId}"]`);
+          if(row){
+            row.scrollIntoView({behavior:'smooth', block:'center'});
+            row.style.transition = 'background-color 0.3s';
+            row.style.backgroundColor = '#fef3c7';
+            setTimeout(() => { row.style.backgroundColor = ''; }, 2500);
+          }
+        };
+        tryHighlight();
+        /* Retry after a short delay in case render hadn't completed */
+        setTimeout(tryHighlight, 600);
+      }, 400);
+    }
+
     /* Quick Action handler — auto-open the right modal based on ?action= */
     const action = (window.location.search.match(/action=([a-z_]+)/)?.[1]) || '';
     if(action){
@@ -3403,7 +3433,7 @@ function renderReceipts(){
           else if(r.payment_status === 'partial'){ payClass = 'low'; payLabel = arHeaders?'جزئي':'Partial'; }
           else { payClass = 'out'; payLabel = arHeaders?'غير مدفوع':'Unpaid'; }
           return `
-            <tr class="clickable ${isVoided ? 'voided' : ''}" onclick="openReceiptDrawer('${r.id}')">
+            <tr class="clickable ${isVoided ? 'voided' : ''}" data-receipt-id="${r.id}" onclick="openReceiptDrawer('${r.id}')">
               <td class="num">${r.receipt_date}</td>
               <td class="num"><strong>${escHTML(r.receipt_number)}</strong></td>
               <td>${escHTML(supName)}</td>
@@ -6084,7 +6114,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-01</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-01 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-03</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-03 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
