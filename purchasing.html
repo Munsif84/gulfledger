@@ -257,13 +257,17 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .table-wrap{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:visible;}
 .table-scroll{overflow-x:auto;border-radius:12px;}
 
-/* Products tab specifically: when many products and many columns, the native
-   horizontal scrollbar appears at the very bottom of the (tall) content.
-   User has to scroll the whole page down to find it. Bounding the scroll
-   container's height to ~viewport keeps the H-scrollbar visible without
-   scrolling away from the column headers. The thead is already sticky inside. */
-#pane-products .table-scroll{max-height:calc(100vh - 280px);overflow:auto;}
-#pane-products .table-scroll thead{position:sticky;top:0;z-index:5;background:#fff;}
+/* R-2 (May 2026): Generalize the bounded-scroll pattern to ALL tabs.
+   Products was the original test case. Suppliers + POs get the same treatment:
+   table-scroll has max-height ≈ viewport so the H-scrollbar stays visible
+   and the sticky thead doesn't scroll away when content overflows.
+   This makes all tables behave identically: vertical scroll inside the table
+   container (not the whole page), and horizontal scroll for wide tables. */
+.table-scroll{max-height:calc(100vh - 280px);overflow:auto;background:#fff;}
+.table-scroll thead{position:sticky;top:0;z-index:5;background:#fff;}
+/* When the sticky thead sits over green tinted cells in the body, the gap
+   between thead and tbody can flash green. Force the thead row to white. */
+.table-scroll thead tr{background:#fff;}
 .tbl{width:100%;border-collapse:collapse;font-size:14px;}
 .tbl th,.tbl td{text-align:start;}
 .tbl th{padding:10px 14px;background:var(--tint);color:var(--ink);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-bottom:1px solid var(--border);white-space:nowrap;}
@@ -695,7 +699,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
     </div>
   </div>
 
-  <!-- Bills tab moved to finance.html (Round v2026.05.17-15).
+  <!-- Bills tab moved to finance.html (Round v2026.05.17-16).
        AP belongs in Finance, not Purchasing. -->
 
   <!-- ════════════════════════════════════════════════
@@ -1636,41 +1640,43 @@ function renderPOs(){
   }
 
   wrap.innerHTML = `
-    <table class="tbl">
-      <thead>
-        <tr>
-          <th>${ar?'رقم الطلب':'PO #'}</th>
-          <th class="date">${ar?'التاريخ':'Date'}</th>
-          <th>${ar?'المورد':'Supplier'}</th>
-          <th class="center">${ar?'الحالة':'Status'}</th>
-          <th class="num">${ar?'الأصناف':'Items'}</th>
-          <th class="num">${ar?'الإجمالي':'Total'}</th>
-          <th class="center"></th>
-        </tr>
-      </thead>
-      <tbody>
-        ${pos.map(p => {
-          const overdue = poIsOverdue(p);
-          return `
-          <tr class="clickable${overdue?' overdue-row':''}" onclick="viewPO('${p.id}')">
-            <td><strong>${escHTML(p.po_number || '')}</strong></td>
-            <td class="date">${escHTML(p.po_date || '—')} ${overdue?`<span class="badge" style="background:#fee2e2;color:#991b1b;font-size:10px;padding:2px 6px;border-radius:5px;font-weight:700;margin-inline-start:6px;">⏰ ${ar?'متأخر':'Overdue'}</span>`:''}</td>
-            <td>${escHTML(p.supplier_name || '—')}</td>
-            <td class="center">${poStatusBadge(p.status || 'draft')}</td>
-            <td class="num">${p._line_count}</td>
-            <td class="num">SAR ${fmt(p.total || 0)}</td>
-            <td class="center">
-              <div class="row-actions">
-                <button class="row-actions-btn" onclick="event.stopPropagation();toggleRowMenu(this)" title="${ar?'إجراءات':'Actions'}">⋮</button>
-                <div class="row-actions-menu" onclick="event.stopPropagation()">
-                  <button class="row-action-item" onclick="closeAllMenus();viewPO('${p.id}')">👁️ ${ar?'عرض':'View'}</button>
+    <div class="table-scroll">
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th>${ar?'رقم الطلب':'PO #'}</th>
+            <th class="date">${ar?'التاريخ':'Date'}</th>
+            <th>${ar?'المورد':'Supplier'}</th>
+            <th class="center">${ar?'الحالة':'Status'}</th>
+            <th class="num">${ar?'الأصناف':'Items'}</th>
+            <th class="num">${ar?'الإجمالي':'Total'}</th>
+            <th class="center"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${pos.map(p => {
+            const overdue = poIsOverdue(p);
+            return `
+            <tr class="clickable${overdue?' overdue-row':''}" onclick="viewPO('${p.id}')">
+              <td><strong>${escHTML(p.po_number || '')}</strong></td>
+              <td class="date">${escHTML(p.po_date || '—')} ${overdue?`<span class="badge" style="background:#fee2e2;color:#991b1b;font-size:10px;padding:2px 6px;border-radius:5px;font-weight:700;margin-inline-start:6px;">⏰ ${ar?'متأخر':'Overdue'}</span>`:''}</td>
+              <td>${escHTML(p.supplier_name || '—')}</td>
+              <td class="center">${poStatusBadge(p.status || 'draft')}</td>
+              <td class="num">${p._line_count}</td>
+              <td class="num">SAR ${fmt(p.total || 0)}</td>
+              <td class="center">
+                <div class="row-actions">
+                  <button class="row-actions-btn" onclick="event.stopPropagation();toggleRowMenu(this)" title="${ar?'إجراءات':'Actions'}">⋮</button>
+                  <div class="row-actions-menu" onclick="event.stopPropagation()">
+                    <button class="row-action-item" onclick="closeAllMenus();viewPO('${p.id}')">👁️ ${ar?'عرض':'View'}</button>
+                  </div>
                 </div>
-              </div>
-            </td>
-          </tr>`;
-        }).join('')}
-      </tbody>
-    </table>`;
+              </td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>
+    </div>`;
 }
 
 function poStatusBadge(status){
@@ -1686,7 +1692,7 @@ function poStatusBadge(status){
   return `<span style="background:${m.bg};color:${m.fg};padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;display:inline-block;">${ar?m.ar:m.en}</span>`;
 }
 
-/* Bills tab markup + JS moved to finance.html (Round v2026.05.17-15) */
+/* Bills tab markup + JS moved to finance.html (Round v2026.05.17-16) */
 
 
 /* ───── PO CREATE MODAL ───── */
@@ -2593,9 +2599,11 @@ function renderSuppliers(){
 
   /* Sortable column definitions — keys feed sortCompareSupplier(). */
   const cols = [
+    /* R-2 (May 2026): Code column moved to leading position (canonical pattern
+       matching products table where SKU leads). Name follows. */
+    { key: 'supplier_code',ar: 'الرمز',           en: 'Code',            cls: 'num',    sortable: true  },
     { key: 'name',         ar: 'الاسم',           en: 'Name',            cls: '',       sortable: true  },
     { key: 'usage_type',   ar: 'النوع',           en: 'Type',            cls: 'center', sortable: false },
-    { key: 'supplier_code',ar: 'الرمز',           en: 'Code',            cls: 'num',    sortable: true  },
     { key: 'mobile',       ar: 'الجوال',          en: 'Mobile',          cls: 'num',    sortable: true  },
     { key: 'trn',          ar: 'الرقم الضريبي',   en: 'TRN',             cls: 'num',    sortable: true  },
     { key: 'payment_terms_days', ar: 'مدة السداد', en: 'Terms',          cls: 'num',    sortable: true  },
@@ -2615,12 +2623,13 @@ function renderSuppliers(){
   }).join('');
 
   wrap.innerHTML = `
-    <table class="tbl">
-      <thead><tr>${headerHtml}</tr></thead>
-      <tbody>
-        ${suppliers.map(s => {
-          const name = displayName(s);
-          const outstanding = parseFloat(s.total_outstanding) || 0;
+    <div class="table-scroll">
+      <table class="tbl">
+        <thead><tr>${headerHtml}</tr></thead>
+        <tbody>
+          ${suppliers.map(s => {
+            const name = displayName(s);
+            const outstanding = parseFloat(s.total_outstanding) || 0;
           /* Type badge — shows where this supplier is relevant.
              Inventory (goods), Expense (services), or Both. */
           const t = s.usage_type || 'inventory';
@@ -2634,9 +2643,9 @@ function renderSuppliers(){
           }
           return `
             <tr class="clickable" onclick="openSupplierModal('${s.id}')">
+              <td class="num">${escHTML(s.supplier_code || '—')}</td>
               <td><strong>${escHTML(name)}</strong></td>
               <td class="center">${typeBadge}</td>
-              <td class="num">${escHTML(s.supplier_code || '—')}</td>
               <td class="num">${escHTML(s.mobile || '—')}</td>
               <td class="num">${escHTML(s.trn || '—')}</td>
               <td class="num">${s.payment_terms_days || 0}d</td>
@@ -2656,8 +2665,9 @@ function renderSuppliers(){
               </td>
             </tr>`;
         }).join('')}
-      </tbody>
-    </table>`;
+        </tbody>
+      </table>
+    </div>`;
 }
 
 /* Round A: supplier table sort comparator. Mirrors sortCompare for products
@@ -3516,7 +3526,7 @@ document.addEventListener('keydown', function(e){
 });
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-15</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-15 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-16</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-16 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
