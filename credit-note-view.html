@@ -1148,90 +1148,131 @@ function generateToken(length = 20){
    INIT — detect mode and load invoice
 ═══════════════════════════════════════════════════════ */
 async function init(){
+  console.log('[GL credit-note-view] init() starting');
   try {
-    console.log('[GL credit-note-view] init() starting');
     const params = new URLSearchParams(window.location.search);
     const cnId = params.get('id');
+    console.log('[GL credit-note-view] cnId:', cnId);
     if(!cnId){
       showError(currentLang==='ar' ? 'لا يوجد رقم إشعار' : 'No credit note ID');
       return;
     }
 
     /* Get session — credit notes are seller-mode only (no public token for now) */
+    console.log('[GL credit-note-view] step 1: getSession');
     const {data:{session}} = await sb.auth.getSession();
     if(!session){
+      console.log('[GL credit-note-view] no session → redirecting to index');
       window.location.href = 'index.html';
       return;
     }
     currentUser = session.user;
+    console.log('[GL credit-note-view] step 1 ✓ user:', currentUser?.id);
 
-    /* Resolve current business — credit notes are scoped per-business */
-    const {data: membership} = await sb.from('business_users')
+    /* Resolve current business */
+    console.log('[GL credit-note-view] step 2: load business membership');
+    const {data: membership, error: memErr} = await sb.from('business_users')
       .select('business_id, role').eq('user_id', currentUser.id).eq('status', 'active').limit(5);
+    if(memErr){
+      console.error('[GL credit-note-view] membership error:', memErr);
+      showError(currentLang==='ar' ? 'فشل تحميل الصلاحيات' : 'Failed to load permissions', memErr.message);
+      return;
+    }
     if(!membership || membership.length === 0){
       showError(currentLang==='ar' ? 'لا يوجد منشأة نشطة' : 'No active business');
       return;
     }
     const chosen = membership.find(m => m.role === 'owner') || membership[0];
-    const {data: biz} = await sb.from('businesses').select('*').eq('id', chosen.business_id).maybeSingle();
+    const {data: biz, error: bizErr} = await sb.from('businesses').select('*').eq('id', chosen.business_id).maybeSingle();
+    if(bizErr){
+      console.error('[GL credit-note-view] biz error:', bizErr);
+      showError(currentLang==='ar' ? 'فشل تحميل المنشأة' : 'Failed to load business', bizErr.message);
+      return;
+    }
     if(!biz){
       showError(currentLang==='ar' ? 'فشل تحميل المنشأة' : 'Failed to load business');
       return;
     }
     currentBiz = biz;
+    console.log('[GL credit-note-view] step 2 ✓ biz:', biz.id);
 
     /* Load credit note */
+    console.log('[GL credit-note-view] step 3: load credit note');
     const {data: cn, error: cnErr} = await sb.from('credit_notes')
       .select('*').eq('id', cnId).maybeSingle();
-    if(cnErr || !cn){
+    if(cnErr){
+      console.error('[GL credit-note-view] credit note query error:', cnErr);
+      showError(currentLang==='ar' ? 'خطأ في الاستعلام' : 'Query error', cnErr.message);
+      return;
+    }
+    if(!cn){
       showError(currentLang==='ar' ? 'الإشعار الدائن غير موجود' : 'Credit note not found');
       return;
     }
     currentCN = cn;
+    console.log('[GL credit-note-view] step 3 ✓ CN loaded:', cn.credit_note_number);
 
     /* Load credit note items */
-    const {data: items} = await sb.from('credit_note_items')
+    console.log('[GL credit-note-view] step 4: load items');
+    const {data: items, error: itemsErr} = await sb.from('credit_note_items')
       .select('*').eq('credit_note_id', cnId).order('display_order');
-    currentItems = items || [];
-
-    /* Load referenced original invoice (for format inheritance + back-link) */
-    if(cn.original_invoice_id){
-      const {data: inv} = await sb.from('invoices')
-        .select('*').eq('id', cn.original_invoice_id).maybeSingle();
-      currentInvoice = inv;
+    if(itemsErr){
+      console.error('[GL credit-note-view] items error:', itemsErr);
+      /* Don't block — render with empty items */
     }
+    currentItems = items || [];
+    console.log('[GL credit-note-view] step 4 ✓ items:', currentItems.length);
 
-    /* Adapt currentInvoice shape so existing render machinery works.
-       The render functions reference currentInvoice — we make currentInvoice
-       represent the credit note's "invoice-like" form for rendering purposes.
-       We keep originalInvoice separately for back-link + format inheritance. */
-    originalInvoice = currentInvoice;
+    /* Load referenced original invoice */
+    console.log('[GL credit-note-view] step 5: load original invoice');
+    let origInv = null;
+    if(cn.original_invoice_id){
+      const {data: inv, error: invErr} = await sb.from('invoices')
+        .select('*').eq('id', cn.original_invoice_id).maybeSingle();
+      if(invErr){
+        console.warn('[GL credit-note-view] orig invoice error (non-fatal):', invErr);
+      } else if(inv){
+        origInv = inv;
+      }
+    }
+    originalInvoice = origInv;
+    console.log('[GL credit-note-view] step 5 ✓ origInv:', origInv?.invoice_number || '(none)');
+
+    /* Adapt currentInvoice shape so existing render machinery works */
+    console.log('[GL credit-note-view] step 6: shim currentInvoice');
     currentInvoice = {
       ...cn,
       invoice_number: cn.credit_note_number,
       issue_date: cn.issue_date,
-      due_date: null,  /* credit notes don't have a due date */
-      invoice_type: (originalInvoice?.invoice_type) || 'b2b',  /* inherit type for layout (B2B vs B2C) */
+      due_date: null,
+      invoice_type: (origInv?.invoice_type) || 'b2b',
       buyer_name: cn.customer_name_ar || cn.customer_name_en || '',
       buyer_name_en: cn.customer_name_en || '',
       buyer_trn: cn.customer_trn || '',
+      buyer_mobile: origInv?.buyer_mobile || '',
+      buyer_address: origInv?.buyer_address || '',
+      buyer_city: origInv?.buyer_city || '',
+      po_number: cn.original_invoice_number || '',
       subtotal: cn.subtotal,
       discount_amount: cn.discount_amount || 0,
       vat_amount: cn.vat_amount,
       total: cn.total,
+      amount_paid: 0,
       payment_status: cn.status === 'voided' ? 'voided' : 'issued',
-      /* Format inheritance: explicit CN format → original invoice format → default a4_tax */
-      invoice_format: cn.invoice_format || (originalInvoice?.invoice_format) || 'a4_tax'
+      status: cn.status,
+      zatca_status: 'pending',
+      invoice_format: cn.invoice_format || (origInv?.invoice_format) || 'a4_tax'
     };
 
-    /* Items: credit_note_items uses display_order; invoice_items uses sort_order.
-       Map to the shape renderInvoice's items loop expects. */
+    /* Items: ensure they have sort_order (renderItems uses it) */
     currentItems = currentItems.map((it, i) => ({
       ...it,
-      sort_order: it.display_order ?? i
+      sort_order: it.display_order != null ? it.display_order : i
     }));
+    console.log('[GL credit-note-view] step 6 ✓ shim ready');
 
-    /* Resolve which format to render */
+    /* Resolve format */
+    console.log('[GL credit-note-view] step 7: resolve format');
     const urlFormat = params.get('format');
     const validFormats = ['a4_tax', 'a4_quick', 'thermal_80', 'thermal_58'];
     let chosenFormat = 'a4_tax';
@@ -1239,58 +1280,57 @@ async function init(){
       chosenFormat = urlFormat;
     } else if(currentInvoice.invoice_format && validFormats.includes(currentInvoice.invoice_format)){
       chosenFormat = currentInvoice.invoice_format;
-    } else if(originalInvoice?.invoice_format && validFormats.includes(originalInvoice.invoice_format)){
-      /* Inherit format from the original invoice — a credit note for a thermal
-         receipt should also print thermal. */
-      chosenFormat = originalInvoice.invoice_format;
     }
     applyFormat(chosenFormat);
-    console.log('[GL credit-note-view] format chosen:', chosenFormat);
+    console.log('[GL credit-note-view] step 7 ✓ format:', chosenFormat);
 
-    /* Hide elements that don't apply to credit notes */
-    /* Bank block: doesn't apply (this is a refund/correction, not a bill to pay) */
+    /* Hide bank-block (credit notes don't have one) */
     const bankBlock = document.getElementById('bank-block');
     if(bankBlock) bankBlock.style.display = 'none';
-    /* Payment status banner: replace with CN status / refund status */
-    const statusEl = document.getElementById('status-pill');
-    if(statusEl){
-      if(cn.status === 'voided'){
-        statusEl.innerHTML = '<span style="background:#e5e7eb;color:#6b7280;padding:4px 10px;border-radius:10px;font-size:11px;font-weight:700;">ملغي · VOIDED</span>';
-      } else if(cn.refund_recorded){
-        statusEl.innerHTML = '<span style="background:#dcfce7;color:#166534;padding:4px 10px;border-radius:10px;font-size:11px;font-weight:700;">مُسترد · REFUNDED</span>';
-      } else {
-        statusEl.innerHTML = '<span style="background:#fef3c7;color:#92400e;padding:4px 10px;border-radius:10px;font-size:11px;font-weight:700;">صادر · ISSUED</span>';
-      }
+
+    /* Render document */
+    console.log('[GL credit-note-view] step 8: render');
+    currentMode = 'seller';
+    renderInvoice();
+    console.log('[GL credit-note-view] step 8a ✓ renderInvoice done');
+    if(typeof renderItems === 'function'){
+      renderItems(currentItems);
+      console.log('[GL credit-note-view] step 8b ✓ renderItems done');
+    }
+    if(typeof applyMode === 'function'){
+      applyMode();
+      console.log('[GL credit-note-view] step 8c ✓ applyMode done');
+    }
+    if(typeof applyLang === 'function'){
+      applyLang();
+      console.log('[GL credit-note-view] step 8d ✓ applyLang done');
     }
 
-    /* Render the document. Matches invoice-view's sequence:
-       renderInvoice → renderItems → applyMode → applyLang → hide loading → show content */
-    currentMode = 'seller';  /* credit notes are always seller-mode (no public token yet) */
-    renderInvoice();
-    if(typeof renderItems === 'function') renderItems(currentItems);
-    if(typeof applyMode === 'function') applyMode();
-    if(typeof applyLang === 'function') applyLang();
-
-    /* Hide elements that should never appear on credit notes */
+    /* Hide due date row (credit notes don't have one) */
     const dueRow = document.getElementById('meta-due');
     if(dueRow) dueRow.style.display = 'none';
 
-    /* Show "Original Invoice" reference link */
+    /* Insert "References original invoice" banner */
     insertOriginalInvoiceReference();
 
-    /* Show refund action when applicable */
+    /* Show refund action button when applicable */
     if(cn.status !== 'voided' && !cn.refund_recorded){
       addRefundButton();
     }
 
-    /* Reveal — matches invoice-view's reveal pattern */
+    /* Reveal */
+    console.log('[GL credit-note-view] step 9: reveal');
     if(typeof hide === 'function') hide('loading-state');
     if(typeof show === 'function') show('inv-content');
-    console.log('[GL credit-note-view] ✓ Render complete');
+    console.log('[GL credit-note-view] ✓ ALL DONE');
 
   } catch(e){
-    console.error('[GL credit-note-view] init error:', e);
-    showError(currentLang==='ar' ? 'فشل التحميل' : 'Load failed', e.message || String(e));
+    console.error('[GL credit-note-view] FATAL in init:', e);
+    console.error('[GL credit-note-view] stack:', e.stack);
+    showError(
+      currentLang==='ar' ? 'فشل التحميل' : 'Load failed',
+      (e.message || String(e)) + ' (see console for details)'
+    );
   }
 }
 
