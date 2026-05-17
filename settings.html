@@ -40,7 +40,13 @@
       var attr = 'data-' + lang;
       for(var i = 0; i < els.length; i++){
         var v = els[i].getAttribute(attr);
-        if(v != null) els[i].textContent = v;
+        if(v == null) continue;
+        /* If the data-* value contains HTML markup (e.g. <br> or <span> for
+           typography purposes on landing pages), use innerHTML so it renders.
+           Values come from the page's HTML source (trusted), not user input.
+           For plain text (the overwhelming majority), use textContent for speed. */
+        if(v.indexOf('<') !== -1) els[i].innerHTML = v;
+        else els[i].textContent = v;
       }
     } catch(e){}
   }
@@ -878,6 +884,20 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
             </select>
             <div class="field-hint" id="industry-warning" style="display:none;color:var(--amber);font-weight:600;">
               ⚠️ <span data-ar="هذا القطاع له معدّلات ضريبية خاصة" data-en="This industry has special tax rates">هذا القطاع له معدّلات ضريبية خاصة</span>
+            </div>
+            <!-- Category preview: shows which inventory categories this industry unlocks.
+                 Populated by updateCategoryPreview(), called from onTaxProfileChange + on load. -->
+            <div id="industry-category-preview" style="margin-top:8px;padding:10px 12px;background:#F4FAF7;border:1px solid #D9EBE0;border-radius:7px;font-size:12px;display:none;">
+              <div style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:6px;">
+                <strong style="color:var(--blue);">
+                  📦 <span data-ar="فئات المخزون المتاحة" data-en="Inventory categories enabled">فئات المخزون المتاحة</span>
+                </strong>
+                <span id="industry-category-counts" style="font-size:11px;color:var(--muted);font-weight:600;"></span>
+              </div>
+              <div id="industry-category-list" style="color:var(--ink);line-height:1.7;"></div>
+              <div style="margin-top:6px;font-size:11px;color:var(--muted);">
+                <span data-ar="يمكنك إضافة فئات مخصصة لاحقاً." data-en="You can add custom categories later.">يمكنك إضافة فئات مخصصة لاحقاً.</span>
+              </div>
             </div>
           </div>
         </div>
@@ -2350,6 +2370,98 @@ function onTaxProfileChange(){
     warning.style.display = 'none';
   }
   recomputeTaxObligation();
+  /* Categorization R-3: live-update the inventory category preview as the user
+     picks an industry, so they see what changes BEFORE saving. */
+  updateCategoryPreview(industry);
+}
+
+/* ───────────────────────────────────────────────────────────
+   CATEGORY PREVIEW — show which inventory categories an industry unlocks.
+   
+   Loads all system categories once (cached in window._allSystemCategories),
+   then filters client-side as the user changes the industry dropdown.
+   ─────────────────────────────────────────────────────────── */
+
+window._allSystemCategories = null;  // populated by loadSystemCategoriesForPreview
+
+async function loadSystemCategoriesForPreview(){
+  /* Single-shot fetch of every system category. Small dataset (~257 rows).
+     Result is cached for the lifetime of this page session — industry changes
+     are then a client-side filter, no network round-trip. */
+  if(window._allSystemCategories) return window._allSystemCategories;
+  const {data, error} = await sb.from('categories')
+    .select('id,code,name_ar,name_en,parent_id,industry_tag')
+    .is('business_id', null)
+    .eq('is_system', true)
+    .eq('domain', 'inventory')
+    .eq('is_active', true);
+  if(error){
+    console.error('[GL settings] loadSystemCategoriesForPreview:', error);
+    window._allSystemCategories = [];
+    return [];
+  }
+  window._allSystemCategories = data || [];
+  return window._allSystemCategories;
+}
+
+async function updateCategoryPreview(industry){
+  /* Ensure system categories are loaded; show preview once data is ready. */
+  const preview = document.getElementById('industry-category-preview');
+  const listEl = document.getElementById('industry-category-list');
+  const countsEl = document.getElementById('industry-category-counts');
+  if(!preview || !listEl || !countsEl) return;
+
+  const ar = currentLang === 'ar';
+  /* Show a loading state immediately so the user sees something while we fetch */
+  if(!window._allSystemCategories){
+    preview.style.display = '';
+    listEl.textContent = ar ? 'جارٍ التحميل...' : 'Loading...';
+    countsEl.textContent = '';
+    await loadSystemCategoriesForPreview();
+  }
+  preview.style.display = '';
+
+  const all = window._allSystemCategories || [];
+  /* Filter to categories visible for this industry:
+     - industry_tag NULL or empty → universal (always shown)
+     - contains 'universal'        → always shown
+     - contains this industry      → shown for this industry */
+  const visible = all.filter(c => {
+    const tags = c.industry_tag;
+    if(!tags || tags.length === 0) return true;
+    if(tags.includes('universal')) return true;
+    if(tags.includes(industry)) return true;
+    return false;
+  });
+
+  /* Split into parents (those shown directly in the picker dropdown) and total */
+  const parents = visible.filter(c => !c.parent_id);
+  const totalCount = visible.length;
+  const parentCount = parents.length;
+
+  /* Sort parents alphabetically in active language */
+  const nameOf = c => ar ? (c.name_ar || c.name_en) : (c.name_en || c.name_ar);
+  parents.sort((a, b) => nameOf(a).localeCompare(nameOf(b), ar ? 'ar' : 'en'));
+
+  /* Build the comma-separated parent name list. Show first 8 + "and N more" so
+     it stays readable even for industries with many parents. */
+  const SHOW_LIMIT = 8;
+  let names;
+  if(parents.length <= SHOW_LIMIT){
+    names = parents.map(nameOf).join(ar ? '، ' : ', ');
+  } else {
+    const shown = parents.slice(0, SHOW_LIMIT).map(nameOf);
+    const moreN = parents.length - SHOW_LIMIT;
+    const moreLabel = ar ? `و${moreN} أخرى` : `and ${moreN} more`;
+    names = shown.join(ar ? '، ' : ', ') + ' ' + moreLabel;
+  }
+  listEl.textContent = names || (ar ? '— (لا توجد فئات)' : '— (no categories)');
+
+  /* Counts badge */
+  const countsLabel = ar
+    ? `${parentCount} فئة رئيسية · ${totalCount} إجمالي`
+    : `${parentCount} parent categories · ${totalCount} total`;
+  countsEl.textContent = countsLabel;
 }
 
 /* Reactive helper: enable/disable VAT filing frequency based on whether the business
@@ -3089,6 +3201,12 @@ function applyLang(){
     const txt = el.getAttribute('data-' + currentLang);
     if(txt != null) el.textContent = txt;
   });
+  /* Categorization R-3: re-render the dynamic category preview in the current
+     language. Safe to call even if industry dropdown hasn't loaded yet. */
+  const industryEl = document.getElementById('industry');
+  if(industryEl && industryEl.value){
+    updateCategoryPreview(industryEl.value);
+  }
 }
 
 async function logout(){
@@ -3656,7 +3774,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-01</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-01 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-11</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-11 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
