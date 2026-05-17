@@ -1255,16 +1255,13 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
             <span data-ar="وحدة القياس" data-en="Unit">وحدة القياس</span>
           </div>
           <select id="item-unit">
-            <option value="pcs">قطعة · piece</option>
-            <option value="kg">كيلو · kg</option>
-            <option value="g">جرام · g</option>
-            <option value="l">لتر · liter</option>
-            <option value="ml">ملي · ml</option>
-            <option value="box">صندوق · box</option>
-            <option value="pack">عبوة · pack</option>
-            <option value="m">متر · m</option>
-            <option value="other">أخرى · other</option>
+            <option value="">— <span data-ar="اختر وحدة" data-en="Select unit">اختر وحدة</span> —</option>
+            <!-- Populated dynamically by populateUnitDropdown() from the units_of_measure table.
+                 Pre-grouped by measure_type via <optgroup>. -->
           </select>
+          <!-- Hidden: stores the selected unit_id UUID (FK). The visible <select id="item-unit">
+               stores the SAME value, but kept as a backup for clarity. -->
+          <input type="hidden" id="item-unit-id" value="">
         </div>
       </div>
 
@@ -2504,7 +2501,7 @@ async function init(){
 }
 
 async function loadAll(){
-  await Promise.all([loadItems(), loadSuppliers(), loadReceipts(), loadLocations(), loadStockByLocation(), loadCategories()]);
+  await Promise.all([loadItems(), loadSuppliers(), loadReceipts(), loadLocations(), loadStockByLocation(), loadCategories(), loadUnitsOfMeasure()]);
   populateLocationFilter();
   populateCategoryFilter();
   renderItems();
@@ -3254,10 +3251,13 @@ function renderItems(){
   /* Round 4d: Stock-availability focused columns.
      Removed: Sale Price (POS/procurement concern), Barcode (low signal in stock view).
      Added: Reorder Point (so user sees the threshold next to current qty).
-     Kept: Name, SKU, Category, Sub-category, Cost, Stock, Stock Value. */
+     R-1 UoM: Added UoM column (between SKU and Category) showing the symbol
+     (kg/pcs/...) with tooltip showing the full bilingual name.
+     Kept: Name, SKU, UoM, Category, Sub-category, Cost, Stock, Stock Value. */
   const cols = [
     { label: arHeaders ? 'الاسم' : 'Name', cls: '' },
     { label: arHeaders ? 'SKU' : 'SKU', cls: 'num' },
+    { label: arHeaders ? 'الوحدة' : 'UoM', cls: 'center' },
     { label: arHeaders ? 'الفئة' : 'Category', cls: '' },
     { label: arHeaders ? 'الفئة الفرعية' : 'Sub-category', cls: '' },
     { label: arHeaders ? 'التكلفة' : 'Cost', cls: 'num' },
@@ -3282,10 +3282,15 @@ function renderItems(){
           if(qty <= 0){ stockClass = 'out'; stockLabel = arHeaders ? 'نفد' : 'Out'; }
           else if(reorder > 0 && qty <= reorder){ stockClass = 'low'; }
           const name = displayName(it);
+          /* R-1 UoM: resolve symbol + full name from unit_id or legacy unit code */
+          const unitRef = it.unit_id || it.unit;
+          const unitSym = uomSymbol(unitRef) || it.unit || '—';
+          const unitFullName = uomName(unitRef) || it.unit || '';
           return `
             <tr class="clickable" onclick="openItemDrawer('${it.id}')">
-              <td><strong>${escHTML(name)}</strong>${it.unit ? `<span style="font-size:11px;color:var(--muted);margin-inline-start:4px;">${escHTML(it.unit)}</span>` : ''}</td>
+              <td><strong>${escHTML(name)}</strong></td>
               <td class="num">${escHTML(it.sku || '—')}</td>
+              <td class="center" title="${escAttr(unitFullName)}" style="color:var(--muted);font-size:12px;">${escHTML(unitSym)}</td>
               <td>${escHTML(categoryParentName(it.category_id) || it.category || '—')}</td>
               <td>${escHTML(categorySubName(it.category_id) || '—')}</td>
               <td class="num" style="color:var(--muted);">${fmt(cost)}</td>
@@ -3508,7 +3513,14 @@ function openItemModal(id){
     setVal('item-name-en', getNameEn(it));
     setVal('item-sku', it.sku || '');
     setVal('item-barcode', it.barcode || '');
-    setVal('item-unit', it.unit || 'pcs');
+    /* R-1 UoM: dropdown reads from unit_id FK. If item has only the legacy
+       `unit` text column, look it up by code in the loaded UoMs. */
+    let resolvedUnitId = it.unit_id || null;
+    if(!resolvedUnitId && it.unit){
+      const uByCode = _uomByCode.get(it.unit);
+      if(uByCode) resolvedUnitId = uByCode.id;
+    }
+    populateUnitDropdown(resolvedUnitId);
     setVal('item-cost-price', it.cost_price || '');
     setVal('item-sale-price', it.sale_price || '');
     setVal('item-current-qty', it.current_qty || 0);
@@ -3522,7 +3534,9 @@ function openItemModal(id){
     /* Reset form */
     ['item-name-ar','item-name-en','item-barcode','item-cost-price',
      'item-sale-price','item-reorder-point','item-notes'].forEach(f => setVal(f,''));
-    setVal('item-unit', 'pcs');
+    /* Default UoM = "PCE" (Piece) if available; otherwise leave empty. */
+    const defaultUoM = _uomByCode.get('PCE');
+    populateUnitDropdown(defaultUoM?.id || null);
     setVal('item-current-qty', '0');
     /* R-3: reset category picker to "select category" state */
     populateCategoryParents(null);
@@ -3576,6 +3590,19 @@ async function saveItem(){
     legacyCatText = cat?.code || null;
   }
 
+  /* R-1 UoM: write the new unit_id FK + sync legacy `unit` TEXT with system code.
+     Hidden #item-unit-id holds the selected UUID. */
+  const chosenUnitId = v('item-unit-id') || v('item-unit') || null;
+  let legacyUnitText = 'pcs'; /* sensible default for legacy column */
+  if(chosenUnitId){
+    const u = _uomById.get(chosenUnitId);
+    if(u){
+      /* Store the system code (e.g. KGM, LTR, PCE) in legacy `unit` for compat.
+         Falls back to symbol_en or 'pcs' if no code. */
+      legacyUnitText = u.code || u.symbol_en || 'pcs';
+    }
+  }
+
   const payload = {
     user_id: currentUser.id,
     business_id: currentBiz.id,
@@ -3584,7 +3611,8 @@ async function saveItem(){
     name_en: v('item-name-en') || null,
     sku: sku,
     barcode: v('item-barcode') || null,
-    unit: v('item-unit') || 'pcs',
+    unit_id: chosenUnitId,
+    unit: legacyUnitText,
     cost_price: parseFloat(v('item-cost-price')) || 0,
     sale_price: salePrice,
     category_id: chosenCatId,
@@ -5168,6 +5196,158 @@ function getChildCategories(parentId){
   return _catChildren.get(parentId) || [];
 }
 
+/* ═══════════════════════════════════════════════════════
+   UNITS OF MEASURE (UoM) — R-1 May 2026.
+   Backed by units_of_measure table. UN/CEFACT codes (KGM, LTR, PCE etc.)
+   for ZATCA Phase 2 compliance. Stored as unit_id (UUID FK) on inventory_items.
+   Legacy `unit` TEXT column kept in sync during transition.
+═══════════════════════════════════════════════════════ */
+
+let allUoMs = [];
+let _uomById = new Map();
+let _uomByCode = new Map();
+
+async function loadUnitsOfMeasure(){
+  /* Two-query approach (avoids fragile PostgREST .or() compound filter).
+     Load system UoMs + business UoMs separately, filter industry client-side. */
+  if(!currentBiz?.id){
+    allUoMs = [];
+    indexUoMs();
+    return;
+  }
+  const industry = currentBiz.industry || 'general';
+
+  const sysResult = await sb.from('units_of_measure')
+    .select('*')
+    .is('business_id', null)
+    .eq('is_system', true)
+    .eq('is_active', true);
+
+  const bizResult = await sb.from('units_of_measure')
+    .select('*')
+    .eq('business_id', currentBiz.id)
+    .eq('is_active', true);
+
+  if(sysResult.error) console.error('[GL inventory] loadUoMs system:', sysResult.error);
+  if(bizResult.error) console.error('[GL inventory] loadUoMs business:', bizResult.error);
+
+  const sysUoMs = sysResult.data || [];
+  const bizUoMs = bizResult.data || [];
+
+  /* Industry filter on system UoMs */
+  const filteredSys = sysUoMs.filter(u => {
+    const tags = u.industry_tag;
+    if(!tags || tags.length === 0) return true;
+    if(tags.includes('universal')) return true;
+    if(tags.includes(industry)) return true;
+    return false;
+  });
+
+  allUoMs = [...filteredSys, ...bizUoMs];
+  console.log(`[GL inventory] loadUoMs: ${filteredSys.length} system + ${bizUoMs.length} business = ${allUoMs.length} total (industry: ${industry})`);
+  indexUoMs();
+}
+
+function indexUoMs(){
+  _uomById = new Map();
+  _uomByCode = new Map();
+  for(const u of allUoMs){
+    _uomById.set(u.id, u);
+    if(u.code) _uomByCode.set(u.code, u);
+  }
+}
+
+/* Get the friendly short symbol for a UoM (kg, ml, pcs etc.) in the active language.
+   Falls back to full name if no symbol stored. Used in compact table cells. */
+function uomSymbol(unitIdOrCode){
+  if(!unitIdOrCode) return null;
+  const u = _uomById.get(unitIdOrCode) || _uomByCode.get(unitIdOrCode);
+  if(!u) return null;
+  if(currentLang === 'ar'){
+    return u.symbol_ar || u.name_ar || u.symbol_en || u.name_en;
+  }
+  return u.symbol_en || u.name_en || u.symbol_ar || u.name_ar;
+}
+
+/* Get the full UoM name (Kilogram / كيلوغرام) in active language.
+   Used in tooltips and modal labels. */
+function uomName(unitIdOrCode){
+  if(!unitIdOrCode) return null;
+  const u = _uomById.get(unitIdOrCode) || _uomByCode.get(unitIdOrCode);
+  if(!u) return null;
+  return currentLang === 'ar' ? (u.name_ar || u.name_en) : (u.name_en || u.name_ar);
+}
+
+/* Localized header for an optgroup based on measure_type. */
+function _uomGroupLabel(measureType){
+  const ar = currentLang === 'ar';
+  const LABELS = {
+    count:   {ar: 'العدد',     en: 'Count'},
+    package: {ar: 'التعبئة',   en: 'Package'},
+    weight:  {ar: 'الوزن',     en: 'Weight'},
+    volume:  {ar: 'الحجم',     en: 'Volume'},
+    length:  {ar: 'الطول',     en: 'Length'},
+    area:    {ar: 'المساحة',   en: 'Area'},
+    time:    {ar: 'الزمن',     en: 'Time'}
+  };
+  const l = LABELS[measureType];
+  if(!l) return measureType;
+  return ar ? l.ar : l.en;
+}
+
+/* Populate the UoM dropdown in the item modal.
+   Grouped by measure_type via <optgroup>, alphabetized inside each group. */
+function populateUnitDropdown(selectedUnitId){
+  const sel = document.getElementById('item-unit');
+  if(!sel) return;
+  const ar = currentLang === 'ar';
+
+  /* Group UoMs by measure_type */
+  const groups = {};
+  for(const u of allUoMs){
+    const mt = u.measure_type || 'count';
+    if(!groups[mt]) groups[mt] = [];
+    groups[mt].push(u);
+  }
+  /* Order of groups in the dropdown */
+  const GROUP_ORDER = ['count', 'package', 'weight', 'volume', 'length', 'area', 'time'];
+
+  const placeholder = ar ? '— اختر وحدة —' : '— Select unit —';
+  let html = `<option value="">${placeholder}</option>`;
+
+  for(const mt of GROUP_ORDER){
+    const list = groups[mt];
+    if(!list || list.length === 0) continue;
+    /* Sort alphabetically within group by display name */
+    list.sort((a, b) => {
+      const an = ar ? (a.name_ar || a.name_en) : (a.name_en || a.name_ar);
+      const bn = ar ? (b.name_ar || b.name_en) : (b.name_en || b.name_ar);
+      return an.localeCompare(bn, ar ? 'ar' : 'en');
+    });
+    html += `<optgroup label="${escAttr(_uomGroupLabel(mt))}">`;
+    for(const u of list){
+      const name = ar ? (u.name_ar || u.name_en) : (u.name_en || u.name_ar);
+      const sym = ar ? (u.symbol_ar || u.symbol_en) : (u.symbol_en || u.symbol_ar);
+      /* Display: "name (symbol)" — but only if symbol exists and differs from name */
+      const label = (sym && sym !== name) ? `${name} (${sym})` : name;
+      html += `<option value="${u.id}">${escHTML(label)}</option>`;
+    }
+    html += `</optgroup>`;
+  }
+
+  sel.innerHTML = html;
+  /* Pre-select if editing an existing item */
+  if(selectedUnitId){
+    sel.value = selectedUnitId;
+    setVal('item-unit-id', selectedUnitId);
+  } else {
+    setVal('item-unit-id', '');
+  }
+  /* Keep hidden id in sync when user changes selection. We set this once via
+     attribute rather than addEventListener to remain idempotent across re-populates. */
+  sel.onchange = () => setVal('item-unit-id', sel.value || '');
+}
+
 /* ─────────────────────────────────────────────────────────
    CATEGORY PICKER — populate the parent/child dropdowns in
    the item modal, and the filter dropdown above the items list.
@@ -5450,9 +5630,12 @@ async function openItemDrawer(itemId){
 
   /* R-3: subtitle uses categoryBreadcrumb (from category_id) with legacy fallback */
   const catLabel = categoryBreadcrumb(item.category_id) || item.category || null;
+  /* R-1 UoM: drawer subtitle uses bilingual UoM name */
+  const unitRef = item.unit_id || item.unit;
+  const unitLbl = uomName(unitRef) || item.unit || 'pcs';
   openDrawerShell(
     displayName(item),
-    `${item.sku || '—'}${catLabel ? ' · ' + catLabel : ''} · ${item.unit || 'pcs'}`
+    `${item.sku || '—'}${catLabel ? ' · ' + catLabel : ''} · ${unitLbl}`
   );
 
   /* Fetch batches + movements in parallel */
@@ -5690,7 +5873,7 @@ function renderItemDrawer(item, batches, movements){
       <div class="drawer-stat-grid">
         <div class="drawer-stat ${stockColor}">
           <div class="lbl">${stockLabel}</div>
-          <div class="val">${qty} ${escHTML(item.unit || 'pcs')}</div>
+          <div class="val">${qty} ${escHTML(uomSymbol(item.unit_id || item.unit) || item.unit || 'pcs')}</div>
         </div>
         <div class="drawer-stat">
           <div class="lbl">${ar?'قيمة المخزون':'Stock value'}</div>
@@ -6497,7 +6680,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-12</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-12 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-13</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-13 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
