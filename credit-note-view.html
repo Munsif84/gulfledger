@@ -1239,8 +1239,13 @@ async function init(){
       chosenFormat = urlFormat;
     } else if(currentInvoice.invoice_format && validFormats.includes(currentInvoice.invoice_format)){
       chosenFormat = currentInvoice.invoice_format;
+    } else if(originalInvoice?.invoice_format && validFormats.includes(originalInvoice.invoice_format)){
+      /* Inherit format from the original invoice — a credit note for a thermal
+         receipt should also print thermal. */
+      chosenFormat = originalInvoice.invoice_format;
     }
-    setFormat(chosenFormat);
+    applyFormat(chosenFormat);
+    console.log('[GL credit-note-view] format chosen:', chosenFormat);
 
     /* Hide elements that don't apply to credit notes */
     /* Bank block: doesn't apply (this is a refund/correction, not a bill to pay) */
@@ -1258,8 +1263,12 @@ async function init(){
       }
     }
 
+    /* Render the document. Matches invoice-view's sequence:
+       renderInvoice → renderItems → applyMode → applyLang → hide loading → show content */
     renderInvoice();
-    showPage();
+    if(typeof renderItems === 'function') renderItems(currentItems);
+    if(typeof applyMode === 'function') applyMode();
+    if(typeof applyLang === 'function') applyLang();
 
     /* Hide elements that should never appear on credit notes */
     const dueRow = document.getElementById('meta-due');
@@ -1268,14 +1277,19 @@ async function init(){
     /* Show "Original Invoice" reference link */
     insertOriginalInvoiceReference();
 
-    /* Show void/refund actions in seller mode */
+    /* Show refund action when applicable */
     if(cn.status !== 'voided' && !cn.refund_recorded){
       addRefundButton();
     }
 
+    /* Reveal — matches invoice-view's reveal pattern */
+    if(typeof hide === 'function') hide('loading-state');
+    if(typeof show === 'function') show('inv-content');
+    console.log('[GL credit-note-view] ✓ Render complete');
+
   } catch(e){
     console.error('[GL credit-note-view] init error:', e);
-    showError(currentLang==='ar' ? 'فشل التحميل: ' : 'Load failed: ', e.message || '');
+    showError(currentLang==='ar' ? 'فشل التحميل' : 'Load failed', e.message || String(e));
   }
 }
 
