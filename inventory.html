@@ -5030,29 +5030,65 @@ let _catChildren = new Map();      // parent_id -> [child rows]
 
 async function loadCategories(){
   /* Load system categories matching this business's industry + any business-defined ones.
-     Industry filter: NULL or {} or {'universal'} or contains business's industry. */
+     
+     Originally I tried a single .or() with compound filters but PostgREST's nested .or()
+     handling is fragile (parsing fails silently in some cases, returning 0 rows).
+     Two queries is more reliable: load system categories matching industry, then load
+     this business's custom categories, then merge client-side.
+  */
   if(!currentBiz?.id){
     allCategories = [];
+    indexCategories();
     return;
   }
   const industry = currentBiz.industry || 'general';
-  /* Supabase's PostgREST .or() syntax for compound filters. We need:
-       (business_id = my_business) OR (is_system = true AND (industry filter matches))
-     Industry match: industry_tag IS NULL, OR contains 'universal', OR contains my industry. */
-  const {data, error} = await sb.from('categories')
-    .select('*')
-    .or(`business_id.eq.${currentBiz.id},and(is_system.eq.true,or(industry_tag.is.null,industry_tag.cs.{${industry}},industry_tag.cs.{universal}))`)
-    .eq('domain', 'inventory')
-    .eq('is_active', true)
-    .order('parent_id', {nullsFirst: true})
-    .order('sort_order', {ascending: true});
 
-  if(error){
-    console.error('[GL] loadCategories', error);
-    allCategories = [];
-    return;
+  /* Query 1: system categories. We pull ALL system categories then filter
+     industry-tag matching client-side. This is fast (only ~257 rows) and avoids
+     the PostgREST array-containment escaping pitfalls. */
+  const sysResult = await sb.from('categories')
+    .select('*')
+    .is('business_id', null)
+    .eq('is_system', true)
+    .eq('domain', 'inventory')
+    .eq('is_active', true);
+
+  /* Query 2: business-defined categories. */
+  const bizResult = await sb.from('categories')
+    .select('*')
+    .eq('business_id', currentBiz.id)
+    .eq('domain', 'inventory')
+    .eq('is_active', true);
+
+  if(sysResult.error){
+    console.error('[GL] loadCategories system:', sysResult.error);
   }
-  allCategories = data || [];
+  if(bizResult.error){
+    console.error('[GL] loadCategories business:', bizResult.error);
+  }
+
+  const sysCats = sysResult.data || [];
+  const bizCats = bizResult.data || [];
+
+  /* Filter system categories: keep ones tagged with this industry OR 'universal' OR untagged */
+  const filteredSys = sysCats.filter(c => {
+    const tags = c.industry_tag;
+    if(!tags || tags.length === 0) return true;          // untagged = universal
+    if(tags.includes('universal')) return true;
+    if(tags.includes(industry)) return true;
+    return false;
+  });
+
+  /* Merge + sort. Parents first (by sort_order), then children (by sort_order under their parent). */
+  allCategories = [...filteredSys, ...bizCats].sort((a, b) => {
+    /* Roots (parent_id null) come before children */
+    const aRoot = a.parent_id == null;
+    const bRoot = b.parent_id == null;
+    if(aRoot !== bRoot) return aRoot ? -1 : 1;
+    return (a.sort_order || 0) - (b.sort_order || 0);
+  });
+
+  console.log(`[GL inventory] loadCategories: ${filteredSys.length} system + ${bizCats.length} business = ${allCategories.length} total (industry: ${industry})`);
   indexCategories();
 }
 
@@ -6446,7 +6482,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-08</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-08 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-09</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-09 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>

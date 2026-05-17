@@ -685,7 +685,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
     </div>
   </div>
 
-  <!-- Bills tab moved to finance.html (Round v2026.05.17-08).
+  <!-- Bills tab moved to finance.html (Round v2026.05.17-09).
        AP belongs in Finance, not Purchasing. -->
 
   <!-- ════════════════════════════════════════════════
@@ -1232,20 +1232,49 @@ async function loadCategories(){
     return;
   }
   const industry = currentBiz.industry || 'general';
-  const {data, error} = await sb.from('categories')
+
+  /* Two-query approach (R-3 hotfix May 2026): the original single .or() compound
+     filter sometimes failed silently in PostgREST returning 0 rows. Splitting
+     into "system categories" + "business categories" + client-side filter is
+     more reliable. The data sets are small (~257 system + small custom) so
+     performance is fine. */
+  const sysResult = await sb.from('categories')
     .select('*')
-    .or(`business_id.eq.${currentBiz.id},and(is_system.eq.true,or(industry_tag.is.null,industry_tag.cs.{${industry}},industry_tag.cs.{universal}))`)
+    .is('business_id', null)
+    .eq('is_system', true)
     .eq('domain', 'inventory')
-    .eq('is_active', true)
-    .order('parent_id', {nullsFirst: true})
-    .order('sort_order', {ascending: true});
-  if(error){
-    console.error('[GL purchasing] loadCategories', error);
-    allCategories = [];
-    indexCategories();
-    return;
-  }
-  allCategories = data || [];
+    .eq('is_active', true);
+
+  const bizResult = await sb.from('categories')
+    .select('*')
+    .eq('business_id', currentBiz.id)
+    .eq('domain', 'inventory')
+    .eq('is_active', true);
+
+  if(sysResult.error) console.error('[GL purchasing] loadCategories system:', sysResult.error);
+  if(bizResult.error) console.error('[GL purchasing] loadCategories business:', bizResult.error);
+
+  const sysCats = sysResult.data || [];
+  const bizCats = bizResult.data || [];
+
+  /* Industry-tag filter on system categories (client-side) */
+  const filteredSys = sysCats.filter(c => {
+    const tags = c.industry_tag;
+    if(!tags || tags.length === 0) return true;
+    if(tags.includes('universal')) return true;
+    if(tags.includes(industry)) return true;
+    return false;
+  });
+
+  /* Merge + sort: roots first, then by sort_order */
+  allCategories = [...filteredSys, ...bizCats].sort((a, b) => {
+    const aRoot = a.parent_id == null;
+    const bRoot = b.parent_id == null;
+    if(aRoot !== bRoot) return aRoot ? -1 : 1;
+    return (a.sort_order || 0) - (b.sort_order || 0);
+  });
+
+  console.log(`[GL purchasing] loadCategories: ${filteredSys.length} system + ${bizCats.length} business = ${allCategories.length} total (industry: ${industry})`);
   indexCategories();
 }
 
@@ -1531,7 +1560,7 @@ function poStatusBadge(status){
   return `<span style="background:${m.bg};color:${m.fg};padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;display:inline-block;">${ar?m.ar:m.en}</span>`;
 }
 
-/* Bills tab markup + JS moved to finance.html (Round v2026.05.17-08) */
+/* Bills tab markup + JS moved to finance.html (Round v2026.05.17-09) */
 
 
 /* ───── PO CREATE MODAL ───── */
@@ -3329,7 +3358,7 @@ document.addEventListener('keydown', function(e){
 });
 </script>
 
-<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-08</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-08 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-09</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-09 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
