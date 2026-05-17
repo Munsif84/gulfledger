@@ -342,6 +342,12 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .field input:focus,.field select:focus,.field textarea:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(0,108,53,0.12);}
 .field textarea{resize:vertical;min-height:60px;}
 .field-hint{font-size:11px;color:var(--muted);margin-top:3px;}
+/* Filter dropdown — used in tab toolbars. Copied from finance.html for visual
+   consistency. purchasing.html was missing this base rule before (only had
+   the flex-shrink modifier under .toolbar), causing dropdowns to render as
+   unstyled native <select>. */
+.filter-select{padding:8px 11px;border:1.5px solid var(--border);border-radius:10px;font-family:inherit;font-size:13px;background:#fff;color:var(--ink);cursor:pointer;}
+.filter-select:focus{outline:none;border-color:var(--blue);}
 /* Pill-group selector — used by supplier usage-type field. Copied from finance.html
    to keep the supplier modal's UX consistent across pages. */
 .pill-group{display:inline-flex;background:var(--tint);border-radius:9px;padding:3px;gap:2px;}
@@ -568,11 +574,11 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         <span class="search-icon">🔍</span>
         <input type="text" class="search-input" id="search-suppliers" placeholder="البحث باسم المورد..." oninput="renderSuppliers()">
       </div>
-      <select class="filter-select" id="filter-supplier-type" onchange="renderSuppliers()" style="font-weight:600;">
-        <option value="all" data-ar="كل الأنواع · All types" data-en="All types · كل الأنواع">كل الأنواع · All types</option>
-        <option value="inventory" data-ar="🏭 موردي البضائع" data-en="🏭 Goods Suppliers">🏭 موردي البضائع</option>
-        <option value="expense" data-ar="🏢 موردي الخدمات" data-en="🏢 Service Vendors">🏢 موردي الخدمات</option>
-        <option value="both" data-ar="🔄 يقدمون الاثنين" data-en="🔄 Both">🔄 يقدمون الاثنين</option>
+      <select class="filter-select" id="filter-supplier-type" onchange="renderSuppliers()">
+        <option value="all">كل الأنواع · All types</option>
+        <option value="inventory">🏭 موردي البضائع · Goods Suppliers</option>
+        <option value="expense">🏢 موردي الخدمات · Service Vendors</option>
+        <option value="both">🔄 بضائع وخدمات · Goods & Services</option>
       </select>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-secondary" onclick="loadAll()" data-ar="↻ تحديث" data-en="↻ Refresh">↻ تحديث</button>
@@ -879,7 +885,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
             🏢 <span data-ar="مصاريف" data-en="Expense">مصاريف</span>
           </button>
           <button type="button" class="pill-btn" id="sup-type-both" onclick="setSupplierType('both')">
-            🔄 <span data-ar="كلاهما" data-en="Both">كلاهما</span>
+            🔄 <span data-ar="بضائع وخدمات" data-en="Goods & Services">بضائع وخدمات</span>
           </button>
         </div>
         <input type="hidden" id="sup-usage-type" value="inventory">
@@ -1631,37 +1637,33 @@ function renderBills(){
       ? `inventory.html?receipt=${b.id}`
       : `finance.html?expense=${b.id}`;
 
-    return `<tr class="bill-row" onclick="window.location.href='${targetUrl}'" style="cursor:pointer;">
-      <td style="font-family:'DM Mono',monospace;font-weight:600;">${escHTML(b.number || '—')}</td>
-      <td>${sourceBadge}</td>
+    return `<tr class="clickable" onclick="window.location.href='${targetUrl}'">
+      <td><strong>${escHTML(b.number || '—')}</strong></td>
+      <td class="center">${sourceBadge}</td>
       <td>${escHTML(supplierName)}${b.supplier_invoice_number ? `<div style="font-size:11px;color:var(--muted);margin-top:2px;">${ar?'فاتورة المورد:':'Inv:'} ${escHTML(b.supplier_invoice_number)}</div>` : ''}</td>
       <td>${billDate}</td>
       <td>${dueDate}</td>
       <td class="num">SAR ${fmt(total)}</td>
       <td class="num">SAR ${fmt(paid)}</td>
       <td class="num"><strong>SAR ${fmt(balance)}</strong></td>
-      <td>${badge}</td>
+      <td class="center">${badge}</td>
     </tr>`;
   }).join('');
 
-  wrap.innerHTML = `<div style="overflow-x:auto;background:#fff;border:1px solid var(--border);border-radius:8px;">
-    <table style="width:100%;border-collapse:collapse;">
-      <thead style="background:var(--bg);border-bottom:2px solid var(--border);">
-        <tr>
-          <th style="text-align:start;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'الرقم':'Bill #'}</th>
-          <th style="text-align:start;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'النوع':'Type'}</th>
-          <th style="text-align:start;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'المورد':'Supplier'}</th>
-          <th style="text-align:start;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'تاريخ الفاتورة':'Bill Date'}</th>
-          <th style="text-align:start;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'الاستحقاق':'Due'}</th>
-          <th style="text-align:end;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'الإجمالي':'Total'}</th>
-          <th style="text-align:end;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'المدفوع':'Paid'}</th>
-          <th style="text-align:end;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'الرصيد':'Balance'}</th>
-          <th style="text-align:start;padding:10px 12px;font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;">${ar?'الحالة':'Status'}</th>
-        </tr>
-      </thead>
-      <tbody>${rows}</tbody>
-    </table>
-  </div>`;
+  wrap.innerHTML = `<table class="tbl">
+    <thead><tr>
+      <th>${ar?'الرقم':'Bill #'}</th>
+      <th class="center">${ar?'النوع':'Type'}</th>
+      <th>${ar?'المورد':'Supplier'}</th>
+      <th>${ar?'تاريخ الفاتورة':'Bill Date'}</th>
+      <th>${ar?'الاستحقاق':'Due'}</th>
+      <th class="num">${ar?'الإجمالي':'Total'}</th>
+      <th class="num">${ar?'المدفوع':'Paid'}</th>
+      <th class="num">${ar?'الرصيد':'Balance'}</th>
+      <th class="center">${ar?'الحالة':'Status'}</th>
+    </tr></thead>
+    <tbody>${rows}</tbody>
+  </table>`;
 }
 
 /* Helper: get supplier display name from id, using already-loaded suppliers cache. */
@@ -1680,10 +1682,8 @@ function formatDateDMY(iso){
   return String(d.getDate()).padStart(2,'0') + '/' + String(d.getMonth()+1).padStart(2,'0') + '/' + d.getFullYear();
 }
 
-/* AP Round 2: hover affordance for bill rows */
-const _billsHoverCSS = document.createElement('style');
-_billsHoverCSS.textContent = `.bill-row{transition:background .15s;} .bill-row:hover{background:var(--tint);} .bill-row td{padding:12px;border-bottom:1px solid var(--border);font-size:13px;} .bill-row td.num{text-align:end;font-family:'DM Mono',monospace;font-weight:600;}`;
-document.head.appendChild(_billsHoverCSS);
+/* Bills table styling: now uses `class="tbl"` (the standard table class) for
+   visual consistency with Suppliers/Products/POs. No more custom CSS injection. */
 
 
 /* ───── PO CREATE MODAL ───── */
@@ -2630,7 +2630,7 @@ function renderSuppliers(){
           if(t === 'expense'){
             typeBadge = `<span style="background:#f3e8ff;color:#6b21a8;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;">🏢 ${ar?'خدمات':'Service'}</span>`;
           } else if(t === 'both'){
-            typeBadge = `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;">🔄 ${ar?'الاثنين':'Both'}</span>`;
+            typeBadge = `<span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;">🔄 ${ar?'بضائع وخدمات':'Goods & Services'}</span>`;
           } else {
             typeBadge = `<span style="background:#e0f2fe;color:#075985;padding:2px 8px;border-radius:6px;font-size:10px;font-weight:700;">🏭 ${ar?'بضائع':'Goods'}</span>`;
           }
@@ -3488,7 +3488,7 @@ document.addEventListener('keydown', function(e){
 });
 </script>
 
-<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-04</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-04 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-05</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-05 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
