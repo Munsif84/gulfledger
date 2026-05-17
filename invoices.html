@@ -2897,11 +2897,14 @@ async function init(){
   const actionParam = urlParams.get('action');
   const tabParam = urlParams.get('tab');
 
-  /* Round 4l.7: deep-link to a tab (?tab=credit-notes / ?tab=customers / ?tab=invoices / ?tab=debit-notes) */
+  /* Round 4l.7: deep-link to a tab (?tab=credit-notes / ?tab=customers / ?tab=invoices / ?tab=debit-notes)
+     Note: do NOT replaceState to strip the param — we WANT the URL to reflect
+     current tab so back-navigation from invoice/credit-note/debit-note view returns here. */
+  console.log('[GL invoices] init: tabParam =', tabParam);
   if(tabParam === 'credit-notes' || tabParam === 'customers' || tabParam === 'invoices' || tabParam === 'debit-notes'){
     setTimeout(() => {
+      console.log('[GL invoices] deep-link: switching to', tabParam);
       switchTab(tabParam);
-      history.replaceState(null, '', 'invoices.html');
     }, 100);
   }
 
@@ -3816,6 +3819,7 @@ document.addEventListener('click', e => {
    TABS
 ═══════════════════════════════════════════════════════ */
 function switchTab(tab){
+  console.log('[GL invoices] switchTab called with:', tab);
   currentTab = tab;
   /* 4-way: invoices | customers | credit-notes | debit-notes */
   document.getElementById('pane-invoices').style.display = (tab === 'invoices') ? 'block' : 'none';
@@ -3826,6 +3830,21 @@ function switchTab(tab){
   document.getElementById('tab-customers').classList.toggle('active', tab === 'customers');
   document.getElementById('tab-credit-notes').classList.toggle('active', tab === 'credit-notes');
   document.getElementById('tab-debit-notes').classList.toggle('active', tab === 'debit-notes');
+
+  /* Persist current tab in URL so back-navigation from credit-note-view /
+     debit-note-view / invoice-view returns to the correct tab. We use
+     replaceState (not pushState) so each tab switch doesn't create a new
+     history entry — the user can press browser-back from invoices.html and
+     skip out cleanly. */
+  try {
+    const u = new URL(window.location.href);
+    if(tab === 'invoices'){
+      u.searchParams.delete('tab');
+    } else {
+      u.searchParams.set('tab', tab);
+    }
+    history.replaceState(null, '', u.toString());
+  } catch(e){}
 
   /* Lazy-load credit/debit notes the first time the tab is opened */
   if(tab === 'credit-notes' && !_creditNotesLoaded){
