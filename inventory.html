@@ -959,6 +959,12 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
       <select id="loc-filter" onchange="renderItems()" style="padding:8px 12px;border:1px solid var(--border);border-radius:7px;font-family:inherit;font-size:13px;background:#fff;min-width:160px;">
         <option value="">📍 كل المواقع · All Locations</option>
       </select>
+      <!-- Category filter — uses the new categories table. Populated by populateCategoryFilter()
+           which runs after loadCategories(). Empty value = no filter. A parent ID filters to
+           that parent + all its children; a child ID filters to just that child. -->
+      <select id="cat-filter" onchange="renderItems()" style="padding:8px 12px;border:1px solid var(--border);border-radius:7px;font-family:inherit;font-size:13px;background:#fff;min-width:180px;">
+        <option value="" data-ar="كل الفئات · All Categories" data-en="All Categories · كل الفئات">كل الفئات · All Categories</option>
+      </select>
       <a class="btn btn-ghost btn-sm" href="locations.html" title="${currentLang==='ar'?'إدارة المواقع':'Manage Locations'}" style="padding:6px 10px;">
         ⚙️
       </a>
@@ -1282,26 +1288,28 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
       <div class="field-row double">
         <div class="field">
           <div class="field-label">
-            <span data-ar="الفئة" data-en="Category">الفئة</span>
+            <span data-ar="الفئة الرئيسية" data-en="Category">الفئة الرئيسية</span>
           </div>
-          <select id="item-category">
+          <select id="item-category-parent" onchange="onCategoryParentChange()">
             <option value="">— <span data-ar="اختر فئة" data-en="Select category">اختر فئة</span> —</option>
-            <option value="food_beverage">🍽 طعام ومشروبات · Food & Beverage</option>
-            <option value="grocery">🛒 بقالة · Grocery</option>
-            <option value="clothing">👕 ملابس · Clothing</option>
-            <option value="electronics">📱 إلكترونيات · Electronics</option>
-            <option value="home_appliance">🏠 أجهزة منزلية · Home Appliances</option>
-            <option value="furniture">🪑 أثاث · Furniture</option>
-            <option value="cosmetics">💄 تجميل وعطور · Cosmetics & Perfume</option>
-            <option value="pharmacy">💊 صيدلية · Pharmacy</option>
-            <option value="stationery">✏️ قرطاسية · Stationery</option>
-            <option value="hardware">🔧 عدد ومواد بناء · Hardware & Building</option>
-            <option value="auto_parts">🚗 قطع غيار · Auto Parts</option>
-            <option value="services">🛠 خدمات · Services</option>
-            <option value="raw_materials">📦 مواد خام · Raw Materials</option>
-            <option value="other">📋 أخرى · Other</option>
+            <!-- Populated dynamically from categories table -->
+          </select>
+          <!-- Hidden: stores the final chosen category_id (child if picked, else parent). -->
+          <input type="hidden" id="item-category-id" value="">
+        </div>
+        <div class="field" id="item-subcategory-wrap" style="display:none;">
+          <div class="field-label">
+            <span data-ar="الفئة الفرعية" data-en="Sub-category">الفئة الفرعية</span>
+            <span class="opt" data-ar="(اختياري)" data-en="(optional)">(اختياري)</span>
+          </div>
+          <select id="item-category-child" onchange="onCategoryChildChange()">
+            <option value="">— <span data-ar="(عام)" data-en="(general)">(عام)</span> —</option>
+            <!-- Populated when parent changes -->
           </select>
         </div>
+      </div>
+
+      <div class="field-row double">
         <div class="field">
           <div class="field-label">
             <span data-ar="حد إعادة الطلب" data-en="Reorder Point">حد إعادة الطلب</span>
@@ -1309,6 +1317,9 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           </div>
           <input type="number" id="item-reorder-point" class="mono" placeholder="0" step="0.001" min="0" dir="ltr">
           <div class="field-hint" data-ar="تنبيه عند الانخفاض" data-en="Alert when stock falls below">تنبيه عند الانخفاض</div>
+        </div>
+        <div class="field">
+          <!-- Reserved for future field; keeping row layout consistent. -->
         </div>
       </div>
 
@@ -2486,8 +2497,9 @@ async function init(){
 }
 
 async function loadAll(){
-  await Promise.all([loadItems(), loadSuppliers(), loadReceipts(), loadLocations(), loadStockByLocation()]);
+  await Promise.all([loadItems(), loadSuppliers(), loadReceipts(), loadLocations(), loadStockByLocation(), loadCategories()]);
   populateLocationFilter();
+  populateCategoryFilter();
   renderItems();
   renderSuppliers();
   renderReceipts();
@@ -3173,6 +3185,9 @@ function renderItems(){
   const search = v('search-items').toLowerCase();
   /* Round 4m: location filter — when set, qty per row is the qty AT that location only */
   const locFilter = document.getElementById('loc-filter')?.value || '';
+  /* R-3: category filter — value is a category UUID. Selecting a parent matches
+     the parent itself AND all its children. Selecting a child matches only that child. */
+  const catFilter = document.getElementById('cat-filter')?.value || '';
 
   let items = allItems;
   if(search){
@@ -3183,6 +3198,16 @@ function renderItems(){
       (it.sku||'').toLowerCase().includes(search) ||
       (it.barcode||'').toLowerCase().includes(search)
     );
+  }
+
+  if(catFilter){
+    /* Build the matching set: the picked category + all its children (if it's a parent).
+       For leaf categories, the set is just {catFilter}. */
+    const matchIds = new Set([catFilter]);
+    for(const child of getChildCategories(catFilter)){
+      matchIds.add(child.id);
+    }
+    items = items.filter(it => it.category_id && matchIds.has(it.category_id));
   }
 
   /* If location filter active, only show items that have qty AT that location */
@@ -3253,7 +3278,7 @@ function renderItems(){
             <tr class="clickable" onclick="openItemDrawer('${it.id}')">
               <td><strong>${escHTML(name)}</strong>${it.unit ? `<span style="font-size:11px;color:var(--muted);margin-inline-start:4px;">${escHTML(it.unit)}</span>` : ''}</td>
               <td class="num">${escHTML(it.sku || '—')}</td>
-              <td>${escHTML(it.category ? categoryLabel(it.category) : '—')}</td>
+              <td>${escHTML(categoryBreadcrumb(it.category_id) || it.category || '—')}</td>
               <td class="num" style="color:var(--muted);">${fmt(cost)}</td>
               <td class="center"><span class="stock-badge ${stockClass}">${stockLabel}</span></td>
               <td class="center" style="color:var(--muted);">${reorder > 0 ? fmt(reorder) : '—'}</td>
@@ -3478,7 +3503,10 @@ function openItemModal(id){
     setVal('item-cost-price', it.cost_price || '');
     setVal('item-sale-price', it.sale_price || '');
     setVal('item-current-qty', it.current_qty || 0);
-    setVal('item-category', it.category || '');
+    /* R-3: category picker reads from category_id (new FK). If legacy item
+       has only the old `category` text column set, populateCategoryParents
+       handles a NULL gracefully — user can pick a fresh one from the cascade. */
+    populateCategoryParents(it.category_id || null);
     setVal('item-reorder-point', it.reorder_point || '');
     setVal('item-notes', it.notes || '');
   } else {
@@ -3487,7 +3515,8 @@ function openItemModal(id){
      'item-sale-price','item-reorder-point','item-notes'].forEach(f => setVal(f,''));
     setVal('item-unit', 'pcs');
     setVal('item-current-qty', '0');
-    setVal('item-category', '');
+    /* R-3: reset category picker to "select category" state */
+    populateCategoryParents(null);
     /* Auto-generate next SKU */
     setVal('item-sku', nextItemSKU());
   }
@@ -3527,6 +3556,17 @@ async function saveItem(){
     return;
   }
 
+  /* R-3: category — write the new category_id FK, AND sync the legacy `category`
+     TEXT column with the system code (for parity during transition). The text
+     column is kept as a backup; read paths increasingly use category_id directly. */
+  const chosenCatId = v('item-category-id') || null;
+  let legacyCatText = null;
+  if(chosenCatId){
+    const cat = _catById.get(chosenCatId);
+    /* Prefer the system code if available; otherwise fall back to category id */
+    legacyCatText = cat?.code || null;
+  }
+
   const payload = {
     user_id: currentUser.id,
     business_id: currentBiz.id,
@@ -3538,7 +3578,8 @@ async function saveItem(){
     unit: v('item-unit') || 'pcs',
     cost_price: parseFloat(v('item-cost-price')) || 0,
     sale_price: salePrice,
-    category: v('item-category') || null,
+    category_id: chosenCatId,
+    category: legacyCatText,
     reorder_point: parseFloat(v('item-reorder-point')) || 0,
     notes: v('item-notes') || null,
     is_active: true,
@@ -4954,28 +4995,236 @@ async function postAdjustmentJournal(adj, item, type, qty, totalCost){
 }
 
 /* ═══════════════════════════════════════════════════════
-   CATEGORY HELPER — map code to label
+   CATEGORIES — backed by the `categories` table (R-3, May 2026).
+   Replaces the legacy hardcoded CATEGORY_LABELS dict.
+
+   Data model:
+     - System categories: shipped by GulfLedger, business_id IS NULL,
+       filtered by industry_tag matching the current business's industry.
+     - Business categories: business-defined custom additions.
+     - Two-level hierarchy via parent_id.
+
+   This module loads, caches, and exposes lookup helpers used by:
+     - The item modal's parent/child cascade picker
+     - The items list (display category name in the row)
+     - The category filter dropdown
 ═══════════════════════════════════════════════════════ */
-const CATEGORY_LABELS = {
-  food_beverage:  { ar: '🍽 طعام ومشروبات',  en: '🍽 Food & Beverage' },
-  grocery:        { ar: '🛒 بقالة',           en: '🛒 Grocery' },
-  clothing:       { ar: '👕 ملابس',           en: '👕 Clothing' },
-  electronics:    { ar: '📱 إلكترونيات',     en: '📱 Electronics' },
-  home_appliance: { ar: '🏠 أجهزة منزلية',   en: '🏠 Home Appliances' },
-  furniture:      { ar: '🪑 أثاث',            en: '🪑 Furniture' },
-  cosmetics:      { ar: '💄 تجميل وعطور',     en: '💄 Cosmetics' },
-  pharmacy:       { ar: '💊 صيدلية',          en: '💊 Pharmacy' },
-  stationery:     { ar: '✏️ قرطاسية',         en: '✏️ Stationery' },
-  hardware:       { ar: '🔧 عدد ومواد بناء',  en: '🔧 Hardware' },
-  auto_parts:     { ar: '🚗 قطع غيار',        en: '🚗 Auto Parts' },
-  services:       { ar: '🛠 خدمات',           en: '🛠 Services' },
-  raw_materials:  { ar: '📦 مواد خام',        en: '📦 Raw Materials' },
-  other:          { ar: '📋 أخرى',            en: '📋 Other' }
-};
-function categoryLabel(code){
-  const c = CATEGORY_LABELS[code];
-  if(!c) return code;
-  return currentLang === 'ar' ? c.ar : c.en;
+
+/* Flat cache of all categories (system + business) applicable to this business.
+   Loaded once on init; refreshed manually if business adds custom categories. */
+let allCategories = [];
+
+/* Indexed lookups built from allCategories — populated by indexCategories(). */
+let _catById = new Map();          // id -> category row
+let _catByCode = new Map();        // code -> category row (system only have codes)
+let _catChildren = new Map();      // parent_id -> [child rows]
+
+async function loadCategories(){
+  /* Load system categories matching this business's industry + any business-defined ones.
+     Industry filter: NULL or {} or {'universal'} or contains business's industry. */
+  if(!currentBiz?.id){
+    allCategories = [];
+    return;
+  }
+  const industry = currentBiz.industry || 'general';
+  /* Supabase's PostgREST .or() syntax for compound filters. We need:
+       (business_id = my_business) OR (is_system = true AND (industry filter matches))
+     Industry match: industry_tag IS NULL, OR contains 'universal', OR contains my industry. */
+  const {data, error} = await sb.from('categories')
+    .select('*')
+    .or(`business_id.eq.${currentBiz.id},and(is_system.eq.true,or(industry_tag.is.null,industry_tag.cs.{${industry}},industry_tag.cs.{universal}))`)
+    .eq('domain', 'inventory')
+    .eq('is_active', true)
+    .order('parent_id', {nullsFirst: true})
+    .order('sort_order', {ascending: true});
+
+  if(error){
+    console.error('[GL] loadCategories', error);
+    allCategories = [];
+    return;
+  }
+  allCategories = data || [];
+  indexCategories();
+}
+
+function indexCategories(){
+  _catById = new Map();
+  _catByCode = new Map();
+  _catChildren = new Map();
+  for(const c of allCategories){
+    _catById.set(c.id, c);
+    if(c.code) _catByCode.set(c.code, c);
+    if(c.parent_id){
+      if(!_catChildren.has(c.parent_id)) _catChildren.set(c.parent_id, []);
+      _catChildren.get(c.parent_id).push(c);
+    }
+  }
+}
+
+/* Return display name for a category, picking Arabic or English based on currentLang.
+   Accepts either a UUID (category_id) or a code string. Returns null if not found. */
+function categoryName(idOrCode){
+  if(!idOrCode) return null;
+  /* Try as UUID first, then fall back to code (some legacy paths may still pass codes) */
+  let cat = _catById.get(idOrCode) || _catByCode.get(idOrCode);
+  if(!cat) return null;
+  return currentLang === 'ar' ? (cat.name_ar || cat.name_en) : (cat.name_en || cat.name_ar);
+}
+
+/* Return a "Parent → Child" label for an item's category_id.
+   Used in the items list where we want to show full hierarchy at a glance. */
+function categoryBreadcrumb(catId){
+  if(!catId) return null;
+  const cat = _catById.get(catId);
+  if(!cat) return null;
+  if(!cat.parent_id){
+    /* Top-level category — just its name */
+    return categoryName(catId);
+  }
+  const parent = _catById.get(cat.parent_id);
+  const sep = currentLang === 'ar' ? ' ← ' : ' → ';
+  return (parent ? categoryName(parent.id) : '?') + sep + categoryName(catId);
+}
+
+/* Get list of root (top-level) categories — parent_id is null.
+   Used to populate the parent dropdown in the item modal. */
+function getRootCategories(){
+  return allCategories.filter(c => !c.parent_id);
+}
+
+/* Get children of a parent category by id. Empty array if no children. */
+function getChildCategories(parentId){
+  return _catChildren.get(parentId) || [];
+}
+
+/* ─────────────────────────────────────────────────────────
+   CATEGORY PICKER — populate the parent/child dropdowns in
+   the item modal, and the filter dropdown above the items list.
+   ───────────────────────────────────────────────────────── */
+
+/* Populate the parent dropdown in the item modal.
+   Called when modal opens. Pre-selects the item's current category if editing. */
+function populateCategoryParents(selectedCategoryId){
+  const sel = document.getElementById('item-category-parent');
+  if(!sel) return;
+  const ar = currentLang === 'ar';
+  const roots = getRootCategories();
+
+  /* Build options. Use inline bilingual text — data-ar/en on <option> is
+     unreliable across browsers, so we just bake the active-language name. */
+  const placeholder = ar ? '— اختر فئة —' : '— Select category —';
+  let html = `<option value="">${placeholder}</option>`;
+  for(const r of roots){
+    const name = ar ? (r.name_ar || r.name_en) : (r.name_en || r.name_ar);
+    html += `<option value="${r.id}">${escHTML(name)}</option>`;
+  }
+  sel.innerHTML = html;
+
+  /* If the item already has a category, work out the right parent to select.
+     If the saved id is a CHILD, we need to find its parent and select that,
+     then populate children and select the child. */
+  let parentToSelect = '';
+  let childToSelect = '';
+  if(selectedCategoryId){
+    const cat = _catById.get(selectedCategoryId);
+    if(cat){
+      if(cat.parent_id){
+        /* It's a child — select its parent in parent dropdown, then itself in child */
+        parentToSelect = cat.parent_id;
+        childToSelect = cat.id;
+      } else {
+        /* It's a root — select it as parent, no child */
+        parentToSelect = cat.id;
+        childToSelect = '';
+      }
+    }
+  }
+  sel.value = parentToSelect;
+  populateCategoryChildren(parentToSelect, childToSelect);
+  /* Sync the hidden category_id input. */
+  setVal('item-category-id', childToSelect || parentToSelect || '');
+}
+
+/* Populate the child dropdown based on the selected parent. Pre-selects
+   `selectedChildId` if provided. Hides the row entirely when parent has no children. */
+function populateCategoryChildren(parentId, selectedChildId){
+  const sel = document.getElementById('item-category-child');
+  const wrap = document.getElementById('item-subcategory-wrap');
+  if(!sel || !wrap) return;
+  const ar = currentLang === 'ar';
+
+  if(!parentId){
+    sel.innerHTML = '';
+    wrap.style.display = 'none';
+    return;
+  }
+  const children = getChildCategories(parentId);
+  if(children.length === 0){
+    sel.innerHTML = '';
+    wrap.style.display = 'none';
+    return;
+  }
+  wrap.style.display = '';
+  const generalLabel = ar ? '— (عام) —' : '— (general) —';
+  let html = `<option value="">${generalLabel}</option>`;
+  for(const c of children){
+    const name = ar ? (c.name_ar || c.name_en) : (c.name_en || c.name_ar);
+    html += `<option value="${c.id}">${escHTML(name)}</option>`;
+  }
+  sel.innerHTML = html;
+  sel.value = selectedChildId || '';
+}
+
+/* Called when parent dropdown changes — populate children + update hidden id.
+   If user picks a parent with NO children, the parent itself is the chosen category. */
+function onCategoryParentChange(){
+  const parentId = v('item-category-parent');
+  populateCategoryChildren(parentId, '');
+  /* If parent has no children, hidden id = parent. Otherwise wait for child pick. */
+  const wrap = document.getElementById('item-subcategory-wrap');
+  if(!parentId){
+    setVal('item-category-id', '');
+  } else if(wrap.style.display === 'none'){
+    /* No subcategories — parent IS the leaf */
+    setVal('item-category-id', parentId);
+  } else {
+    /* Has children, but none picked yet — store parent as fallback */
+    setVal('item-category-id', parentId);
+  }
+}
+
+/* Called when child dropdown changes. Child id (if any) becomes the chosen id,
+   else the parent is the chosen category. */
+function onCategoryChildChange(){
+  const childId = v('item-category-child');
+  const parentId = v('item-category-parent');
+  setVal('item-category-id', childId || parentId || '');
+}
+
+/* Populate the category filter dropdown above the items list. */
+function populateCategoryFilter(){
+  const sel = document.getElementById('cat-filter');
+  if(!sel) return;
+  const ar = currentLang === 'ar';
+  const roots = getRootCategories();
+
+  /* Preserve any current selection across re-render */
+  const current = sel.value;
+
+  let html = `<option value="">${ar ? 'كل الفئات · All Categories' : 'All Categories · كل الفئات'}</option>`;
+  for(const r of roots){
+    const rName = ar ? (r.name_ar || r.name_en) : (r.name_en || r.name_ar);
+    /* Show parent option — selecting it filters to parent + all children */
+    html += `<option value="${r.id}"><strong>${escHTML(rName)}</strong></option>`;
+    /* Then its children, indented */
+    const children = getChildCategories(r.id);
+    for(const c of children){
+      const cName = ar ? (c.name_ar || c.name_en) : (c.name_en || c.name_ar);
+      html += `<option value="${c.id}">　 ${escHTML(cName)}</option>`;
+    }
+  }
+  sel.innerHTML = html;
+  if(current) sel.value = current;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -5067,9 +5316,11 @@ async function openItemDrawer(itemId){
   const item = allItems.find(it => it.id === itemId);
   if(!item){ notify(currentLang==='ar'?'المنتج غير موجود':'Item not found','error'); return; }
 
+  /* R-3: subtitle uses categoryBreadcrumb (from category_id) with legacy fallback */
+  const catLabel = categoryBreadcrumb(item.category_id) || item.category || null;
   openDrawerShell(
     displayName(item),
-    `${item.sku || '—'}${item.category ? ' · ' + categoryLabel(item.category) : ''} · ${item.unit || 'pcs'}`
+    `${item.sku || '—'}${catLabel ? ' · ' + catLabel : ''} · ${item.unit || 'pcs'}`
   );
 
   /* Fetch batches + movements in parallel */
@@ -6114,7 +6365,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-03</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-03 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-07</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-07 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
