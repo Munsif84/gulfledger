@@ -5179,7 +5179,13 @@ function populateCategoryParents(selectedCategoryId){
   const sel = document.getElementById('item-category-parent');
   if(!sel) return;
   const ar = currentLang === 'ar';
-  const roots = getRootCategories();
+  /* Alphabetical sort by display name in current language. localeCompare with
+     'ar' option handles Arabic ordering correctly when in Arabic mode. */
+  const roots = getRootCategories().slice().sort((a, b) => {
+    const an = ar ? (a.name_ar || a.name_en) : (a.name_en || a.name_ar);
+    const bn = ar ? (b.name_ar || b.name_en) : (b.name_en || b.name_ar);
+    return an.localeCompare(bn, ar ? 'ar' : 'en');
+  });
 
   /* Build options. Use inline bilingual text — data-ar/en on <option> is
      unreliable across browsers, so we just bake the active-language name. */
@@ -5236,9 +5242,15 @@ function populateCategoryChildren(parentId, selectedChildId){
     return;
   }
   wrap.style.display = '';
+  /* Alphabetical sort by display name in current language. */
+  const sorted = getChildCategories(parentId).slice().sort((a, b) => {
+    const an = ar ? (a.name_ar || a.name_en) : (a.name_en || a.name_ar);
+    const bn = ar ? (b.name_ar || b.name_en) : (b.name_en || b.name_ar);
+    return an.localeCompare(bn, ar ? 'ar' : 'en');
+  });
   const generalLabel = ar ? '— (عام) —' : '— (general) —';
   let html = `<option value="">${generalLabel}</option>`;
-  for(const c of children){
+  for(const c of sorted){
     const name = ar ? (c.name_ar || c.name_en) : (c.name_en || c.name_ar);
     html += `<option value="${c.id}">${escHTML(name)}</option>`;
   }
@@ -5277,20 +5289,23 @@ function populateCategoryFilter(){
   const sel = document.getElementById('cat-filter');
   if(!sel) return;
   const ar = currentLang === 'ar';
-  const roots = getRootCategories();
+  /* Alphabetize parents by name in active language */
+  const nameOf = c => ar ? (c.name_ar || c.name_en) : (c.name_en || c.name_ar);
+  const sortByName = (a, b) => nameOf(a).localeCompare(nameOf(b), ar ? 'ar' : 'en');
+  const roots = getRootCategories().slice().sort(sortByName);
 
   /* Preserve any current selection across re-render */
   const current = sel.value;
 
   let html = `<option value="">${ar ? 'كل الفئات · All Categories' : 'All Categories · كل الفئات'}</option>`;
   for(const r of roots){
-    const rName = ar ? (r.name_ar || r.name_en) : (r.name_en || r.name_ar);
+    const rName = nameOf(r);
     /* Show parent option — selecting it filters to parent + all children */
     html += `<option value="${r.id}"><strong>${escHTML(rName)}</strong></option>`;
-    /* Then its children, indented */
-    const children = getChildCategories(r.id);
+    /* Then its children, alphabetized within the parent, indented */
+    const children = getChildCategories(r.id).slice().sort(sortByName);
     for(const c of children){
-      const cName = ar ? (c.name_ar || c.name_en) : (c.name_en || c.name_ar);
+      const cName = nameOf(c);
       html += `<option value="${c.id}">　 ${escHTML(cName)}</option>`;
     }
   }
@@ -6482,7 +6497,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-09</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-09 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-10</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-10 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
