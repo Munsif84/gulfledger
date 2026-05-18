@@ -4822,12 +4822,46 @@ async function saveReceipt(){
       sort_order: idx
     });
 
-    /* Update item current_qty + cost_price (use latest cost) */
+    /* R-2 audit fix (Workflow C Major #2): WAC bug.
+       Previously `cost_price = r.unit_cost` (latest cost). This broke WAC
+       costing — invoices would compute COGS using the most recent receipt's
+       cost instead of the true weighted average.
+       
+       Now: if costing_method is WAC (or default), compute the new weighted
+       average from old qty × old cost + new qty × new cost. For FIFO, just
+       store the latest cost (FIFO doesn't use cost_price for COGS — it pulls
+       from batches via the RPC).
+       
+       Formula: new_avg = (old_qty × old_cost + new_qty × new_cost) / total_qty
+       
+       Edge cases:
+       - old_qty = 0 (first receipt or stock depleted): new_avg = new_cost
+       - old_qty + new_qty = 0: shouldn't happen, but guard against div-by-zero  */
     const item = allItems.find(it => it.id === r.item_id);
-    const newQty = Math.round(((parseFloat(item?.current_qty)||0) + r.quantity) * 1000) / 1000;
+    const oldQty = parseFloat(item?.current_qty) || 0;
+    const oldCost = parseFloat(item?.cost_price) || 0;
+    const newQty = Math.round((oldQty + r.quantity) * 1000) / 1000;
+
+    const isFIFO = (currentBiz.costing_method || 'wac') === 'fifo';
+    let newCostPrice;
+    if(isFIFO){
+      /* FIFO: just store latest for display purposes. Real COGS comes from batches. */
+      newCostPrice = r.unit_cost;
+    } else {
+      /* WAC: weighted average of existing stock + this receipt. */
+      if(oldQty <= 0){
+        /* No existing stock — new cost IS the average */
+        newCostPrice = r.unit_cost;
+      } else {
+        const totalValue = (oldQty * oldCost) + (r.quantity * r.unit_cost);
+        const totalQty = oldQty + r.quantity;
+        newCostPrice = totalQty > 0 ? roundCurrency(totalValue / totalQty) : r.unit_cost;
+      }
+    }
+
     await sb.from('inventory_items').update({
       current_qty: newQty,
-      cost_price: r.unit_cost,
+      cost_price: newCostPrice,
       updated_at: new Date().toISOString()
     }).eq('id', r.item_id);
 
@@ -5102,11 +5136,28 @@ async function saveAdjustment(){
     }
   }
 
-  /* 3. Update item current_qty */
-  await sb.from('inventory_items').update({
+  /* 3. Update item current_qty (and cost_price if WAC + incoming adjust) */
+  /* R-2 audit fix (Workflow C Major #2): for WAC mode, adjust-in with a unit_cost
+     should recompute the weighted average — exactly like a receipt does.
+     Adjust-out doesn't change WAC (the average of remaining stock is unchanged
+     when you remove items at the same average price). */
+  const itemUpdate = {
     current_qty: newQty,
     updated_at: new Date().toISOString()
-  }).eq('id', currentAdjItem.id);
+  };
+  const _isFIFO = (currentBiz.costing_method || 'wac') === 'fifo';
+  if(isIncoming && !_isFIFO && qty > 0){
+    const _oldQty = currentQty;
+    const _oldCost = parseFloat(currentAdjItem.cost_price) || 0;
+    if(_oldQty <= 0){
+      itemUpdate.cost_price = unitCost;
+    } else {
+      const _totalValue = (_oldQty * _oldCost) + (qty * unitCost);
+      const _totalQty = _oldQty + qty;
+      itemUpdate.cost_price = _totalQty > 0 ? roundCurrency(_totalValue / _totalQty) : unitCost;
+    }
+  }
+  await sb.from('inventory_items').update(itemUpdate).eq('id', currentAdjItem.id);
 
   /* 4. Insert movement (tagged with location) */
   await sb.from('inventory_movements').insert({
@@ -7099,7 +7150,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-24</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-24 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-25</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-25 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
