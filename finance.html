@@ -2550,7 +2550,7 @@ async function init(){
 }
 
 async function loadAll(){
-  await Promise.all([loadExpenses(), loadVendors(), fetchAllSuppliersForCode()]);
+  await Promise.all([loadExpenses(), loadVendors(), loadAllSuppliersForBills(), fetchAllSuppliersForCode()]);
   populateCategoryFilter();
   computeStats();
   renderExpenses();
@@ -2569,7 +2569,7 @@ async function loadExpenses(){
 }
 
 /* ═══════════════════════════════════════════════════════
-   BILLS — moved here from purchasing.html (v2026.05.17-19)
+   BILLS — moved here from purchasing.html (v2026.05.17-20)
    AP master view: unifies bills from expenses (services) and stock_receipts (goods).
    Editing routes back to finance expense drawer or inventory receipt drawer.
 ═══════════════════════════════════════════════════════ */
@@ -2580,6 +2580,12 @@ async function loadBills(){
     document.getElementById('bills-table-wrap').innerHTML = '<div style="padding:40px;text-align:center;color:var(--muted);">' +
       (currentLang === 'ar' ? 'لم يتم تحميل بيانات المنشأة' : 'Business not loaded') + '</div>';
     return;
+  }
+  /* Ensure the all-suppliers cache is populated for accurate name resolution.
+     If user landed directly on the bills tab, the init Promise.all may have
+     skipped this. Idempotent on subsequent calls. */
+  if(!_allSuppliersForBills || _allSuppliersForBills.length === 0){
+    await loadAllSuppliersForBills();
   }
   /* Limit to current year by default to keep query fast. */
   const yearStart = new Date().getFullYear() + '-01-01';
@@ -2769,9 +2775,14 @@ function renderBills(){
 
 /* Resolve supplier name from cached `allVendors` array (same suppliers table).
    Renamed to avoid collision with any future helper of the same name. */
+/* Resolve supplier name from the all-suppliers cache. Audit fix (Blocker #1):
+   previously used `allVendors` which excludes 'inventory' and NULL usage_type,
+   causing stock-receipt bills to show "—" instead of the supplier name. */
 function resolveSupplierNameForBills(supplierId){
-  if(!supplierId || !allVendors) return null;
-  const s = allVendors.find(x => x.id === supplierId);
+  if(!supplierId) return null;
+  const pool = (_allSuppliersForBills && _allSuppliersForBills.length) ? _allSuppliersForBills : allVendors;
+  if(!pool) return null;
+  const s = pool.find(x => x.id === supplierId);
   if(!s) return null;
   return currentLang === 'ar' ? (s.name_ar || s.name_en) : (s.name_en || s.name_ar);
 }
@@ -2785,7 +2796,10 @@ function formatBillDate(iso){
 }
 
 async function loadVendors(){
-  /* Vendors = suppliers with usage_type IN ('expense','both') */
+  /* Vendors = suppliers with usage_type IN ('expense','both').
+     This is the list shown in the Vendors tab and in the expense creation picker.
+     We deliberately exclude 'inventory'-only suppliers from this list — they
+     belong to purchasing's domain. */
   const {data, error} = await sb.from('suppliers')
     .select('*')
     .eq('business_id', currentBiz?.id || '')
@@ -2793,6 +2807,30 @@ async function loadVendors(){
     .order('name_ar', {ascending:true});
   if(error){ console.error('[GL] loadVendors', error); allVendors = []; return; }
   allVendors = data || [];
+}
+
+/* R-2 (May 2026) — AUDIT FIX (Blocker #1):
+   The Bills tab shows entries from BOTH expenses AND stock_receipts. Stock
+   receipts may have inventory-only suppliers (usage_type='inventory' or NULL)
+   that don't appear in `allVendors`. Result: bills view showed "—" for the
+   supplier name on these rows.
+   
+   Fix: maintain a SEPARATE cache of ALL suppliers (any usage_type, even null)
+   purely for name resolution in the bills view. This doesn't affect the
+   vendor list shown elsewhere — Vendors tab and expense picker still use
+   `allVendors` (filtered to expense/both as designed). */
+let _allSuppliersForBills = [];
+
+async function loadAllSuppliersForBills(){
+  const {data, error} = await sb.from('suppliers')
+    .select('id, name_ar, name_en, supplier_code, usage_type')
+    .eq('business_id', currentBiz?.id || '');
+  if(error){
+    console.error('[GL] loadAllSuppliersForBills:', error);
+    _allSuppliersForBills = [];
+    return;
+  }
+  _allSuppliersForBills = data || [];
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -7984,7 +8022,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-19</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-19 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-20</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-20 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
