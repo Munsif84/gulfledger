@@ -4194,6 +4194,54 @@ const ENTRY_TEMPLATES = [
     ]
   },
   {
+    id: 'bank_fees',
+    icon: '💸',
+    title_ar: 'رسوم وعمولات بنكية',
+    title_en: 'Bank Fees & Charges',
+    sub_ar: 'البنك خصم رسوم تحويل أو عمولة شهرية',
+    sub_en: 'Bank charged a fee or monthly commission',
+    lines: [
+      { dr: '8300', cr: '', desc_ar: 'رسوم بنكية', desc_en: 'Bank charges' },
+      { dr: '', cr: '1101', desc_ar: 'خصم من البنك', desc_en: 'Deducted from bank' }
+    ]
+  },
+  {
+    id: 'loan_received',
+    icon: '💵',
+    title_ar: 'استلام قرض من البنك',
+    title_en: 'Loan Received',
+    sub_ar: 'البنك أو الجهة الممولة أودعت مبلغ القرض في حسابك',
+    sub_en: 'Bank or lender deposited the loan amount into your account',
+    lines: [
+      { dr: '1101', cr: '', desc_ar: 'إيداع القرض', desc_en: 'Loan deposit' },
+      { dr: '', cr: '2810', desc_ar: 'التزام قرض', desc_en: 'Loan obligation' }
+    ]
+  },
+  {
+    id: 'loan_repayment',
+    icon: '🏦',
+    title_ar: 'سداد دفعة من القرض',
+    title_en: 'Loan Repayment',
+    sub_ar: 'دفعة دورية لتخفيض رصيد القرض (بدون الفوائد)',
+    sub_en: 'Periodic payment reducing the loan balance (principal only, no interest)',
+    lines: [
+      { dr: '2810', cr: '', desc_ar: 'تخفيض القرض', desc_en: 'Reduce loan' },
+      { dr: '', cr: '1101', desc_ar: 'خصم من البنك', desc_en: 'Paid from bank' }
+    ]
+  },
+  {
+    id: 'asset_purchase',
+    icon: '🔧',
+    title_ar: 'شراء أصل ثابت',
+    title_en: 'Asset Purchase',
+    sub_ar: 'شراء أصل طويل العمر مثل آلة أو معدة (يُهلَك على عدة سنوات)',
+    sub_en: 'Buy a long-life asset like equipment or machinery (depreciated over years)',
+    lines: [
+      { dr: '1730', cr: '', desc_ar: 'شراء أصل ثابت', desc_en: 'Asset acquisition' },
+      { dr: '', cr: '1101', desc_ar: 'دفع من البنك', desc_en: 'Paid from bank' }
+    ]
+  },
+  {
     id: 'free_form',
     icon: '✏️',
     title_ar: 'قيد متقدم (حر)',
@@ -4300,6 +4348,24 @@ function renderManualEntryBody(){
     `<option value="${a.code}">${a.code} — ${ar ? (a.name_ar || a.name_en || a.code) : (a.name_en || a.name_ar || a.code)}</option>`
   ).join('');
 
+  /* Tier 1 UX helper: produce plain-language "this will" summary for friendly
+     templates. Uses each account's `normal` side to decide whether DR=increase
+     (asset/expense) or CR=increase (liability/equity/revenue). */
+  function plainLineSummary(line){
+    const acct = chartOfAccounts.find(a => a.code === line.account_code);
+    if(!acct) return '';
+    const name = ar ? (acct.name_ar || acct.name_en) : (acct.name_en || acct.name_ar);
+    /* For DR-normal accounts: a DR-hinted line means an INCREASE; CR-hinted = DECREASE.
+       For CR-normal accounts: vice versa. */
+    const isIncrease = (acct.normal === 'DR') ? !!line._hint_debit : !line._hint_debit;
+    const verbAr = isIncrease ? 'زيادة' : 'تخفيض';
+    const verbEn = isIncrease ? 'Increase' : 'Decrease';
+    const arrow = isIncrease ? '↑' : '↓';
+    return ar
+      ? `${arrow} <strong>${escHTML(name)}</strong> — ${verbAr}`
+      : `${arrow} <strong>${escHTML(name)}</strong> — ${verbEn}`;
+  }
+
   body.innerHTML = `
     <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
       <div>
@@ -4325,44 +4391,94 @@ function renderManualEntryBody(){
       <input type="text" id="me-desc" value="${escHTML(manualEntry.description)}" oninput="manualEntry.description = this.value" placeholder="${ar?'مثل: إهلاك معدات شهر يناير':'e.g. January equipment depreciation'}">
     </div>
 
-    <div style="margin-top:14px;">
-      <div style="font-size:12px;font-weight:700;color:var(--ink);margin-bottom:6px;">
-        ${ar?'بنود القيد':'Entry Lines'}
-        ${!isFreeForm ? `<span style="font-weight:500;color:var(--muted);font-size:11px;">· ${ar?'الحسابات تم اقتراحها — أدخل المبالغ فقط':'Accounts pre-filled — just enter amounts'}</span>` : ''}
-      </div>
-      <table class="entry-lines-tbl">
-        <thead>
-          <tr>
-            <th class="acct-col">${ar?'الحساب':'Account'}</th>
-            <th class="num num-col">${ar?'مدين':'Debit'}</th>
-            <th class="num num-col">${ar?'دائن':'Credit'}</th>
-            <th>${ar?'وصف':'Memo'}</th>
-            <th class="del-col"></th>
-          </tr>
-        </thead>
-        <tbody id="me-lines-tbody">
-          ${manualEntry.lines.map((line, i) => `
+    ${ isFreeForm ? `
+      <!-- ─── FREE-FORM MODE (full debit/credit table for accountants) ─── -->
+      <div style="margin-top:14px;">
+        <div style="font-size:12px;font-weight:700;color:var(--ink);margin-bottom:6px;">
+          ${ar?'بنود القيد':'Entry Lines'}
+        </div>
+        <table class="entry-lines-tbl">
+          <thead>
             <tr>
-              <td class="acct-col">
-                <select onchange="updateMeLine(${i}, 'account_code', this.value)">
-                  <option value="">— ${ar?'اختر':'select'} —</option>
-                  ${acctOptions.replace(`value="${line.account_code}"`, `value="${line.account_code}" selected`)}
-                </select>
-              </td>
-              <td class="num num-col"><input type="number" step="0.01" min="0" value="${line.debit || ''}" oninput="updateMeLine(${i}, 'debit', this.value)" placeholder="0.00"></td>
-              <td class="num num-col"><input type="number" step="0.01" min="0" value="${line.credit || ''}" oninput="updateMeLine(${i}, 'credit', this.value)" placeholder="0.00"></td>
-              <td><input type="text" value="${escHTML(line.narration || '')}" oninput="updateMeLine(${i}, 'narration', this.value)" placeholder="${ar?'اختياري':'optional'}"></td>
-              <td class="del-col"><button type="button" class="del-btn" onclick="removeMeLine(${i})" title="${ar?'حذف السطر':'Remove line'}">✕</button></td>
+              <th class="acct-col">${ar?'الحساب':'Account'}</th>
+              <th class="num num-col">${ar?'مدين':'Debit'}</th>
+              <th class="num num-col">${ar?'دائن':'Credit'}</th>
+              <th>${ar?'وصف':'Memo'}</th>
+              <th class="del-col"></th>
             </tr>
-          `).join('')}
-        </tbody>
-      </table>
-      <button type="button" class="entry-lines-add" onclick="addMeLine()">+ ${ar?'إضافة سطر':'Add line'}</button>
-    </div>
+          </thead>
+          <tbody id="me-lines-tbody">
+            ${manualEntry.lines.map((line, i) => `
+              <tr>
+                <td class="acct-col">
+                  <select onchange="updateMeLine(${i}, 'account_code', this.value)">
+                    <option value="">— ${ar?'اختر':'select'} —</option>
+                    ${acctOptions.replace(`value="${line.account_code}"`, `value="${line.account_code}" selected`)}
+                  </select>
+                </td>
+                <td class="num num-col"><input type="number" step="0.01" min="0" value="${line.debit || ''}" oninput="updateMeLine(${i}, 'debit', this.value)" placeholder="0.00"></td>
+                <td class="num num-col"><input type="number" step="0.01" min="0" value="${line.credit || ''}" oninput="updateMeLine(${i}, 'credit', this.value)" placeholder="0.00"></td>
+                <td><input type="text" value="${escHTML(line.narration || '')}" oninput="updateMeLine(${i}, 'narration', this.value)" placeholder="${ar?'اختياري':'optional'}"></td>
+                <td class="del-col"><button type="button" class="del-btn" onclick="removeMeLine(${i})" title="${ar?'حذف السطر':'Remove line'}">✕</button></td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        <button type="button" class="entry-lines-add" onclick="addMeLine()">+ ${ar?'إضافة سطر':'Add line'}</button>
+      </div>
 
-    <div style="margin-top:12px;padding:10px 12px;background:var(--tint);border-radius:7px;font-size:11px;color:var(--muted);line-height:1.5;">
-      💡 ${ar?'<strong>قاعدة القيد المزدوج:</strong> مجموع المدين يجب أن يساوي مجموع الدائن. كل سطر إما مدين أو دائن (وليس كلاهما).':'<strong>Double-entry rule:</strong> total debits must equal total credits. Each line is either debit or credit (not both).'}
-    </div>
+      <div style="margin-top:12px;padding:10px 12px;background:var(--tint);border-radius:7px;font-size:11px;color:var(--muted);line-height:1.5;">
+        💡 ${ar?'<strong>قاعدة القيد المزدوج:</strong> مجموع المدين يجب أن يساوي مجموع الدائن. كل سطر إما مدين أو دائن (وليس كلاهما).':'<strong>Double-entry rule:</strong> total debits must equal total credits. Each line is either debit or credit (not both).'}
+      </div>
+    ` : `
+      <!-- ─── SIMPLIFIED MODE (single amount field + plain summary) ─── -->
+      <div style="margin-top:18px;">
+        <label style="display:block;font-size:13px;font-weight:700;color:var(--ink);margin-bottom:6px;">
+          ${ar?'المبلغ (ريال)':'Amount (SAR)'}
+        </label>
+        <input type="number" step="0.01" min="0" id="me-simple-amount"
+               value="${manualEntry.lines.find(l=>l.debit)?.debit || manualEntry.lines.find(l=>l.credit)?.credit || ''}"
+               oninput="updateSimpleAmount(this.value)"
+               placeholder="0.00"
+               style="width:100%;padding:11px 14px;font-size:18px;font-weight:600;border:2px solid var(--border);border-radius:8px;font-family:inherit;color:var(--ink);text-align:end;">
+      </div>
+
+      <div style="margin-top:14px;padding:12px 14px;background:#f7faf8;border:1px solid var(--light);border-radius:8px;">
+        <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:6px;">
+          ${ar?'سيتم تسجيل':'This will record'}
+        </div>
+        <div id="me-simple-summary" style="display:flex;flex-direction:column;gap:5px;font-size:13px;color:var(--ink);">
+          ${manualEntry.lines.map(line => `
+            <div style="display:flex;align-items:center;gap:8px;">
+              <span>${plainLineSummary(line)}</span>
+            </div>
+          `).join('')}
+        </div>
+        <div style="margin-top:8px;font-size:11px;color:var(--muted);font-style:italic;">
+          ${ar?'القيد المحاسبي سيتم إنشاؤه تلقائياً (المدين = الدائن).':'The accounting entry will be created automatically (debit = credit).'}
+        </div>
+      </div>
+
+      <details style="margin-top:14px;">
+        <summary style="cursor:pointer;font-size:11px;color:var(--muted);user-select:none;">
+          ${ar?'⚙ تخصيص الحسابات (متقدم)':'⚙ Customize accounts (advanced)'}
+        </summary>
+        <div style="margin-top:10px;padding:10px;background:#fafbfc;border:1px dashed var(--border);border-radius:6px;">
+          <div style="font-size:11px;color:var(--muted);margin-bottom:8px;">
+            ${ar?'إذا أردت تغيير الحسابات الافتراضية:':'If you want to change the default accounts:'}
+          </div>
+          ${manualEntry.lines.map((line, i) => `
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+              <span style="flex:0 0 80px;font-size:11px;color:var(--muted);">${line._hint_debit ? (ar?'مدين':'Debit') : (ar?'دائن':'Credit')}:</span>
+              <select onchange="updateMeLine(${i}, 'account_code', this.value)" style="flex:1;padding:5px 8px;font-size:12px;border:1px solid var(--border);border-radius:5px;font-family:inherit;">
+                <option value="">— ${ar?'اختر':'select'} —</option>
+                ${acctOptions.replace(`value="${line.account_code}"`, `value="${line.account_code}" selected`)}
+              </select>
+            </div>
+          `).join('')}
+        </div>
+      </details>
+    ` }
   `;
 
   updateMeBalanceRow();
@@ -4404,6 +4520,52 @@ function updateMeLine(i, field, value){
   } else {
     manualEntry.lines[i][field] = value;
   }
+  updateMeBalanceRow();
+  /* In simplified mode, account changes need to update the "This will
+     record" plain-language summary. Surgical DOM patch (vs full re-render)
+     so the Customize-accounts <details> panel stays open. */
+  if(field === 'account_code'){
+    const currentTpl = ENTRY_TEMPLATES.find(t => t.id === manualEntry.templateId);
+    if(currentTpl && currentTpl.id !== 'free_form'){
+      refreshSimpleSummary();
+    }
+  }
+}
+
+/* Re-render only the lines inside the "This will record" summary box,
+   preserving open state of the Customize-accounts <details>. */
+function refreshSimpleSummary(){
+  const box = document.getElementById('me-simple-summary');
+  if(!box) return;
+  const ar = currentLang === 'ar';
+  box.innerHTML = manualEntry.lines.map(line => {
+    const acct = chartOfAccounts.find(a => a.code === line.account_code);
+    if(!acct) return '';
+    const name = ar ? (acct.name_ar || acct.name_en) : (acct.name_en || acct.name_ar);
+    const isIncrease = (acct.normal === 'DR') ? !!line._hint_debit : !line._hint_debit;
+    const verb  = ar ? (isIncrease ? 'زيادة' : 'تخفيض') : (isIncrease ? 'Increase' : 'Decrease');
+    const arrow = isIncrease ? '↑' : '↓';
+    return `<div style="display:flex;align-items:center;gap:8px;">
+              <span>${arrow} <strong>${escHTML(name)}</strong> — ${verb}</span>
+            </div>`;
+  }).join('');
+}
+
+/* Tier 1 UX: when user types into the single "Amount" input in simplified
+   mode, distribute it correctly across lines based on their _hint_debit flag.
+   The user never sees the words "debit" or "credit" — they see one amount
+   and a plain-language summary of what happens. */
+function updateSimpleAmount(value){
+  const n = parseFloat(value) || 0;
+  manualEntry.lines.forEach(line => {
+    if(line._hint_debit){
+      line.debit  = n > 0 ? n : '';
+      line.credit = '';
+    } else {
+      line.credit = n > 0 ? n : '';
+      line.debit  = '';
+    }
+  });
   updateMeBalanceRow();
 }
 
