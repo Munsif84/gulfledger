@@ -1823,6 +1823,88 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   </div>
 </div>
 
+<!-- ═══════════════════════════════════════════════════════
+     RECEIPT PAYMENT MODAL — R-2 audit fix (Workflow E Blocker)
+     Record additional payments against a stock receipt bill.
+     Mirrors finance.html's expense payment pattern.
+═══════════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="rcppay-modal">
+  <div class="modal" style="max-width:560px;">
+    <div class="modal-header">
+      <h3 data-ar="تسجيل دفعة على سند الاستلام" data-en="Record Payment on Receipt">تسجيل دفعة على سند الاستلام</h3>
+      <button class="modal-close" onclick="closeReceiptPayment()">×</button>
+    </div>
+    <div class="modal-body">
+      <!-- Read-only summary -->
+      <div style="background:var(--tint);padding:12px 14px;border-radius:8px;margin-bottom:16px;font-size:13px;">
+        <div style="display:flex;justify-content:space-between;padding:3px 0;">
+          <span style="color:var(--muted);" data-ar="رقم الاستلام" data-en="Receipt #">رقم الاستلام</span>
+          <span id="rcppay-receipt-number" style="font-family:'DM Mono',monospace;font-weight:700;">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:3px 0;">
+          <span style="color:var(--muted);" data-ar="المورد" data-en="Supplier">المورد</span>
+          <span id="rcppay-supplier" style="font-weight:600;">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:3px 0;">
+          <span style="color:var(--muted);" data-ar="الإجمالي" data-en="Total">الإجمالي</span>
+          <span id="rcppay-total" style="font-family:'DM Mono',monospace;">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:3px 0;">
+          <span style="color:var(--muted);" data-ar="المدفوع سابقاً" data-en="Already Paid">المدفوع سابقاً</span>
+          <span id="rcppay-already-paid" style="font-family:'DM Mono',monospace;">—</span>
+        </div>
+        <div style="display:flex;justify-content:space-between;padding:6px 0 3px;border-top:1px solid var(--border);margin-top:4px;">
+          <span style="color:var(--ink);font-weight:700;" data-ar="المتبقي" data-en="Remaining">المتبقي</span>
+          <span id="rcppay-remaining" style="font-family:'DM Mono',monospace;font-weight:700;color:var(--amber);">—</span>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">
+          <span data-ar="مبلغ الدفعة" data-en="Payment Amount">مبلغ الدفعة</span>
+          <span style="color:var(--red);">*</span>
+        </div>
+        <input type="number" id="rcppay-amount" min="0" step="0.01" placeholder="0.00">
+      </div>
+
+      <div class="field-row">
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="تاريخ الدفع" data-en="Payment Date">تاريخ الدفع</span>
+            <span style="color:var(--red);">*</span>
+          </div>
+          <input type="date" id="rcppay-date">
+        </div>
+        <div class="field">
+          <div class="field-label">
+            <span data-ar="طريقة الدفع" data-en="Payment Method">طريقة الدفع</span>
+          </div>
+          <select id="rcppay-method">
+            <option value="cash" data-ar="نقدي" data-en="Cash">نقدي · Cash</option>
+            <option value="bank" data-ar="تحويل بنكي" data-en="Bank Transfer">تحويل بنكي · Bank Transfer</option>
+            <option value="cheque" data-ar="شيك" data-en="Cheque">شيك · Cheque</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <div class="field-label">
+          <span data-ar="ملاحظات (اختياري)" data-en="Notes (optional)">ملاحظات (اختياري)</span>
+        </div>
+        <input type="text" id="rcppay-note" placeholder="مرجع التحويل · رقم الشيك · Reference">
+      </div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-secondary" onclick="closeReceiptPayment()">
+        <span data-ar="إلغاء" data-en="Cancel">إلغاء</span>
+      </button>
+      <button class="btn btn-primary" id="btn-confirm-rcppay" onclick="saveReceiptPayment()">
+        💵 <span data-ar="تأكيد الدفعة" data-en="Confirm Payment">تأكيد الدفعة</span>
+      </button>
+    </div>
+  </div>
+</div>
+
 <script>
 /* ═══════════════════════════════════════════════════════
    GulfLedger — inventory.html JavaScript
@@ -5848,6 +5930,10 @@ function renderReceiptDrawer(receipt, sup, lineItems){
       </div>
       ${!isVoided ? `
       <div class="drawer-actions">
+        ${(parseFloat(receipt.total)||0) - (parseFloat(receipt.amount_paid)||0) > 0.005 ? `
+          <button class="btn btn-primary" onclick="openReceiptPayment('${receipt.id}')">
+            💵 ${ar?'تسجيل دفعة':'Record Payment'}
+          </button>` : ''}
         <button class="btn btn-danger" onclick="closeDrawer();voidReceipt('${receipt.id}')">
           🚫 ${ar?'إلغاء الاستلام':'Void receipt'}
         </button>
@@ -6148,6 +6234,239 @@ async function voidReceipt(receiptId){
 
   notify(currentLang==='ar'?'✅ تم إلغاء الاستلام':'✅ Receipt voided','success');
   await loadAll();
+}
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   RECEIPT PAYMENT FLOW — R-2 audit fix (Workflow E Blocker)
+   
+   Previously: receipts could only set amount_paid at initial save. After save,
+   no way to record additional payments. Trial users would see "Partial"
+   receipts in the Bills view that they couldn't mark paid.
+   
+   This module mirrors finance.html's expense payment pattern:
+     1. openReceiptPayment(id) — opens modal with summary + form
+     2. saveReceiptPayment() — validates + writes: receipt.amount_paid,
+        receipt.payment_status, supplier.total_outstanding, journal entry
+     3. closeReceiptPayment() — cleanup
+   
+   Atomicity note: like the expense pattern, steps run sequentially. If any
+   step fails after the receipt update, we log a warning but don't roll back.
+   The recompute SQL function can reconcile drift if needed.
+═══════════════════════════════════════════════════════════════════════════ */
+
+let _currentRcpPayId = null;
+
+function openReceiptPayment(receiptId){
+  const receipt = allReceipts.find(r => r.id === receiptId);
+  if(!receipt){
+    notify(currentLang==='ar'?'الاستلام غير موجود':'Receipt not found','error');
+    return;
+  }
+  if(receipt.status === 'voided'){
+    notify(currentLang==='ar'?'لا يمكن الدفع لاستلام ملغي':'Cannot pay a voided receipt','error');
+    return;
+  }
+  const total = parseFloat(receipt.total) || 0;
+  const paid = parseFloat(receipt.amount_paid) || 0;
+  const remaining = total - paid;
+  if(remaining <= 0.005){
+    notify(currentLang==='ar'?'هذا الاستلام مدفوع بالكامل':'This receipt is fully paid','info');
+    return;
+  }
+
+  _currentRcpPayId = receiptId;
+
+  /* Populate the summary fields. Supplier name prefers snapshot (frozen), then live */
+  const ar = currentLang === 'ar';
+  const supName = receipt.supplier_name_snapshot
+    || resolveReceiptSupplierName(receipt.supplier_id)
+    || '—';
+
+  setText('rcppay-receipt-number', receipt.receipt_number || '—');
+  setText('rcppay-supplier', supName);
+  setText('rcppay-total', 'SAR ' + fmt(total));
+  setText('rcppay-already-paid', 'SAR ' + fmt(paid));
+  setText('rcppay-remaining', 'SAR ' + fmt(remaining));
+
+  /* Pre-fill form */
+  setVal('rcppay-amount', remaining.toFixed(2));
+  setVal('rcppay-date', todayISO());
+  setVal('rcppay-method', 'cash');
+  setVal('rcppay-note', '');
+
+  document.getElementById('rcppay-modal').classList.add('open');
+  /* Focus the amount field so user can adjust if needed */
+  setTimeout(() => document.getElementById('rcppay-amount')?.focus(), 100);
+}
+
+/* Resolve supplier name from cached allSuppliers list. Lighter than the
+   bills-specific resolver in finance.html since we have full supplier data here. */
+function resolveReceiptSupplierName(supplierId){
+  if(!supplierId) return null;
+  const s = allSuppliers.find(x => x.id === supplierId);
+  if(!s) return null;
+  return currentLang === 'ar' ? (s.name_ar || s.name_en) : (s.name_en || s.name_ar);
+}
+
+function closeReceiptPayment(){
+  document.getElementById('rcppay-modal').classList.remove('open');
+  _currentRcpPayId = null;
+}
+
+async function saveReceiptPayment(){
+  if(!_currentRcpPayId) return;
+  const receipt = allReceipts.find(r => r.id === _currentRcpPayId);
+  if(!receipt){
+    notify(currentLang==='ar'?'الاستلام غير موجود':'Receipt not found','error');
+    return;
+  }
+
+  const newPayAmount = parseFloat(v('rcppay-amount')) || 0;
+  const payDate = v('rcppay-date');
+  const payMethod = v('rcppay-method');
+  const payNote = v('rcppay-note');
+  const ar = currentLang === 'ar';
+
+  if(newPayAmount <= 0){
+    notify(ar?'مبلغ الدفعة يجب أن يكون أكبر من صفر':'Payment amount must be > 0','error');
+    return;
+  }
+  if(!payDate){
+    notify(ar?'تاريخ الدفع مطلوب':'Payment date required','error');
+    return;
+  }
+
+  const total = parseFloat(receipt.total) || 0;
+  const alreadyPaid = parseFloat(receipt.amount_paid) || 0;
+  const remaining = total - alreadyPaid;
+  if(newPayAmount > remaining + 0.01){
+    notify(ar?'المبلغ يتجاوز المتبقي':'Amount exceeds remaining','error');
+    return;
+  }
+
+  const newTotalPaid = Math.min(total, alreadyPaid + newPayAmount);
+  /* Status reflects the new state */
+  const newPayStatus = newTotalPaid >= total - 0.005 ? 'paid' : 'partial';
+
+  /* Round B-VAT: enforce closed-period rule (same as receipt creation) */
+  if(window.gl?.filings && currentBiz?.id){
+    const closeCheck = await window.gl.filings.isDateInClosedPeriod(currentBiz.id, payDate);
+    if(closeCheck.closed){
+      const f = closeCheck.filing;
+      const typeLabel = (f.filing_type === 'vat') ? (ar?'إقرار VAT':'VAT Return')
+        : (f.filing_type === 'annual') ? (ar?'إقرار الزكاة / ضريبة الدخل':'Zakat / Income Tax filing')
+        : (ar?'قوائم':'Qawaem');
+      notify(ar
+        ? `لا يمكن تسجيل دفعة بتاريخ ضمن فترة مُقدَّمة (${typeLabel}). اختر تاريخاً خارج الفترة المغلقة.`
+        : `Cannot record payment dated within a filed period (${typeLabel}). Choose a date outside the closed period.`,
+        'error');
+      return;
+    }
+  }
+
+  const btn = document.getElementById('btn-confirm-rcppay');
+  btn.disabled = true;
+
+  /* 1. Update the receipt — this was the missing piece before this fix */
+  const {error: rcpErr} = await sb.from('stock_receipts').update({
+    amount_paid: newTotalPaid,
+    payment_status: newPayStatus,
+    updated_at: new Date().toISOString()
+  }).eq('id', _currentRcpPayId);
+
+  if(rcpErr){
+    btn.disabled = false;
+    notify(friendlyDbError(rcpErr), 'error');
+    return;
+  }
+
+  /* 2. Reduce supplier outstanding by the payment amount */
+  if(receipt.supplier_id){
+    const sup = allSuppliers.find(s => s.id === receipt.supplier_id);
+    if(sup){
+      const newOutstanding = Math.max(0, (parseFloat(sup.total_outstanding) || 0) - newPayAmount);
+      const {error: supErr} = await sb.from('suppliers').update({
+        total_outstanding: newOutstanding,
+        updated_at: new Date().toISOString()
+      }).eq('id', receipt.supplier_id);
+      if(supErr) console.warn('[GL] supplier outstanding update failed:', supErr);
+    }
+  }
+
+  /* 3. Post payment journal entry: DR AP / CR Cash or Bank */
+  await postReceiptPaymentJournal(receipt, newPayAmount, payMethod, payDate, payNote);
+
+  /* 4. Audit log (best-effort) */
+  if(typeof writeAuditLog === 'function'){
+    try {
+      await writeAuditLog({
+        entity_type: 'stock_receipt',
+        entity_id: _currentRcpPayId,
+        entity_reference: receipt.receipt_number,
+        action: 'paid',
+        after_data: {
+          payment_amount: newPayAmount,
+          payment_method: payMethod,
+          payment_date: payDate,
+          note: payNote || null,
+          new_total_paid: newTotalPaid,
+          new_payment_status: newPayStatus
+        }
+      });
+    } catch(e){ console.warn('[GL] audit log skipped:', e.message); }
+  }
+
+  notify(ar
+    ? `✅ تم تسجيل دفعة بقيمة SAR ${fmt(newPayAmount)}`
+    : `✅ Payment of SAR ${fmt(newPayAmount)} recorded`,
+    'success');
+
+  closeReceiptPayment();
+  closeDrawer();  /* Close the drawer too — it has stale data */
+  await loadAll();  /* Reload everything so list, drawer, stats reflect new state */
+}
+
+/* Post journal: DR Accounts Payable / CR Cash or Bank.
+   Best-effort — won't fail the whole flow if journal tables unavailable. */
+async function postReceiptPaymentJournal(receipt, payAmount, payMethod, payDate, note){
+  const ar = currentLang === 'ar';
+  /* Account codes follow inventory.html's CODE constants for AP (SOCPA-aware).
+     Cash/Bank codes match the pattern used in finance.html postPaymentJournal. */
+  const debitAcct = CODE.AP;
+  const debitName = ar ? 'موردون - حسابات دائنة' : 'Accounts Payable';
+  const creditAcct = (payMethod === 'bank') ? '1101' : '1100';
+  const creditName = (payMethod === 'bank') ? (ar?'البنك':'Bank') : (ar?'الصندوق':'Cash');
+  const desc = ar
+    ? `دفعة على ${receipt.receipt_number}${note ? ' — ' + note : ''}`
+    : `Payment on ${receipt.receipt_number}${note ? ' — ' + note : ''}`;
+
+  try {
+    const {data: entry, error} = await sb.from('journal_entries').insert({
+      user_id: currentUser.id,
+      business_id: currentBiz.id,
+      entry_date: payDate,
+      reference: receipt.receipt_number + ' (PAY)',
+      description: desc,
+      source: 'receipt_payment',
+      source_id: receipt.id,
+      is_balanced: true,
+      status: 'posted'
+    }).select().single();
+
+    if(error){
+      console.warn('[GL] Receipt payment journal not posted:', error.message);
+      return;
+    }
+
+    await sb.from('journal_lines').insert([
+      { entry_id: entry.id, user_id: currentUser.id, account_code: debitAcct, account_name: debitName,
+        debit: payAmount, credit: 0, description: desc },
+      { entry_id: entry.id, user_id: currentUser.id, account_code: creditAcct, account_name: creditName,
+        debit: 0, credit: payAmount, description: desc }
+    ]);
+  } catch(e){
+    console.warn('[GL] Receipt payment journal skipped:', e.message);
+  }
 }
 
 async function postReceiptVoidJournal(receipt){
@@ -6780,7 +7099,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-21</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-21 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-24</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-24 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
