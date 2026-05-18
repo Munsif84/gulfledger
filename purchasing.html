@@ -699,7 +699,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
     </div>
   </div>
 
-  <!-- Bills tab moved to finance.html (Round v2026.05.17-16).
+  <!-- Bills tab moved to finance.html (Round v2026.05.17-17).
        AP belongs in Finance, not Purchasing. -->
 
   <!-- ════════════════════════════════════════════════
@@ -1692,7 +1692,7 @@ function poStatusBadge(status){
   return `<span style="background:${m.bg};color:${m.fg};padding:3px 10px;border-radius:10px;font-size:11px;font-weight:700;display:inline-block;">${ar?m.ar:m.en}</span>`;
 }
 
-/* Bills tab markup + JS moved to finance.html (Round v2026.05.17-16) */
+/* Bills tab markup + JS moved to finance.html (Round v2026.05.17-17) */
 
 
 /* ───── PO CREATE MODAL ───── */
@@ -3005,6 +3005,7 @@ const PRODUCT_COLS = [
   { key: 'category',     ar: 'الفئة',            en: 'Category',          cls: '',    sortable: true },
   { key: 'subcategory',  ar: 'الفئة الفرعية',    en: 'Sub-category',      cls: '',    sortable: true },
   { key: 'qty',          ar: 'المخزون',          en: 'Stock',             cls: 'num', sortable: true },
+  { key: 'reorder',      ar: 'حد الطلب',         en: 'Reorder Point',     cls: 'num', sortable: true },
   { key: 'cost',         ar: 'تكلفة مخزّنة',     en: 'Stored Cost',       cls: 'num', sortable: true },
   { key: 'last_cost',    ar: 'آخر تكلفة استلام', en: 'Last Receipt Cost', cls: 'num', sortable: true },
   { key: 'sale',         ar: 'سعر البيع',        en: 'Sale Price',        cls: 'num', sortable: true },
@@ -3069,10 +3070,13 @@ function renderProducts(){
       : m.stock_status === 'low'
         ? `<span class="stock-badge low">${fmt(m.qty)}</span>`
         : `<span class="stock-badge ok">${fmt(m.qty)}</span>`;
-    const unit = it.unit || 'pcs';
-    const stockCell = `${stockBadge} <span style="font-size:11px;color:var(--muted);">${escHTML(unit)}</span>${
-      m.reorder > 0 ? `<div class="cell-subtitle">${ar?'حد':'min'} ${fmt(m.reorder)}</div>` : ''
-    }`;
+    /* R-2 (May 2026): One value per column. Stock cell shows ONLY the qty badge.
+       UOM has its own column. Reorder Point has its own column now. */
+    const stockCell = stockBadge;
+    /* Reorder cell: muted dash if not set, mono number if set. */
+    const reorderCell = m.reorder > 0
+      ? `<span style="color:var(--muted);">${fmt(m.reorder)}</span>`
+      : '<span style="color:var(--muted);">—</span>';
 
     const mismatchIcon = m.mismatch_flag
       ? `<span class="cost-warn" title="${ar
@@ -3105,6 +3109,7 @@ function renderProducts(){
         <td>${escHTML(categoryParentName(it.category_id) || it.category || '—')}</td>
         <td>${escHTML(categorySubName(it.category_id) || '—')}</td>
         <td class="num">${stockCell}</td>
+        <td class="num">${reorderCell}</td>
         <td class="num">SAR ${fmt(m.cost)}${mismatchIcon}</td>
         <td class="num">${lastCostCell}</td>
         <td class="num">SAR ${fmt(m.sale)}</td>
@@ -3158,6 +3163,7 @@ function sortCompare(a, b, col, dir){
       bv = (uomName(b.item.unit_id || b.item.unit) || '').toLowerCase();
       return sign * av.localeCompare(bv);
     case 'qty':       av = a.m.qty;          bv = b.m.qty;          break;
+    case 'reorder':   av = a.m.reorder ?? 0; bv = b.m.reorder ?? 0; break;
     case 'cost':      av = a.m.cost;         bv = b.m.cost;         break;
     case 'last_cost': av = a.m.last_cost ?? -Infinity; bv = b.m.last_cost ?? -Infinity; break;
     case 'sale':      av = a.m.sale;         bv = b.m.sale;         break;
@@ -3526,7 +3532,7 @@ document.addEventListener('keydown', function(e){
 });
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-16</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-16 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-17</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-17 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
