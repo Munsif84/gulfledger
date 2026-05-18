@@ -1541,7 +1541,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         <div class="gl-qa-cat" data-ar="محاسبة" data-en="Accounting">محاسبة</div>
         <a href="accounting.html?sub=ledger&action=new_journal" class="gl-qa-item" role="menuitem">
           <span class="gl-qa-icon">📒</span>
-          <span data-ar="قيد محاسبي" data-en="New Journal Entry">قيد محاسبي</span>
+          <span data-ar="قيد خاص" data-en="Special Entry">قيد خاص</span>
         </a>
       </div>
     </div>
@@ -1748,7 +1748,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           ⬇ <span data-ar="تصدير CSV" data-en="Export CSV">تصدير CSV</span>
         </button>
         <button class="new-entry-btn" onclick="openManualEntryModal()">
-          ➕ <span data-ar="قيد جديد" data-en="New Entry">قيد جديد</span>
+          ➕ <span data-ar="قيد خاص" data-en="Special Entry">قيد خاص</span>
         </button>
       </div>
 
@@ -1971,7 +1971,7 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   <div id="manual-entry-overlay" class="gl-modal-overlay" style="display:none;" onclick="if(event.target===this)closeManualEntryModal()">
     <div class="gl-modal">
       <div class="gl-modal-head">
-        <h3 data-ar="قيد محاسبي يدوي" data-en="Manual Journal Entry">قيد محاسبي يدوي</h3>
+        <h3 data-ar="قيود محاسبية خاصة" data-en="Special Accounting Entries">قيود محاسبية خاصة</h3>
         <button type="button" class="gl-modal-close" onclick="closeManualEntryModal()">×</button>
       </div>
       <div class="gl-modal-body" id="manual-entry-body">
@@ -4235,12 +4235,33 @@ function renderManualEntryBody(){
 
   /* If no template chosen yet, show template picker */
   if(!manualEntry.templateId){
+    /* Tier 1 UX: split friendly templates from the Advanced (free-form) option
+       so non-accountants can clearly see scenarios that don't require knowing
+       debit/credit. Advanced stays available but visually de-emphasized. */
+    const friendlyTpls = ENTRY_TEMPLATES.filter(t => t.id !== 'free_form');
+    const advancedTpl  = ENTRY_TEMPLATES.find(t => t.id === 'free_form');
+
     body.innerHTML = `
-      <div style="font-size:13px;color:var(--muted);margin-bottom:12px;line-height:1.5;">
-        ${ar?'اختر سيناريو شائع أو اختر "قيد متقدم" لإدخال حر:':'Pick a common scenario, or choose "Advanced" for free-form entry:'}
+      <!-- Intro: tell the user what this page is for, in plain language -->
+      <div style="background:var(--tint);border:1px solid var(--light);border-radius:10px;padding:12px 14px;margin-bottom:14px;">
+        <div style="font-weight:700;color:var(--navy);font-size:14px;margin-bottom:6px;">
+          ${ar ? '📒 قيود محاسبية خاصة' : '📒 Special Accounting Entries'}
+        </div>
+        <div style="font-size:13px;color:var(--ink);line-height:1.6;margin-bottom:6px;">
+          ${ar
+            ? 'للحالات المحاسبية التي لا تندرج تحت المبيعات أو المصاريف أو المخزون — مثل: الإهلاك، إيداع رأس مال، تسويات نهاية الفترة، أو الديون المعدومة.'
+            : 'For accounting scenarios that don\'t fit Sales, Expenses, or Inventory — like depreciation, owner contributions, period-end adjustments, or bad debts.'}
+        </div>
+        <div style="font-size:12px;color:var(--muted);font-style:italic;line-height:1.5;">
+          ${ar
+            ? 'اختر السيناريو من الأسفل — سنُعدّ القيد المحاسبي لك. ستحتاج فقط لإدخال المبلغ.'
+            : 'Pick a scenario below — we\'ll set up the journal entry for you. You only need to enter the amount.'}
+        </div>
       </div>
+
+      <!-- Friendly templates (no accounting knowledge needed) -->
       <div class="template-grid">
-        ${ENTRY_TEMPLATES.map(t => `
+        ${friendlyTpls.map(t => `
           <button type="button" class="template-card" onclick="pickTemplate('${t.id}')">
             <div class="icon">${t.icon}</div>
             <div class="title">${escHTML(ar ? t.title_ar : t.title_en)}</div>
@@ -4248,6 +4269,24 @@ function renderManualEntryBody(){
           </button>
         `).join('')}
       </div>
+
+      <!-- Advanced section — visually separated, lower emphasis -->
+      ${advancedTpl ? `
+        <div style="margin-top:18px;padding-top:14px;border-top:1px dashed var(--border);">
+          <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:8px;">
+            ${ar ? 'للمحاسبين المتمرسين' : 'For accountants'}
+          </div>
+          <button type="button" class="template-card" onclick="pickTemplate('${advancedTpl.id}')"
+                  style="opacity:0.75;background:#fafbfc;border-style:dashed;">
+            <div class="icon">${advancedTpl.icon}</div>
+            <div class="title">${escHTML(ar ? advancedTpl.title_ar : advancedTpl.title_en)}</div>
+            <div class="sub">${escHTML(ar ? advancedTpl.sub_ar : advancedTpl.sub_en)}</div>
+            <div style="margin-top:6px;font-size:10px;color:#b45309;font-weight:600;">
+              ${ar ? '⚠ يتطلب معرفة محاسبية' : '⚠ Requires accounting knowledge'}
+            </div>
+          </button>
+        </div>
+      ` : ''}
     `;
     document.getElementById('manual-entry-balance').innerHTML = '';
     return;
@@ -12389,7 +12428,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-12</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-12 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.18-28</div>
+<script>console.log('%c[GulfLedger build] v2026.05.18-28 · Special Entries UX (Tier 1)', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
