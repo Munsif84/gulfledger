@@ -3839,22 +3839,34 @@ function renderJournalEntryCard(entry, lines){
       <span class="cr-val">${fmt(l.credit)}</span>
     </div>`).join('');
 
-  /* Reverse button (Round 12: only allowed on truly manual entries).
-     Source-linked entries (invoice/expense/stock_*) must be reversed from their source module
-     — otherwise the journal flips but the source document and inventory stay out of sync. */
-  const sourceLinked = entry.source && !['manual', 'reversal', 'opening_balance'].includes(entry.source);
-  const canReverse = !isVoided && !isReversal && !reversedBy && !sourceLinked;
+  /* Reverse button (Round 17: reversal-class sources never get a button;
+     they ARE the reversal. Source-linked entries get "Reverse from source"
+     pointing to the right module. Manual / opening-balance / null sources
+     get the in-place blue Reverse button.
+
+     Source map: covers every value written by the Round 17 atomic RPCs
+     plus the legacy values. Expense paths point to finance.html (the
+     real expense UI lives there — expenses.html is a stub). */
+  const reversalClassSources = [
+    'reversal', 'invoice_reversal', 'credit_note',
+    'expense_reversal', 'expense_void',
+    'receipt_reversal', 'stock_receipt_void'
+  ];
+  const isReversalClass = reversalClassSources.includes(entry.source);
+  const manualClassSources = ['manual', 'opening_balance', '', null, undefined];
+  const isManualClass = manualClassSources.includes(entry.source);
+  const sourceLinked = !!entry.source && !isManualClass && !isReversalClass;
+  const canReverse = !isVoided && !isReversal && !reversedBy && !sourceLinked && !isReversalClass;
 
   /* Helper text for blocked reversal: tells the user where to go */
   const sourceModule = ({
-    invoice: { ar: 'الفواتير', en: 'Invoices', href: 'invoices.html' },
-    credit_note: { ar: 'الفواتير', en: 'Invoices', href: 'invoices.html' },
-    expense: { ar: 'المصروفات', en: 'Expenses', href: 'expenses.html' },
-    expense_payment: { ar: 'المصروفات', en: 'Expenses', href: 'expenses.html' },
-    expense_void: { ar: 'المصروفات', en: 'Expenses', href: 'expenses.html' },
-    stock_receipt: { ar: 'المخزون', en: 'Inventory', href: 'inventory.html' },
-    stock_receipt_void: { ar: 'المخزون', en: 'Inventory', href: 'inventory.html' },
-    stock_adjustment: { ar: 'المخزون', en: 'Inventory', href: 'inventory.html' }
+    invoice:           { ar: 'الفواتير',    en: 'Invoices',   href: 'invoices.html' },
+    payment:           { ar: 'الفواتير',    en: 'Invoices',   href: 'invoices.html' },
+    expense:           { ar: 'المصروفات',   en: 'Expenses',   href: 'finance.html?tab=expenses' },
+    expense_payment:   { ar: 'المصروفات',   en: 'Expenses',   href: 'finance.html?tab=expenses' },
+    stock_receipt:     { ar: 'المخزون',     en: 'Inventory',  href: 'inventory.html' },
+    stock_adjustment:  { ar: 'المخزون',     en: 'Inventory',  href: 'inventory.html' },
+    receipt_payment:   { ar: 'المخزون',     en: 'Inventory',  href: 'inventory.html' }
   })[entry.source];
 
   let reverseBtn = '';
@@ -3863,10 +3875,12 @@ function renderJournalEntryCard(entry, lines){
   } else if(sourceLinked && !isVoided && !isReversal && !reversedBy && sourceModule){
     /* Show greyed-out hint instead of nothing — explains why and where to go */
     const hint = ar
-      ? `للعكس، افتح ${sourceModule.ar} وأنشئ إشعار دائن`
-      : `To reverse, open ${sourceModule.en} and issue a credit note`;
+      ? `للعكس، افتح ${sourceModule.ar} وأنشئ إشعار دائن أو ألغِ المستند الأصلي`
+      : `To reverse, open ${sourceModule.en} and void/credit the source document`;
     reverseBtn = `<a href="${sourceModule.href}" title="${escHTML(hint)}" style="color:var(--muted);font-weight:600;font-size:11px;text-decoration:none;cursor:help;border-bottom:1px dashed var(--muted);">↩ ${ar?'العكس من المصدر':'Reverse from source'}</a>`;
   }
+  /* If sourceLinked is true but sourceModule lookup misses (unknown source value),
+     no button shows — safer than a broken link. */
 
   return `
     <div class="je-card ${isVoided ? 'voided' : ''} ${isReversal ? 'reversal' : ''} ${reversedBy && !isVoided ? 'was-reversed' : ''} ${!balanced && !isVoided ? 'unbalanced' : ''}" id="je-${entry.id}">
@@ -4117,8 +4131,8 @@ const ENTRY_TEMPLATES = [
     sub_ar: 'تقسيط تكلفة الأصول الثابتة على عمرها الإنتاجي',
     sub_en: 'Spread fixed asset cost over useful life',
     lines: [
-      { dr: '5910', cr: '', desc_ar: 'إهلاك الفترة', desc_en: 'Period depreciation' },
-      { dr: '', cr: '1400', desc_ar: 'مجمع الإهلاك', desc_en: 'Accumulated depreciation' }
+      { dr: '7900', cr: '', desc_ar: 'إهلاك الفترة', desc_en: 'Period depreciation' },
+      { dr: '', cr: '1790', desc_ar: 'مجمع الإهلاك', desc_en: 'Accumulated depreciation' }
     ]
   },
   {
@@ -4129,8 +4143,8 @@ const ENTRY_TEMPLATES = [
     sub_ar: 'المالك أودع مبلغ في حساب المنشأة',
     sub_en: 'Owner deposited money into the business',
     lines: [
-      { dr: '1101', cr: '', desc_ar: 'إيداع من المالك', desc_en: 'Owner deposit' },
-      { dr: '', cr: '3100', desc_ar: 'رأس المال', desc_en: 'Owner capital' }
+      { dr: '1120', cr: '', desc_ar: 'إيداع من المالك', desc_en: 'Owner deposit' },
+      { dr: '', cr: '3100', desc_ar: 'رأس المال', desc_en: 'Share capital' }
     ]
   },
   {
@@ -4141,31 +4155,31 @@ const ENTRY_TEMPLATES = [
     sub_ar: 'المالك أخذ مبلغ من حساب المنشأة لاستخدام شخصي',
     sub_en: 'Owner took money out for personal use',
     lines: [
-      { dr: '3200', cr: '', desc_ar: 'سحوبات المالك', desc_en: 'Owner drawings' },
-      { dr: '', cr: '1101', desc_ar: 'من البنك', desc_en: 'From bank' }
+      { dr: '3100', cr: '', desc_ar: 'تخفيض رأس المال', desc_en: 'Reduce share capital' },
+      { dr: '', cr: '1120', desc_ar: 'من البنك', desc_en: 'From bank' }
     ]
   },
   {
     id: 'accrual',
     icon: '📅',
-    title_ar: 'مصروف مستحق نهاية الفترة',
-    title_en: 'Period-end Accrual',
-    sub_ar: 'مصروف فعلي لكن لم تستلم فاتورته بعد (مثل: راتب نهاية الشهر)',
-    sub_en: 'Expense incurred but invoice not yet received (e.g. end-of-month salary)',
+    title_ar: 'راتب مستحق نهاية الفترة',
+    title_en: 'Period-end Salary Accrual',
+    sub_ar: 'راتب الموظف مستحق لكن لم يُدفع بعد (نهاية الشهر)',
+    sub_en: 'Employee salary owed but not yet paid (end of month)',
     lines: [
-      { dr: '5400', cr: '', desc_ar: 'مصروف مستحق', desc_en: 'Accrued expense' },
-      { dr: '', cr: '2300', desc_ar: 'مستحقات للموظفين/الموردين', desc_en: 'Accrued liabilities' }
+      { dr: '7100', cr: '', desc_ar: 'رواتب إدارية مستحقة', desc_en: 'Accrued admin salaries' },
+      { dr: '', cr: '2310', desc_ar: 'رواتب مستحقة الدفع', desc_en: 'Salaries payable' }
     ]
   },
   {
     id: 'bank_transfer',
     icon: '🔁',
-    title_ar: 'تحويل بين الكاش والبنك',
-    title_en: 'Cash ↔ Bank Transfer',
-    sub_ar: 'إيداع نقدي في البنك أو سحب نقدي من البنك',
-    sub_en: 'Deposit cash to bank, or withdraw cash from bank',
+    title_ar: 'تحويل من الصندوق إلى البنك',
+    title_en: 'Cash → Bank Deposit',
+    sub_ar: 'إيداع مبلغ نقدي من الصندوق إلى الحساب البنكي',
+    sub_en: 'Deposit cash from the till into the bank account',
     lines: [
-      { dr: '1101', cr: '', desc_ar: 'إيداع في البنك', desc_en: 'Deposit to bank' },
+      { dr: '1120', cr: '', desc_ar: 'إيداع في البنك', desc_en: 'Deposit to bank' },
       { dr: '', cr: '1100', desc_ar: 'من الصندوق', desc_en: 'From cash' }
     ]
   },
@@ -4174,23 +4188,23 @@ const ENTRY_TEMPLATES = [
     icon: '❌',
     title_ar: 'شطب دين معدوم',
     title_en: 'Bad Debt Write-off',
-    sub_ar: 'عميل لن يدفع — شطب فاتورته',
-    sub_en: 'Customer won\'t pay — write off the invoice',
+    sub_ar: 'عميل لن يدفع — شطب فاتورته كخسارة',
+    sub_en: 'Customer won\'t pay — write off the invoice as a loss',
     lines: [
-      { dr: '6010', cr: '', desc_ar: 'مصروف ديون معدومة', desc_en: 'Bad debt expense' },
-      { dr: '', cr: '1200', desc_ar: 'إلغاء من ذمم العملاء', desc_en: 'Reduce customer receivable' }
+      { dr: '8100', cr: '', desc_ar: 'مصروف ديون معدومة', desc_en: 'Bad debt expense' },
+      { dr: '', cr: '1210', desc_ar: 'إلغاء ذمم العملاء', desc_en: 'Reduce customer receivable' }
     ]
   },
   {
     id: 'prepaid_amortize',
     icon: '🗓',
-    title_ar: 'تسوية مصروف مدفوع مقدماً',
-    title_en: 'Amortize Prepaid Expense',
-    sub_ar: 'تحويل جزء من المصروف المدفوع مقدماً (مثل: إيجار سنوي) إلى مصروف الفترة',
-    sub_en: 'Move part of a prepayment (e.g. annual rent) to period expense',
+    title_ar: 'تسوية إيجار مدفوع مقدماً',
+    title_en: 'Amortize Prepaid Rent',
+    sub_ar: 'تحويل جزء من الإيجار السنوي المدفوع مقدماً إلى مصروف الشهر',
+    sub_en: 'Move part of an annual prepaid rent to this period\'s rent expense',
     lines: [
-      { dr: '5300', cr: '', desc_ar: 'مصروف الفترة', desc_en: 'Period expense' },
-      { dr: '', cr: '1500', desc_ar: 'تخفيض المدفوع مقدماً', desc_en: 'Reduce prepayment' }
+      { dr: '7200', cr: '', desc_ar: 'مصروف إيجار الفترة', desc_en: 'Period rent expense' },
+      { dr: '', cr: '1410', desc_ar: 'تخفيض المدفوع مقدماً', desc_en: 'Reduce prepaid rent' }
     ]
   },
   {
@@ -4202,7 +4216,7 @@ const ENTRY_TEMPLATES = [
     sub_en: 'Bank charged a fee or monthly commission',
     lines: [
       { dr: '8300', cr: '', desc_ar: 'رسوم بنكية', desc_en: 'Bank charges' },
-      { dr: '', cr: '1101', desc_ar: 'خصم من البنك', desc_en: 'Deducted from bank' }
+      { dr: '', cr: '1120', desc_ar: 'خصم من البنك', desc_en: 'Deducted from bank' }
     ]
   },
   {
@@ -4213,7 +4227,7 @@ const ENTRY_TEMPLATES = [
     sub_ar: 'البنك أو الجهة الممولة أودعت مبلغ القرض في حسابك',
     sub_en: 'Bank or lender deposited the loan amount into your account',
     lines: [
-      { dr: '1101', cr: '', desc_ar: 'إيداع القرض', desc_en: 'Loan deposit' },
+      { dr: '1120', cr: '', desc_ar: 'إيداع القرض', desc_en: 'Loan deposit' },
       { dr: '', cr: '2810', desc_ar: 'التزام قرض', desc_en: 'Loan obligation' }
     ]
   },
@@ -4222,11 +4236,11 @@ const ENTRY_TEMPLATES = [
     icon: '🏦',
     title_ar: 'سداد دفعة من القرض',
     title_en: 'Loan Repayment',
-    sub_ar: 'دفعة دورية لتخفيض رصيد القرض (بدون الفوائد)',
+    sub_ar: 'دفعة دورية لتخفيض رصيد القرض (الأصل فقط، بدون الفوائد)',
     sub_en: 'Periodic payment reducing the loan balance (principal only, no interest)',
     lines: [
       { dr: '2810', cr: '', desc_ar: 'تخفيض القرض', desc_en: 'Reduce loan' },
-      { dr: '', cr: '1101', desc_ar: 'خصم من البنك', desc_en: 'Paid from bank' }
+      { dr: '', cr: '1120', desc_ar: 'خصم من البنك', desc_en: 'Paid from bank' }
     ]
   },
   {
@@ -4238,7 +4252,7 @@ const ENTRY_TEMPLATES = [
     sub_en: 'Buy a long-life asset like equipment or machinery (depreciated over years)',
     lines: [
       { dr: '1730', cr: '', desc_ar: 'شراء أصل ثابت', desc_en: 'Asset acquisition' },
-      { dr: '', cr: '1101', desc_ar: 'دفع من البنك', desc_en: 'Paid from bank' }
+      { dr: '', cr: '1120', desc_ar: 'دفع من البنك', desc_en: 'Paid from bank' }
     ]
   },
   {
@@ -4343,8 +4357,9 @@ function renderManualEntryBody(){
   const tpl = ENTRY_TEMPLATES.find(t => t.id === manualEntry.templateId);
   const isFreeForm = tpl.id === 'free_form';
 
-  /* Account dropdown options (leaf accounts only) */
-  const acctOptions = chartOfAccounts.filter(a => a.parent_code).map(a =>
+  /* Account dropdown options (postable leaf accounts only — exclude headers
+     since posting to a header account would corrupt the trial balance) */
+  const acctOptions = chartOfAccounts.filter(a => a.parent_code && !a.is_header).map(a =>
     `<option value="${a.code}">${a.code} — ${ar ? (a.name_ar || a.name_en || a.code) : (a.name_en || a.name_ar || a.code)}</option>`
   ).join('');
 
@@ -4637,40 +4652,31 @@ async function saveManualEntry(){
     }
   }
 
-  /* Insert journal_entries row */
-  const {data: entry, error: eErr} = await sb.from('journal_entries').insert({
-    user_id: currentUser.id,
-    business_id: currentBiz.id,
-    entry_date: manualEntry.date,
-    reference: manualEntry.reference || null,
-    description: manualEntry.description || null,
-    is_balanced: true,
-    source: 'manual',
-    source_id: null,
-    status: 'posted'
-  }).select().single();
-
-  if(eErr || !entry){
-    console.error('[GL] saveManualEntry insert entry:', eErr);
-    notify(ar?'فشل حفظ القيد':'Failed to save entry','error');
-    return;
-  }
-
-  /* Insert journal_lines */
+  /* Round 17 (Accounting Integrity): atomic RPC replaces the prior 2-call
+     insert pattern. post_journal_entry_atomic validates debit=credit
+     server-side, validates per-line invariants, and writes header + lines
+     in ONE transaction. If anything fails, NOTHING is written. */
   const lineRows = lines.map(l => ({
-    entry_id: entry.id,
-    user_id: currentUser.id,
     account_code: l.account_code,
     account_name: accountName(l.account_code) || l.account_code,
-    debit: parseFloat(l.debit) || 0,
+    debit:  parseFloat(l.debit)  || 0,
     credit: parseFloat(l.credit) || 0,
-    narration: l.narration || null,
     description: l.narration || null
   }));
-  const {error: lErr} = await sb.from('journal_lines').insert(lineRows);
-  if(lErr){
-    console.error('[GL] saveManualEntry insert lines:', lErr);
-    notify(ar?'فشل حفظ بنود القيد':'Failed to save entry lines','error');
+
+  const {error: rpcErr} = await sb.rpc('post_journal_entry_atomic', {
+    p_business_id: currentBiz.id,
+    p_entry_date:  manualEntry.date,
+    p_reference:   manualEntry.reference || null,
+    p_description: manualEntry.description || null,
+    p_source:      'manual',
+    p_source_id:   null,
+    p_lines:       lineRows
+  });
+
+  if(rpcErr){
+    console.error('[GL] saveManualEntry rpc:', rpcErr);
+    notify(friendlyManualEntryError(rpcErr, ar), 'error');
     return;
   }
 
@@ -4681,29 +4687,60 @@ async function saveManualEntry(){
   loadAndRenderLedger();
 }
 
+/* Round 17: bilingual error translator for the manual-entry atomic RPC */
+function friendlyManualEntryError(err, ar){
+  const msg = err?.message || '';
+  if(/^unbalanced/i.test(msg)){
+    return ar
+      ? 'القيد غير متوازن — المدين لا يساوي الدائن. لم يتم حفظ أي بيانات.'
+      : 'Entry is unbalanced — debits don\'t equal credits. Nothing was saved.';
+  }
+  if(/no_lines|invalid_line|invalid_amount/i.test(msg)){
+    return ar ? 'بيانات القيد غير صحيحة.' : 'Invalid entry data.';
+  }
+  if(/access_denied/i.test(msg)){
+    return ar ? 'غير مصرّح بهذه العملية.' : 'Not authorized for this operation.';
+  }
+  return ar ? `فشل حفظ القيد: ${msg}` : `Failed to save entry: ${msg}`;
+}
+
 /* ─── REVERSE ENTRY ─── */
 async function reverseEntry(entryId){
   const ar = currentLang === 'ar';
   const orig = ledgerEntryIndex[entryId];
   if(!orig){ notify(ar?'لم يتم العثور على القيد':'Entry not found','error'); return; }
 
-  /* Round 12 guard: only reverse manual / opening-balance entries from this UI.
-     Source-linked entries must be reversed via their source module (invoice → credit note,
-     stock receipt → void receipt, etc.) so books and source records stay in sync. */
-  if(orig.source && !['manual', 'reversal', 'opening_balance'].includes(orig.source)){
+  /* Round 12 + Round 17 guard: only reverse manual / opening-balance entries
+     from this UI. Source-linked entries (invoice, expense, stock_receipt, etc.)
+     must be reversed via their source module so books and source records stay
+     in sync. */
+  const reversalClassSources = [
+    'reversal', 'invoice_reversal', 'credit_note',
+    'expense_reversal', 'expense_void',
+    'receipt_reversal', 'stock_receipt_void'
+  ];
+  const manualClassSources = ['manual', 'opening_balance', '', null, undefined];
+  if(orig.source && !manualClassSources.includes(orig.source) && !reversalClassSources.includes(orig.source)){
     const moduleName = ({
-      invoice: ar?'الفواتير':'Invoices',
-      credit_note: ar?'الفواتير':'Invoices',
-      expense: ar?'المصروفات':'Expenses',
-      expense_payment: ar?'المصروفات':'Expenses',
-      expense_void: ar?'المصروفات':'Expenses',
-      stock_receipt: ar?'المخزون':'Inventory',
-      stock_receipt_void: ar?'المخزون':'Inventory',
-      stock_adjustment: ar?'المخزون':'Inventory'
+      invoice:           ar?'الفواتير':'Invoices',
+      payment:           ar?'الفواتير':'Invoices',
+      expense:           ar?'المصروفات':'Expenses',
+      expense_payment:   ar?'المصروفات':'Expenses',
+      stock_receipt:     ar?'المخزون':'Inventory',
+      stock_adjustment:  ar?'المخزون':'Inventory',
+      receipt_payment:   ar?'المخزون':'Inventory'
     })[orig.source] || orig.source;
     notify(ar
       ? `هذا القيد ناتج عن ${moduleName}. للعكس، افتح ${moduleName} وأنشئ إشعار دائن أو ألغِ المستند الأصلي.`
       : `This entry was created by ${moduleName}. To reverse it, open ${moduleName} and issue a credit note or void the source document.`,
+      'error');
+    return;
+  }
+  /* Reversal-class entries shouldn't be re-reversed */
+  if(reversalClassSources.includes(orig.source)){
+    notify(ar
+      ? 'هذا القيد هو قيد عكسي بحد ذاته — لا يمكن عكسه.'
+      : 'This entry is itself a reversal — it cannot be reversed.',
       'error');
     return;
   }
@@ -4743,44 +4780,34 @@ async function reverseEntry(entryId){
   const origLines = ledgerLines.filter(l => l.entry_id === entryId);
   if(origLines.length === 0){ notify(ar?'لا توجد بنود للقيد الأصلي':'Original entry has no lines','error'); return; }
 
-  /* Insert reversal entry */
+  /* Round 17 (Accounting Integrity): post the reversal via atomic RPC.
+     Server validates debit=credit before writing. Header + mirrored lines
+     in ONE transaction. */
   const today = new Date().toISOString().slice(0,10);
   const revRef = 'REV-' + (orig.reference || orig.id.slice(0,8));
   const revDesc = (ar?'عكس قيد ':'Reversal of ') + (orig.reference || '') + (orig.description ? ': ' + orig.description : '');
 
-  const {data: revEntry, error: eErr} = await sb.from('journal_entries').insert({
-    user_id: currentUser.id,
-    business_id: currentBiz.id,
-    entry_date: today,
-    reference: revRef,
-    description: revDesc,
-    is_balanced: true,
-    source: 'reversal',
-    source_id: entryId,
-    status: 'posted'
-  }).select().single();
-
-  if(eErr || !revEntry){
-    console.error('[GL] reverseEntry:', eErr);
-    notify(ar?'فشل إنشاء العكس':'Failed to reverse','error');
-    return;
-  }
-
-  /* Insert lines with DR/CR swapped */
   const revLines = origLines.map(l => ({
-    entry_id: revEntry.id,
-    user_id: currentUser.id,
     account_code: l.account_code,
     account_name: l.account_name,
-    debit: parseFloat(l.credit) || 0,    /* swap */
-    credit: parseFloat(l.debit) || 0,    /* swap */
-    narration: (ar?'عكس: ':'Reversal: ') + (l.narration || ''),
-    description: (ar?'عكس: ':'Reversal: ') + (l.description || '')
+    debit:  parseFloat(l.credit) || 0,    /* swap */
+    credit: parseFloat(l.debit)  || 0,    /* swap */
+    description: (ar?'عكس: ':'Reversal: ') + (l.description || l.narration || '')
   }));
-  const {error: lErr} = await sb.from('journal_lines').insert(revLines);
-  if(lErr){
-    console.error('[GL] reverseEntry lines:', lErr);
-    notify(ar?'فشل حفظ بنود العكس':'Failed to save reversal lines','error');
+
+  const {error: rpcErr} = await sb.rpc('post_journal_entry_atomic', {
+    p_business_id: currentBiz.id,
+    p_entry_date:  today,
+    p_reference:   revRef,
+    p_description: revDesc,
+    p_source:      'reversal',
+    p_source_id:   entryId,
+    p_lines:       revLines
+  });
+
+  if(rpcErr){
+    console.error('[GL] reverseEntry rpc:', rpcErr);
+    notify(friendlyManualEntryError(rpcErr, ar), 'error');
     return;
   }
 
