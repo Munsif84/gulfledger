@@ -3549,19 +3549,66 @@ function openItemModal(id){
     setVal('item-current-qty', '0');
     /* R-3: reset category picker to "select category" state */
     populateCategoryParents(null);
-    /* Auto-generate next SKU */
-    setVal('item-sku', nextItemSKU());
+    /* Auto-generate next SKU. Starts as ITM- since no category picked yet.
+       Will auto-update when the user picks a category (via onCategoryPicked). */
+    setVal('item-sku', nextItemSKU(null));
   }
 }
 
-/* Generate next item SKU: ITM-001, ITM-002, ... */
-function nextItemSKU(){
+/* R-2 (May 2026): Category-aware SKU generator.
+   Format: PREFIX-NNNN where PREFIX is 3-5 char uppercase code derived from
+   the item's category (parent code), and NNNN is a 4-digit per-prefix sequence.
+   - Items with category 'food'        → FOOD-0001, FOOD-0002, ...
+   - Items with category 'beverages'   → BEV-0001, BEV-0002, ...
+   - Items with no category set        → ITM-0001, ITM-0002, ...
+   Existing data (BEV-0001, FOOD-0001) is honored: new items in the same
+   prefix continue the sequence from the highest number seen. */
+const SKU_PREFIX_MAP = {
+  'office_supplies':'OFF','cleaning':'CLN','utilities':'UTL','packaging':'PKG',
+  'maintenance':'MNT','gifts_promo':'GIFT','other':'MISC',
+  'food':'FOOD','beverages':'BEV','ingredients':'INGR','kitchen_supplies':'KIT',
+  'clothing':'CLOT','footwear':'SHOE','electronics':'ELEC','home_goods':'HOME','accessories':'ACC',
+  'gr_dairy_eggs':'DAIRY','gr_produce':'PROD','gr_meat':'MEAT','gr_bakery':'BAKE',
+  'gr_pantry':'PNTRY','gr_beverages_pack':'BEVPK','gr_snacks':'SNACK','gr_frozen':'FROZN',
+  'gr_personal_care':'CARE','gr_household':'HSHD',
+  'ph_medicine':'MED','ph_personal_care':'PCARE','ph_baby_mother':'BABY','ph_medical_devices':'MDEV',
+  'auto_engine':'AUENG','auto_body':'AUBOD','auto_electrical':'AUELC','auto_consumables':'AUCON','auto_tools':'AUTL',
+  'svc_professional':'PROF','svc_installation':'INST','svc_maintenance':'SMNT','svc_training':'TRN','svc_subscription':'SUB',
+  'con_materials':'BLDG','con_tools':'TOOL','con_finishing':'FNSH','con_safety':'SAFE',
+  'mfg_raw_materials':'RAW','mfg_components':'COMP','mfg_machinery':'MACH',
+  'hc_supplies':'HSUP','hc_equipment':'HEQP','hc_consumables':'HCON','hc_office':'HOFF',
+  'edu_books':'BOOK','edu_supplies':'EDUS','edu_technology':'EDTEC'
+};
+
+/* Resolve the SKU prefix for an item given its category_id.
+   Walks parent_id if needed: child category → look up its parent → use parent's code.
+   Falls back to 'ITM' if no category or no mapping. */
+function skuPrefixForCategory(categoryId){
+  if(!categoryId) return 'ITM';
+  const cat = _catById?.get(categoryId);
+  if(!cat) return 'ITM';
+  /* Always use parent code. If this category has a parent_id, look it up. */
+  let rootCode = cat.code;
+  if(cat.parent_id){
+    const parent = _catById.get(cat.parent_id);
+    if(parent) rootCode = parent.code;
+  }
+  return SKU_PREFIX_MAP[rootCode] || 'ITM';
+}
+
+/* Generate next sequential SKU for a given prefix.
+   Scans allItems for matching prefix and returns prefix-NNNN with N = max+1.
+   Padded to 4 digits to match existing data convention (BEV-0001, FOOD-0002). */
+function nextItemSKU(categoryId){
+  const prefix = skuPrefixForCategory(categoryId);
+  /* Build regex like ^FOOD-(\d+)$ */
+  const re = new RegExp('^' + prefix.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '-(\\d+)$');
   const codes = allItems
-    .map(it => (it.sku || '').match(/^ITM-(\d+)$/)?.[1])
+    .map(it => (it.sku || '').match(re)?.[1])
     .filter(Boolean)
     .map(n => parseInt(n, 10));
   const next = codes.length ? Math.max(...codes) + 1 : 1;
-  return 'ITM-' + String(next).padStart(3, '0');
+  return prefix + '-' + String(next).padStart(4, '0');
 }
 
 function closeItemModal(){
@@ -3758,12 +3805,13 @@ function openSupplierModal(id){
 
 /* Generate next supplier code: SUP-001, SUP-002, ... */
 function nextSupplierCode(){
+  /* R-2 (May 2026): case-insensitive scan + 4-digit padding. See purchasing.html for docs. */
   const codes = allSuppliers
-    .map(s => (s.supplier_code || '').match(/^SUP-(\d+)$/)?.[1])
+    .map(s => (s.supplier_code || '').match(/^sup-(\d+)$/i)?.[1])
     .filter(Boolean)
     .map(n => parseInt(n, 10));
   const next = codes.length ? Math.max(...codes) + 1 : 1;
-  return 'SUP-' + String(next).padStart(3, '0');
+  return 'SUP-' + String(next).padStart(4, '0');
 }
 
 function closeSupplierModal(){
@@ -5463,6 +5511,9 @@ function onCategoryParentChange(){
     /* Has children, but none picked yet — store parent as fallback */
     setVal('item-category-id', parentId);
   }
+  /* R-2: SKU auto-update based on category, but only if SKU still looks
+     auto-generated (matches PREFIX-NNNN). Don't touch user-edited SKUs. */
+  maybeRegenerateSKU();
 }
 
 /* Called when child dropdown changes. Child id (if any) becomes the chosen id,
@@ -5471,6 +5522,20 @@ function onCategoryChildChange(){
   const childId = v('item-category-child');
   const parentId = v('item-category-parent');
   setVal('item-category-id', childId || parentId || '');
+  maybeRegenerateSKU();
+}
+
+/* R-2: regenerate the SKU based on the currently-chosen category, BUT only if
+   the current SKU value still looks like an auto-generated pattern (PREFIX-NNNN).
+   This preserves any manually-typed SKU from being overwritten. We also only
+   do this for new items (when currentItemId is null), never when editing. */
+function maybeRegenerateSKU(){
+  if(currentItemId) return; /* Editing existing item; don't touch SKU */
+  const current = v('item-sku') || '';
+  /* Auto-pattern check: 3-5 uppercase letters + dash + digits, OR empty */
+  if(current && !/^[A-Z]{3,5}-\d+$/.test(current)) return;
+  const catId = v('item-category-id') || null;
+  setVal('item-sku', nextItemSKU(catId));
 }
 
 /* Populate the category filter dropdown above the items list. */
@@ -6689,7 +6754,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-15</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-15 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-19</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-19 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
