@@ -2664,6 +2664,24 @@ function friendlyDbError(err){
   if(/business_not_owned|not_authenticated/i.test(msg)){
     return ar ? 'غير مصرّح بهذه العملية.' : 'Not authorized for this operation.';
   }
+  /* Round 17 (Accounting Integrity): error codes from atomic RPCs */
+  if(/^unbalanced/i.test(msg)){
+    return ar
+      ? 'تعذّر حفظ القيد المحاسبي: المدين لا يساوي الدائن. لم يتم تسجيل أي بيانات. أبلغ الدعم الفني.'
+      : 'Could not save accounting entry: debits don\'t equal credits. Nothing was recorded. Please contact support.';
+  }
+  if(/already_voided_or_not_found/i.test(msg)){
+    return ar ? 'هذه الفاتورة ملغية بالفعل (أو غير موجودة).' : 'This invoice is already voided (or no longer exists).';
+  }
+  if(/reason_required/i.test(msg)){
+    return ar ? 'سبب الإلغاء مطلوب (3 أحرف على الأقل).' : 'Void reason is required (at least 3 characters).';
+  }
+  if(/no_lines|invalid_line|invalid_amount/i.test(msg)){
+    return ar ? 'بيانات القيد المحاسبي غير صحيحة. أبلغ الدعم الفني.' : 'Invalid journal entry data. Please contact support.';
+  }
+  if(/access_denied/i.test(msg)){
+    return ar ? 'غير مصرّح بهذه العملية.' : 'Not authorized for this operation.';
+  }
   return msg || (ar ? 'حدث خطأ غير متوقع' : 'An unexpected error occurred');
 }
 
@@ -3044,28 +3062,30 @@ async function autoRecordB2CPayment(invoiceId, invoiceNumber, total){
       return false;
     }
 
-    /* 2. Post journal entry — DR Cash/Bank / CR AR */
+    /* 2. Post journal entry — DR Cash/Bank / CR AR
+       Round 17 (Accounting Integrity): atomic RPC with server-side
+       debit=credit validation. */
     try {
+      const ar = currentLang === 'ar';
       const accountCode = (method==='bank'||method==='card') ? '1101' : '1100';
-      const accountName = (method==='bank'||method==='card')
-        ? (currentLang==='ar'?'البنك':'Bank')
-        : (currentLang==='ar'?'النقد':'Cash');
-      const {data: entry} = await sb.from('journal_entries').insert({
-        user_id: currentUser.id, business_id: currentBiz?.id,
-        entry_date: date,
-        reference: 'AUTO-PMT-' + invoiceNumber,
-        description: currentLang==='ar'?'دفعة فورية عند الإصدار':'Payment on issuance',
-        source: 'payment',
-        status: 'posted', is_balanced: true
-      }).select().single();
-      if(entry){
-        await sb.from('journal_lines').insert([
-          {entry_id:entry.id, user_id:currentUser.id, account_code:accountCode, account_name:accountName,
-           debit:total, credit:0, description:currentLang==='ar'?'استلام دفعة':'Payment received'},
-          {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:currentLang==='ar'?'ذمم مدينة تجارية':'Trade Receivables',
-           debit:0, credit:total, description:currentLang==='ar'?'إقفال ذمة':'Clear receivable'}
-        ]);
-      }
+      const accountName = (method==='bank'||method==='card') ? (ar?'البنك':'Bank') : (ar?'النقد':'Cash');
+      const {error} = await sb.rpc('post_journal_entry_atomic', {
+        p_business_id: currentBiz?.id,
+        p_entry_date:  date,
+        p_reference:   'AUTO-PMT-' + invoiceNumber,
+        p_description: ar?'دفعة فورية عند الإصدار':'Payment on issuance',
+        p_source:      'payment',
+        p_source_id:   invoiceId,
+        p_lines: [
+          {account_code: accountCode, account_name: accountName,
+           debit: total, credit: 0,
+           description: ar?'استلام دفعة':'Payment received'},
+          {account_code: CODE.AR,     account_name: ar?'ذمم مدينة تجارية':'Trade Receivables',
+           debit: 0, credit: total,
+           description: ar?'إقفال ذمة':'Clear receivable'}
+        ]
+      });
+      if(error) console.warn('[GL] auto-payment journal:', error.message);
     } catch(e){ console.warn('[GL] auto-payment journal skipped:', e.message); }
 
     /* 3. Auto-create bank deposit if user picked an account */
@@ -5774,7 +5794,7 @@ function computeInvoiceTotals(){
 }
 
 /* ═══════════════════════════════════════════════════════
-   AUTO-POST SALES JOURNAL — preserved
+   AUTO-POST SALES JOURNAL — Round 17 (Accounting Integrity)
 ═══════════════════════════════════════════════════════ */
 async function autoPostInvoice(invoice){
   if(!currentUser) return;
@@ -5790,64 +5810,79 @@ async function autoPostInvoice(invoice){
      discount amount — that was the root cause of the historical invoice
      imbalances found in TB diagnostics. */
   const revenue = roundCurrency(total - vat);
+  const ar = currentLang === 'ar';
   const ref = invoice.invoice_number;
   const date = invoice.issue_date || todayISO();
 
   try {
+    /* Check if a journal entry already exists for this invoice (edit case) */
     const {data:existing} = await sb.from('journal_entries')
       .select('id,journal_lines(*)').eq('reference', ref)
       .eq('business_id', currentBiz?.id || '').eq('source','invoice').limit(1);
 
     if(existing && existing.length){
-      /* Reverse old, post new (handles edits) */
+      /* Reverse old, post new (handles invoice edits where total changed) */
       const orig = existing[0];
       const origLines = orig.journal_lines || [];
       const origTotal = origLines.find(l => l.account_code === '1200')?.debit || 0;
       if(Math.abs(origTotal - total) > 0.001){
-        const {data:revEntry} = await sb.from('journal_entries').insert({
-          user_id: currentUser.id, business_id: currentBiz?.id,
-          entry_date: date,
-          reference: 'REV-' + ref,
-          description: (currentLang==='ar'?'عكس فاتورة — ':'Reversal — ') + (invoice.buyer_name||''),
-          source: 'invoice_reversal', source_id: invoice.id,
-          status: 'posted', is_balanced: true
-        }).select().single();
-        if(revEntry){
-          await sb.from('journal_lines').insert(origLines.map(l => ({
-            entry_id: revEntry.id, user_id: currentUser.id,
-            account_code: l.account_code, account_name: l.account_name,
-            debit: l.credit, credit: l.debit,
-            description: (currentLang==='ar'?'عكس: ':'Rev: ') + l.description
-          })));
+        /* Round 17: post the reversal via atomic RPC — server validates
+           debit=credit before writing. Mirrors original lines (swap dr/cr). */
+        const reversalLines = origLines.map(l => ({
+          account_code: l.account_code, account_name: l.account_name,
+          debit: l.credit, credit: l.debit,
+          description: (ar?'عكس: ':'Rev: ') + l.description
+        }));
+        const {error: revErr} = await sb.rpc('post_journal_entry_atomic', {
+          p_business_id: currentBiz?.id,
+          p_entry_date:  date,
+          p_reference:   'REV-' + ref,
+          p_description: (ar?'عكس فاتورة — ':'Reversal — ') + (invoice.buyer_name||''),
+          p_source:      'invoice_reversal',
+          p_source_id:   invoice.id,
+          p_lines:       reversalLines
+        });
+        if(revErr){
+          console.warn('[GL] Invoice edit-reversal post failed:', revErr.message);
+          notify(friendlyDbError(revErr), 'r');
+          return;
         }
+        /* Mark the original as reversed (separate, idempotent UPDATE — safe) */
         await sb.from('journal_entries').update({status:'reversed', updated_at:new Date().toISOString()}).eq('id', orig.id);
       } else {
+        /* Total unchanged — skip both reversal and new posting */
         return;
       }
     }
 
-    const {data:entry, error} = await sb.from('journal_entries').insert({
-      user_id: currentUser.id, business_id: currentBiz?.id,
-      entry_date: date, reference: ref,
-      description: (currentLang==='ar'?'فاتورة مبيعات — ':'Sales invoice — ') + (invoice.buyer_name || ''),
-      source: 'invoice', source_id: invoice.id,
-      status: 'posted', is_balanced: true
-    }).select().single();
-    if(error || !entry){console.warn('Auto-post error:', error?.message);return;}
-
-    await sb.from('journal_lines').insert([
-      {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:'ذمم مدينة تجارية',
-       debit:total, credit:0,
-       description:(currentLang==='ar'?'مستحقات من ':'Receivable from ') + (invoice.buyer_name||'عميل')},
-      {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.SALES_STANDARD, account_name:'إيرادات المبيعات',
-       debit:0, credit:revenue,
-       description:(currentLang==='ar'?'إيرادات مبيعات — ':'Sales — ') + ref},
-      {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.VAT_OUTPUT, account_name:'ضريبة القيمة المضافة — مخرجات',
-       debit:0, credit:vat,
-       description:'VAT مخرجات 15% — ' + ref}
-    ]);
+    /* Round 17: post the new sales entry via atomic RPC. Header + 3 lines
+       in ONE transactional call with server-side debit=credit validation. */
+    const newLines = [
+      {account_code: CODE.AR,             account_name: ar?'ذمم مدينة تجارية':'Trade Receivables',
+       debit: total, credit: 0,
+       description: (ar?'مستحقات من ':'Receivable from ') + (invoice.buyer_name||'عميل')},
+      {account_code: CODE.SALES_STANDARD, account_name: ar?'إيرادات المبيعات':'Sales Revenue',
+       debit: 0, credit: revenue,
+       description: (ar?'إيرادات مبيعات — ':'Sales — ') + ref},
+      {account_code: CODE.VAT_OUTPUT,     account_name: ar?'ضريبة القيمة المضافة — مخرجات':'VAT Output',
+       debit: 0, credit: vat,
+       description: 'VAT 15% — ' + ref}
+    ];
+    const {error} = await sb.rpc('post_journal_entry_atomic', {
+      p_business_id: currentBiz?.id,
+      p_entry_date:  date,
+      p_reference:   ref,
+      p_description: (ar?'فاتورة مبيعات — ':'Sales invoice — ') + (invoice.buyer_name || ''),
+      p_source:      'invoice',
+      p_source_id:   invoice.id,
+      p_lines:       newLines
+    });
+    if(error){
+      console.warn('[GL] Auto-post sales entry failed:', error.message);
+      notify(friendlyDbError(error), 'r');
+    }
   } catch(e){
-    console.warn('Auto-post failed:', e.message);
+    console.warn('[GL] Auto-post failed:', e.message);
   }
 }
 
@@ -6359,28 +6394,30 @@ async function confirmPayment(){
 
   if(error){notify(friendlyDbError(error),'r');throw error;}
 
-  /* Post journal entry */
+  /* Post journal entry
+     Round 17 (Accounting Integrity): atomic RPC. Also: now includes
+     source_id linking the payment back to its invoice. */
   try {
+    const ar = currentLang === 'ar';
     const accountCode = (method==='bank'||method==='card') ? '1101' : '1100';
-    const accountName = (method==='bank'||method==='card')
-      ? (currentLang==='ar'?'البنك':'Bank')
-      : (currentLang==='ar'?'النقد':'Cash');
-    const {data:entry} = await sb.from('journal_entries').insert({
-      user_id: currentUser.id, business_id: currentBiz?.id,
-      entry_date: date,
-      reference: ref || ('PMT-'+Date.now()),
-      description: currentLang==='ar'?'استلام دفعة':'Payment received',
-      source: 'payment',
-      status: 'posted', is_balanced: true
-    }).select().single();
-    if(entry){
-      await sb.from('journal_lines').insert([
-        {entry_id:entry.id, user_id:currentUser.id, account_code:accountCode, account_name:accountName,
-         debit:amount, credit:0, description:currentLang==='ar'?'استلام من عميل':'Received from customer'},
-        {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:currentLang==='ar'?'ذمم مدينة تجارية':'Trade Receivables',
-         debit:0, credit:amount, description:currentLang==='ar'?'إقفال ذمة':'Clear receivable'}
-      ]);
-    }
+    const accountName = (method==='bank'||method==='card') ? (ar?'البنك':'Bank') : (ar?'النقد':'Cash');
+    const {error: jeErr} = await sb.rpc('post_journal_entry_atomic', {
+      p_business_id: currentBiz?.id,
+      p_entry_date:  date,
+      p_reference:   ref || ('PMT-'+Date.now()),
+      p_description: ar?'استلام دفعة':'Payment received',
+      p_source:      'payment',
+      p_source_id:   _paymentInvoiceId,
+      p_lines: [
+        {account_code: accountCode, account_name: accountName,
+         debit: amount, credit: 0,
+         description: ar?'استلام من عميل':'Received from customer'},
+        {account_code: CODE.AR,     account_name: ar?'ذمم مدينة تجارية':'Trade Receivables',
+         debit: 0, credit: amount,
+         description: ar?'إقفال ذمة':'Clear receivable'}
+      ]
+    });
+    if(jeErr) console.warn('Payment journal:', jeErr.message);
   } catch(e){console.warn('Journal skipped:', e.message);}
 
   /* Round 4h.2: auto-create bank deposit transaction if user picked an account.
@@ -7039,7 +7076,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-26</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-26 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.18-27-A</div>
+<script>console.log('%c[GulfLedger build] v2026.05.18-27-A · Round 17 Batch A (sales+payments)', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
