@@ -1344,6 +1344,14 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
         <option value="paid">مدفوع · Paid</option>
         <option value="overdue">متأخر · Overdue</option>
       </select>
+      <!-- R-2 audit fix (Major #2): explicit date range filter so users aren't
+           silently capped to current year. Selection persists in localStorage. -->
+      <select class="filter-select" id="filter-bills-range" onchange="onBillsRangeChange()" title="نطاق التاريخ · Date range">
+        <option value="ytd">السنة الحالية · This year (YTD)</option>
+        <option value="last_year">السنة السابقة · Last year</option>
+        <option value="last_12m">آخر 12 شهر · Last 12 months</option>
+        <option value="all">كل التواريخ · All time</option>
+      </select>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-secondary" onclick="loadBills()" data-ar="↻ تحديث" data-en="↻ Refresh">↻ تحديث</button>
         <button class="btn btn-primary" onclick="openExpenseDrawer()">
@@ -2569,11 +2577,60 @@ async function loadExpenses(){
 }
 
 /* ═══════════════════════════════════════════════════════
-   BILLS — moved here from purchasing.html (v2026.05.17-21)
+   BILLS — moved here from purchasing.html (v2026.05.17-22)
    AP master view: unifies bills from expenses (services) and stock_receipts (goods).
    Editing routes back to finance expense drawer or inventory receipt drawer.
 ═══════════════════════════════════════════════════════ */
 let allBills = null;  /* null = not loaded yet, [] = loaded empty */
+
+/* R-2 audit fix (Major #2): bills date range helper functions.
+   The bills view supports 4 preset ranges. Selection is persisted in
+   localStorage so it survives reload. Default: 'ytd' (year-to-date). */
+
+const BILLS_RANGE_STORAGE_KEY = 'gl_bills_date_range';
+
+function getBillsDateRange(){
+  const sel = document.getElementById('filter-bills-range');
+  const value = (sel && sel.value) || localStorage.getItem(BILLS_RANGE_STORAGE_KEY) || 'ytd';
+  /* If a select exists, sync its visible value to whatever we resolved to. */
+  if(sel && sel.value !== value){
+    sel.value = value;
+  }
+
+  const today = new Date();
+  const todayISO = today.toISOString().slice(0, 10);
+  const thisYear = today.getFullYear();
+
+  switch(value){
+    case 'ytd':
+      return { start: `${thisYear}-01-01`, end: null };
+    case 'last_year':
+      return { start: `${thisYear-1}-01-01`, end: `${thisYear-1}-12-31` };
+    case 'last_12m': {
+      const back = new Date(today);
+      back.setMonth(back.getMonth() - 12);
+      return { start: back.toISOString().slice(0, 10), end: null };
+    }
+    case 'all':
+      return { start: null, end: null };
+    default:
+      return { start: `${thisYear}-01-01`, end: null };
+  }
+}
+
+function onBillsRangeChange(){
+  const sel = document.getElementById('filter-bills-range');
+  if(sel) localStorage.setItem(BILLS_RANGE_STORAGE_KEY, sel.value);
+  loadBills();
+}
+
+/* Restore persisted selection on page load (if any). */
+function restoreBillsRange(){
+  const saved = localStorage.getItem(BILLS_RANGE_STORAGE_KEY);
+  if(!saved) return;
+  const sel = document.getElementById('filter-bills-range');
+  if(sel) sel.value = saved;
+}
 
 async function loadBills(){
   if(!currentBiz?.id){
@@ -2587,24 +2644,31 @@ async function loadBills(){
   if(!_allSuppliersForBills || _allSuppliersForBills.length === 0){
     await loadAllSuppliersForBills();
   }
-  /* Limit to current year by default to keep query fast. */
-  const yearStart = new Date().getFullYear() + '-01-01';
+  /* R-2 audit fix (Major #2): user-selectable date range filter. Default YTD.
+     Resolves to (startDate, endDate) — null endDate means "no upper bound". */
+  const range = getBillsDateRange();
+  const startDate = range.start;  /* ISO string YYYY-MM-DD or null */
+  const endDate = range.end;      /* ISO string YYYY-MM-DD or null */
+
+  /* Build query builders dynamically so we only add date filters when set. */
+  let expensesQ = sb.from('expenses')
+    .select('id,expense_number,expense_date,supplier_id,vendor_name_snapshot,vendor_invoice_number,vendor_invoice_date,description,total,amount_paid,payment_status,due_date,status')
+    .eq('business_id', currentBiz.id)
+    .neq('status', 'voided')
+    .order('expense_date', {ascending: false});
+  if(startDate) expensesQ = expensesQ.gte('expense_date', startDate);
+  if(endDate)   expensesQ = expensesQ.lte('expense_date', endDate);
+
+  let receiptsQ = sb.from('stock_receipts')
+    .select('id,receipt_number,receipt_date,supplier_id,supplier_name_snapshot,supplier_invoice_number,po_number,total,amount_paid,payment_status,due_date,status,notes')
+    .eq('business_id', currentBiz.id)
+    .neq('status', 'voided')
+    .order('receipt_date', {ascending: false});
+  if(startDate) receiptsQ = receiptsQ.gte('receipt_date', startDate);
+  if(endDate)   receiptsQ = receiptsQ.lte('receipt_date', endDate);
 
   /* Load both sources in parallel for speed */
-  const [expensesResult, receiptsResult] = await Promise.all([
-    sb.from('expenses')
-      .select('id,expense_number,expense_date,supplier_id,vendor_name_snapshot,vendor_invoice_number,vendor_invoice_date,description,total,amount_paid,payment_status,due_date,status')
-      .eq('business_id', currentBiz.id)
-      .neq('status', 'voided')
-      .gte('expense_date', yearStart)
-      .order('expense_date', {ascending: false}),
-    sb.from('stock_receipts')
-      .select('id,receipt_number,receipt_date,supplier_id,supplier_name_snapshot,supplier_invoice_number,po_number,total,amount_paid,payment_status,due_date,status,notes')
-      .eq('business_id', currentBiz.id)
-      .neq('status', 'voided')
-      .gte('receipt_date', yearStart)
-      .order('receipt_date', {ascending: false})
-  ]);
+  const [expensesResult, receiptsResult] = await Promise.all([expensesQ, receiptsQ]);
 
   if(expensesResult.error) console.error('[GL] loadBills expenses:', expensesResult.error);
   if(receiptsResult.error) console.error('[GL] loadBills receipts:', receiptsResult.error);
@@ -4761,6 +4825,7 @@ function switchTab(name){
   /* Lazy-load Bills on first visit. */
   if(name === 'bills' && !window._billsLoaded){
     window._billsLoaded = true;
+    restoreBillsRange();  /* R-2 audit fix: restore persisted date range first */
     loadBills();
   }
 
@@ -8024,7 +8089,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-21</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-21 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-22</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-22 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
