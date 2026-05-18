@@ -4638,11 +4638,26 @@ async function saveReceipt(){
   const freshNumber = await fetchNextReceiptNumber();
   setVal('rcp-number', freshNumber); /* update visible field for user awareness */
 
+  /* R-2 audit fix (Major #3): snapshot the supplier name at receipt creation time.
+     Mirrors expenses.vendor_name_snapshot. Protects historical receipts from
+     supplier-rename and supplier-delete events. Used by finance.html bills view
+     as the primary name source. */
+  const supplierIdForReceipt = v('rcp-supplier') || null;
+  let supplierNameSnapshot = null;
+  if(supplierIdForReceipt){
+    const s = allSuppliers.find(x => x.id === supplierIdForReceipt);
+    if(s){
+      /* Prefer Arabic name (primary), fallback English, then code as last resort */
+      supplierNameSnapshot = s.name_ar || s.name_en || s.supplier_code || null;
+    }
+  }
+
   const receiptPayload = {
     user_id: currentUser.id,
     business_id: currentBiz.id,
     receipt_number: freshNumber,
-    supplier_id: v('rcp-supplier') || null,
+    supplier_id: supplierIdForReceipt,
+    supplier_name_snapshot: supplierNameSnapshot,
     supplier_invoice_number: v('rcp-supplier-invoice') || null,
     po_number: v('rcp-po-number') || null,
     receipt_date: v('rcp-date') || todayISO(),
@@ -6765,7 +6780,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-20</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-20 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-21</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-21 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>

@@ -2569,7 +2569,7 @@ async function loadExpenses(){
 }
 
 /* ═══════════════════════════════════════════════════════
-   BILLS — moved here from purchasing.html (v2026.05.17-20)
+   BILLS — moved here from purchasing.html (v2026.05.17-21)
    AP master view: unifies bills from expenses (services) and stock_receipts (goods).
    Editing routes back to finance expense drawer or inventory receipt drawer.
 ═══════════════════════════════════════════════════════ */
@@ -2599,7 +2599,7 @@ async function loadBills(){
       .gte('expense_date', yearStart)
       .order('expense_date', {ascending: false}),
     sb.from('stock_receipts')
-      .select('id,receipt_number,receipt_date,supplier_id,supplier_invoice_number,po_number,total,amount_paid,payment_status,due_date,status,notes')
+      .select('id,receipt_number,receipt_date,supplier_id,supplier_name_snapshot,supplier_invoice_number,po_number,total,amount_paid,payment_status,due_date,status,notes')
       .eq('business_id', currentBiz.id)
       .neq('status', 'voided')
       .gte('receipt_date', yearStart)
@@ -2626,10 +2626,12 @@ async function loadBills(){
     payment_status: e.payment_status, due_date: e.due_date,
     status: e.status, source: 'expense'
   }));
+  /* R-2 audit fix (Major #3): stock_receipts now has supplier_name_snapshot
+     populated at save time. Pass it through so name resolution prefers it. */
   const receiptBills = (receiptsResult.data || []).map(r => ({
     id: r.id, number: r.receipt_number, date: r.receipt_date,
     supplier_id: r.supplier_id,
-    supplier_name_snapshot: null,  /* stock_receipts doesn't snapshot supplier name */
+    supplier_name_snapshot: r.supplier_name_snapshot,
     supplier_invoice_number: r.supplier_invoice_number,
     description: r.po_number ? ('PO ' + r.po_number) : (r.notes || ''),
     total: r.total, amount_paid: r.amount_paid,
@@ -8022,7 +8024,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-20</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-20 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-21</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-21 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
