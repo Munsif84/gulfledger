@@ -2366,6 +2366,24 @@ function friendlyDbError(err){
   if(/business_not_owned|not_authenticated/i.test(msg)){
     return ar ? 'غير مصرّح بهذه العملية.' : 'Not authorized for this operation.';
   }
+  /* Round 17 (Accounting Integrity): error codes from atomic RPCs */
+  if(/^unbalanced/i.test(msg)){
+    return ar
+      ? 'تعذّر حفظ القيد المحاسبي: المدين لا يساوي الدائن. لم يتم تسجيل أي بيانات. أبلغ الدعم الفني.'
+      : 'Could not save accounting entry: debits don\'t equal credits. Nothing was recorded. Please contact support.';
+  }
+  if(/already_voided_or_not_found/i.test(msg)){
+    return ar ? 'هذا المصروف ملغي بالفعل (أو غير موجود).' : 'This expense is already voided (or no longer exists).';
+  }
+  if(/reason_required/i.test(msg)){
+    return ar ? 'سبب الإلغاء مطلوب (3 أحرف على الأقل).' : 'Void reason is required (at least 3 characters).';
+  }
+  if(/no_lines|invalid_line|invalid_amount/i.test(msg)){
+    return ar ? 'بيانات القيد المحاسبي غير صحيحة. أبلغ الدعم الفني.' : 'Invalid journal entry data. Please contact support.';
+  }
+  if(/access_denied/i.test(msg)){
+    return ar ? 'غير مصرّح بهذه العملية.' : 'Not authorized for this operation.';
+  }
   return msg || (ar ? 'حدث خطأ غير متوقع' : 'An unexpected error occurred');
 }
 
@@ -6111,9 +6129,15 @@ async function saveExpense(){
 }
 
 async function postExpenseJournal(expense, cat){
-  /* DR Expense Account (subtotal)
-     DR Input VAT (if recoverable) — else add VAT to expense
-     CR Cash / Bank / AP */
+  /* Round 17 (Accounting Integrity): refactored to use the
+     post_journal_entry_atomic RPC. Header + lines now insert in ONE
+     transactional call with server-side debit=credit validation.
+     If the entry is unbalanced, NOTHING is inserted — eliminates the
+     orphan-header bug class. The pre-RPC version did 2 separate inserts
+     and could leave a header with no lines on partial failure.
+       DR Expense Account (subtotal)
+       DR Input VAT (if recoverable) — else add VAT to expense
+       CR Cash / Bank / AP */
   if((parseFloat(expense.total) || 0) <= 0) return;
 
   const ar = currentLang === 'ar';
@@ -6125,62 +6149,48 @@ async function postExpenseJournal(expense, cat){
   else if(expense.payment_method === 'bank'){ creditAcct = '1101'; creditName = ar?'البنك':'Bank'; }
   else { creditAcct = '2100'; creditName = ar?'موردون - حسابات دائنة':'Accounts Payable'; }
 
-  /* Try to insert into journal_entries / journal_lines if those tables exist.
-     Wrapped in try-catch so it doesn't fail the expense if missing. */
+  const subtotal = parseFloat(expense.subtotal) || 0;
+  const vatAmount = parseFloat(expense.vat_amount) || 0;
+  const total = parseFloat(expense.total) || 0;
+  const recoverable = expense.vat_recoverable !== false;
+  const expenseDebit = recoverable ? subtotal : (subtotal + vatAmount);
+
+  const lines = [];
+  lines.push({
+    account_code: expenseAcct, account_name: expenseAcctName,
+    debit: expenseDebit, credit: 0, description: expense.description
+  });
+  if(recoverable && vatAmount > 0){
+    lines.push({
+      account_code: CODE.VAT_INPUT,
+      account_name: ar ? 'ضريبة القيمة المضافة - مدخلات' : 'VAT Receivable (Input)',
+      debit: vatAmount, credit: 0, description: expense.description
+    });
+  }
+  lines.push({
+    account_code: creditAcct, account_name: creditName,
+    debit: 0, credit: total, description: expense.description
+  });
+
   try {
-    const {data:entry, error: jeErr} = await sb.from('journal_entries').insert({
-      user_id: currentUser.id,
-      business_id: currentBiz.id,
-      entry_date: expense.expense_date,
-      reference: expense.expense_number,
-      description: ar ? `مصروف — ${expense.description}` : `Expense — ${expense.description}`,
-      source: 'expense',
-      source_id: expense.id,
-      is_balanced: true,
-      status: 'posted'
-    }).select().single();
-    if(jeErr){ console.warn('[GL] Journal entry not posted:', jeErr.message); return; }
-
-    const subtotal = parseFloat(expense.subtotal) || 0;
-    const vatAmount = parseFloat(expense.vat_amount) || 0;
-    const recoverable = expense.vat_recoverable !== false;
-
-    const lines = [];
-    /* Expense account: subtotal (or full amount if VAT non-recoverable) */
-    const expenseDebit = recoverable ? subtotal : (subtotal + vatAmount);
-    lines.push({
-      entry_id: entry.id,
-      user_id: currentUser.id,
-      account_code: expenseAcct,
-      account_name: expenseAcctName,
-      debit: expenseDebit, credit: 0,
-      description: expense.description
+    const {data, error} = await sb.rpc('post_journal_entry_atomic', {
+      p_business_id: currentBiz.id,
+      p_entry_date:  expense.expense_date,
+      p_reference:   expense.expense_number,
+      p_description: ar ? `مصروف — ${expense.description}` : `Expense — ${expense.description}`,
+      p_source:      'expense',
+      p_source_id:   expense.id,
+      p_lines:       lines
     });
-    /* Input VAT only if recoverable — account 2220 (VAT receivable from gov).
-       BUGFIX Round B-PL-Structure: was posting to 2210 (VAT Output) — wrong account. */
-    if(recoverable && vatAmount > 0){
-      lines.push({
-        entry_id: entry.id,
-        user_id: currentUser.id,
-        account_code: CODE.VAT_INPUT,
-        account_name: ar ? 'ضريبة القيمة المضافة - مدخلات' : 'VAT Receivable (Input)',
-        debit: vatAmount, credit: 0,
-        description: expense.description
-      });
+    if(error){
+      console.warn('[GL] Expense journal post failed:', error.message);
+      notify(friendlyDbError(error), 'error');
+      return;
     }
-    /* Credit side */
-    lines.push({
-      entry_id: entry.id,
-      user_id: currentUser.id,
-      account_code: creditAcct,
-      account_name: creditName,
-      debit: 0, credit: parseFloat(expense.total) || 0,
-      description: expense.description
-    });
-
-    await sb.from('journal_lines').insert(lines);
+    return data; /* entry uuid */
   } catch (e) {
-    console.warn('[GL] Journal posting failed (table may not exist):', e);
+    console.warn('[GL] Expense journal post threw:', e);
+    notify(friendlyDbError(e), 'error');
   }
 }
 
@@ -6515,48 +6525,54 @@ async function confirmVoidExpense(){
 
   const exp = allExpenses.find(e => e.id === currentVoidExpenseId);
   if(!exp){ notify(currentLang==='ar'?'المصروف غير موجود':'Expense not found','error'); return; }
+  /* Client-side cache check — fast fail before round-trip. The
+     SERVER-SIDE check inside void_expense_atomic is the real guard
+     against the duplicate-reversal bug class (cache-race scenarios). */
   if(exp.status === 'voided'){ notify(currentLang==='ar'?'ملغي بالفعل':'Already voided','error'); return; }
 
   const btn = document.getElementById('btn-confirm-void');
   btn.disabled = true;
 
-  /* 1. Update vendor outstanding (subtract the unpaid portion that we previously added) */
-  if(exp.supplier_id){
-    const vendor = allVendors.find(s => s.id === exp.supplier_id);
-    if(vendor){
-      const wasOutstanding = (parseFloat(exp.total)||0) - (parseFloat(exp.amount_paid)||0);
-      const newOutstanding = Math.max(0, (parseFloat(vendor.total_outstanding)||0) - wasOutstanding);
-      const newPurchases = Math.max(0, (parseFloat(vendor.total_purchases)||0) - (parseFloat(exp.total)||0));
-      await sb.from('suppliers').update({
-        total_purchases: newPurchases,
-        total_outstanding: newOutstanding,
-        updated_at: new Date().toISOString()
-      }).eq('id', exp.supplier_id);
-    }
+  /* Round 17 (Accounting Integrity): single atomic RPC replaces
+     four separate operations (supplier update, status flip, journal
+     header insert, journal lines insert). Eliminates the duplicate-
+     reversal bug entirely — the server enforces "only first caller
+     succeeds" via WHERE status != 'voided' in one transaction. */
+  const ar = currentLang === 'ar';
+  const reversalLines = buildExpenseVoidLines(exp);
+  const reversalRef   = 'REV-' + exp.expense_number;
+  const reversalDesc  = ar ? `إلغاء مصروف — ${exp.description}` : `Void expense — ${exp.description}`;
+
+  const {data: reversalEntryId, error} = await sb.rpc('void_expense_atomic', {
+    p_expense_id:     currentVoidExpenseId,
+    p_reason:         reason,
+    p_reversal_ref:   reversalRef,
+    p_reversal_desc:  reversalDesc,
+    p_reversal_lines: reversalLines,
+    p_reversal_date:  todayISO()
+  });
+
+  if(error){
+    btn.disabled = false;
+    notify(friendlyDbError(error), 'error');
+    /* Refresh in case the row IS already voided on the server but our
+       cache says otherwise (i.e. another tab voided it). */
+    await loadAll();
+    return;
   }
 
-  /* 2. Mark expense voided */
-  const {error} = await sb.from('expenses').update({
-    status: 'voided',
-    voided_at: new Date().toISOString(),
-    voided_by_id: currentUser.id,
-    void_reason: reason,
-    updated_at: new Date().toISOString()
-  }).eq('id', currentVoidExpenseId);
-  if(error){ btn.disabled = false; notify(friendlyDbError(error),'error'); return; }
-
-  /* 3. Post reversing journal entry */
-  await postExpenseVoidJournal(exp);
-
-  /* 4. Audit log */
-  await writeAuditLog({
-    entity_type: 'expense',
-    entity_id: currentVoidExpenseId,
-    entity_reference: exp.expense_number,
-    action: 'voided',
-    before_data: exp,
-    reason: reason
-  });
+  /* Audit log (non-critical: any failure here is logged but doesn't
+     undo the void since it's already committed atomically server-side) */
+  try {
+    await writeAuditLog({
+      entity_type: 'expense',
+      entity_id: currentVoidExpenseId,
+      entity_reference: exp.expense_number,
+      action: 'voided',
+      before_data: exp,
+      reason: reason
+    });
+  } catch(e){ console.warn('[GL] Audit log failed:', e); }
 
   btn.disabled = false;
   notify(currentLang==='ar'?'✅ تم إلغاء المصروف':'✅ Expense voided','success');
@@ -6830,6 +6846,8 @@ async function confirmPayment(){
 }
 
 async function postPaymentJournal(exp, payAmount, payMethod, payDate, note){
+  /* Round 17 (Accounting Integrity): now uses post_journal_entry_atomic
+     for transactional header+lines insert with server-side debit=credit. */
   const ar = currentLang === 'ar';
   const debitAcct = '2100'; /* Accounts Payable */
   const debitName = ar ? 'موردون - حسابات دائنة' : 'Accounts Payable';
@@ -6841,34 +6859,42 @@ async function postPaymentJournal(exp, payAmount, payMethod, payDate, note){
     ? `دفعة على ${exp.expense_number}${note ? ' — ' + note : ''}`
     : `Payment on ${exp.expense_number}${note ? ' — ' + note : ''}`;
 
-  try {
-    const {data:entry, error} = await sb.from('journal_entries').insert({
-      user_id: currentUser.id,
-      business_id: currentBiz.id,
-      entry_date: payDate,
-      reference: exp.expense_number + ' (PAY)',
-      description: desc,
-      source: 'expense_payment',
-      source_id: exp.id,
-      is_balanced: true,
-      status: 'posted'
-    }).select().single();
-    if(error){ console.warn('[GL] Payment journal not posted:', error.message); return; }
+  const lines = [
+    { account_code: debitAcct,  account_name: debitName,
+      debit: payAmount, credit: 0, description: desc },
+    { account_code: creditAcct, account_name: creditName,
+      debit: 0, credit: payAmount, description: desc }
+  ];
 
-    await sb.from('journal_lines').insert([
-      { entry_id: entry.id, user_id: currentUser.id, account_code: debitAcct,  account_name: debitName,
-        debit: payAmount, credit: 0, description: desc },
-      { entry_id: entry.id, user_id: currentUser.id, account_code: creditAcct, account_name: creditName,
-        debit: 0, credit: payAmount, description: desc }
-    ]);
+  try {
+    const {data, error} = await sb.rpc('post_journal_entry_atomic', {
+      p_business_id: currentBiz.id,
+      p_entry_date:  payDate,
+      p_reference:   exp.expense_number + ' (PAY)',
+      p_description: desc,
+      p_source:      'expense_payment',
+      p_source_id:   exp.id,
+      p_lines:       lines
+    });
+    if(error){
+      console.warn('[GL] Payment journal post failed:', error.message);
+      notify(friendlyDbError(error), 'error');
+      return;
+    }
+    return data;
   } catch(e){
-    console.warn('[GL] Payment journal posting failed:', e);
+    console.warn('[GL] Payment journal post threw:', e);
+    notify(friendlyDbError(e), 'error');
   }
 }
 
-async function postExpenseVoidJournal(exp){
-  /* Reverses the original entry with mirrored debit/credit */
-  if((parseFloat(exp.total)||0) <= 0) return;
+/* Round 17 (Accounting Integrity): formerly postExpenseVoidJournal.
+   Renamed to buildExpenseVoidLines and turned into a pure function that
+   returns the reversal lines array. The actual posting + status flip +
+   supplier update happens atomically inside void_expense_atomic RPC.
+   See confirmVoidExpense() for the new orchestration. */
+function buildExpenseVoidLines(exp){
+  if((parseFloat(exp.total)||0) <= 0) return [];
   const ar = currentLang === 'ar';
   const cat = categoryByCode(exp.category);
   const expenseAcct = exp.account_code || cat?.account || '6900';
@@ -6879,58 +6905,33 @@ async function postExpenseVoidJournal(exp){
   else if(exp.payment_method === 'bank'){ creditAcct = '1101'; creditName = ar?'البنك':'Bank'; }
   else { creditAcct = '2100'; creditName = ar?'موردون - حسابات دائنة':'Accounts Payable'; }
 
-  try {
-    const {data:entry, error} = await sb.from('journal_entries').insert({
-      user_id: currentUser.id,
-      business_id: currentBiz.id,
-      entry_date: todayISO(),
-      reference: exp.expense_number + ' (VOID)',
-      description: ar ? `إلغاء مصروف — ${exp.description}` : `Void expense — ${exp.description}`,
-      source: 'expense_void',
-      source_id: exp.id,
-      is_balanced: true,
-      status: 'posted'
-    }).select().single();
-    if(error){ console.warn('[GL] Void journal not posted:', error.message); return; }
+  const subtotal = parseFloat(exp.subtotal) || 0;
+  const vatAmount = parseFloat(exp.vat_amount) || 0;
+  const recoverable = exp.vat_recoverable !== false;
+  const expenseAmount = recoverable ? subtotal : (subtotal + vatAmount);
 
-    const subtotal = parseFloat(exp.subtotal) || 0;
-    const vatAmount = parseFloat(exp.vat_amount) || 0;
-    const recoverable = exp.vat_recoverable !== false;
-    const expenseAmount = recoverable ? subtotal : (subtotal + vatAmount);
-
-    /* Reverse: original was DR exp + DR VAT + CR cash/AP
-                void:     DR cash/AP + CR exp + CR VAT */
-    const lines = [];
+  /* Original entry was DR exp + (DR VAT if recoverable) + CR cash/AP
+     Reversal mirrors it: DR cash/AP + CR exp + (CR VAT if recoverable) */
+  const lines = [];
+  lines.push({
+    account_code: creditAcct, account_name: creditName,
+    debit: parseFloat(exp.total) || 0, credit: 0,
+    description: 'Void: ' + exp.description
+  });
+  lines.push({
+    account_code: expenseAcct, account_name: expenseAcctName,
+    debit: 0, credit: expenseAmount,
+    description: 'Void: ' + exp.description
+  });
+  if(recoverable && vatAmount > 0){
     lines.push({
-      entry_id: entry.id,
-      user_id: currentUser.id,
-      account_code: creditAcct,
-      account_name: creditName,
-      debit: parseFloat(exp.total) || 0, credit: 0,
+      account_code: CODE.VAT_INPUT,
+      account_name: ar ? 'ضريبة القيمة المضافة - مدخلات' : 'VAT Receivable (Input)',
+      debit: 0, credit: vatAmount,
       description: 'Void: ' + exp.description
     });
-    lines.push({
-      entry_id: entry.id,
-      user_id: currentUser.id,
-      account_code: expenseAcct,
-      account_name: expenseAcctName,
-      debit: 0, credit: expenseAmount,
-      description: 'Void: ' + exp.description
-    });
-    if(recoverable && vatAmount > 0){
-      lines.push({
-        entry_id: entry.id,
-        user_id: currentUser.id,
-        account_code: CODE.VAT_INPUT,
-        account_name: ar ? 'ضريبة القيمة المضافة - مدخلات' : 'VAT Receivable (Input)',
-        debit: 0, credit: vatAmount,
-        description: 'Void: ' + exp.description
-      });
-    }
-    await sb.from('journal_lines').insert(lines);
-  } catch(e){
-    console.warn('[GL] Void journal posting failed:', e);
   }
+  return lines;
 }
 
 /* ─── row action menu (⋮) ─── */
@@ -8089,7 +8090,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-22</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-22 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.18-27</div>
+<script>console.log('%c[GulfLedger build] v2026.05.18-27 · Round 17 Accounting Integrity', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
