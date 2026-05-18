@@ -6736,19 +6736,22 @@ function onNameInput(field){
 
 
 async function generateCustomerCode(){
+  /* R-2 audit fix (Workflow B Major #2): rewritten to match nextSupplierCode pattern.
+     - Scans ALL customer codes, not just most-recent (avoids drift if newest custom)
+     - Case-insensitive regex (tolerates legacy lowercase)
+     - 4-digit padding for consistency with SUP-NNNN supplier format
+     - Outputs CUS-NNNN (was C-NNN before — see SQL migration 14- for normalize) */
   if(!currentBiz?.id) return null;
   const {data} = await sb.from('customers')
     .select('customer_code')
     .eq('business_id', currentBiz.id)
-    .not('customer_code','is',null)
-    .order('created_at', {ascending: false})
-    .limit(1);
-  let next = 1;
-  if(data && data.length && data[0].customer_code){
-    const m = data[0].customer_code.match(/(\d+)$/);
-    if(m) next = parseInt(m[1]) + 1;
-  }
-  return 'C-' + String(next).padStart(3,'0');
+    .not('customer_code', 'is', null);
+  const codes = (data || [])
+    .map(c => (c.customer_code || '').match(/^cus-(\d+)$/i)?.[1])
+    .filter(Boolean)
+    .map(n => parseInt(n, 10));
+  const next = codes.length ? Math.max(...codes) + 1 : 1;
+  return 'CUS-' + String(next).padStart(4, '0');
 }
 
 async function saveCustomer(){
@@ -7036,7 +7039,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-23</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-23 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-26</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-26 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>

@@ -478,6 +478,26 @@ function editCustomer(id){
 
 function closeModal(){document.getElementById('cust-modal').style.display='none';}
 
+/* R-2 audit fix (Workflow B Major #1+#2):
+   Customer code generator — mirrors purchasing.html's nextSupplierCode pattern.
+   Outputs CUS-NNNN (4-digit) to match the supplier code standard.
+   - Scans ALL customer codes (not just most recent)
+   - Case-insensitive regex tolerates legacy formats
+   - 4-digit zero-padded for consistency */
+async function nextCustomerCode(){
+  if(!currentBiz?.id) return null;
+  const {data} = await sb.from('customers')
+    .select('customer_code')
+    .eq('business_id', currentBiz.id)
+    .not('customer_code', 'is', null);
+  const codes = (data || [])
+    .map(c => (c.customer_code || '').match(/^cus-(\d+)$/i)?.[1])
+    .filter(Boolean)
+    .map(n => parseInt(n, 10));
+  const next = codes.length ? Math.max(...codes) + 1 : 1;
+  return 'CUS-' + String(next).padStart(4, '0');
+}
+
 async function saveCustomer(){
   const editId=document.getElementById('edit-cust-id').value;
   const name=document.getElementById('c-name').value.trim();
@@ -503,6 +523,8 @@ async function saveCustomer(){
   if(editId){
     ({error}=await sb.from('customers').update(data).eq('id',editId));
   } else {
+    /* R-2 audit fix: generate customer_code on new customers (was missing here) */
+    data.customer_code = await nextCustomerCode();
     ({error}=await sb.from('customers').insert(data));
   }
   if(error){notify(error.message,'r');throw error;}
@@ -562,7 +584,7 @@ document.addEventListener('click',function(e){
   if(w&&!w.contains(e.target)){var m=document.getElementById('gl-qa-menu');if(m)m.classList.remove('open');}
 });
 </script>
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-12</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-12 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-26</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-26 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
