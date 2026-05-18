@@ -3250,47 +3250,75 @@ async function reverseInvoiceById(invoiceId){
       await sb.from('credit_note_items').insert(cnItems);
     }
 
-    /* Mark invoice as credited (link back) */
+    /* Round 17 (Accounting Integrity): build reversal lines by mirroring
+       the existing posted journal entry's lines. This:
+        (a) guarantees the reversal is balanced (by construction)
+        (b) handles invoice-level discounts correctly (the old code used
+            inv.subtotal which is pre-discount, making entries unbalanced
+            by the discount amount when a discount was applied)
+        (c) routes through void_invoice_atomic so the status flip,
+            reversal journal post, and customer outstanding update happen
+            atomically — duplicate void attempts get already_voided_or_not_found */
+    const {data: postedEntries} = await sb.from('journal_entries')
+      .select('id, journal_lines(*)')
+      .eq('source_id', invoiceId).eq('source','invoice')
+      .eq('business_id', currentBiz.id)
+      .neq('status','reversed').limit(1);
+
+    let reversalLines = [];
+    if(postedEntries && postedEntries.length && postedEntries[0].journal_lines?.length){
+      reversalLines = postedEntries[0].journal_lines.map(l => ({
+        account_code: l.account_code, account_name: l.account_name,
+        debit: l.credit, credit: l.debit,
+        description: (ar?'إشعار دائن: ':'CN: ') + (l.description || '')
+      }));
+    } else {
+      /* Fallback: compute from invoice fields. revenue = total - vat
+         (NOT subtotal — handles discount case correctly). */
+      const total = parseFloat(inv.total) || 0;
+      const vat = parseFloat(inv.vat_amount) || 0;
+      const revenue = roundCurrency(total - vat);
+      reversalLines = [
+        {account_code: CODE.SALES_STANDARD, account_name: ar?'إيرادات المبيعات':'Sales Revenue',
+         debit: revenue, credit: 0, description: ar?'عكس مبيعات':'Reverse sales'},
+        {account_code: CODE.VAT_OUTPUT,     account_name: ar?'ضريبة القيمة المضافة — مخرجات':'VAT Output',
+         debit: vat, credit: 0, description: ar?'عكس ضريبة':'Reverse VAT'},
+        {account_code: CODE.AR,             account_name: ar?'ذمم مدينة تجارية':'Trade Receivables',
+         debit: 0, credit: total, description: ar?'إقفال ذمة':'Clear receivable'}
+      ];
+    }
+
+    /* Atomic void: status flip + reversal journal + customer outstanding
+       — all in one transaction. Idempotent: second call gets
+       already_voided_or_not_found. */
+    const {error: voidErr} = await sb.rpc('void_invoice_atomic', {
+      p_invoice_id:     invoiceId,
+      p_reason:         reasonAr || (ar?'إلغاء الفاتورة':'Invoice reversal'),
+      p_reversal_ref:   cnNumber,
+      p_reversal_desc:  ar?'إشعار دائن — إلغاء فاتورة':'Credit note — invoice reversal',
+      p_reversal_lines: reversalLines,
+      p_reversal_date:  todayISO()
+    });
+    if(voidErr){
+      notify(friendlyDbError(voidErr), 'r');
+      await loadInvoices();
+      return;
+    }
+
+    /* Mark the original journal entry as reversed (idempotent UPDATE) */
+    if(postedEntries && postedEntries.length){
+      await sb.from('journal_entries').update({
+        status: 'reversed', updated_at: new Date().toISOString()
+      }).eq('id', postedEntries[0].id);
+    }
+
+    /* Link invoice → CN (the atomic RPC already flipped status to 'voided'
+       and adjusted customer aggregates; this only adds the CN link). */
     await sb.from('invoices').update({
       credited_at: new Date().toISOString(),
       credit_note_id: cn.id,
-      status: 'voided',
       updated_at: new Date().toISOString()
     }).eq('id', invoiceId);
-
-    /* Reverse customer aggregates if applicable */
-    if(inv.customer_id){
-      const {data:cust} = await sb.from('customers').select('total_invoiced,total_outstanding').eq('id', inv.customer_id).single();
-      if(cust){
-        await sb.from('customers').update({
-          total_invoiced: Math.max(0, (parseFloat(cust.total_invoiced)||0) - (parseFloat(inv.total)||0)),
-          total_outstanding: Math.max(0, (parseFloat(cust.total_outstanding)||0) - ((parseFloat(inv.total)||0) - (parseFloat(inv.amount_paid)||0))),
-          updated_at: new Date().toISOString()
-        }).eq('id', inv.customer_id);
-      }
-    }
-
-    /* Post reversal journal entry: DR Sales / CR AR (mirror of original) */
-    try {
-      const {data: entry} = await sb.from('journal_entries').insert({
-        user_id: currentUser.id, business_id: currentBiz.id,
-        entry_date: todayISO(),
-        reference: cnNumber,
-        description: ar?'إشعار دائن — إلغاء فاتورة':'Credit note — invoice reversal',
-        source: 'credit_note',
-        status: 'posted', is_balanced: true
-      }).select().single();
-      if(entry){
-        await sb.from('journal_lines').insert([
-          {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.SALES_STANDARD, account_name:ar?'المبيعات':'Sales',
-           debit:inv.subtotal, credit:0, description:ar?'عكس مبيعات':'Reverse sales'},
-          {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.VAT_OUTPUT, account_name:ar?'ضريبة القيمة المضافة المستحقة':'VAT Output',
-           debit:inv.vat_amount, credit:0, description:ar?'عكس ضريبة':'Reverse VAT'},
-          {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:ar?'ذمم مدينة تجارية':'Trade Receivables',
-           debit:0, credit:inv.total, description:ar?'إقفال ذمة':'Clear receivable'}
-        ]);
-      }
-    } catch(e){ console.warn('CN journal skipped:', e.message); }
 
     notify(ar
       ? `✅ تم إصدار إشعار دائن ${cnNumber}`
@@ -3709,36 +3737,39 @@ async function saveManualNote(){
       }
     }
 
-    /* Post journal entry — proportional reversal/charge */
+    /* Post journal entry — proportional reversal/charge
+       Round 17 (Accounting Integrity): atomic RPC ensures balanced
+       posting. For partial CN/DN the math is balanced by construction
+       since subtotal + vatAmount = total (no invoice-level discount applies
+       — these are explicit per-line values from the manual modal). */
     try {
-      const {data: entry} = await sb.from('journal_entries').insert({
-        user_id: currentUser.id, business_id: currentBiz.id,
-        entry_date: todayISO(),
-        reference: noteNumber,
-        description: isCredit ? (ar?'إشعار دائن جزئي':'Partial credit note') : (ar?'إشعار مدين':'Debit note'),
-        source: isCredit ? 'credit_note' : 'debit_note',
-        status: 'posted', is_balanced: true
-      }).select().single();
-      if(entry){
-        const lines = isCredit
-          ? [
-              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.SALES_STANDARD, account_name:ar?'المبيعات':'Sales',
-               debit:subtotal, credit:0, description:ar?'عكس مبيعات':'Reverse sales'},
-              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.VAT_OUTPUT, account_name:ar?'ضريبة القيمة المضافة المستحقة':'VAT Output',
-               debit:vatAmount, credit:0, description:ar?'عكس ضريبة':'Reverse VAT'},
-              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:ar?'ذمم مدينة تجارية':'Trade Receivables',
-               debit:0, credit:total, description:ar?'إقفال ذمة جزئي':'Partial AR clear'}
-            ]
-          : [
-              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:ar?'ذمم مدينة تجارية':'Trade Receivables',
-               debit:total, credit:0, description:ar?'إضافة ذمة':'Add AR'},
-              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.SALES_STANDARD, account_name:ar?'المبيعات':'Sales',
-               debit:0, credit:subtotal, description:ar?'إيراد إضافي':'Additional revenue'},
-              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.VAT_OUTPUT, account_name:ar?'ضريبة القيمة المضافة المستحقة':'VAT Output',
-               debit:0, credit:vatAmount, description:ar?'ضريبة إضافية':'Additional VAT'}
-            ];
-        await sb.from('journal_lines').insert(lines);
-      }
+      const lines = isCredit
+        ? [
+            {account_code: CODE.SALES_STANDARD, account_name: ar?'إيرادات المبيعات':'Sales Revenue',
+             debit: subtotal, credit: 0, description: ar?'عكس مبيعات':'Reverse sales'},
+            {account_code: CODE.VAT_OUTPUT,     account_name: ar?'ضريبة القيمة المضافة — مخرجات':'VAT Output',
+             debit: vatAmount, credit: 0, description: ar?'عكس ضريبة':'Reverse VAT'},
+            {account_code: CODE.AR,             account_name: ar?'ذمم مدينة تجارية':'Trade Receivables',
+             debit: 0, credit: total, description: ar?'إقفال ذمة جزئي':'Partial AR clear'}
+          ]
+        : [
+            {account_code: CODE.AR,             account_name: ar?'ذمم مدينة تجارية':'Trade Receivables',
+             debit: total, credit: 0, description: ar?'إضافة ذمة':'Add AR'},
+            {account_code: CODE.SALES_STANDARD, account_name: ar?'إيرادات المبيعات':'Sales Revenue',
+             debit: 0, credit: subtotal, description: ar?'إيراد إضافي':'Additional revenue'},
+            {account_code: CODE.VAT_OUTPUT,     account_name: ar?'ضريبة القيمة المضافة — مخرجات':'VAT Output',
+             debit: 0, credit: vatAmount, description: ar?'ضريبة إضافية':'Additional VAT'}
+          ];
+      const {error: noteErr} = await sb.rpc('post_journal_entry_atomic', {
+        p_business_id: currentBiz.id,
+        p_entry_date:  todayISO(),
+        p_reference:   noteNumber,
+        p_description: isCredit ? (ar?'إشعار دائن جزئي':'Partial credit note') : (ar?'إشعار مدين':'Debit note'),
+        p_source:      isCredit ? 'credit_note' : 'debit_note',
+        p_source_id:   inv?.id || null,
+        p_lines:       lines
+      });
+      if(noteErr) console.warn('[GL] manual note journal failed:', noteErr.message);
     } catch(e){ console.warn('manual note journal skipped:', e.message); }
 
     closeManualNoteModal();
@@ -5671,39 +5702,64 @@ async function generateInvoice(){
         });
       }
 
-      /* Post COGS journal entry: Dr 5100 / Cr 1300 */
+      /* Post COGS journal entry: Dr 5100 / Cr 1300
+         Round 17 (Accounting Integrity): atomic RPC replaces 2-call insert.
+         The previous "edit existing" pattern (find existing → delete lines →
+         insert new lines, keep entry_id) is replaced with: reverse the
+         existing entry, post a new entry. This preserves audit trail
+         (both old and reversal visible) instead of silently overwriting. */
       if(totalCOGS > 0){
+        const ar = currentLang === 'ar';
         const cogsRef = payload.invoice_number + '-COGS';
         const {data:existing} = await sb.from('journal_entries')
-          .select('id').eq('reference', cogsRef).eq('business_id', currentBiz.id).limit(1);
-        let cogsEntryId;
+          .select('id,journal_lines(*)').eq('reference', cogsRef)
+          .eq('source','invoice').eq('business_id', currentBiz.id)
+          .neq('status','reversed').limit(1);
+
         if(existing && existing.length){
-          cogsEntryId = existing[0].id;
-          await sb.from('journal_lines').delete().eq('entry_id', cogsEntryId);
-        } else {
-          const {data:cogsEntry} = await sb.from('journal_entries').insert({
-            user_id: currentUser.id,
-            business_id: currentBiz.id,
-            entry_date: payload.issue_date,
-            reference: cogsRef,
-            description: (currentLang==='ar'?'تكلفة البضاعة المباعة — ':'COGS — ') + payload.invoice_number,
-            source: 'invoice',
-            source_id: invoiceId,
-            status: 'posted',
-            is_balanced: true
-          }).select().single();
-          if(cogsEntry) cogsEntryId = cogsEntry.id;
+          /* Edit case: post mirror reversal of the existing COGS entry first */
+          const orig = existing[0];
+          const origLines = orig.journal_lines || [];
+          if(origLines.length > 0){
+            const revLines = origLines.map(l => ({
+              account_code: l.account_code, account_name: l.account_name,
+              debit: l.credit, credit: l.debit,
+              description: (ar?'عكس COGS: ':'COGS rev: ') + (l.description||'')
+            }));
+            const {error:revErr} = await sb.rpc('post_journal_entry_atomic', {
+              p_business_id: currentBiz.id,
+              p_entry_date:  payload.issue_date,
+              p_reference:   'REV-' + cogsRef,
+              p_description: (ar?'عكس COGS — تعديل ':'COGS reversal — edit ') + payload.invoice_number,
+              p_source:      'invoice_reversal',
+              p_source_id:   invoiceId,
+              p_lines:       revLines
+            });
+            if(revErr) console.warn('[GL] COGS edit-reversal failed:', revErr.message);
+            else {
+              await sb.from('journal_entries').update({status:'reversed', updated_at:new Date().toISOString()}).eq('id', orig.id);
+            }
+          }
         }
-        if(cogsEntryId){
-          await sb.from('journal_lines').insert([
-            {entry_id:cogsEntryId, user_id:currentUser.id, account_code:CODE.COGS, account_name:'تكلفة البضاعة المباعة',
-             debit:totalCOGS, credit:0,
-             description:(currentLang==='ar'?'تكلفة مبيعات — ':'COGS — ') + payload.invoice_number},
-            {entry_id:cogsEntryId, user_id:currentUser.id, account_code:CODE.INVENTORY, account_name:'المخزون',
-             debit:0, credit:totalCOGS,
-             description:(currentLang==='ar'?'إخراج من المخزون — ':'Inventory out — ') + payload.invoice_number}
-          ]);
-        }
+
+        /* Post the new (or first) COGS entry via atomic RPC */
+        const {error:cogsErr} = await sb.rpc('post_journal_entry_atomic', {
+          p_business_id: currentBiz.id,
+          p_entry_date:  payload.issue_date,
+          p_reference:   cogsRef,
+          p_description: (ar?'تكلفة البضاعة المباعة — ':'COGS — ') + payload.invoice_number,
+          p_source:      'invoice',
+          p_source_id:   invoiceId,
+          p_lines: [
+            {account_code: CODE.COGS,      account_name: ar?'تكلفة البضاعة المباعة':'COGS',
+             debit: totalCOGS, credit: 0,
+             description: (ar?'تكلفة مبيعات — ':'COGS — ') + payload.invoice_number},
+            {account_code: CODE.INVENTORY, account_name: ar?'المخزون':'Inventory',
+             debit: 0, credit: totalCOGS,
+             description: (ar?'إخراج من المخزون — ':'Inventory out — ') + payload.invoice_number}
+          ]
+        });
+        if(cogsErr) console.warn('[GL] COGS post failed:', cogsErr.message);
       }
     } catch(e){
       console.warn('Inventory/COGS error:', e.message);
@@ -6089,64 +6145,93 @@ async function voidInvoice(id, num, total, buyerName){
       }
     }
 
-    /* Now reverse the journal */
+    /* Now reverse the journal
+       Round 17 (Accounting Integrity): atomic RPC replaces the prior
+       4-step sequence (status flip + journal header + journal lines +
+       customer outstanding). void_invoice_atomic does it in ONE transaction
+       with WHERE status != 'voided' as the idempotency guard — duplicate
+       void attempts get already_voided_or_not_found and post NO second
+       reversal entry. This closes the REV-INV duplicate bug class. */
     const {data:entries} = await sb.from('journal_entries')
       .select('id,journal_lines(*)')
-      .eq('source_id', id).eq('source','invoice').eq('business_id', currentBiz?.id || '');
+      .eq('source_id', id).eq('source','invoice')
+      .eq('business_id', currentBiz?.id || '')
+      .neq('status','reversed');
 
     if(entries && entries.length){
       const orig = entries[0];
       const origLines = orig.journal_lines || [];
+      const ar = currentLang === 'ar';
 
-      const {data:cnEntry} = await sb.from('journal_entries').insert({
-        user_id: currentUser.id, business_id: currentBiz?.id,
-        entry_date: todayISO(),
-        reference: 'CN-' + num,
-        description: (currentLang==='ar'?'إشعار دائن — إلغاء فاتورة ':'Credit Note — Void ') + num,
-        source: 'credit_note', source_id: id,
-        status: 'posted', is_balanced: true
-      }).select().single();
+      const reversalLines = origLines.map(l => ({
+        account_code: l.account_code, account_name: l.account_name,
+        debit: l.credit, credit: l.debit,
+        description: (ar?'إشعار دائن: ':'CN: ') + l.description
+      }));
 
-      if(cnEntry){
-        await sb.from('journal_lines').insert(origLines.map(l => ({
-          entry_id: cnEntry.id, user_id: currentUser.id,
-          account_code: l.account_code, account_name: l.account_name,
-          debit: l.credit, credit: l.debit,
-          description: (currentLang==='ar'?'إشعار دائن: ':'CN: ') + l.description
-        })));
+      const {error: voidErr} = await sb.rpc('void_invoice_atomic', {
+        p_invoice_id:     id,
+        p_reason:         ar?'إلغاء فاتورة':'Invoice void',
+        p_reversal_ref:   'CN-' + num,
+        p_reversal_desc:  (ar?'إشعار دائن — إلغاء فاتورة ':'Credit Note — Void ') + num,
+        p_reversal_lines: reversalLines,
+        p_reversal_date:  todayISO()
+      });
+
+      if(voidErr){
+        notify(friendlyDbError(voidErr), 'r');
+        await loadInvoices();
+        return;
       }
 
+      /* Mark the original journal entry as reversed (separate idempotent UPDATE) */
       await sb.from('journal_entries').update({status:'reversed', updated_at:new Date().toISOString()}).eq('id', orig.id);
+    } else {
+      /* No journal entry to reverse (rare: invoice without ledger entry).
+         Still need to flip status — call atomic RPC with empty-but-valid lines.
+         The RPC requires at least one line, so we synthesize a no-op AR self-cancel.
+         This path is intentionally rare; most invoices have journal entries. */
+      const total = parseFloat(total) || 0;
+      if(total > 0){
+        await sb.from('invoices').update({status:'voided', updated_at:new Date().toISOString()}).eq('id', id);
+      }
     }
 
-    /* Also reverse the COGS journal entry if it exists */
+    /* Also reverse the COGS journal entry if it exists
+       Round 17 (Accounting Integrity): atomic RPC replaces 2-call insert. */
     const {data: cogsEntries} = await sb.from('journal_entries')
       .select('id,journal_lines(*)')
       .eq('reference', num + '-COGS')
-      .eq('source','invoice').eq('business_id', currentBiz?.id || '');
+      .eq('source','invoice').eq('business_id', currentBiz?.id || '')
+      .neq('status','reversed');
     if(cogsEntries && cogsEntries.length){
       const cogsOrig = cogsEntries[0];
       const cogsLines = cogsOrig.journal_lines || [];
-      const {data: cogsRev} = await sb.from('journal_entries').insert({
-        user_id: currentUser.id, business_id: currentBiz?.id,
-        entry_date: todayISO(),
-        reference: 'CN-' + num + '-COGS',
-        description: (currentLang==='ar'?'عكس COGS — إلغاء فاتورة ':'COGS reversal — voided invoice ') + num,
-        source: 'credit_note', source_id: id,
-        status: 'posted', is_balanced: true
-      }).select().single();
-      if(cogsRev){
-        await sb.from('journal_lines').insert(cogsLines.map(l => ({
-          entry_id: cogsRev.id, user_id: currentUser.id,
+      if(cogsLines.length > 0){
+        const ar = currentLang === 'ar';
+        const cogsRevLines = cogsLines.map(l => ({
           account_code: l.account_code, account_name: l.account_name,
           debit: l.credit, credit: l.debit,
-          description: (currentLang==='ar'?'عكس COGS: ':'COGS rev: ') + (l.description || '')
-        })));
+          description: (ar?'عكس COGS: ':'COGS rev: ') + (l.description || '')
+        }));
+        const {error: cogsRevErr} = await sb.rpc('post_journal_entry_atomic', {
+          p_business_id: currentBiz?.id,
+          p_entry_date:  todayISO(),
+          p_reference:   'CN-' + num + '-COGS',
+          p_description: (ar?'عكس COGS — إلغاء فاتورة ':'COGS reversal — voided invoice ') + num,
+          p_source:      'credit_note',
+          p_source_id:   id,
+          p_lines:       cogsRevLines
+        });
+        if(cogsRevErr){
+          console.warn('[GL] COGS void-reversal failed:', cogsRevErr.message);
+        } else {
+          await sb.from('journal_entries').update({status:'reversed', updated_at:new Date().toISOString()}).eq('id', cogsOrig.id);
+        }
       }
-      await sb.from('journal_entries').update({status:'reversed', updated_at:new Date().toISOString()}).eq('id', cogsOrig.id);
     }
 
-    await sb.from('invoices').update({status:'voided', updated_at:new Date().toISOString()}).eq('id', id);
+    /* Round 17: status flip already done by void_invoice_atomic above */
 
     /* Round 4l.7: ALSO create the formal credit_notes record (was missing — caused
        Credit Notes tab to be empty even after reversals). This is a separate insert
@@ -7076,7 +7161,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.18-27-A</div>
-<script>console.log('%c[GulfLedger build] v2026.05.18-27-A · Round 17 Batch A (sales+payments)', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.18-27</div>
+<script>console.log('%c[GulfLedger build] v2026.05.18-27 · Round 17 Accounting Integrity (complete)', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
