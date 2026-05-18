@@ -1473,6 +1473,30 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   .pl-cell + .pl-cell{border-inline-start:none;border-top:1px solid var(--tint);}
   .health-meta-row{grid-template-columns:1fr;}
 }
+
+/* ═══════════════════════════════════════════════════════════════════
+   Round 18 Stage 5: Role-mapping wizard (inline modal in Special Entries)
+═══════════════════════════════════════════════════════════════════ */
+.rwz-overlay{position:fixed;inset:0;background:rgba(13,38,24,0.55);z-index:9999;display:none;align-items:center;justify-content:center;padding:20px;}
+.rwz-dialog{background:#fff;border-radius:14px;box-shadow:0 16px 48px rgba(13,38,24,0.25);max-width:540px;width:100%;max-height:80vh;display:flex;flex-direction:column;}
+.rwz-header{padding:18px 22px 12px;display:flex;gap:14px;align-items:flex-start;border-bottom:1px solid var(--border);}
+.rwz-icon{font-size:24px;flex-shrink:0;background:var(--tint);color:var(--blue);width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;}
+.rwz-title{font-size:15px;font-weight:800;color:var(--ink);margin-bottom:4px;}
+.rwz-sub{font-size:12px;color:var(--muted);line-height:1.55;}
+.rwz-body{padding:14px 22px;overflow-y:auto;flex:1;}
+.rwz-row{display:flex;flex-direction:column;gap:5px;padding:10px 0;border-bottom:1px dashed var(--border);}
+.rwz-row:last-child{border-bottom:none;}
+.rwz-role-label{font-size:13px;font-weight:700;color:var(--ink);}
+.rwz-select{width:100%;padding:8px 10px;font-size:13px;border:1.5px solid var(--border);border-radius:7px;font-family:inherit;color:var(--ink);background:#fff;cursor:pointer;}
+.rwz-select:focus{outline:none;border-color:var(--blue);}
+.rwz-foot{padding:14px 22px;border-top:1px solid var(--border);display:flex;gap:10px;justify-content:flex-end;background:#fafbfc;border-radius:0 0 14px 14px;}
+.rwz-btn{font-family:inherit;font-size:13px;font-weight:700;padding:9px 18px;border-radius:7px;cursor:pointer;border:none;}
+.rwz-cancel{background:#fff;color:var(--muted);border:1px solid var(--border);}
+.rwz-cancel:hover{background:#fafbfc;color:var(--ink);}
+.rwz-save{background:var(--blue);color:#fff;}
+.rwz-save:hover{background:var(--navy);}
+.rwz-save:disabled{opacity:0.5;cursor:not-allowed;}
+
 </style>
 </head>
 <body>
@@ -4121,7 +4145,16 @@ function exportChartCSV(){
    MANUAL JOURNAL ENTRY (template + free-form)
    ═══════════════════════════════════════════════════════════════════ */
 
-/* Common SME templates — pre-fill DR/CR with leaf accounts that exist in our 41-account CoA */
+/* Round 18 (Multi-tenant CoA): Templates now reference SEMANTIC ROLES
+   instead of hardcoded account codes. Each line uses `dr_role` or
+   `cr_role`. The pickTemplate() function resolves these to actual
+   account codes via resolve_roles_batch() RPC at the moment the user
+   picks a template — so the same template works across any business
+   CoA, with the system auto-detecting the right account per business
+   (Migrations 19-22, account_role_map / resolve_role).
+
+   If a role can't be resolved (not mapped, fallback chain dry), the
+   inline mini-wizard fires asking the user to map JUST those roles. */
 const ENTRY_TEMPLATES = [
   {
     id: 'depreciation',
@@ -4131,8 +4164,8 @@ const ENTRY_TEMPLATES = [
     sub_ar: 'تقسيط تكلفة الأصول الثابتة على عمرها الإنتاجي',
     sub_en: 'Spread fixed asset cost over useful life',
     lines: [
-      { dr: '7900', cr: '', desc_ar: 'إهلاك الفترة', desc_en: 'Period depreciation' },
-      { dr: '', cr: '1790', desc_ar: 'مجمع الإهلاك', desc_en: 'Accumulated depreciation' }
+      { dr_role: 'depreciation_expense',      desc_ar: 'إهلاك الفترة',  desc_en: 'Period depreciation' },
+      { cr_role: 'accumulated_depreciation',  desc_ar: 'مجمع الإهلاك',   desc_en: 'Accumulated depreciation' }
     ]
   },
   {
@@ -4143,8 +4176,8 @@ const ENTRY_TEMPLATES = [
     sub_ar: 'المالك أودع مبلغ في حساب المنشأة',
     sub_en: 'Owner deposited money into the business',
     lines: [
-      { dr: '1120', cr: '', desc_ar: 'إيداع من المالك', desc_en: 'Owner deposit' },
-      { dr: '', cr: '3100', desc_ar: 'رأس المال', desc_en: 'Share capital' }
+      { dr_role: 'bank_primary',  desc_ar: 'إيداع من المالك', desc_en: 'Owner deposit' },
+      { cr_role: 'owner_capital', desc_ar: 'رأس المال',        desc_en: 'Share capital' }
     ]
   },
   {
@@ -4155,8 +4188,8 @@ const ENTRY_TEMPLATES = [
     sub_ar: 'المالك أخذ مبلغ من حساب المنشأة لاستخدام شخصي',
     sub_en: 'Owner took money out for personal use',
     lines: [
-      { dr: '3100', cr: '', desc_ar: 'تخفيض رأس المال', desc_en: 'Reduce share capital' },
-      { dr: '', cr: '1120', desc_ar: 'من البنك', desc_en: 'From bank' }
+      { dr_role: 'owner_drawings', desc_ar: 'سحوبات المالك', desc_en: 'Owner drawings' },
+      { cr_role: 'bank_primary',   desc_ar: 'من البنك',       desc_en: 'From bank' }
     ]
   },
   {
@@ -4167,8 +4200,8 @@ const ENTRY_TEMPLATES = [
     sub_ar: 'راتب الموظف مستحق لكن لم يُدفع بعد (نهاية الشهر)',
     sub_en: 'Employee salary owed but not yet paid (end of month)',
     lines: [
-      { dr: '7100', cr: '', desc_ar: 'رواتب إدارية مستحقة', desc_en: 'Accrued admin salaries' },
-      { dr: '', cr: '2310', desc_ar: 'رواتب مستحقة الدفع', desc_en: 'Salaries payable' }
+      { dr_role: 'salaries_expense', desc_ar: 'رواتب مستحقة',      desc_en: 'Accrued salaries' },
+      { cr_role: 'salaries_payable', desc_ar: 'رواتب مستحقة الدفع', desc_en: 'Salaries payable' }
     ]
   },
   {
@@ -4179,8 +4212,8 @@ const ENTRY_TEMPLATES = [
     sub_ar: 'إيداع مبلغ نقدي من الصندوق إلى الحساب البنكي',
     sub_en: 'Deposit cash from the till into the bank account',
     lines: [
-      { dr: '1120', cr: '', desc_ar: 'إيداع في البنك', desc_en: 'Deposit to bank' },
-      { dr: '', cr: '1100', desc_ar: 'من الصندوق', desc_en: 'From cash' }
+      { dr_role: 'bank_primary', desc_ar: 'إيداع في البنك', desc_en: 'Deposit to bank' },
+      { cr_role: 'cash_primary', desc_ar: 'من الصندوق',     desc_en: 'From cash' }
     ]
   },
   {
@@ -4191,8 +4224,8 @@ const ENTRY_TEMPLATES = [
     sub_ar: 'عميل لن يدفع — شطب فاتورته كخسارة',
     sub_en: 'Customer won\'t pay — write off the invoice as a loss',
     lines: [
-      { dr: '8100', cr: '', desc_ar: 'مصروف ديون معدومة', desc_en: 'Bad debt expense' },
-      { dr: '', cr: '1210', desc_ar: 'إلغاء ذمم العملاء', desc_en: 'Reduce customer receivable' }
+      { dr_role: 'bad_debt_expense', desc_ar: 'مصروف ديون معدومة',   desc_en: 'Bad debt expense' },
+      { cr_role: 'ar_primary',       desc_ar: 'إلغاء ذمم العملاء',   desc_en: 'Reduce customer receivable' }
     ]
   },
   {
@@ -4203,8 +4236,8 @@ const ENTRY_TEMPLATES = [
     sub_ar: 'تحويل جزء من الإيجار السنوي المدفوع مقدماً إلى مصروف الشهر',
     sub_en: 'Move part of an annual prepaid rent to this period\'s rent expense',
     lines: [
-      { dr: '7200', cr: '', desc_ar: 'مصروف إيجار الفترة', desc_en: 'Period rent expense' },
-      { dr: '', cr: '1410', desc_ar: 'تخفيض المدفوع مقدماً', desc_en: 'Reduce prepaid rent' }
+      { dr_role: 'rent_expense', desc_ar: 'مصروف إيجار الفترة', desc_en: 'Period rent expense' },
+      { cr_role: 'prepaid_rent', desc_ar: 'تخفيض المدفوع مقدماً', desc_en: 'Reduce prepaid rent' }
     ]
   },
   {
@@ -4215,8 +4248,8 @@ const ENTRY_TEMPLATES = [
     sub_ar: 'البنك خصم رسوم تحويل أو عمولة شهرية',
     sub_en: 'Bank charged a fee or monthly commission',
     lines: [
-      { dr: '8300', cr: '', desc_ar: 'رسوم بنكية', desc_en: 'Bank charges' },
-      { dr: '', cr: '1120', desc_ar: 'خصم من البنك', desc_en: 'Deducted from bank' }
+      { dr_role: 'bank_charges', desc_ar: 'رسوم بنكية',    desc_en: 'Bank charges' },
+      { cr_role: 'bank_primary', desc_ar: 'خصم من البنك',  desc_en: 'Deducted from bank' }
     ]
   },
   {
@@ -4227,8 +4260,8 @@ const ENTRY_TEMPLATES = [
     sub_ar: 'البنك أو الجهة الممولة أودعت مبلغ القرض في حسابك',
     sub_en: 'Bank or lender deposited the loan amount into your account',
     lines: [
-      { dr: '1120', cr: '', desc_ar: 'إيداع القرض', desc_en: 'Loan deposit' },
-      { dr: '', cr: '2810', desc_ar: 'التزام قرض', desc_en: 'Loan obligation' }
+      { dr_role: 'bank_primary', desc_ar: 'إيداع القرض', desc_en: 'Loan deposit' },
+      { cr_role: 'loan_payable', desc_ar: 'التزام قرض',   desc_en: 'Loan obligation' }
     ]
   },
   {
@@ -4239,8 +4272,8 @@ const ENTRY_TEMPLATES = [
     sub_ar: 'دفعة دورية لتخفيض رصيد القرض (الأصل فقط، بدون الفوائد)',
     sub_en: 'Periodic payment reducing the loan balance (principal only, no interest)',
     lines: [
-      { dr: '2810', cr: '', desc_ar: 'تخفيض القرض', desc_en: 'Reduce loan' },
-      { dr: '', cr: '1120', desc_ar: 'خصم من البنك', desc_en: 'Paid from bank' }
+      { dr_role: 'loan_payable', desc_ar: 'تخفيض القرض',    desc_en: 'Reduce loan' },
+      { cr_role: 'bank_primary', desc_ar: 'خصم من البنك',   desc_en: 'Paid from bank' }
     ]
   },
   {
@@ -4251,8 +4284,8 @@ const ENTRY_TEMPLATES = [
     sub_ar: 'شراء أصل طويل العمر مثل آلة أو معدة (يُهلَك على عدة سنوات)',
     sub_en: 'Buy a long-life asset like equipment or machinery (depreciated over years)',
     lines: [
-      { dr: '1730', cr: '', desc_ar: 'شراء أصل ثابت', desc_en: 'Asset acquisition' },
-      { dr: '', cr: '1120', desc_ar: 'دفع من البنك', desc_en: 'Paid from bank' }
+      { dr_role: 'fixed_assets_general', desc_ar: 'شراء أصل ثابت', desc_en: 'Asset acquisition' },
+      { cr_role: 'bank_primary',          desc_ar: 'دفع من البنك',   desc_en: 'Paid from bank' }
     ]
   },
   {
@@ -4499,29 +4532,216 @@ function renderManualEntryBody(){
   updateMeBalanceRow();
 }
 
-function pickTemplate(id){
+/* Round 18 Stage 4-5: async role resolution + inline wizard.
+   Templates declare semantic roles (dr_role/cr_role). pickTemplate
+   resolves them to actual account codes via resolve_roles_batch RPC
+   for the current business. If any required role doesn't resolve
+   (no direct mapping AND no fallback), the wizard fires asking the
+   user to map just those specific roles, then we retry. */
+async function pickTemplate(id){
+  const ar = currentLang === 'ar';
   const tpl = ENTRY_TEMPLATES.find(t => t.id === id);
-  manualEntry.templateId = id;
-  manualEntry.lines = tpl.lines.map(l => ({
-    account_code: l.dr || l.cr || '',
-    debit: '',
-    credit: '',
-    narration: currentLang === 'ar' ? l.desc_ar : l.desc_en,
-    /* mark which side this line should be in */
-    _hint_debit: !!l.dr
-  }));
-  if(manualEntry.lines.length === 0){
-    /* free-form: start with 2 empty lines */
+  if(!tpl){ console.warn('[GL] pickTemplate: unknown template id', id); return; }
+
+  /* Free-form has no roles — fast path */
+  if(tpl.id === 'free_form'){
+    manualEntry.templateId = id;
     manualEntry.lines = [
       { account_code: '', debit: '', credit: '', narration: '' },
       { account_code: '', debit: '', credit: '', narration: '' }
     ];
+    if(!manualEntry.description){
+      manualEntry.description = ar ? tpl.title_ar : tpl.title_en;
+    }
+    renderManualEntryBody();
+    return;
   }
-  /* Pre-fill description with template title */
+
+  /* Collect roles needed by this template, preserving order + side */
+  const lineRoles = tpl.lines.map(l => ({
+    role: l.dr_role || l.cr_role,
+    isDebit: !!l.dr_role,
+    desc_ar: l.desc_ar,
+    desc_en: l.desc_en
+  }));
+  const uniqueRoles = [...new Set(lineRoles.map(l => l.role))];
+
+  if(uniqueRoles.length === 0 || uniqueRoles.some(r => !r)){
+    notify(ar?'تعريف القالب غير صحيح':'Template definition invalid','error');
+    return;
+  }
+
+  /* Resolve all roles in one RPC call */
+  let resolved;
+  try {
+    const {data, error} = await sb.rpc('resolve_roles_batch', {
+      p_business_id: currentBiz.id,
+      p_roles: uniqueRoles
+    });
+    if(error) throw error;
+    resolved = data || [];
+  } catch(e){
+    console.error('[GL] resolve_roles_batch:', e);
+    notify(ar?'فشل قراءة ربط الحسابات':'Failed to read account mappings','error');
+    return;
+  }
+
+  /* Identify unmapped roles (resolved_code is NULL — neither direct mapping
+     nor any fallback in the chain resolved) */
+  const unmapped = resolved.filter(r => !r.resolved_code);
+
+  if(unmapped.length > 0){
+    /* Fire the inline wizard for just these roles. After save it retries
+       pickTemplate so the user lands on a fully-resolved template. */
+    openRoleMappingWizard(unmapped, () => pickTemplate(id));
+    return;
+  }
+
+  /* All roles resolved — build the manualEntry lines */
+  const codeByRole = {};
+  for(const r of resolved) codeByRole[r.role] = r.resolved_code;
+
+  manualEntry.templateId = id;
+  manualEntry.lines = lineRoles.map(lr => ({
+    account_code: codeByRole[lr.role],
+    debit: '',
+    credit: '',
+    narration: ar ? lr.desc_ar : lr.desc_en,
+    _hint_debit: lr.isDebit,
+    _role: lr.role   /* track for any future role-aware rendering */
+  }));
+
   if(!manualEntry.description){
-    manualEntry.description = currentLang === 'ar' ? tpl.title_ar : tpl.title_en;
+    manualEntry.description = ar ? tpl.title_ar : tpl.title_en;
   }
   renderManualEntryBody();
+}
+
+/* ─── Round 18 Stage 5: Inline role-mapping wizard ───
+   Fires from pickTemplate when a template needs roles that aren't yet
+   mapped (and have no usable fallback). Shows ONLY the missing roles,
+   one dropdown each filtered to qualifying account types. On save,
+   writes to account_role_map and re-runs the original pickTemplate. */
+
+let _roleWizardState = {
+  unmapped: [],        /* array of {role, label_en, label_ar, qualifying_types} */
+  draft: {},           /* role -> account_code */
+  onComplete: null     /* callback to re-run after mapping */
+};
+
+async function openRoleMappingWizard(unmappedRoles, onComplete){
+  const ar = currentLang === 'ar';
+  _roleWizardState.unmapped = unmappedRoles;
+  _roleWizardState.draft = {};
+  _roleWizardState.onComplete = onComplete;
+
+  /* Build a fresh CoA list filtered to active non-header accounts.
+     The dropdowns will further filter by qualifying_types per role. */
+  const eligibleAccts = chartOfAccounts.filter(a => a.is_active !== false && !a.is_header && a.parent_code);
+
+  const rolesHTML = unmappedRoles.map(r => {
+    const label = ar ? r.label_ar : r.label_en;
+    const types = r.qualifying_types || [];
+    const candidates = types.length
+      ? eligibleAccts.filter(a => types.includes(a.type))
+      : eligibleAccts;
+    const opts = candidates.map(a => {
+      const accName = ar ? (a.name_ar || a.name_en || a.code) : (a.name_en || a.name_ar || a.code);
+      return `<option value="${escHTML(a.code)}">${escHTML(a.code)} — ${escHTML(accName)}</option>`;
+    }).join('');
+    return `
+      <div class="rwz-row">
+        <div class="rwz-role-label">${escHTML(label)}</div>
+        <select class="rwz-select" data-role="${escHTML(r.role)}" onchange="updateRoleWizardDraft('${escHTML(r.role)}', this.value)">
+          <option value="">— ${ar?'اختر حساباً':'choose an account'} —</option>
+          ${opts}
+        </select>
+      </div>
+    `;
+  }).join('');
+
+  /* Build modal markup (overlay + dialog). If it already exists, reuse. */
+  let modal = document.getElementById('role-wizard-modal');
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id = 'role-wizard-modal';
+    modal.className = 'rwz-overlay';
+    document.body.appendChild(modal);
+  }
+  modal.innerHTML = `
+    <div class="rwz-dialog" role="dialog" aria-labelledby="rwz-title">
+      <div class="rwz-header">
+        <div class="rwz-icon">⚙</div>
+        <div>
+          <div id="rwz-title" class="rwz-title">
+            ${ar?'إعداد سريع للحسابات':'Quick account setup'}
+          </div>
+          <div class="rwz-sub">
+            ${ar
+              ?'هذا القالب يحتاج ربط الحسابات التالية لمنشأتك. اختر الحساب المناسب من دليل حساباتك:'
+              :'This template needs the following accounts mapped to your business. Pick the appropriate account from your chart:'}
+          </div>
+        </div>
+      </div>
+      <div class="rwz-body">
+        ${rolesHTML}
+      </div>
+      <div class="rwz-foot">
+        <button type="button" class="rwz-btn rwz-cancel" onclick="closeRoleWizard()">
+          ${ar?'إلغاء':'Cancel'}
+        </button>
+        <button type="button" class="rwz-btn rwz-save" id="rwz-save-btn" onclick="saveRoleWizard()" disabled>
+          ${ar?'حفظ ومتابعة':'Save & Continue'}
+        </button>
+      </div>
+    </div>
+  `;
+  modal.style.display = 'flex';
+}
+
+function updateRoleWizardDraft(role, code){
+  if(code){
+    _roleWizardState.draft[role] = code;
+  } else {
+    delete _roleWizardState.draft[role];
+  }
+  /* Enable Save button only when all unmapped roles have a draft choice */
+  const allFilled = _roleWizardState.unmapped.every(r => !!_roleWizardState.draft[r.role]);
+  const btn = document.getElementById('rwz-save-btn');
+  if(btn) btn.disabled = !allFilled;
+}
+
+function closeRoleWizard(){
+  const modal = document.getElementById('role-wizard-modal');
+  if(modal) modal.style.display = 'none';
+  _roleWizardState.unmapped = [];
+  _roleWizardState.draft = {};
+  _roleWizardState.onComplete = null;
+}
+
+async function saveRoleWizard(){
+  const ar = currentLang === 'ar';
+  const rows = _roleWizardState.unmapped.map(r => ({
+    business_id: currentBiz.id,
+    role: r.role,
+    account_code: _roleWizardState.draft[r.role],
+    mapped_by: currentUser?.id || null,
+    source: 'setup_wizard'
+  }));
+
+  try {
+    const {error} = await sb.from('account_role_map').upsert(rows, {
+      onConflict: 'business_id,role'
+    });
+    if(error) throw error;
+    notify(ar?'تم حفظ ربط الحسابات':'Account mappings saved','success');
+    const cb = _roleWizardState.onComplete;
+    closeRoleWizard();
+    if(cb) cb();
+  } catch(e){
+    console.error('[GL] saveRoleWizard:', e);
+    notify(ar?`فشل الحفظ: ${e.message||''}`:`Save failed: ${e.message||''}`,'error');
+  }
 }
 
 function updateMeLine(i, field, value){
@@ -12617,7 +12837,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.18-28</div>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.18-30</div>
 <script>console.log('%c[GulfLedger build] v2026.05.18-28 · Special Entries UX (Tier 1)', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
