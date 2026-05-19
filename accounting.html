@@ -3707,7 +3707,7 @@ function populateLedgerAccountFilter(){
   const ar = currentLang === 'ar';
   const allLabel = ar ? 'كل الحسابات' : 'All Accounts';
   /* Only show accounts that have a parent_code (leaf accounts), exclude top-level groups */
-  const leaves = chartOfAccounts.filter(a => a.parent_code);
+  const leaves = chartOfAccounts.filter(a => !a.is_header);  /* Round 24: include orphan leaves */
   sel.innerHTML = `<option value="">${allLabel}</option>` +
     leaves.map(a => `<option value="${a.code}">${a.code} — ${ar ? (a.name_ar || a.name_en) : (a.name_en || a.name_ar)}</option>`).join('');
 }
@@ -4409,8 +4409,9 @@ function renderManualEntryBody(){
   const isFreeForm = tpl.id === 'free_form';
 
   /* Account dropdown options (postable leaf accounts only — exclude headers
-     since posting to a header account would corrupt the trial balance) */
-  const acctOptions = chartOfAccounts.filter(a => a.parent_code && !a.is_header).map(a =>
+     since posting to a header account would corrupt the trial balance).
+     Round 24: removed parent_code requirement — orphan leaves are still postable. */
+  const acctOptions = chartOfAccounts.filter(a => !a.is_header).map(a =>
     `<option value="${a.code}">${a.code} — ${ar ? (a.name_ar || a.name_en || a.code) : (a.name_en || a.name_ar || a.code)}</option>`
   ).join('');
 
@@ -5214,7 +5215,7 @@ async function renderPL(period){
   const inferSubcategory = inferAccountSubcategory;
 
   /* Get leaf accounts (those with a parent) — only these have postings */
-  const leafAccts = chartOfAccounts.filter(a => a.parent_code).sort((a,b)=>a.code.localeCompare(b.code));
+  const leafAccts = chartOfAccounts.filter(a => !a.is_header).sort((a,b)=>a.code.localeCompare(b.code));
 
   /* Bucket leaf accounts by subcategory */
   const buckets = {
@@ -5588,28 +5589,49 @@ async function renderBalanceSheet(period){
       </div>`;
   }
 
-  /* Assets: net is DR-natured, so display as is */
+  /* Round 24 followup (THE TRUE FIX): sum SIGNED values, not just positives.
+     The accounting equation Assets = Liab + Equity uses NET balances. An
+     account with a net credit balance on the asset side (e.g. overdrawn
+     bank, overpaid customer) is a NEGATIVE asset, not zero. Dropping
+     such rows creates a false imbalance equal to the dropped amount.
+     
+     Display rule: show the absolute value of each account on its
+     natural side (DR for assets, CR for liabilities), but use signed
+     math for the TOTALS so the equation holds. A row whose balance is
+     OPPOSITE to its natural side gets a "(unusual: balance on other
+     side)" hint inline. */
+
+  /* Assets: sum signed net DR-CR (positive = normal asset, negative = unusual) */
   let totalAssets = 0;
   let assetsHTML = '';
   for(const a of assets){
     const v = bal[a.code]?.net || 0;
-    if(v > 0.005){ totalAssets += v; assetsHTML += renderRow(a, v); }
+    if(Math.abs(v) < 0.005) continue;
+    totalAssets += v;  // signed
+    assetsHTML += renderRow(a, v);
   }
 
-  /* Liabilities: CR-natured, display as -net (i.e. cr-dr) */
+  /* Liabilities: CR-natured, display as -net (positive value).
+     Signed math: a liability with debit balance reduces total. */
   let totalLiabilities = 0;
   let liabHTML = '';
   for(const a of liabilities){
-    const v = -(bal[a.code]?.net || 0);
-    if(v > 0.005){ totalLiabilities += v; liabHTML += renderRow(a, v); }
+    const netDrCr = bal[a.code]?.net || 0;
+    if(Math.abs(netDrCr) < 0.005) continue;
+    const displayVal = -netDrCr;  // CR positive direction
+    totalLiabilities += displayVal;  // signed: positive when CR-balance, negative when DR-balance
+    liabHTML += renderRow(a, displayVal);
   }
 
-  /* Equity: CR-natured. Plus calculated retained earnings = net P&L all-time. */
+  /* Equity from named accounts: CR-natured. Same signed treatment. */
   let totalEquityFromAccounts = 0;
   let equityHTML = '';
   for(const a of equityAccts){
-    const v = -(bal[a.code]?.net || 0);
-    if(v > 0.005){ totalEquityFromAccounts += v; equityHTML += renderRow(a, v); }
+    const netDrCr = bal[a.code]?.net || 0;
+    if(Math.abs(netDrCr) < 0.005) continue;
+    const displayVal = -netDrCr;
+    totalEquityFromAccounts += displayVal;
+    equityHTML += renderRow(a, displayVal);
   }
 
   /* Retained earnings = sum of (income credit - debit) - sum of (expense debit - credit), all-time, excluding voided */
@@ -6084,8 +6106,10 @@ async function renderTrialBalance(period){
 
   const formatVal = (n) => fmt(n);
 
-  /* Walk all leaf accounts that have any activity */
-  const leaves = chartOfAccounts.filter(a => a.parent_code).sort((a,b)=>a.code.localeCompare(b.code));
+  /* Round 24 followup: include all non-header accounts.
+     Previous filter `a.parent_code` dropped orphan leaves (4000 Income etc.)
+     and produced false TB imbalances. */
+  const leaves = chartOfAccounts.filter(a => !a.is_header).sort((a,b)=>a.code.localeCompare(b.code));
 
   let totalDR = 0, totalCR = 0;
   let rowsHTML = '';
@@ -7965,7 +7989,7 @@ function exportReportCSV(){
     rows.push(['Code','Account','Debit','Credit']);
 
     /* Iterate again to get per-account rows */
-    const leaves = chartOfAccounts.filter(a => a.parent_code).sort((a,b)=>a.code.localeCompare(b.code));
+    const leaves = chartOfAccounts.filter(a => !a.is_header).sort((a,b)=>a.code.localeCompare(b.code));
     /* This is a summary export — rows fetched live from latest run */
     /* Re-compute quickly from cached data isn't available here; fall back to a header only */
     rows.push([]);
@@ -12899,7 +12923,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-36</div>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-37</div>
 <script>console.log('%c[GulfLedger build] v2026.05.18-28 · Special Entries UX (Tier 1)', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
