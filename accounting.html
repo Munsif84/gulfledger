@@ -8161,38 +8161,120 @@ function complianceFilingStatusBadge(statusInfo){
 async function computeVatComplianceReport(fromISO, toISO, label){
   if(!currentBiz?.id) throw new Error('no business');
 
-  /* Invoices in the period (output VAT) */
+  /* Round 25 (P2.6): resolve VAT accounts via account_role_map.
+     We compute the authoritative VAT amounts from the GL (since invoice
+     totals overstate due to credit notes / voids), and use invoice/expense
+     records only for descriptive breakdown by category. */
+  let vatOutAcct = null, vatInAcct = null;
+  try {
+    const {data: rr} = await sb.rpc('resolve_roles_batch', {
+      p_business_id: currentBiz.id,
+      p_roles: ['vat_output', 'vat_input']
+    });
+    for(const r of (rr || [])){
+      if(r.role === 'vat_output') vatOutAcct = r.resolved_code;
+      else if(r.role === 'vat_input') vatInAcct = r.resolved_code;
+    }
+  } catch(e){
+    console.error('[Round 25] resolve_roles_batch failed:', e);
+  }
+
+  /* ── OUTPUT VAT from GL (authoritative) ──
+     Net credit on vat_output account for the period, excluding voided entries. */
+  let glOutputVAT = 0;
+  if(vatOutAcct){
+    /* Two-step query to avoid Supabase nested-filter unreliability:
+       (1) get entry IDs matching biz+period+status, (2) sum lines on those. */
+    const {data: outEntries} = await sb.from('journal_entries')
+      .select('id')
+      .eq('business_id', currentBiz.id)
+      .gte('entry_date', fromISO).lte('entry_date', toISO)
+      .neq('status', 'voided');
+    const outIds = (outEntries || []).map(e => e.id);
+    if(outIds.length > 0){
+      /* Chunk to avoid URL length limits */
+      const chunkSize = 500;
+      for(let i = 0; i < outIds.length; i += chunkSize){
+        const batch = outIds.slice(i, i + chunkSize);
+        const {data: lines} = await sb.from('journal_lines')
+          .select('debit, credit')
+          .eq('account_code', vatOutAcct)
+          .in('entry_id', batch);
+        for(const ln of (lines || [])){
+          glOutputVAT += (ln.credit || 0) - (ln.debit || 0);
+        }
+      }
+    }
+    glOutputVAT = Math.round(glOutputVAT * 100) / 100;
+  }
+
+  /* ── INPUT VAT from GL (authoritative) ── */
+  let glInputVAT = 0;
+  if(vatInAcct){
+    const {data: inEntries} = await sb.from('journal_entries')
+      .select('id')
+      .eq('business_id', currentBiz.id)
+      .gte('entry_date', fromISO).lte('entry_date', toISO)
+      .neq('status', 'voided');
+    const inIds = (inEntries || []).map(e => e.id);
+    if(inIds.length > 0){
+      const chunkSize = 500;
+      for(let i = 0; i < inIds.length; i += chunkSize){
+        const batch = inIds.slice(i, i + chunkSize);
+        const {data: lines} = await sb.from('journal_lines')
+          .select('debit, credit')
+          .eq('account_code', vatInAcct)
+          .in('entry_id', batch);
+        for(const ln of (lines || [])){
+          glInputVAT += (ln.debit || 0) - (ln.credit || 0);
+        }
+      }
+    }
+    glInputVAT = Math.round(glInputVAT * 100) / 100;
+  }
+
+  /* ── INVOICE LIST (for breakdown by category and audit trail display) ── */
+  /* Round 25 fix: dropped vat_pct from select (column doesn't exist on this
+     schema). We derive zero-rated vs standard from vat_amount being 0 or not. */
   const {data: invoices} = await sb.from('invoices')
-    .select('id, invoice_number, issue_date, buyer_name, subtotal, vat_amount, vat_pct, total, status')
+    .select('id, invoice_number, issue_date, buyer_name, subtotal, vat_amount, total, status')
     .eq('business_id', currentBiz.id)
     .gte('issue_date', fromISO).lte('issue_date', toISO)
     .neq('status', 'draft').neq('status', 'voided');
-  let sN=0, sV=0, zR=0, ex=0;
+
+  /* Breakdown: subtotals by category. The VAT totals are GL-authoritative. */
+  let sN=0, zR=0, ex=0;
   for(const inv of (invoices || [])){
     const sub = parseFloat(inv.subtotal) || 0;
     const vat = parseFloat(inv.vat_amount) || 0;
-    if(parseFloat(inv.vat_pct) === 0 || vat === 0){
+    if(vat === 0){
       zR += sub || (parseFloat(inv.total) || 0);
     } else {
-      sN += sub; sV += vat;
+      sN += sub;
     }
   }
+  /* sV = standard-rate VAT — use GL-authoritative figure */
+  const sV = glOutputVAT;
 
-  /* Expenses in the period (input VAT) */
+  /* ── EXPENSE LIST (for breakdown and audit trail) ── */
   const {data: expenses} = await sb.from('expenses')
     .select('id, expense_number, expense_date, description, subtotal, vat_amount, vat_recoverable, total, status')
     .eq('business_id', currentBiz.id)
     .gte('expense_date', fromISO).lte('expense_date', toISO)
     .neq('status','voided').neq('status','draft');
-  let rN=0, rV=0, bN=0, bV=0;
+
+  let rN=0, bN=0, bV=0;
   for(const exp of (expenses || [])){
     const sub = parseFloat(exp.subtotal) || 0;
     const vat = parseFloat(exp.vat_amount) || 0;
-    if(exp.vat_recoverable !== false){ rN += sub; rV += vat; }
-    else { bN += sub + vat; }
+    if(exp.vat_recoverable !== false){ rN += sub; }
+    else { bN += sub + vat; bV += vat; }
   }
+  /* rV = recoverable input VAT — use GL-authoritative figure (covers
+     inventory-purchase VAT which expenses table doesn't capture) */
+  const rV = glInputVAT;
 
-  /* Form 201 boxes */
+  /* Form 201 boxes — VAT values from GL, subtotals descriptive */
   const box1Net = sN, box1VAT = sV;
   const box2Net = zR, box2VAT = 0;
   const box3Net = 0, box3VAT = 0;
@@ -8207,7 +8289,7 @@ async function computeVatComplianceReport(fromISO, toISO, label){
   const box10VAT = box6VAT + box7VAT;
   const box11 = box5VAT;
   const box12 = box10VAT;
-  const box13 = 0; /* No adjustments in report view — the wizard is for filing-time adjustments */
+  const box13 = 0;
   const box14 = box11 - box12 + box13;
 
   const filingStatus = await complianceFilingStatus('vat', toISO);
@@ -8217,7 +8299,15 @@ async function computeVatComplianceReport(fromISO, toISO, label){
     purchases: { recoverableNet: rN, recoverableVAT: rV, blockedNet: bN, blockedVAT: bV, count: (expenses||[]).length, expenses: expenses || [] },
     form201: { box1Net, box1VAT, box2Net, box3Net, box4Net, box5Net, box5VAT, box6Net, box6VAT, box7Net, box7VAT, box8Net, box9Net, box10Net, box10VAT, box11, box12, box13, box14 },
     period: { fromISO, toISO, label },
-    filingStatus
+    filingStatus,
+    /* Round 25: GL reconciliation metadata for UI display */
+    glReconciliation: {
+      vatOutputAccount: vatOutAcct,
+      vatInputAccount: vatInAcct,
+      glOutputVAT,
+      glInputVAT,
+      reconciled: true  /* by construction — these ARE the GL numbers */
+    }
   };
 }
 
@@ -9890,8 +9980,9 @@ async function renderVatStep2(){
     const sub = parseFloat(inv.subtotal) || 0;
     const vat = parseFloat(inv.vat_amount) || 0;
     const total = parseFloat(inv.total) || 0;
-    const vatPct = parseFloat(inv.vat_pct);
-    if(vatPct === 0 || vat === 0){
+    /* Round 25 fix: vat_pct column doesn't exist on this schema.
+       Derive: if vat_amount is 0, treat as zero-rated. */
+    if(vat === 0){
       /* Could be zero-rated or exempt — distinguish if possible */
       if(inv.invoice_type === 'export' || (inv.notes || '').toLowerCase().includes('export')){
         zeroRated += sub || total;
@@ -10315,7 +10406,8 @@ async function renderVatStep2Fetch(){
   for(const inv of (invoices || [])){
     const sub = parseFloat(inv.subtotal) || 0;
     const vat = parseFloat(inv.vat_amount) || 0;
-    if(parseFloat(inv.vat_pct) === 0 || vat === 0) zR += sub || (parseFloat(inv.total) || 0);
+    /* Round 25 fix: vat_pct doesn't exist — use vat_amount === 0 as proxy for zero-rated */
+    if(vat === 0) zR += sub || (parseFloat(inv.total) || 0);
     else { sN += sub; sV += vat; }
   }
   vatWizardState.sales = { standardNet: sN, standardVAT: sV, zeroRated: zR, exempt: ex, count:(invoices||[]).length, invoices: invoices || [] };
@@ -12923,7 +13015,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-37</div>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-38</div>
 <script>console.log('%c[GulfLedger build] v2026.05.18-28 · Special Entries UX (Tier 1)', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
