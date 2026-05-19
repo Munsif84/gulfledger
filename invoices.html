@@ -3472,8 +3472,11 @@ async function reverseInvoiceById(invoiceId){
       }).select().single();
       if(entry){
         await sb.from('journal_lines').insert([
-          {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.SALES_STANDARD, account_name:ar?'المبيعات':'Sales',
-           debit:inv.subtotal, credit:0, description:ar?'عكس مبيعات':'Reverse sales'},
+          /* Round 26: post sales reduction to Sales Returns (4190 contra-revenue),
+             not to Sales (4100). Industry-standard accounting; ZATCA Form 201
+             Box 13 (Adjustments). */
+          {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.SALES_RETURNS, account_name:ar?'مردودات المبيعات':'Sales Returns',
+           debit:inv.subtotal, credit:0, description:ar?'مردود مبيعات':'Sales return'},
           {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.VAT_OUTPUT, account_name:ar?'ضريبة القيمة المضافة المستحقة':'VAT Output',
            debit:inv.vat_amount, credit:0, description:ar?'عكس ضريبة':'Reverse VAT'},
           {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:ar?'ذمم مدينة تجارية':'Trade Receivables',
@@ -3912,8 +3915,10 @@ async function saveManualNote(){
       if(entry){
         const lines = isCredit
           ? [
-              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.SALES_STANDARD, account_name:ar?'المبيعات':'Sales',
-               debit:subtotal, credit:0, description:ar?'عكس مبيعات':'Reverse sales'},
+              /* Round 26: credit notes route to Sales Returns (contra-revenue),
+                 not back to Sales. Industry-standard; ZATCA Box 13 Adjustments. */
+              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.SALES_RETURNS, account_name:ar?'مردودات المبيعات':'Sales Returns',
+               debit:subtotal, credit:0, description:ar?'مردود مبيعات جزئي':'Partial sales return'},
               {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.VAT_OUTPUT, account_name:ar?'ضريبة القيمة المضافة المستحقة':'VAT Output',
                debit:vatAmount, credit:0, description:ar?'عكس ضريبة':'Reverse VAT'},
               {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:ar?'ذمم مدينة تجارية':'Trade Receivables',
@@ -7237,7 +7242,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-34</div>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-35</div>
 <script>console.log('%c[GulfLedger build] v2026.05.17-26 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>

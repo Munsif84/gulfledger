@@ -8222,9 +8222,9 @@ async function computeVatComplianceReport(fromISO, toISO, label){
     const {data: directMaps} = await sb.from('account_role_map')
       .select('role, account_code')
       .eq('business_id', currentBiz.id)
-      .in('role', ['sales_revenue', 'sales_zero_rated', 'sales_export', 'sales_exempt']);
+      .in('role', ['sales_revenue', 'sales_zero_rated', 'sales_export', 'sales_exempt', 'sales_returns']);
 
-    /* Priority: explicit zero/export/exempt overrides standard. If same code
+    /* Priority: explicit zero/export/exempt/returns overrides standard. If same code
        maps to multiple, the more-specific role wins. (In practice, a sane
        CoA has separate accounts for each type, so this doesn't conflict.) */
     for(const m of (directMaps || [])){
@@ -8237,6 +8237,8 @@ async function computeVatComplianceReport(fromISO, toISO, label){
         salesRoleByCode[m.account_code] = 'export';
       } else if(m.role === 'sales_exempt') {
         salesRoleByCode[m.account_code] = 'exempt';
+      } else if(m.role === 'sales_returns') {
+        salesRoleByCode[m.account_code] = 'returns';
       }
     }
   } catch(e){
@@ -8298,11 +8300,12 @@ async function computeVatComplianceReport(fromISO, toISO, label){
   }
 
   /* ─── Step 4: walk each entry, classify, accumulate ─── */
-  let box1Net = 0, box1VAT = 0;  /* Standard rated sales */
+  let box1Net = 0, box1VAT = 0;  /* Standard rated sales (GROSS) */
   let box2Net = 0;                /* Zero-rated domestic */
   let box3Net = 0;                /* Exports */
   let box4Net = 0;                /* Exempt sales */
   let box6Net = 0, box6VAT = 0;  /* Standard rated purchases */
+  let returnsNet = 0, returnsVAT = 0;  /* Sales returns (Box 13 adjustments) */
 
   for(const entry of (entries || [])){
     const lines = linesByEntry[entry.id] || [];
@@ -8318,16 +8321,54 @@ async function computeVatComplianceReport(fromISO, toISO, label){
 
     if(Math.abs(vatOutSigned) > 0.005){
       /* Sale-type entry (or its reversal). Walk income lines. */
-      box1VAT += vatOutSigned;  /* Standard VAT — credit notes net out via signed sum */
+      /* Round 26: split VAT between Box 1 (sales) and Box 13 (returns). */
+      
+      /* First pass: classify income lines and compute returns vs sales */
+      let entryReturnsNet = 0;
+      let entrySalesNet = 0;
       for(const ln of lines){
         const meta = acctMeta[ln.account_code];
         if(!meta) continue;
         if(!meta.category.startsWith('sales_')) continue;
         const lineNet = (ln.credit || 0) - (ln.debit || 0);  /* income natural side is CR */
-        if(meta.category === 'sales_zero_rated')   box2Net += lineNet;
-        else if(meta.category === 'sales_export')  box3Net += lineNet;
-        else if(meta.category === 'sales_exempt')  box4Net += lineNet;
-        else                                        box1Net += lineNet;  /* sales_standard or unmapped income */
+        if(meta.category === 'sales_returns'){
+          /* Sales Returns is a DR-natural contra-revenue account.
+             When CN debits it, lineNet goes negative → entryReturnsNet positive
+             (returns happened). */
+          entryReturnsNet += -lineNet;  /* positive value = returns this period */
+        } else if(meta.category === 'sales_zero_rated') {
+          box2Net += lineNet;
+        } else if(meta.category === 'sales_export') {
+          box3Net += lineNet;
+        } else if(meta.category === 'sales_exempt') {
+          box4Net += lineNet;
+        } else {
+          /* sales_standard or unmapped income */
+          entrySalesNet += lineNet;
+        }
+      }
+      box1Net += entrySalesNet;
+
+      /* Allocate VAT: if entry has returns activity, the VAT debit on
+         vat_output represents the returns' VAT. Net of that goes to Box 1.
+         Use proportional allocation if entry mixes both sales and returns. */
+      if(entryReturnsNet > 0.005 && entrySalesNet <= 0.005){
+        /* Pure return entry (credit note): all VAT activity is returns */
+        returnsNet += entryReturnsNet;
+        returnsVAT += -vatOutSigned;  /* vatOutSigned is negative for returns */
+      } else if(entrySalesNet > 0.005 && entryReturnsNet <= 0.005){
+        /* Pure sale entry: all VAT to Box 1 */
+        box1VAT += vatOutSigned;
+      } else if(entryReturnsNet > 0.005 && entrySalesNet > 0.005){
+        /* Mixed: allocate VAT proportionally */
+        const totalActivity = entrySalesNet + entryReturnsNet;
+        const salesShare = entrySalesNet / totalActivity;
+        box1VAT += vatOutSigned * salesShare;
+        returnsVAT += -vatOutSigned * (1 - salesShare);
+        returnsNet += entryReturnsNet;
+      } else {
+        /* No income lines tagged (unusual) — default to Box 1 */
+        box1VAT += vatOutSigned;
       }
     }
 
@@ -8352,6 +8393,8 @@ async function computeVatComplianceReport(fromISO, toISO, label){
   box4Net = Math.round(box4Net * 100) / 100;
   box6Net = Math.round(box6Net * 100) / 100;
   box6VAT = Math.round(box6VAT * 100) / 100;
+  returnsNet = Math.round(returnsNet * 100) / 100;
+  returnsVAT = Math.round(returnsVAT * 100) / 100;
 
   /* Form 201 derived totals */
   const box2VAT = 0, box3VAT = 0, box4VAT = 0;
@@ -8364,7 +8407,9 @@ async function computeVatComplianceReport(fromISO, toISO, label){
   const box10VAT = box6VAT + box7VAT;
   const box11 = box5VAT;
   const box12 = box10VAT;
-  const box13 = 0;  /* Adjustments — filed via wizard */
+  /* Round 26: Box 13 = -(sales returns VAT). Sales returns REDUCE the
+     VAT due to ZATCA, so they enter Box 13 as a negative adjustment. */
+  const box13 = -returnsVAT;
   const box14 = box11 - box12 + box13;
 
   /* ─── Audit-trail data: invoice/expense listings (display only, not used in totals) ─── */
@@ -8392,6 +8437,7 @@ async function computeVatComplianceReport(fromISO, toISO, label){
     sales: {
       standardNet: box1Net, standardVAT: box1VAT,
       zeroRated: box2Net, exempt: box4Net,
+      returnsNet, returnsVAT,
       count: (invoices||[]).length, invoices: invoices || []
     },
     purchases: {
@@ -13124,7 +13170,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-40</div>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-41</div>
 <script>console.log('%c[GulfLedger build] v2026.05.18-28 · Special Entries UX (Tier 1)', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
