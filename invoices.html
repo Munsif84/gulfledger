@@ -4722,28 +4722,13 @@ function closeInvoiceModal(){
 }
 
 async function fetchNextInvoiceNumber(){
-  /* Round C bugfix: bypass the broken next_invoice_number RPC.
-     The RPC has a latent lpad-truncation bug: it concatenates year+suffix into
-     a single number then increments + lpad(N, 3, '0'). PostgreSQL's lpad
-     TRUNCATES strings longer than the target width — so lpad('2026203', 3, '0')
-     returns '202', causing the RPC to return the same number that's already in
-     the table. Collision on insert.
-
-     Until the RPC is fixed at the SQL level (separate migration), we compute
-     the next number entirely in JS using a sane algorithm:
-       1. Find all invoices for this business with prefix INV-{year}-
-       2. Take the trailing-digit suffix only (NOT year+suffix concatenated)
-       3. Sanity cap at 99999 to ignore any malformed values left over from
-          past RPC runs that may have produced 7-digit suffixes
-       4. Return max+1, padded to 3 digits
-
-     Voided invoices are INCLUDED in the scan (ZATCA requires sequence to be
-     monotonic and never reuse numbers, even for voided). Drafts (DRAFT-xxx)
-     are excluded automatically by the LIKE pattern.
-
-     Race condition: if two clients call this concurrently they could both
-     compute the same "next". The 23505 retry path in generateInvoice handles
-     that case by re-running this function. */
+  /* Round 22 (P1.4): atomic invoice numbering via DB sequence.
+     PREVIEW path only — shows the EXPECTED next number for the user.
+     Read-only query against invoice_sequences. Does NOT claim a number.
+     The actual number is claimed atomically at save time via
+     next_invoice_number() RPC inside generateInvoice. This avoids gaps
+     when users open an invoice modal and then cancel without saving. */
+  const ar = currentLang === 'ar';
   const year = new Date().getFullYear();
   const prefix = 'INV-' + year + '-';
 
@@ -4752,34 +4737,38 @@ async function fetchNextInvoiceNumber(){
     return;
   }
 
-  const {data, error} = await sb.from('invoices')
-    .select('invoice_number')
+  /* Read the expected next number from invoice_sequences. If the row
+     doesn't exist yet (no invoices for this year), expected is 1. */
+  const {data, error} = await sb.from('invoice_sequences')
+    .select('next_number')
     .eq('business_id', currentBiz.id)
-    .like('invoice_number', prefix + '%');
+    .eq('year', year)
+    .maybeSingle();
 
   if(error){
-    console.warn('[GL] fetchNextInvoiceNumber query failed:', error.message);
+    console.warn('[GL] invoice_sequences read failed:', error.message);
     setVal('f-invnum', prefix + '001');
     return;
   }
 
-  let maxN = 0;
-  for(const r of (data || [])){
-    /* Match ONLY trailing digits — `(\d+)$` — to avoid the year+suffix
-       concatenation bug from the old RPC. */
-    const m = (r.invoice_number || '').match(/(\d+)$/);
-    if(m){
-      const n = parseInt(m[1], 10);
-      /* Sanity cap: any suffix > 99999 is a malformed leftover from the RPC
-         bug and should be ignored when computing the next sane number. */
-      if(n > maxN && n <= 99999) maxN = n;
-    }
-  }
-
-  const nextN = maxN + 1;
-  /* Pad to AT LEAST 3 digits (001, 002, ..., 999, 1000, 1001, ...) */
-  const padded = String(nextN).padStart(3, '0');
+  const expectedN = (data?.next_number) || 1;
+  const padded = String(expectedN).padStart(3, '0');
   setVal('f-invnum', prefix + padded);
+}
+
+/* Round 22 (P1.4): atomic claim of the next invoice number at save time.
+   Returns the actual invoice_number string. Called inside generateInvoice
+   right before the DB insert. Race-proof: two concurrent saves serialize
+   on the invoice_sequences row lock and get distinct numbers. */
+async function claimNextInvoiceNumber(issueDate){
+  if(!currentBiz?.id) throw new Error('no_business');
+  const {data, error} = await sb.rpc('next_invoice_number', {
+    p_business_id: currentBiz.id,
+    p_issue_date: issueDate || new Date().toISOString().slice(0,10)
+  });
+  if(error) throw error;
+  if(!data) throw new Error('next_invoice_number returned null');
+  return data;  /* e.g. 'INV-2026-235' */
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -5548,22 +5537,21 @@ async function generateInvoice(){
 
   const isTax = currentInvType === 'tax';
 
-  /* Round C bugfix: if the form holds a DRAFT-{shortid} placeholder (came from
-     previewInvoice) or no number at all, fetch the real sequential number now.
-     This is the moment where we commit to a real, monotonically-increasing
-     invoice number for ZATCA compliance. */
-  let formNum = v('f-invnum');
-  if(!formNum || isDraftPlaceholder(formNum)){
-    /* Round C bugfix: use fetchNextInvoiceNumber (fixed client-side computation)
-       instead of the broken next_invoice_number RPC. */
-    await fetchNextInvoiceNumber();
-    formNum = v('f-invnum');
-  }
-
-  /* Validation */
-  if(!formNum || isDraftPlaceholder(formNum)){
+  /* Round 22 (P1.4): atomically claim a real invoice number via the
+     DB sequence. This replaces the old client-side max()+1 computation
+     which had a race condition. The RPC uses INSERT ... ON CONFLICT DO
+     UPDATE RETURNING under a row lock — race-proof. We OVERRIDE the
+     form value with whatever the RPC returns, even if the user saw a
+     preview number — that prevents the case where two tabs preview
+     INV-2026-235 and both try to save it. */
+  let formNum;
+  try {
+    formNum = await claimNextInvoiceNumber(v('f-issuedate'));
+    setVal('f-invnum', formNum);
+  } catch(e){
+    console.error('[GL] claimNextInvoiceNumber failed:', e);
     notify(currentLang==='ar'?'تعذّر إنشاء رقم الفاتورة':'Could not generate invoice number','r');
-    throw new Error('validation');
+    throw new Error('claim_failed');
   }
 
   /* Items must have at least one with qty + price */
@@ -7249,7 +7237,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-31</div>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-34</div>
 <script>console.log('%c[GulfLedger build] v2026.05.17-26 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
