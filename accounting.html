@@ -8189,24 +8189,58 @@ async function computeVatComplianceReport(fromISO, toISO, label){
      bookkeeping issues that the report surfaces, rather than hiding.
      ═══════════════════════════════════════════════════════════════════ */
 
-  /* ─── Step 1: resolve role → account_code mappings ─── */
+  /* ─── Step 1: resolve role → account_code mappings ───
+     Use DIRECT mappings from account_role_map (not resolve_roles_batch),
+     because fallback resolutions cause the same account to appear under
+     multiple roles (e.g. sales_revenue, sales_zero_rated, sales_export
+     all fall back to 4100 if zero/export/exempt aren't explicitly mapped).
+     The last-write-wins overwrite would misclassify the account.
+     
+     Rule: a sales account is classified as zero_rated/export/exempt ONLY
+     if there is an EXPLICIT row in account_role_map for that role pointing
+     to that account. Otherwise it's standard. */
   let vatOutAcct = null, vatInAcct = null;
   const salesRoleByCode = {};  /* account_code → 'standard'|'zero_rated'|'export'|'exempt' */
+
+  /* Fetch vat_output and vat_input via resolve_roles_batch (fallback is fine
+     for these — they're not classification-sensitive). */
   try {
     const {data: rr} = await sb.rpc('resolve_roles_batch', {
       p_business_id: currentBiz.id,
-      p_roles: ['vat_output', 'vat_input', 'sales_revenue', 'sales_zero_rated', 'sales_export', 'sales_exempt']
+      p_roles: ['vat_output', 'vat_input']
     });
     for(const r of (rr || [])){
       if(r.role === 'vat_output') vatOutAcct = r.resolved_code;
       else if(r.role === 'vat_input') vatInAcct = r.resolved_code;
-      else if(r.role === 'sales_revenue' && r.resolved_code)     salesRoleByCode[r.resolved_code] = 'standard';
-      else if(r.role === 'sales_zero_rated' && r.resolved_code)  salesRoleByCode[r.resolved_code] = 'zero_rated';
-      else if(r.role === 'sales_export' && r.resolved_code)      salesRoleByCode[r.resolved_code] = 'export';
-      else if(r.role === 'sales_exempt' && r.resolved_code)      salesRoleByCode[r.resolved_code] = 'exempt';
     }
   } catch(e){
     console.error('[Round 25] resolve_roles_batch failed:', e);
+  }
+
+  /* For sales classification, query account_role_map DIRECTLY — no fallback. */
+  try {
+    const {data: directMaps} = await sb.from('account_role_map')
+      .select('role, account_code')
+      .eq('business_id', currentBiz.id)
+      .in('role', ['sales_revenue', 'sales_zero_rated', 'sales_export', 'sales_exempt']);
+
+    /* Priority: explicit zero/export/exempt overrides standard. If same code
+       maps to multiple, the more-specific role wins. (In practice, a sane
+       CoA has separate accounts for each type, so this doesn't conflict.) */
+    for(const m of (directMaps || [])){
+      if(m.role === 'sales_revenue') {
+        /* Only set to 'standard' if not already classified as more-specific */
+        if(!salesRoleByCode[m.account_code]) salesRoleByCode[m.account_code] = 'standard';
+      } else if(m.role === 'sales_zero_rated') {
+        salesRoleByCode[m.account_code] = 'zero_rated';
+      } else if(m.role === 'sales_export') {
+        salesRoleByCode[m.account_code] = 'export';
+      } else if(m.role === 'sales_exempt') {
+        salesRoleByCode[m.account_code] = 'exempt';
+      }
+    }
+  } catch(e){
+    console.error('[Round 25] direct sales role lookup failed:', e);
   }
 
   if(!vatOutAcct || !vatInAcct){
@@ -13090,7 +13124,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-39</div>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-40</div>
 <script>console.log('%c[GulfLedger build] v2026.05.18-28 · Special Entries UX (Tier 1)', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
