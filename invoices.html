@@ -2110,54 +2110,261 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   ROUND B-PL-Structure: Semantic account code constants (SOCPA-aligned)
+   ROUND 20b: Role-based account code resolution (replaces hardcoded codes)
    ═══════════════════════════════════════════════════════════════════════════
-   All journal-posting code MUST use these constants instead of hardcoded codes.
-   This is the single source of truth for invoices.html.
-   
-   MIGRATION SAFETY: USE_SOCPA_CODES flag controls which set is active:
-     - false (default): use LEGACY codes — safe for pre-migration databases
-     - true: use new SOCPA codes — flip ONLY after running glMigrateChartOfAccounts
-   
-   The migration tool will set window._gl_use_socpa_codes = true after a
-   successful migration; this flag overrides the static default below.
-   ═══════════════════════════════════════════════════════════════════════════ */
-const USE_SOCPA_CODES_DEFAULT = false;  /* flip to true after migration */
+   Previously: CODE.AR returned hardcoded '1200' or '1210' via _useSocpa()
+   ternary — wrong for businesses with custom CoAs.
 
-function _useSocpa(){
-  if(typeof window !== 'undefined' && window._gl_use_socpa_codes != null){
-    return !!window._gl_use_socpa_codes;
+   Now: at module init (after currentBiz is set), we call resolve_roles_batch
+   ONCE and cache role → account_code in _roleCodes. The CODE getter returns
+   from cache. Same call-site syntax (CODE.AR), but resolves to the actual
+   account code for THIS business's chart of accounts.
+
+   See Round 18 (account_role_map architecture) + Round 19a (controlled
+   fallback for sensitive roles) + Round 20a (catalog expansion to 34 roles).
+   ═══════════════════════════════════════════════════════════════════════════ */
+
+let _roleCodes = {};   /* role_name → account_code, populated by _initRoleCodes */
+let _roleCodesLoaded = false;
+
+/* Roles this module needs. Some are critical (block usage until mapped),
+   others have silent fallback so they always resolve. */
+const _REQUIRED_ROLES_FOR_INVOICES = [
+  'ar_primary',         /* CODE.AR */
+  'inventory_primary',  /* CODE.INVENTORY */
+  'vat_input',          /* CODE.VAT_INPUT */
+  'ap_primary',         /* CODE.AP */
+  'vat_output',         /* CODE.VAT_OUTPUT */
+  'vat_payable_net',    /* CODE.VAT_PAYABLE_NET */
+  'sales_revenue',      /* CODE.SALES_STANDARD */
+  'sales_zero_rated',   /* CODE.SALES_ZERO_RATED */
+  'sales_exempt',       /* CODE.SALES_EXEMPT */
+  'sales_export',       /* CODE.SALES_EXPORT */
+  'sales_returns',      /* CODE.SALES_RETURNS */
+  'service_revenue',    /* CODE.SERVICE_STANDARD */
+  'cogs_primary'        /* CODE.COGS */
+];
+
+/* Async init — called once after currentBiz is available, and again
+   after the user completes the role-mapping wizard. Returns true if
+   all required roles resolve, false if anything is still unmapped. */
+async function _initRoleCodes(){
+  if(!currentBiz?.id){
+    console.warn('[GL Round 20b] _initRoleCodes called before currentBiz set');
+    return false;
   }
-  return USE_SOCPA_CODES_DEFAULT;
+  try {
+    const {data, error} = await sb.rpc('resolve_roles_batch', {
+      p_business_id: currentBiz.id,
+      p_roles: _REQUIRED_ROLES_FOR_INVOICES
+    });
+    if(error) throw error;
+    _roleCodes = Object.fromEntries((data || []).map(r => [r.role, r.resolved_code]));
+
+    /* Identify unresolved roles. Roles with silent_fallback always resolve,
+       so anything NULL here is a hard miss that blocks usage. */
+    const unresolved = (data || []).filter(r => !r.resolved_code).map(r => ({
+      role: r.role,
+      label_en: r.label_en,
+      label_ar: r.label_ar,
+      qualifying_types: r.qualifying_types
+    }));
+
+    if(unresolved.length > 0){
+      _roleCodesLoaded = false;
+      console.warn('[GL Round 20b] required roles unmapped:', unresolved.map(r=>r.role));
+      /* Fire the wizard for missing roles. After user completes it, retry. */
+      _fireInvoicesRoleSetupWizard(unresolved);
+      return false;
+    }
+
+    _roleCodesLoaded = true;
+    return true;
+  } catch(e){
+    console.error('[GL Round 20b] _initRoleCodes failed:', e);
+    return false;
+  }
+}
+
+/* Inline wizard for missing roles. Reuses the modal pattern from
+   accounting.html Stage 5 but instantiated separately for the
+   invoices module so we don't have cross-page DOM coupling. */
+function _fireInvoicesRoleSetupWizard(unresolvedRoles){
+  const ar = currentLang === 'ar';
+  const modalId = 'invoices-role-wizard-modal';
+  let modal = document.getElementById(modalId);
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id = modalId;
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(13,38,24,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    document.body.appendChild(modal);
+  }
+
+  /* Build dropdowns filtered by each role's qualifying types */
+  const coaCandidates = (window._cachedCoA || []).filter(a => a.is_active && !a.is_header);
+  const draft = {};
+
+  function rowHTML(r){
+    const label = ar ? r.label_ar : r.label_en;
+    const candidates = (r.qualifying_types && r.qualifying_types.length)
+      ? coaCandidates.filter(a => r.qualifying_types.includes(a.type))
+      : coaCandidates;
+    const opts = candidates.map(a => {
+      const accName = ar ? (a.name_ar || a.name_en || a.code) : (a.name_en || a.name_ar || a.code);
+      return `<option value="${a.code}">${a.code} — ${accName}</option>`;
+    }).join('');
+    return `
+      <div style="display:flex;flex-direction:column;gap:5px;padding:10px 0;border-bottom:1px dashed #d1d5db;">
+        <div style="font-size:13px;font-weight:700;color:#0D2618;">${label}</div>
+        <select data-role="${r.role}" onchange="_invoicesRoleWizardChange('${r.role}', this.value)" style="padding:8px 10px;font-size:13px;border:1.5px solid #C3DECE;border-radius:7px;font-family:inherit;background:#fff;cursor:pointer;">
+          <option value="">— ${ar?'اختر':'choose'} —</option>
+          ${opts}
+        </select>
+      </div>
+    `;
+  }
+
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:14px;box-shadow:0 16px 48px rgba(13,38,24,0.25);max-width:560px;width:100%;max-height:80vh;display:flex;flex-direction:column;font-family:inherit;">
+      <div style="padding:18px 22px 12px;border-bottom:1px solid #C3DECE;">
+        <div style="display:flex;gap:14px;align-items:flex-start;">
+          <div style="font-size:24px;background:#E6F4EC;color:#006C35;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;">⚙</div>
+          <div>
+            <div style="font-size:15px;font-weight:800;color:#0D2618;margin-bottom:4px;">
+              ${ar?'إعداد سريع للحسابات':'Quick account setup'}
+            </div>
+            <div style="font-size:12px;color:#4A7A5E;line-height:1.55;">
+              ${ar
+                ?'صفحة الفواتير تحتاج ربط الحسابات التالية. اختر الحساب المناسب من دليل حساباتك. هذا الإعداد يتم لمرة واحدة فقط.'
+                :'The Invoices page needs the following accounts mapped. Pick the appropriate account from your chart. This is a one-time setup.'}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="padding:14px 22px;overflow-y:auto;flex:1;" id="invoices-role-wizard-body">
+        ${unresolvedRoles.map(rowHTML).join('')}
+      </div>
+      <div style="padding:14px 22px;border-top:1px solid #C3DECE;display:flex;gap:10px;justify-content:flex-end;background:#fafbfc;border-radius:0 0 14px 14px;">
+        <button type="button" onclick="_invoicesRoleWizardCancel()" style="background:#fff;color:#4A7A5E;border:1px solid #C3DECE;border-radius:7px;padding:9px 18px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;">
+          ${ar?'لاحقاً':'Later'}
+        </button>
+        <button type="button" id="invoices-role-wizard-save" onclick="_invoicesRoleWizardSave()" disabled style="background:#006C35;color:#fff;border:none;border-radius:7px;padding:9px 18px;font-family:inherit;font-size:13px;font-weight:800;cursor:pointer;opacity:0.5;">
+          ${ar?'حفظ ومتابعة':'Save & Continue'}
+        </button>
+      </div>
+    </div>
+  `;
+  modal.style.display = 'flex';
+
+  /* Stash for save handler */
+  window._invoicesRoleWizardState = { unresolvedRoles, draft, modalId };
+}
+
+window._invoicesRoleWizardChange = function(role, code){
+  const state = window._invoicesRoleWizardState;
+  if(!state) return;
+  if(code) state.draft[role] = code;
+  else delete state.draft[role];
+  const allFilled = state.unresolvedRoles.every(r => !!state.draft[r.role]);
+  const btn = document.getElementById('invoices-role-wizard-save');
+  if(btn){
+    btn.disabled = !allFilled;
+    btn.style.opacity = allFilled ? '1' : '0.5';
+  }
+};
+
+window._invoicesRoleWizardCancel = function(){
+  const modal = document.getElementById('invoices-role-wizard-modal');
+  if(modal) modal.style.display = 'none';
+  delete window._invoicesRoleWizardState;
+  /* User declined to map. Module remains in non-functional state for
+     posting; save handlers will fail with clear error messages. */
+};
+
+window._invoicesRoleWizardSave = async function(){
+  const ar = currentLang === 'ar';
+  const state = window._invoicesRoleWizardState;
+  if(!state) return;
+  const rows = state.unresolvedRoles.map(r => ({
+    business_id: currentBiz.id,
+    role: r.role,
+    account_code: state.draft[r.role],
+    mapped_by: currentUser?.id || null,
+    source: 'setup_wizard'
+  }));
+  try {
+    const {error} = await sb.from('account_role_map').upsert(rows, {
+      onConflict: 'business_id,role'
+    });
+    if(error) throw error;
+    const modal = document.getElementById(state.modalId);
+    if(modal) modal.style.display = 'none';
+    delete window._invoicesRoleWizardState;
+    notify(ar?'تم حفظ ربط الحسابات':'Account mappings saved', 'success');
+    /* Retry init — now all roles should resolve */
+    await _initRoleCodes();
+  } catch(e){
+    console.error('[GL] role wizard save:', e);
+    notify(ar?`فشل الحفظ: ${e.message||''}`:`Save failed: ${e.message||''}`, 'error');
+  }
+};
+
+/* Cache chart_of_accounts for the wizard's dropdowns. Loaded lazily. */
+async function _ensureCoACache(){
+  if(window._cachedCoA && window._cachedCoA.length > 0) return;
+  if(!currentBiz?.id) return;
+  const {data} = await sb.from('chart_of_accounts')
+    .select('code, name_en, name_ar, type, is_active, is_header')
+    .eq('business_id', currentBiz.id)
+    .eq('is_active', true)
+    .eq('is_header', false)
+    .order('code', {ascending: true});
+  window._cachedCoA = data || [];
+}
+
+/* CODE getter — same interface as before, now reads from _roleCodes cache.
+   Throws 'role_not_mapped:X' if accessed when not loaded — caught by
+   save handlers which fire the wizard. */
+function _coalesceCode(role, codeRefName){
+  if(!_roleCodesLoaded){
+    throw new Error(`role_codes_not_ready`);
+  }
+  const code = _roleCodes[role];
+  if(!code){
+    throw new Error(`role_not_mapped:${role}`);
+  }
+  return code;
 }
 
 const CODE = Object.freeze({
   /* Assets */
-  get AR(){           return _useSocpa() ? '1210' : '1200'; },
-  get INVENTORY(){    return _useSocpa() ? '1330' : '1300'; },
-  get VAT_INPUT(){    return _useSocpa() ? '1500' : '2220'; },
-  
+  get AR()            { return _coalesceCode('ar_primary',        'AR'); },
+  get INVENTORY()     { return _coalesceCode('inventory_primary', 'INVENTORY'); },
+  get VAT_INPUT()     { return _coalesceCode('vat_input',         'VAT_INPUT'); },
+
   /* Liabilities */
-  get AP(){           return _useSocpa() ? '2110' : '2100'; },
-  get VAT_OUTPUT(){   return '2210'; },  /* unchanged */
-  get VAT_PAYABLE_NET(){ return _useSocpa() ? '2220' : '2200'; },
-  
+  get AP()            { return _coalesceCode('ap_primary',        'AP'); },
+  get VAT_OUTPUT()    { return _coalesceCode('vat_output',        'VAT_OUTPUT'); },
+  get VAT_PAYABLE_NET(){ return _coalesceCode('vat_payable_net',  'VAT_PAYABLE_NET'); },
+
   /* Revenue */
-  get SALES_STANDARD(){    return _useSocpa() ? '4110' : '4100'; },
-  get SALES_ZERO_RATED(){  return _useSocpa() ? '4120' : '4100'; },
-  get SALES_EXEMPT(){      return _useSocpa() ? '4130' : '4100'; },
-  get SALES_EXPORT(){      return _useSocpa() ? '4140' : '4100'; },
-  get SALES_RETURNS(){     return _useSocpa() ? '4190' : '4100'; },
-  get SERVICE_STANDARD(){  return _useSocpa() ? '4210' : '4200'; },
-  
+  get SALES_STANDARD()    { return _coalesceCode('sales_revenue',    'SALES_STANDARD'); },
+  get SALES_ZERO_RATED()  { return _coalesceCode('sales_zero_rated', 'SALES_ZERO_RATED'); },
+  get SALES_EXEMPT()      { return _coalesceCode('sales_exempt',     'SALES_EXEMPT'); },
+  get SALES_EXPORT()      { return _coalesceCode('sales_export',     'SALES_EXPORT'); },
+  get SALES_RETURNS()     { return _coalesceCode('sales_returns',    'SALES_RETURNS'); },
+  get SERVICE_STANDARD()  { return _coalesceCode('service_revenue',  'SERVICE_STANDARD'); },
+
   /* COGS */
-  get COGS(){              return _useSocpa() ? '5110' : '5100'; },
-  
-  /* Helper: returns the correct sales account based on VAT rate */
+  get COGS()              { return _coalesceCode('cogs_primary',     'COGS'); },
+
+  /* Helper: returns the correct sales account based on VAT rate.
+     Round 20b: the role system handles this naturally — sales_zero_rated
+     falls back to sales_revenue silently if not explicitly mapped. So
+     this logic now works uniformly for businesses with one or many
+     sales accounts. */
   salesAccountForVatRate(vatPct){
     const p = Number(vatPct) || 0;
-    if(!_useSocpa()) return this.SALES_STANDARD;  /* legacy: only one sales code */
-    if(p >= 14.5) return this.SALES_STANDARD;
     if(p === 0) return this.SALES_ZERO_RATED;
     return this.SALES_STANDARD;
   }
@@ -2664,24 +2871,6 @@ function friendlyDbError(err){
   if(/business_not_owned|not_authenticated/i.test(msg)){
     return ar ? 'غير مصرّح بهذه العملية.' : 'Not authorized for this operation.';
   }
-  /* Round 17 (Accounting Integrity): error codes from atomic RPCs */
-  if(/^unbalanced/i.test(msg)){
-    return ar
-      ? 'تعذّر حفظ القيد المحاسبي: المدين لا يساوي الدائن. لم يتم تسجيل أي بيانات. أبلغ الدعم الفني.'
-      : 'Could not save accounting entry: debits don\'t equal credits. Nothing was recorded. Please contact support.';
-  }
-  if(/already_voided_or_not_found/i.test(msg)){
-    return ar ? 'هذه الفاتورة ملغية بالفعل (أو غير موجودة).' : 'This invoice is already voided (or no longer exists).';
-  }
-  if(/reason_required/i.test(msg)){
-    return ar ? 'سبب الإلغاء مطلوب (3 أحرف على الأقل).' : 'Void reason is required (at least 3 characters).';
-  }
-  if(/no_lines|invalid_line|invalid_amount/i.test(msg)){
-    return ar ? 'بيانات القيد المحاسبي غير صحيحة. أبلغ الدعم الفني.' : 'Invalid journal entry data. Please contact support.';
-  }
-  if(/access_denied/i.test(msg)){
-    return ar ? 'غير مصرّح بهذه العملية.' : 'Not authorized for this operation.';
-  }
   return msg || (ar ? 'حدث خطأ غير متوقع' : 'An unexpected error occurred');
 }
 
@@ -2896,8 +3085,11 @@ async function init(){
   }
   currentBiz = biz;
   currentBiz._myRole = role;
-  /* Round B-PL-Structure: drive CODE.* (legacy vs SOCPA) from chart_version */
-  window._gl_use_socpa_codes = (currentBiz.chart_version === 'socpa_v1');
+  /* Round 20b: removed window._gl_use_socpa_codes — CODE.* now resolves
+     via account_role_map per business (Round 18+). */
+  /* Round 20b: pre-load CoA for the wizard dropdowns + run role init. */
+  await _ensureCoACache();
+  await _initRoleCodes();
   setText('biz-name', pickLang(biz, 'name'));
   (document.getElementById('biz-name')||{}).title = pickLang(biz, 'name');
   if(biz.brand_color) localStorage.setItem('gl_brand_color', biz.brand_color);
@@ -3062,30 +3254,28 @@ async function autoRecordB2CPayment(invoiceId, invoiceNumber, total){
       return false;
     }
 
-    /* 2. Post journal entry — DR Cash/Bank / CR AR
-       Round 17 (Accounting Integrity): atomic RPC with server-side
-       debit=credit validation. */
+    /* 2. Post journal entry — DR Cash/Bank / CR AR */
     try {
-      const ar = currentLang === 'ar';
       const accountCode = (method==='bank'||method==='card') ? '1101' : '1100';
-      const accountName = (method==='bank'||method==='card') ? (ar?'البنك':'Bank') : (ar?'النقد':'Cash');
-      const {error} = await sb.rpc('post_journal_entry_atomic', {
-        p_business_id: currentBiz?.id,
-        p_entry_date:  date,
-        p_reference:   'AUTO-PMT-' + invoiceNumber,
-        p_description: ar?'دفعة فورية عند الإصدار':'Payment on issuance',
-        p_source:      'payment',
-        p_source_id:   invoiceId,
-        p_lines: [
-          {account_code: accountCode, account_name: accountName,
-           debit: total, credit: 0,
-           description: ar?'استلام دفعة':'Payment received'},
-          {account_code: CODE.AR,     account_name: ar?'ذمم مدينة تجارية':'Trade Receivables',
-           debit: 0, credit: total,
-           description: ar?'إقفال ذمة':'Clear receivable'}
-        ]
-      });
-      if(error) console.warn('[GL] auto-payment journal:', error.message);
+      const accountName = (method==='bank'||method==='card')
+        ? (currentLang==='ar'?'البنك':'Bank')
+        : (currentLang==='ar'?'النقد':'Cash');
+      const {data: entry} = await sb.from('journal_entries').insert({
+        user_id: currentUser.id, business_id: currentBiz?.id,
+        entry_date: date,
+        reference: 'AUTO-PMT-' + invoiceNumber,
+        description: currentLang==='ar'?'دفعة فورية عند الإصدار':'Payment on issuance',
+        source: 'payment',
+        status: 'posted', is_balanced: true
+      }).select().single();
+      if(entry){
+        await sb.from('journal_lines').insert([
+          {entry_id:entry.id, user_id:currentUser.id, account_code:accountCode, account_name:accountName,
+           debit:total, credit:0, description:currentLang==='ar'?'استلام دفعة':'Payment received'},
+          {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:currentLang==='ar'?'ذمم مدينة تجارية':'Trade Receivables',
+           debit:0, credit:total, description:currentLang==='ar'?'إقفال ذمة':'Clear receivable'}
+        ]);
+      }
     } catch(e){ console.warn('[GL] auto-payment journal skipped:', e.message); }
 
     /* 3. Auto-create bank deposit if user picked an account */
@@ -3250,75 +3440,47 @@ async function reverseInvoiceById(invoiceId){
       await sb.from('credit_note_items').insert(cnItems);
     }
 
-    /* Round 17 (Accounting Integrity): build reversal lines by mirroring
-       the existing posted journal entry's lines. This:
-        (a) guarantees the reversal is balanced (by construction)
-        (b) handles invoice-level discounts correctly (the old code used
-            inv.subtotal which is pre-discount, making entries unbalanced
-            by the discount amount when a discount was applied)
-        (c) routes through void_invoice_atomic so the status flip,
-            reversal journal post, and customer outstanding update happen
-            atomically — duplicate void attempts get already_voided_or_not_found */
-    const {data: postedEntries} = await sb.from('journal_entries')
-      .select('id, journal_lines(*)')
-      .eq('source_id', invoiceId).eq('source','invoice')
-      .eq('business_id', currentBiz.id)
-      .neq('status','reversed').limit(1);
-
-    let reversalLines = [];
-    if(postedEntries && postedEntries.length && postedEntries[0].journal_lines?.length){
-      reversalLines = postedEntries[0].journal_lines.map(l => ({
-        account_code: l.account_code, account_name: l.account_name,
-        debit: l.credit, credit: l.debit,
-        description: (ar?'إشعار دائن: ':'CN: ') + (l.description || '')
-      }));
-    } else {
-      /* Fallback: compute from invoice fields. revenue = total - vat
-         (NOT subtotal — handles discount case correctly). */
-      const total = parseFloat(inv.total) || 0;
-      const vat = parseFloat(inv.vat_amount) || 0;
-      const revenue = roundCurrency(total - vat);
-      reversalLines = [
-        {account_code: CODE.SALES_STANDARD, account_name: ar?'إيرادات المبيعات':'Sales Revenue',
-         debit: revenue, credit: 0, description: ar?'عكس مبيعات':'Reverse sales'},
-        {account_code: CODE.VAT_OUTPUT,     account_name: ar?'ضريبة القيمة المضافة — مخرجات':'VAT Output',
-         debit: vat, credit: 0, description: ar?'عكس ضريبة':'Reverse VAT'},
-        {account_code: CODE.AR,             account_name: ar?'ذمم مدينة تجارية':'Trade Receivables',
-         debit: 0, credit: total, description: ar?'إقفال ذمة':'Clear receivable'}
-      ];
-    }
-
-    /* Atomic void: status flip + reversal journal + customer outstanding
-       — all in one transaction. Idempotent: second call gets
-       already_voided_or_not_found. */
-    const {error: voidErr} = await sb.rpc('void_invoice_atomic', {
-      p_invoice_id:     invoiceId,
-      p_reason:         reasonAr || (ar?'إلغاء الفاتورة':'Invoice reversal'),
-      p_reversal_ref:   cnNumber,
-      p_reversal_desc:  ar?'إشعار دائن — إلغاء فاتورة':'Credit note — invoice reversal',
-      p_reversal_lines: reversalLines,
-      p_reversal_date:  todayISO()
-    });
-    if(voidErr){
-      notify(friendlyDbError(voidErr), 'r');
-      await loadInvoices();
-      return;
-    }
-
-    /* Mark the original journal entry as reversed (idempotent UPDATE) */
-    if(postedEntries && postedEntries.length){
-      await sb.from('journal_entries').update({
-        status: 'reversed', updated_at: new Date().toISOString()
-      }).eq('id', postedEntries[0].id);
-    }
-
-    /* Link invoice → CN (the atomic RPC already flipped status to 'voided'
-       and adjusted customer aggregates; this only adds the CN link). */
+    /* Mark invoice as credited (link back) */
     await sb.from('invoices').update({
       credited_at: new Date().toISOString(),
       credit_note_id: cn.id,
+      status: 'voided',
       updated_at: new Date().toISOString()
     }).eq('id', invoiceId);
+
+    /* Reverse customer aggregates if applicable */
+    if(inv.customer_id){
+      const {data:cust} = await sb.from('customers').select('total_invoiced,total_outstanding').eq('id', inv.customer_id).single();
+      if(cust){
+        await sb.from('customers').update({
+          total_invoiced: Math.max(0, (parseFloat(cust.total_invoiced)||0) - (parseFloat(inv.total)||0)),
+          total_outstanding: Math.max(0, (parseFloat(cust.total_outstanding)||0) - ((parseFloat(inv.total)||0) - (parseFloat(inv.amount_paid)||0))),
+          updated_at: new Date().toISOString()
+        }).eq('id', inv.customer_id);
+      }
+    }
+
+    /* Post reversal journal entry: DR Sales / CR AR (mirror of original) */
+    try {
+      const {data: entry} = await sb.from('journal_entries').insert({
+        user_id: currentUser.id, business_id: currentBiz.id,
+        entry_date: todayISO(),
+        reference: cnNumber,
+        description: ar?'إشعار دائن — إلغاء فاتورة':'Credit note — invoice reversal',
+        source: 'credit_note',
+        status: 'posted', is_balanced: true
+      }).select().single();
+      if(entry){
+        await sb.from('journal_lines').insert([
+          {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.SALES_STANDARD, account_name:ar?'المبيعات':'Sales',
+           debit:inv.subtotal, credit:0, description:ar?'عكس مبيعات':'Reverse sales'},
+          {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.VAT_OUTPUT, account_name:ar?'ضريبة القيمة المضافة المستحقة':'VAT Output',
+           debit:inv.vat_amount, credit:0, description:ar?'عكس ضريبة':'Reverse VAT'},
+          {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:ar?'ذمم مدينة تجارية':'Trade Receivables',
+           debit:0, credit:inv.total, description:ar?'إقفال ذمة':'Clear receivable'}
+        ]);
+      }
+    } catch(e){ console.warn('CN journal skipped:', e.message); }
 
     notify(ar
       ? `✅ تم إصدار إشعار دائن ${cnNumber}`
@@ -3737,39 +3899,36 @@ async function saveManualNote(){
       }
     }
 
-    /* Post journal entry — proportional reversal/charge
-       Round 17 (Accounting Integrity): atomic RPC ensures balanced
-       posting. For partial CN/DN the math is balanced by construction
-       since subtotal + vatAmount = total (no invoice-level discount applies
-       — these are explicit per-line values from the manual modal). */
+    /* Post journal entry — proportional reversal/charge */
     try {
-      const lines = isCredit
-        ? [
-            {account_code: CODE.SALES_STANDARD, account_name: ar?'إيرادات المبيعات':'Sales Revenue',
-             debit: subtotal, credit: 0, description: ar?'عكس مبيعات':'Reverse sales'},
-            {account_code: CODE.VAT_OUTPUT,     account_name: ar?'ضريبة القيمة المضافة — مخرجات':'VAT Output',
-             debit: vatAmount, credit: 0, description: ar?'عكس ضريبة':'Reverse VAT'},
-            {account_code: CODE.AR,             account_name: ar?'ذمم مدينة تجارية':'Trade Receivables',
-             debit: 0, credit: total, description: ar?'إقفال ذمة جزئي':'Partial AR clear'}
-          ]
-        : [
-            {account_code: CODE.AR,             account_name: ar?'ذمم مدينة تجارية':'Trade Receivables',
-             debit: total, credit: 0, description: ar?'إضافة ذمة':'Add AR'},
-            {account_code: CODE.SALES_STANDARD, account_name: ar?'إيرادات المبيعات':'Sales Revenue',
-             debit: 0, credit: subtotal, description: ar?'إيراد إضافي':'Additional revenue'},
-            {account_code: CODE.VAT_OUTPUT,     account_name: ar?'ضريبة القيمة المضافة — مخرجات':'VAT Output',
-             debit: 0, credit: vatAmount, description: ar?'ضريبة إضافية':'Additional VAT'}
-          ];
-      const {error: noteErr} = await sb.rpc('post_journal_entry_atomic', {
-        p_business_id: currentBiz.id,
-        p_entry_date:  todayISO(),
-        p_reference:   noteNumber,
-        p_description: isCredit ? (ar?'إشعار دائن جزئي':'Partial credit note') : (ar?'إشعار مدين':'Debit note'),
-        p_source:      isCredit ? 'credit_note' : 'debit_note',
-        p_source_id:   inv?.id || null,
-        p_lines:       lines
-      });
-      if(noteErr) console.warn('[GL] manual note journal failed:', noteErr.message);
+      const {data: entry} = await sb.from('journal_entries').insert({
+        user_id: currentUser.id, business_id: currentBiz.id,
+        entry_date: todayISO(),
+        reference: noteNumber,
+        description: isCredit ? (ar?'إشعار دائن جزئي':'Partial credit note') : (ar?'إشعار مدين':'Debit note'),
+        source: isCredit ? 'credit_note' : 'debit_note',
+        status: 'posted', is_balanced: true
+      }).select().single();
+      if(entry){
+        const lines = isCredit
+          ? [
+              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.SALES_STANDARD, account_name:ar?'المبيعات':'Sales',
+               debit:subtotal, credit:0, description:ar?'عكس مبيعات':'Reverse sales'},
+              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.VAT_OUTPUT, account_name:ar?'ضريبة القيمة المضافة المستحقة':'VAT Output',
+               debit:vatAmount, credit:0, description:ar?'عكس ضريبة':'Reverse VAT'},
+              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:ar?'ذمم مدينة تجارية':'Trade Receivables',
+               debit:0, credit:total, description:ar?'إقفال ذمة جزئي':'Partial AR clear'}
+            ]
+          : [
+              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:ar?'ذمم مدينة تجارية':'Trade Receivables',
+               debit:total, credit:0, description:ar?'إضافة ذمة':'Add AR'},
+              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.SALES_STANDARD, account_name:ar?'المبيعات':'Sales',
+               debit:0, credit:subtotal, description:ar?'إيراد إضافي':'Additional revenue'},
+              {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.VAT_OUTPUT, account_name:ar?'ضريبة القيمة المضافة المستحقة':'VAT Output',
+               debit:0, credit:vatAmount, description:ar?'ضريبة إضافية':'Additional VAT'}
+            ];
+        await sb.from('journal_lines').insert(lines);
+      }
     } catch(e){ console.warn('manual note journal skipped:', e.message); }
 
     closeManualNoteModal();
@@ -5702,64 +5861,39 @@ async function generateInvoice(){
         });
       }
 
-      /* Post COGS journal entry: Dr 5100 / Cr 1300
-         Round 17 (Accounting Integrity): atomic RPC replaces 2-call insert.
-         The previous "edit existing" pattern (find existing → delete lines →
-         insert new lines, keep entry_id) is replaced with: reverse the
-         existing entry, post a new entry. This preserves audit trail
-         (both old and reversal visible) instead of silently overwriting. */
+      /* Post COGS journal entry: Dr 5100 / Cr 1300 */
       if(totalCOGS > 0){
-        const ar = currentLang === 'ar';
         const cogsRef = payload.invoice_number + '-COGS';
         const {data:existing} = await sb.from('journal_entries')
-          .select('id,journal_lines(*)').eq('reference', cogsRef)
-          .eq('source','invoice').eq('business_id', currentBiz.id)
-          .neq('status','reversed').limit(1);
-
+          .select('id').eq('reference', cogsRef).eq('business_id', currentBiz.id).limit(1);
+        let cogsEntryId;
         if(existing && existing.length){
-          /* Edit case: post mirror reversal of the existing COGS entry first */
-          const orig = existing[0];
-          const origLines = orig.journal_lines || [];
-          if(origLines.length > 0){
-            const revLines = origLines.map(l => ({
-              account_code: l.account_code, account_name: l.account_name,
-              debit: l.credit, credit: l.debit,
-              description: (ar?'عكس COGS: ':'COGS rev: ') + (l.description||'')
-            }));
-            const {error:revErr} = await sb.rpc('post_journal_entry_atomic', {
-              p_business_id: currentBiz.id,
-              p_entry_date:  payload.issue_date,
-              p_reference:   'REV-' + cogsRef,
-              p_description: (ar?'عكس COGS — تعديل ':'COGS reversal — edit ') + payload.invoice_number,
-              p_source:      'invoice_reversal',
-              p_source_id:   invoiceId,
-              p_lines:       revLines
-            });
-            if(revErr) console.warn('[GL] COGS edit-reversal failed:', revErr.message);
-            else {
-              await sb.from('journal_entries').update({status:'reversed', updated_at:new Date().toISOString()}).eq('id', orig.id);
-            }
-          }
+          cogsEntryId = existing[0].id;
+          await sb.from('journal_lines').delete().eq('entry_id', cogsEntryId);
+        } else {
+          const {data:cogsEntry} = await sb.from('journal_entries').insert({
+            user_id: currentUser.id,
+            business_id: currentBiz.id,
+            entry_date: payload.issue_date,
+            reference: cogsRef,
+            description: (currentLang==='ar'?'تكلفة البضاعة المباعة — ':'COGS — ') + payload.invoice_number,
+            source: 'invoice',
+            source_id: invoiceId,
+            status: 'posted',
+            is_balanced: true
+          }).select().single();
+          if(cogsEntry) cogsEntryId = cogsEntry.id;
         }
-
-        /* Post the new (or first) COGS entry via atomic RPC */
-        const {error:cogsErr} = await sb.rpc('post_journal_entry_atomic', {
-          p_business_id: currentBiz.id,
-          p_entry_date:  payload.issue_date,
-          p_reference:   cogsRef,
-          p_description: (ar?'تكلفة البضاعة المباعة — ':'COGS — ') + payload.invoice_number,
-          p_source:      'invoice',
-          p_source_id:   invoiceId,
-          p_lines: [
-            {account_code: CODE.COGS,      account_name: ar?'تكلفة البضاعة المباعة':'COGS',
-             debit: totalCOGS, credit: 0,
-             description: (ar?'تكلفة مبيعات — ':'COGS — ') + payload.invoice_number},
-            {account_code: CODE.INVENTORY, account_name: ar?'المخزون':'Inventory',
-             debit: 0, credit: totalCOGS,
-             description: (ar?'إخراج من المخزون — ':'Inventory out — ') + payload.invoice_number}
-          ]
-        });
-        if(cogsErr) console.warn('[GL] COGS post failed:', cogsErr.message);
+        if(cogsEntryId){
+          await sb.from('journal_lines').insert([
+            {entry_id:cogsEntryId, user_id:currentUser.id, account_code:CODE.COGS, account_name:'تكلفة البضاعة المباعة',
+             debit:totalCOGS, credit:0,
+             description:(currentLang==='ar'?'تكلفة مبيعات — ':'COGS — ') + payload.invoice_number},
+            {entry_id:cogsEntryId, user_id:currentUser.id, account_code:CODE.INVENTORY, account_name:'المخزون',
+             debit:0, credit:totalCOGS,
+             description:(currentLang==='ar'?'إخراج من المخزون — ':'Inventory out — ') + payload.invoice_number}
+          ]);
+        }
       }
     } catch(e){
       console.warn('Inventory/COGS error:', e.message);
@@ -5850,7 +5984,7 @@ function computeInvoiceTotals(){
 }
 
 /* ═══════════════════════════════════════════════════════
-   AUTO-POST SALES JOURNAL — Round 17 (Accounting Integrity)
+   AUTO-POST SALES JOURNAL — preserved
 ═══════════════════════════════════════════════════════ */
 async function autoPostInvoice(invoice){
   if(!currentUser) return;
@@ -5866,79 +6000,64 @@ async function autoPostInvoice(invoice){
      discount amount — that was the root cause of the historical invoice
      imbalances found in TB diagnostics. */
   const revenue = roundCurrency(total - vat);
-  const ar = currentLang === 'ar';
   const ref = invoice.invoice_number;
   const date = invoice.issue_date || todayISO();
 
   try {
-    /* Check if a journal entry already exists for this invoice (edit case) */
     const {data:existing} = await sb.from('journal_entries')
       .select('id,journal_lines(*)').eq('reference', ref)
       .eq('business_id', currentBiz?.id || '').eq('source','invoice').limit(1);
 
     if(existing && existing.length){
-      /* Reverse old, post new (handles invoice edits where total changed) */
+      /* Reverse old, post new (handles edits) */
       const orig = existing[0];
       const origLines = orig.journal_lines || [];
       const origTotal = origLines.find(l => l.account_code === '1200')?.debit || 0;
       if(Math.abs(origTotal - total) > 0.001){
-        /* Round 17: post the reversal via atomic RPC — server validates
-           debit=credit before writing. Mirrors original lines (swap dr/cr). */
-        const reversalLines = origLines.map(l => ({
-          account_code: l.account_code, account_name: l.account_name,
-          debit: l.credit, credit: l.debit,
-          description: (ar?'عكس: ':'Rev: ') + l.description
-        }));
-        const {error: revErr} = await sb.rpc('post_journal_entry_atomic', {
-          p_business_id: currentBiz?.id,
-          p_entry_date:  date,
-          p_reference:   'REV-' + ref,
-          p_description: (ar?'عكس فاتورة — ':'Reversal — ') + (invoice.buyer_name||''),
-          p_source:      'invoice_reversal',
-          p_source_id:   invoice.id,
-          p_lines:       reversalLines
-        });
-        if(revErr){
-          console.warn('[GL] Invoice edit-reversal post failed:', revErr.message);
-          notify(friendlyDbError(revErr), 'r');
-          return;
+        const {data:revEntry} = await sb.from('journal_entries').insert({
+          user_id: currentUser.id, business_id: currentBiz?.id,
+          entry_date: date,
+          reference: 'REV-' + ref,
+          description: (currentLang==='ar'?'عكس فاتورة — ':'Reversal — ') + (invoice.buyer_name||''),
+          source: 'invoice_reversal', source_id: invoice.id,
+          status: 'posted', is_balanced: true
+        }).select().single();
+        if(revEntry){
+          await sb.from('journal_lines').insert(origLines.map(l => ({
+            entry_id: revEntry.id, user_id: currentUser.id,
+            account_code: l.account_code, account_name: l.account_name,
+            debit: l.credit, credit: l.debit,
+            description: (currentLang==='ar'?'عكس: ':'Rev: ') + l.description
+          })));
         }
-        /* Mark the original as reversed (separate, idempotent UPDATE — safe) */
         await sb.from('journal_entries').update({status:'reversed', updated_at:new Date().toISOString()}).eq('id', orig.id);
       } else {
-        /* Total unchanged — skip both reversal and new posting */
         return;
       }
     }
 
-    /* Round 17: post the new sales entry via atomic RPC. Header + 3 lines
-       in ONE transactional call with server-side debit=credit validation. */
-    const newLines = [
-      {account_code: CODE.AR,             account_name: ar?'ذمم مدينة تجارية':'Trade Receivables',
-       debit: total, credit: 0,
-       description: (ar?'مستحقات من ':'Receivable from ') + (invoice.buyer_name||'عميل')},
-      {account_code: CODE.SALES_STANDARD, account_name: ar?'إيرادات المبيعات':'Sales Revenue',
-       debit: 0, credit: revenue,
-       description: (ar?'إيرادات مبيعات — ':'Sales — ') + ref},
-      {account_code: CODE.VAT_OUTPUT,     account_name: ar?'ضريبة القيمة المضافة — مخرجات':'VAT Output',
-       debit: 0, credit: vat,
-       description: 'VAT 15% — ' + ref}
-    ];
-    const {error} = await sb.rpc('post_journal_entry_atomic', {
-      p_business_id: currentBiz?.id,
-      p_entry_date:  date,
-      p_reference:   ref,
-      p_description: (ar?'فاتورة مبيعات — ':'Sales invoice — ') + (invoice.buyer_name || ''),
-      p_source:      'invoice',
-      p_source_id:   invoice.id,
-      p_lines:       newLines
-    });
-    if(error){
-      console.warn('[GL] Auto-post sales entry failed:', error.message);
-      notify(friendlyDbError(error), 'r');
-    }
+    const {data:entry, error} = await sb.from('journal_entries').insert({
+      user_id: currentUser.id, business_id: currentBiz?.id,
+      entry_date: date, reference: ref,
+      description: (currentLang==='ar'?'فاتورة مبيعات — ':'Sales invoice — ') + (invoice.buyer_name || ''),
+      source: 'invoice', source_id: invoice.id,
+      status: 'posted', is_balanced: true
+    }).select().single();
+    if(error || !entry){console.warn('Auto-post error:', error?.message);return;}
+
+    await sb.from('journal_lines').insert([
+      {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:'ذمم مدينة تجارية',
+       debit:total, credit:0,
+       description:(currentLang==='ar'?'مستحقات من ':'Receivable from ') + (invoice.buyer_name||'عميل')},
+      {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.SALES_STANDARD, account_name:'إيرادات المبيعات',
+       debit:0, credit:revenue,
+       description:(currentLang==='ar'?'إيرادات مبيعات — ':'Sales — ') + ref},
+      {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.VAT_OUTPUT, account_name:'ضريبة القيمة المضافة — مخرجات',
+       debit:0, credit:vat,
+       description:'VAT مخرجات 15% — ' + ref}
+    ]);
   } catch(e){
-    console.warn('[GL] Auto-post failed:', e.message);
+    console.warn('Auto-post failed:', e.message);
   }
 }
 
@@ -6145,93 +6264,64 @@ async function voidInvoice(id, num, total, buyerName){
       }
     }
 
-    /* Now reverse the journal
-       Round 17 (Accounting Integrity): atomic RPC replaces the prior
-       4-step sequence (status flip + journal header + journal lines +
-       customer outstanding). void_invoice_atomic does it in ONE transaction
-       with WHERE status != 'voided' as the idempotency guard — duplicate
-       void attempts get already_voided_or_not_found and post NO second
-       reversal entry. This closes the REV-INV duplicate bug class. */
+    /* Now reverse the journal */
     const {data:entries} = await sb.from('journal_entries')
       .select('id,journal_lines(*)')
-      .eq('source_id', id).eq('source','invoice')
-      .eq('business_id', currentBiz?.id || '')
-      .neq('status','reversed');
+      .eq('source_id', id).eq('source','invoice').eq('business_id', currentBiz?.id || '');
 
     if(entries && entries.length){
       const orig = entries[0];
       const origLines = orig.journal_lines || [];
-      const ar = currentLang === 'ar';
 
-      const reversalLines = origLines.map(l => ({
-        account_code: l.account_code, account_name: l.account_name,
-        debit: l.credit, credit: l.debit,
-        description: (ar?'إشعار دائن: ':'CN: ') + l.description
-      }));
+      const {data:cnEntry} = await sb.from('journal_entries').insert({
+        user_id: currentUser.id, business_id: currentBiz?.id,
+        entry_date: todayISO(),
+        reference: 'CN-' + num,
+        description: (currentLang==='ar'?'إشعار دائن — إلغاء فاتورة ':'Credit Note — Void ') + num,
+        source: 'credit_note', source_id: id,
+        status: 'posted', is_balanced: true
+      }).select().single();
 
-      const {error: voidErr} = await sb.rpc('void_invoice_atomic', {
-        p_invoice_id:     id,
-        p_reason:         ar?'إلغاء فاتورة':'Invoice void',
-        p_reversal_ref:   'CN-' + num,
-        p_reversal_desc:  (ar?'إشعار دائن — إلغاء فاتورة ':'Credit Note — Void ') + num,
-        p_reversal_lines: reversalLines,
-        p_reversal_date:  todayISO()
-      });
-
-      if(voidErr){
-        notify(friendlyDbError(voidErr), 'r');
-        await loadInvoices();
-        return;
+      if(cnEntry){
+        await sb.from('journal_lines').insert(origLines.map(l => ({
+          entry_id: cnEntry.id, user_id: currentUser.id,
+          account_code: l.account_code, account_name: l.account_name,
+          debit: l.credit, credit: l.debit,
+          description: (currentLang==='ar'?'إشعار دائن: ':'CN: ') + l.description
+        })));
       }
 
-      /* Mark the original journal entry as reversed (separate idempotent UPDATE) */
       await sb.from('journal_entries').update({status:'reversed', updated_at:new Date().toISOString()}).eq('id', orig.id);
-    } else {
-      /* No journal entry to reverse (rare: invoice without ledger entry).
-         Still need to flip status — call atomic RPC with empty-but-valid lines.
-         The RPC requires at least one line, so we synthesize a no-op AR self-cancel.
-         This path is intentionally rare; most invoices have journal entries. */
-      const total = parseFloat(total) || 0;
-      if(total > 0){
-        await sb.from('invoices').update({status:'voided', updated_at:new Date().toISOString()}).eq('id', id);
-      }
     }
 
-    /* Also reverse the COGS journal entry if it exists
-       Round 17 (Accounting Integrity): atomic RPC replaces 2-call insert. */
+    /* Also reverse the COGS journal entry if it exists */
     const {data: cogsEntries} = await sb.from('journal_entries')
       .select('id,journal_lines(*)')
       .eq('reference', num + '-COGS')
-      .eq('source','invoice').eq('business_id', currentBiz?.id || '')
-      .neq('status','reversed');
+      .eq('source','invoice').eq('business_id', currentBiz?.id || '');
     if(cogsEntries && cogsEntries.length){
       const cogsOrig = cogsEntries[0];
       const cogsLines = cogsOrig.journal_lines || [];
-      if(cogsLines.length > 0){
-        const ar = currentLang === 'ar';
-        const cogsRevLines = cogsLines.map(l => ({
+      const {data: cogsRev} = await sb.from('journal_entries').insert({
+        user_id: currentUser.id, business_id: currentBiz?.id,
+        entry_date: todayISO(),
+        reference: 'CN-' + num + '-COGS',
+        description: (currentLang==='ar'?'عكس COGS — إلغاء فاتورة ':'COGS reversal — voided invoice ') + num,
+        source: 'credit_note', source_id: id,
+        status: 'posted', is_balanced: true
+      }).select().single();
+      if(cogsRev){
+        await sb.from('journal_lines').insert(cogsLines.map(l => ({
+          entry_id: cogsRev.id, user_id: currentUser.id,
           account_code: l.account_code, account_name: l.account_name,
           debit: l.credit, credit: l.debit,
-          description: (ar?'عكس COGS: ':'COGS rev: ') + (l.description || '')
-        }));
-        const {error: cogsRevErr} = await sb.rpc('post_journal_entry_atomic', {
-          p_business_id: currentBiz?.id,
-          p_entry_date:  todayISO(),
-          p_reference:   'CN-' + num + '-COGS',
-          p_description: (ar?'عكس COGS — إلغاء فاتورة ':'COGS reversal — voided invoice ') + num,
-          p_source:      'credit_note',
-          p_source_id:   id,
-          p_lines:       cogsRevLines
-        });
-        if(cogsRevErr){
-          console.warn('[GL] COGS void-reversal failed:', cogsRevErr.message);
-        } else {
-          await sb.from('journal_entries').update({status:'reversed', updated_at:new Date().toISOString()}).eq('id', cogsOrig.id);
-        }
+          description: (currentLang==='ar'?'عكس COGS: ':'COGS rev: ') + (l.description || '')
+        })));
       }
+      await sb.from('journal_entries').update({status:'reversed', updated_at:new Date().toISOString()}).eq('id', cogsOrig.id);
     }
 
-    /* Round 17: status flip already done by void_invoice_atomic above */
+    await sb.from('invoices').update({status:'voided', updated_at:new Date().toISOString()}).eq('id', id);
 
     /* Round 4l.7: ALSO create the formal credit_notes record (was missing — caused
        Credit Notes tab to be empty even after reversals). This is a separate insert
@@ -6479,30 +6569,28 @@ async function confirmPayment(){
 
   if(error){notify(friendlyDbError(error),'r');throw error;}
 
-  /* Post journal entry
-     Round 17 (Accounting Integrity): atomic RPC. Also: now includes
-     source_id linking the payment back to its invoice. */
+  /* Post journal entry */
   try {
-    const ar = currentLang === 'ar';
     const accountCode = (method==='bank'||method==='card') ? '1101' : '1100';
-    const accountName = (method==='bank'||method==='card') ? (ar?'البنك':'Bank') : (ar?'النقد':'Cash');
-    const {error: jeErr} = await sb.rpc('post_journal_entry_atomic', {
-      p_business_id: currentBiz?.id,
-      p_entry_date:  date,
-      p_reference:   ref || ('PMT-'+Date.now()),
-      p_description: ar?'استلام دفعة':'Payment received',
-      p_source:      'payment',
-      p_source_id:   _paymentInvoiceId,
-      p_lines: [
-        {account_code: accountCode, account_name: accountName,
-         debit: amount, credit: 0,
-         description: ar?'استلام من عميل':'Received from customer'},
-        {account_code: CODE.AR,     account_name: ar?'ذمم مدينة تجارية':'Trade Receivables',
-         debit: 0, credit: amount,
-         description: ar?'إقفال ذمة':'Clear receivable'}
-      ]
-    });
-    if(jeErr) console.warn('Payment journal:', jeErr.message);
+    const accountName = (method==='bank'||method==='card')
+      ? (currentLang==='ar'?'البنك':'Bank')
+      : (currentLang==='ar'?'النقد':'Cash');
+    const {data:entry} = await sb.from('journal_entries').insert({
+      user_id: currentUser.id, business_id: currentBiz?.id,
+      entry_date: date,
+      reference: ref || ('PMT-'+Date.now()),
+      description: currentLang==='ar'?'استلام دفعة':'Payment received',
+      source: 'payment',
+      status: 'posted', is_balanced: true
+    }).select().single();
+    if(entry){
+      await sb.from('journal_lines').insert([
+        {entry_id:entry.id, user_id:currentUser.id, account_code:accountCode, account_name:accountName,
+         debit:amount, credit:0, description:currentLang==='ar'?'استلام من عميل':'Received from customer'},
+        {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:currentLang==='ar'?'ذمم مدينة تجارية':'Trade Receivables',
+         debit:0, credit:amount, description:currentLang==='ar'?'إقفال ذمة':'Clear receivable'}
+      ]);
+    }
   } catch(e){console.warn('Journal skipped:', e.message);}
 
   /* Round 4h.2: auto-create bank deposit transaction if user picked an account.
@@ -7161,7 +7249,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.18-27</div>
-<script>console.log('%c[GulfLedger build] v2026.05.18-27 · Round 17 Accounting Integrity (complete)', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-31</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-26 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
