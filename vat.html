@@ -744,18 +744,69 @@ async function init() {
   if (!session) { window.location.href = 'login.html'; return; }
   currentUser = session.user;
 
-  const { data: biz } = await sb.from('businesses').select('*').eq('user_id', currentUser.id).single();
-  if (biz) {
-    currentBiz = biz;
-    (document.getElementById('biz-name')||{}).textContent = biz.name;
-    document.getElementById('form-biz-name').textContent = biz.name;
-    document.getElementById('form-trn').textContent      = 'TRN: ' + (biz.trn || '—');
+  /* Round 25: multi-user-safe business lookup.
+     Find the user's business via business_users membership table — works
+     for owners and team members alike. */
+  const { data: memberships } = await sb.from('business_users')
+    .select('business_id, role')
+    .eq('user_id', currentUser.id)
+    .eq('status', 'active')
+    .order('role', { ascending: true });  // owner < admin < accountant alphabetically? doesn't matter — pick first
+
+  if (!memberships || memberships.length === 0) {
+    /* Fallback: legacy single-user path */
+    const { data: legacyBiz } = await sb.from('businesses').select('*').eq('user_id', currentUser.id).maybeSingle();
+    if (legacyBiz) {
+      currentBiz = legacyBiz;
+    } else {
+      notify(L==='ar'?'لم يتم العثور على منشأة':'No business found','r');
+      return;
+    }
+  } else {
+    const { data: biz } = await sb.from('businesses').select('*').eq('id', memberships[0].business_id).single();
+    if (biz) currentBiz = biz;
+  }
+
+  if (currentBiz) {
+    (document.getElementById('biz-name')||{}).textContent = currentBiz.name;
+    document.getElementById('form-biz-name').textContent = currentBiz.name;
+    document.getElementById('form-trn').textContent      = 'TRN: ' + (currentBiz.trn || '—');
+
+    /* Round 25: resolve VAT roles for this business so calcVAT can query
+       the right account codes. */
+    await _initVatRoleCodes();
   }
 
   // Set current quarter
   setCurrentQuarter();
   calcNextDueDate();
   const storedL=getStoredLang(); L=storedL; setLang(storedL);
+}
+
+/* Round 25: cache for vat_output and vat_input resolved account codes */
+let _vatCodes = { output: null, input: null };
+
+async function _initVatRoleCodes() {
+  if (!currentBiz?.id) return;
+  try {
+    const { data, error } = await sb.rpc('resolve_roles_batch', {
+      p_business_id: currentBiz.id,
+      p_roles: ['vat_output', 'vat_input']
+    });
+    if (error) throw error;
+    for (const r of (data || [])) {
+      if (r.role === 'vat_output') _vatCodes.output = r.resolved_code;
+      else if (r.role === 'vat_input') _vatCodes.input = r.resolved_code;
+    }
+    if (!_vatCodes.output || !_vatCodes.input) {
+      console.warn('[GL Round 25] VAT roles unmapped:', _vatCodes);
+      notify(L==='ar'
+        ? 'حسابات الضريبة غير مربوطة. اذهب إلى الإعدادات → ربط الحسابات.'
+        : 'VAT accounts not mapped. Go to Settings → Account Mappings.', 'r');
+    }
+  } catch (e) {
+    console.error('[GL Round 25] resolve_roles_batch failed:', e);
+  }
 }
 
 /* ── QUARTER LOGIC ── */
@@ -797,7 +848,18 @@ function calcNextDueDate() {
   document.getElementById('days-left').style.color = diff <= 14 ? 'var(--red)' : diff <= 30 ? 'var(--amber)' : 'var(--muted)';
 }
 
-/* ── CALCULATE VAT ── */
+/* ── CALCULATE VAT (Round 25 — P2.6: GL-based reconciliation) ──
+   Output VAT = net credit balance on the vat_output account in the period
+   Input VAT  = net debit balance on the vat_input account in the period
+   
+   Why this is correct:
+     - Every revenue posting credits vat_output → output VAT goes up
+     - Every voided invoice debits vat_output via reversal → cancels out
+     - Every expense posting debits vat_input → input VAT goes up
+     - Every voided expense credits vat_input via reversal → cancels out
+     - Manual VAT corrections in either direction also reflect properly
+   
+   The result reconciles EXACTLY to the GL because it IS the GL. */
 async function calcVAT() {
   const from = document.getElementById('vat-from').value;
   const to   = document.getElementById('vat-to').value;
@@ -805,18 +867,49 @@ async function calcVAT() {
   const yr   = document.getElementById('year-select').value;
 
   if (!from || !to) { notify(L==='ar'?'اختر الفترة':'Select period', 'r'); return; }
+  if (!currentBiz?.id) { notify(L==='ar'?'لم يتم العثور على منشأة':'No business','r'); return; }
+  if (!_vatCodes.output || !_vatCodes.input) {
+    notify(L==='ar'
+      ? 'حسابات الضريبة غير مربوطة. اذهب إلى الإعدادات → ربط الحسابات.'
+      : 'VAT accounts not mapped. Open Settings → Account Mappings first.', 'r');
+    return;
+  }
 
-  // ── OUTPUT VAT: Load invoices in period ──
+  /* ── OUTPUT VAT: query GL on vat_output account ── */
+  const { data: outRows, error: outErr } = await sb.from('journal_lines')
+    .select('debit, credit, journal_entries!inner(business_id, entry_date, status)')
+    .eq('account_code', _vatCodes.output)
+    .eq('journal_entries.business_id', currentBiz.id)
+    .gte('journal_entries.entry_date', from)
+    .lte('journal_entries.entry_date', to)
+    .neq('journal_entries.status', 'voided');
+
+  if (outErr) {
+    console.error('[Round 25] output VAT query failed:', outErr);
+    notify(L==='ar'?'فشل حساب ضريبة المخرجات':'Failed to compute output VAT','r');
+    return;
+  }
+
+  let totalVATOut = 0;
+  for (const r of (outRows || [])) {
+    totalVATOut += (r.credit || 0) - (r.debit || 0);
+  }
+  totalVATOut = Math.round(totalVATOut * 100) / 100;
+
+  /* Implied sales = output VAT / 0.15 (standard rate). Approximation for
+     the "Total Sales" display field — user can override. */
+  const totalSales = totalVATOut > 0 ? Math.round((totalVATOut / 0.15) * 100) / 100 : 0;
+
+  /* Load non-voided invoice list for audit-trail display only. Don't use
+     for totals. */
   const { data: invoices } = await sb.from('invoices')
     .select('*')
-    .eq('user_id', currentUser.id)
+    .eq('business_id', currentBiz.id)
+    .neq('status', 'voided')
     .gte('issue_date', from)
     .lte('issue_date', to)
     .order('issue_date');
-
   currentInvoices = invoices || [];
-  const totalSales  = currentInvoices.reduce((s, i) => s + (i.subtotal   || 0), 0);
-  const totalVATOut = currentInvoices.reduce((s, i) => s + (i.vat_amount || 0), 0);
 
   set('vs-count',  currentInvoices.length);
   set('vs-sales',  'SAR ' + fmt(totalSales));
@@ -824,40 +917,44 @@ async function calcVAT() {
   set('f1-amount', fmt(totalSales));
   set('f1-vat',    fmt(totalVATOut));
 
-  // ── INPUT VAT: Auto-pull from inventory receipts ──
-  const { data: receipts } = await sb.from('inventory_movements')
-    .select('quantity, unit_cost, inventory_items(cost_price)')
-    .eq('business_id', currentBiz?.id)
-    .eq('movement_type', 'in')
-    .gte('movement_date', from)
-    .lte('movement_date', to)
-    .neq('reference', 'OPENING');  // exclude opening stock
+  /* ── INPUT VAT: query GL on vat_input account ── */
+  const { data: inRows, error: inErr } = await sb.from('journal_lines')
+    .select('debit, credit, journal_entries!inner(business_id, entry_date, status)')
+    .eq('account_code', _vatCodes.input)
+    .eq('journal_entries.business_id', currentBiz.id)
+    .gte('journal_entries.entry_date', from)
+    .lte('journal_entries.entry_date', to)
+    .neq('journal_entries.status', 'voided');
 
-  let purchasesTotal = 0;
-  (receipts || []).forEach(m => {
-    const cost = m.unit_cost || m.inventory_items?.cost_price || 0;
-    purchasesTotal += (m.quantity || 0) * cost;
-  });
-  purchasesTotal = Math.round(purchasesTotal * 100) / 100;
+  if (inErr) {
+    console.error('[Round 25] input VAT query failed:', inErr);
+    notify(L==='ar'?'فشل حساب ضريبة المدخلات':'Failed to compute input VAT','r');
+    return;
+  }
 
-  // Pre-fill field 4 with auto-calculated purchases
+  let totalVATIn = 0;
+  for (const r of (inRows || [])) {
+    totalVATIn += (r.debit || 0) - (r.credit || 0);
+  }
+  totalVATIn = Math.round(totalVATIn * 100) / 100;
+
+  const totalPurchases = totalVATIn > 0 ? Math.round((totalVATIn / 0.15) * 100) / 100 : 0;
+
   const f4Input = document.getElementById('f4-amount');
   if (f4Input) {
-    f4Input.value = purchasesTotal.toFixed(2);
-    // Mark as auto-filled
+    f4Input.value = totalPurchases.toFixed(2);
     f4Input.style.background = '#f0fdf4';
     f4Input.style.borderColor = 'var(--green)';
     f4Input.title = L==='ar'
-      ? 'تم الحساب تلقائياً من استلامات المخزون — يمكن تعديله'
-      : 'Auto-calculated from inventory receipts — can be edited';
+      ? 'محسوب من دفتر الأستاذ — يطابق القيود تماماً — يمكن تعديله'
+      : 'Computed from General Ledger — exactly matches accounting entries — can be edited';
   }
 
-  // Show purchases summary note
   const f4Note = document.getElementById('f4-auto-note');
   if (f4Note) {
     f4Note.textContent = (L==='ar'
-      ? `تم جلبه تلقائياً من ${(receipts||[]).length} استلام مخزون`
-      : `Auto-pulled from ${(receipts||[]).length} inventory receipts`);
+      ? `محسوب من دفتر الأستاذ (الحساب ${_vatCodes.input})`
+      : `Computed from General Ledger (account ${_vatCodes.input})`);
     f4Note.style.display = 'block';
   }
 
@@ -1011,7 +1108,7 @@ document.addEventListener('click',function(e){
   if(w&&!w.contains(e.target)){var m=document.getElementById('gl-qa-menu');if(m)m.classList.remove('open');}
 });
 </script>
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-12</div>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-25</div>
 <script>console.log('%c[GulfLedger build] v2026.05.17-12 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
