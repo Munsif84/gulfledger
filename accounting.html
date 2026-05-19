@@ -4654,8 +4654,10 @@ async function openRoleMappingWizard(unmappedRoles, onComplete){
   _roleWizardState.onComplete = onComplete;
 
   /* Build a fresh CoA list filtered to active non-header accounts.
+     Round 24 fix: removed `&& a.parent_code` — non-header leaves with
+     no parent are valid accounts (rare but exist in legacy data).
      The dropdowns will further filter by qualifying_types per role. */
-  const eligibleAccts = chartOfAccounts.filter(a => a.is_active !== false && !a.is_header && a.parent_code);
+  const eligibleAccts = chartOfAccounts.filter(a => a.is_active !== false && !a.is_header);
 
   const rolesHTML = unmappedRoles.map(r => {
     const label = ar ? r.label_ar : r.label_en;
@@ -5521,8 +5523,8 @@ async function renderPL_legacy_flat(period){
     const [prevFrom, prevTo] = previousPeriodRange(period);
     if(prevFrom) prevBal = await computeAccountBalances(prevFrom, prevTo);
   }
-  const incomeAccts = chartOfAccounts.filter(a => a.type === 'income' && a.parent_code).sort((a,b)=>a.code.localeCompare(b.code));
-  const expenseAccts = chartOfAccounts.filter(a => a.type === 'expense' && a.parent_code).sort((a,b)=>a.code.localeCompare(b.code));
+  const incomeAccts = chartOfAccounts.filter(a => a.type === 'income' && !a.is_header).sort((a,b)=>a.code.localeCompare(b.code));
+  const expenseAccts = chartOfAccounts.filter(a => a.type === 'expense' && !a.is_header).sort((a,b)=>a.code.localeCompare(b.code));
   let totalIncome = 0, totalIncomePrev = 0, totalExpense = 0, totalExpensePrev = 0;
   const formatVal = (n) => 'SAR ' + fmt(n);
   function renderRow(a, valNow, valPrev){
@@ -5565,9 +5567,13 @@ async function renderBalanceSheet(period){
   /* Cumulative balances from inception to "as at" date */
   const bal = await computeAccountBalances(null, asAtISO);
 
-  const assets = chartOfAccounts.filter(a => a.type === 'asset' && a.parent_code).sort((a,b)=>a.code.localeCompare(b.code));
-  const liabilities = chartOfAccounts.filter(a => a.type === 'liability' && a.parent_code).sort((a,b)=>a.code.localeCompare(b.code));
-  const equityAccts = chartOfAccounts.filter(a => a.type === 'equity' && a.parent_code).sort((a,b)=>a.code.localeCompare(b.code));
+  /* Round 24 fix: filter by !is_header (the real meaning of "leaf account"),
+     not by parent_code. Some accounts in legacy data have parent_code=NULL
+     but are valid leaves — the old `&& a.parent_code` filter excluded them
+     and produced false Balance Sheet imbalances. */
+  const assets = chartOfAccounts.filter(a => a.type === 'asset' && !a.is_header).sort((a,b)=>a.code.localeCompare(b.code));
+  const liabilities = chartOfAccounts.filter(a => a.type === 'liability' && !a.is_header).sort((a,b)=>a.code.localeCompare(b.code));
+  const equityAccts = chartOfAccounts.filter(a => a.type === 'equity' && !a.is_header).sort((a,b)=>a.code.localeCompare(b.code));
 
   const formatVal = (n) => 'SAR ' + fmt(n);
 
@@ -5609,9 +5615,9 @@ async function renderBalanceSheet(period){
   /* Retained earnings = sum of (income credit - debit) - sum of (expense debit - credit), all-time, excluding voided */
   let totalIncomeAllTime = 0, totalExpenseAllTime = 0;
   for(const a of chartOfAccounts){
-    if(a.type === 'income' && a.parent_code){
+    if(a.type === 'income' && !a.is_header){
       totalIncomeAllTime += -(bal[a.code]?.net || 0);
-    } else if(a.type === 'expense' && a.parent_code){
+    } else if(a.type === 'expense' && !a.is_header){
       totalExpenseAllTime += (bal[a.code]?.net || 0);
     }
   }
@@ -7926,8 +7932,8 @@ function exportReportCSV(){
     rows.push(['Period', reportPeriodSubtitle(reportData.period, false)]);
     rows.push([]);
     rows.push(['Code','Account','Type','Current Period','Previous Period']);
-    const incomeAccts = chartOfAccounts.filter(a => a.type === 'income' && a.parent_code).sort((a,b)=>a.code.localeCompare(b.code));
-    const expenseAccts = chartOfAccounts.filter(a => a.type === 'expense' && a.parent_code).sort((a,b)=>a.code.localeCompare(b.code));
+    const incomeAccts = chartOfAccounts.filter(a => a.type === 'income' && !a.is_header).sort((a,b)=>a.code.localeCompare(b.code));
+    const expenseAccts = chartOfAccounts.filter(a => a.type === 'expense' && !a.is_header).sort((a,b)=>a.code.localeCompare(b.code));
     /* re-fetch balances */
     /* Use the totals from reportData; rows iterated via the chart */
     rows.push([]);
@@ -11811,7 +11817,7 @@ async function renderQawStep1(){
   const balances = await computeAccountBalances(fy.startISO, fy.endISO);
   let revenue = 0;
   for(const a of chartOfAccounts){
-    if(a.type === 'income' && a.parent_code){
+    if(a.type === 'income' && !a.is_header){
       const b = balances[a.code];
       if(b) revenue += -b.net;
     }
@@ -11821,7 +11827,7 @@ async function renderQawStep1(){
   const cumBal = await computeAccountBalances(null, fy.endISO);
   let totalAssets = 0;
   for(const a of chartOfAccounts){
-    if(a.type === 'asset' && a.parent_code){
+    if(a.type === 'asset' && !a.is_header){
       const v = cumBal[a.code]?.net || 0;
       if(v > 0.005) totalAssets += v;
     }
@@ -12893,7 +12899,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-35</div>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-36</div>
 <script>console.log('%c[GulfLedger build] v2026.05.18-28 · Special Entries UX (Tier 1)', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
