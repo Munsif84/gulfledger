@@ -1497,6 +1497,24 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .rwz-save:hover{background:var(--navy);}
 .rwz-save:disabled{opacity:0.5;cursor:not-allowed;}
 
+/* ═══════════════════════════════════════════════════════════════════
+   Round 24 (P1.6): Accounting equation validator pill
+═══════════════════════════════════════════════════════════════════ */
+.balance-pill{display:flex;align-items:flex-start;gap:12px;margin-top:16px;padding:12px 16px;border-radius:10px;border:1px solid var(--border);}
+.balance-pill-ok{background:#e6f4ec;border-color:var(--light);}
+.balance-pill-warn{background:#fef3c7;border-color:#fde68a;}
+.balance-pill-icon{font-size:18px;line-height:1;flex-shrink:0;margin-top:2px;}
+.balance-pill-ok .balance-pill-icon{color:var(--green);}
+.balance-pill-warn .balance-pill-icon{color:var(--amber);}
+.balance-pill-body{flex:1;min-width:0;}
+.balance-pill-title{font-size:13px;font-weight:800;color:var(--ink);margin-bottom:2px;}
+.balance-pill-ok .balance-pill-title{color:var(--green);}
+.balance-pill-warn .balance-pill-title{color:var(--amber);}
+.balance-pill-detail{font-size:12px;color:var(--muted);line-height:1.5;}
+@media print {
+  .balance-pill{border:1px solid #999;background:none !important;}
+}
+
 </style>
 </head>
 <body>
@@ -5659,20 +5677,51 @@ async function renderBalanceSheet(period){
         <span></span>
       </div>
 
-      <!-- Balance Sheet imbalance indicator removed (Round B-6/B-7).
-           If Assets ≠ Liab+Equity, that's a system data-integrity issue
-           identical to the Trial Balance imbalance — logged to console for
-           developer diagnosis, not surfaced to a non-accountant user.
-           Run window.glDiagnoseTB() in console to find offending entries. -->
+      <!-- Round 24 (P1.6): accounting equation validator pill.
+           Replaces the silent-imbalance approach. Round 17 made post-time
+           validation airtight (atomic ledger + CHECK constraints), so any
+           imbalance now indicates either legacy data or an external write —
+           both worth surfacing visibly rather than hiding. -->
       ${(() => {
-        if(!balanceCheck){
+        const diff = totalAssets - totalLiabEq;
+        const absDiff = Math.abs(diff);
+        if(balanceCheck){
+          return `
+            <div class="balance-pill balance-pill-ok">
+              <span class="balance-pill-icon">✓</span>
+              <div class="balance-pill-body">
+                <div class="balance-pill-title">${ar?'الكتب متوازنة':'Books balanced'}</div>
+                <div class="balance-pill-detail">
+                  ${ar?'الأصول':'Assets'} ${formatVal(totalAssets)} = ${ar?'الالتزامات':'Liabilities'} ${formatVal(totalLiabilities)} + ${ar?'حقوق الملكية':'Equity'} ${formatVal(totalEquity)}
+                </div>
+              </div>
+            </div>
+          `;
+        } else {
           console.warn('[GL] Balance sheet imbalance:',
                        `Assets=${totalAssets.toFixed(2)}`,
                        `Liab+Eq=${totalLiabEq.toFixed(2)}`,
-                       `diff=${(totalAssets - totalLiabEq).toFixed(2)} SAR.`,
+                       `diff=${diff.toFixed(2)} SAR.`,
                        'Run window.glDiagnoseTB() to find the offending journal entries.');
+          return `
+            <div class="balance-pill balance-pill-warn">
+              <span class="balance-pill-icon">⚠</span>
+              <div class="balance-pill-body">
+                <div class="balance-pill-title">${ar?'الكتب غير متوازنة':'Books out of balance'}</div>
+                <div class="balance-pill-detail">
+                  ${ar?'الفرق':'Difference'}: ${formatVal(absDiff)} ·
+                  ${ar?'الأصول':'Assets'} ${formatVal(totalAssets)} ${diff > 0 ? '>' : '<'} ${ar?'الالتزامات + حقوق الملكية':'Liab + Equity'} ${formatVal(totalLiabEq)}
+                </div>
+                <div class="balance-pill-detail" style="margin-top:6px;font-size:11px;color:var(--muted);">
+                  ${ar
+                    ?'هذا يدل على مشكلة في سلامة البيانات. الأنظمة الحديثة تمنع هذا — قد تكون بيانات قديمة. شغّل في وحدة التحكم:'
+                    :'This indicates a data-integrity issue. Newer entries cannot become unbalanced — this may be legacy data. Run in console:'}
+                  <code style="background:#fff;padding:2px 6px;border-radius:3px;border:1px solid var(--border);font-size:11px;">window.glDiagnoseTB()</code>
+                </div>
+              </div>
+            </div>
+          `;
         }
-        return '';
       })()}
     </div>
   `;
@@ -6090,43 +6139,50 @@ async function renderTrialBalance(period){
         <span class="val">${formatVal(totalCR)}</span>
       </div>
 
-      <!-- The "balanced/unbalanced" banner is intentionally removed in
-           Round B-6/B-7. Same principle as the CFS reconciliation warning:
-           a non-accountant user cannot act on "trial balance unbalanced
-           by X" — that's a system data-integrity issue, not their problem.
-
-           Imbalance can only arise from one of three causes, all of which
-           are OUR responsibility, not the user's:
-
-             (a) A journal entry was saved without DR=CR validation
-                 (current code DOES validate manual entries — line ~3445 —
-                 but auto-generated entries from invoice/bill/receipt
-                 modules don't all go through the same validated helper).
-             (b) A partial line-insert failure (header saved, some lines
-                 failed). Today these inserts aren't wrapped in a transaction
-                 and errors are silently warned.
-             (c) Data left over from earlier development iterations before
-                 the current journal-generation logic was finalized.
-
-           Round B-7 (Journal Entry Integrity) addresses all three:
-             1. Single postJournalEntry() helper used by every module that
-                generates journal entries. Refuses to save if unbalanced.
-             2. Transactional insert via Supabase RPC (header + lines in
-                one DB transaction — atomic or both fail).
-             3. One-time data repair script to identify and fix or void
-                pre-existing unbalanced entries from dev-era test data.
-
-           Until B-7 lands: imbalance is logged to console (developer-visible)
-           via window.glDiagnoseTB() — see below — but not shown to the user. */
+      <!-- Round 24 (P1.6): trial balance equation validator pill.
+           Same approach as Balance Sheet — visible confirmation when balanced,
+           clear actionable warning when not. Round 17's atomic ledger means
+           imbalance now only indicates legacy data or external writes. -->
       ${(() => {
-        if(!balanced){
+        const diff = totalDR - totalCR;
+        const absDiff = Math.abs(diff);
+        if(balanced){
+          return `
+            <div class="balance-pill balance-pill-ok">
+              <span class="balance-pill-icon">✓</span>
+              <div class="balance-pill-body">
+                <div class="balance-pill-title">${ar?'الميزان متوازن':'Trial balance balanced'}</div>
+                <div class="balance-pill-detail">
+                  ${ar?'مجموع المدين':'Total Debits'} ${formatVal(totalDR)} = ${ar?'مجموع الدائن':'Total Credits'} ${formatVal(totalCR)}
+                </div>
+              </div>
+            </div>
+          `;
+        } else {
           console.warn('[GL] Trial balance imbalance:',
                        `DR=${totalDR.toFixed(2)}`,
                        `CR=${totalCR.toFixed(2)}`,
-                       `diff=${(totalDR - totalCR).toFixed(2)} SAR.`,
+                       `diff=${diff.toFixed(2)} SAR.`,
                        'Run window.glDiagnoseTB() to find the offending entries.');
+          return `
+            <div class="balance-pill balance-pill-warn">
+              <span class="balance-pill-icon">⚠</span>
+              <div class="balance-pill-body">
+                <div class="balance-pill-title">${ar?'الميزان غير متوازن':'Trial balance out of balance'}</div>
+                <div class="balance-pill-detail">
+                  ${ar?'الفرق':'Difference'}: ${formatVal(absDiff)} ·
+                  ${ar?'مدين':'DR'} ${formatVal(totalDR)} ${diff > 0 ? '>' : '<'} ${ar?'دائن':'CR'} ${formatVal(totalCR)}
+                </div>
+                <div class="balance-pill-detail" style="margin-top:6px;font-size:11px;color:var(--muted);">
+                  ${ar
+                    ?'الأنظمة الحديثة تمنع القيود غير المتوازنة. هذا قد يكون بيانات قديمة. شغّل في وحدة التحكم:'
+                    :'The system prevents unbalanced entries from being posted. This may be legacy data. Run in console:'}
+                  <code style="background:#fff;padding:2px 6px;border-radius:3px;border:1px solid var(--border);font-size:11px;">window.glDiagnoseTB()</code>
+                </div>
+              </div>
+            </div>
+          `;
         }
-        return '';
       })()}
     </div>
   `;
@@ -12837,7 +12893,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.18-30</div>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-35</div>
 <script>console.log('%c[GulfLedger build] v2026.05.18-28 · Special Entries UX (Tier 1)', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
