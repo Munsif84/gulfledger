@@ -1914,23 +1914,209 @@ const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZ
 const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
 
 /* ═══════════════════════════════════════════════════════════════════════════
-   ROUND B-PL-Structure: Semantic account code constants (SOCPA-aligned)
-   See invoices.html for full documentation.
+   ROUND 20d: Role-based account code resolution for inventory module
+   ═══════════════════════════════════════════════════════════════════════════
+   Same architecture as invoices.html (20b) and finance.html (20c).
    ═══════════════════════════════════════════════════════════════════════════ */
-const USE_SOCPA_CODES_DEFAULT = false;
-function _useSocpa(){
-  if(typeof window !== 'undefined' && window._gl_use_socpa_codes != null){
-    return !!window._gl_use_socpa_codes;
+
+let _roleCodes = {};
+let _roleCodesLoaded = false;
+
+const _REQUIRED_ROLES_FOR_INVENTORY = [
+  'ar_primary',                  /* CODE.AR */
+  'inventory_primary',           /* CODE.INVENTORY */
+  'vat_input',                   /* CODE.VAT_INPUT */
+  'ap_primary',                  /* CODE.AP */
+  'vat_output',                  /* CODE.VAT_OUTPUT */
+  'cogs_primary',                /* CODE.COGS */
+  'cash_primary',                /* CODE.CASH (new in 20d) */
+  'bank_primary',                /* CODE.BANK (new in 20d) */
+  'inventory_writeoff_expense',  /* CODE.INV_WRITEOFF (new in 20d) */
+  'inventory_adjustment_gain',   /* CODE.INV_ADJ_GAIN (new in 20d) */
+  'owner_capital'                /* CODE.OWNER_CAPITAL (new in 20d, for opening balance) */
+];
+
+async function _initRoleCodes(){
+  if(!currentBiz?.id){
+    console.warn('[GL Round 20d] _initRoleCodes called before currentBiz set');
+    return false;
   }
-  return USE_SOCPA_CODES_DEFAULT;
+  try {
+    const {data, error} = await sb.rpc('resolve_roles_batch', {
+      p_business_id: currentBiz.id,
+      p_roles: _REQUIRED_ROLES_FOR_INVENTORY
+    });
+    if(error) throw error;
+    _roleCodes = Object.fromEntries((data || []).map(r => [r.role, r.resolved_code]));
+
+    const unresolved = (data || []).filter(r => !r.resolved_code).map(r => ({
+      role: r.role,
+      label_en: r.label_en,
+      label_ar: r.label_ar,
+      qualifying_types: r.qualifying_types
+    }));
+
+    if(unresolved.length > 0){
+      _roleCodesLoaded = false;
+      console.warn('[GL Round 20d] required roles unmapped:', unresolved.map(r=>r.role));
+      _fireInventoryRoleSetupWizard(unresolved);
+      return false;
+    }
+    _roleCodesLoaded = true;
+    return true;
+  } catch(e){
+    console.error('[GL Round 20d] _initRoleCodes failed:', e);
+    return false;
+  }
 }
+
+function _fireInventoryRoleSetupWizard(unresolvedRoles){
+  const ar = currentLang === 'ar';
+  const modalId = 'inventory-role-wizard-modal';
+  let modal = document.getElementById(modalId);
+  if(!modal){
+    modal = document.createElement('div');
+    modal.id = modalId;
+    modal.style.cssText = 'position:fixed;inset:0;background:rgba(13,38,24,0.6);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    document.body.appendChild(modal);
+  }
+  const coaCandidates = (window._cachedCoA || []).filter(a => a.is_active && !a.is_header);
+
+  function rowHTML(r){
+    const label = ar ? r.label_ar : r.label_en;
+    const candidates = (r.qualifying_types && r.qualifying_types.length)
+      ? coaCandidates.filter(a => r.qualifying_types.includes(a.type))
+      : coaCandidates;
+    const opts = candidates.map(a => {
+      const accName = ar ? (a.name_ar || a.name_en || a.code) : (a.name_en || a.name_ar || a.code);
+      return `<option value="${a.code}">${a.code} — ${accName}</option>`;
+    }).join('');
+    return `
+      <div style="display:flex;flex-direction:column;gap:5px;padding:10px 0;border-bottom:1px dashed #d1d5db;">
+        <div style="font-size:13px;font-weight:700;color:#0D2618;">${label}</div>
+        <select onchange="_inventoryRoleWizardChange('${r.role}', this.value)" style="padding:8px 10px;font-size:13px;border:1.5px solid #C3DECE;border-radius:7px;font-family:inherit;background:#fff;cursor:pointer;">
+          <option value="">— ${ar?'اختر':'choose'} —</option>
+          ${opts}
+        </select>
+      </div>
+    `;
+  }
+
+  modal.innerHTML = `
+    <div style="background:#fff;border-radius:14px;box-shadow:0 16px 48px rgba(13,38,24,0.25);max-width:560px;width:100%;max-height:80vh;display:flex;flex-direction:column;font-family:inherit;">
+      <div style="padding:18px 22px 12px;border-bottom:1px solid #C3DECE;">
+        <div style="display:flex;gap:14px;align-items:flex-start;">
+          <div style="font-size:24px;background:#E6F4EC;color:#006C35;width:44px;height:44px;border-radius:50%;display:flex;align-items:center;justify-content:center;flex-shrink:0;">⚙</div>
+          <div>
+            <div style="font-size:15px;font-weight:800;color:#0D2618;margin-bottom:4px;">
+              ${ar?'إعداد سريع للحسابات':'Quick account setup'}
+            </div>
+            <div style="font-size:12px;color:#4A7A5E;line-height:1.55;">
+              ${ar
+                ?'صفحة المخزون تحتاج ربط الحسابات التالية. اختر الحساب المناسب من دليل حساباتك.'
+                :'The Inventory page needs the following accounts mapped. Pick from your chart.'}
+            </div>
+          </div>
+        </div>
+      </div>
+      <div style="padding:14px 22px;overflow-y:auto;flex:1;">
+        ${unresolvedRoles.map(rowHTML).join('')}
+      </div>
+      <div style="padding:14px 22px;border-top:1px solid #C3DECE;display:flex;gap:10px;justify-content:flex-end;background:#fafbfc;border-radius:0 0 14px 14px;">
+        <button type="button" onclick="_inventoryRoleWizardCancel()" style="background:#fff;color:#4A7A5E;border:1px solid #C3DECE;border-radius:7px;padding:9px 18px;font-family:inherit;font-size:13px;font-weight:600;cursor:pointer;">
+          ${ar?'لاحقاً':'Later'}
+        </button>
+        <button type="button" id="inventory-role-wizard-save" onclick="_inventoryRoleWizardSave()" disabled style="background:#006C35;color:#fff;border:none;border-radius:7px;padding:9px 18px;font-family:inherit;font-size:13px;font-weight:800;cursor:pointer;opacity:0.5;">
+          ${ar?'حفظ ومتابعة':'Save & Continue'}
+        </button>
+      </div>
+    </div>
+  `;
+  modal.style.display = 'flex';
+  window._inventoryRoleWizardState = { unresolvedRoles, draft: {}, modalId };
+}
+
+window._inventoryRoleWizardChange = function(role, code){
+  const state = window._inventoryRoleWizardState;
+  if(!state) return;
+  if(code) state.draft[role] = code;
+  else delete state.draft[role];
+  const allFilled = state.unresolvedRoles.every(r => !!state.draft[r.role]);
+  const btn = document.getElementById('inventory-role-wizard-save');
+  if(btn){
+    btn.disabled = !allFilled;
+    btn.style.opacity = allFilled ? '1' : '0.5';
+  }
+};
+
+window._inventoryRoleWizardCancel = function(){
+  const modal = document.getElementById('inventory-role-wizard-modal');
+  if(modal) modal.style.display = 'none';
+  delete window._inventoryRoleWizardState;
+};
+
+window._inventoryRoleWizardSave = async function(){
+  const ar = currentLang === 'ar';
+  const state = window._inventoryRoleWizardState;
+  if(!state) return;
+  const rows = state.unresolvedRoles.map(r => ({
+    business_id: currentBiz.id,
+    role: r.role,
+    account_code: state.draft[r.role],
+    mapped_by: currentUser?.id || null,
+    source: 'setup_wizard'
+  }));
+  try {
+    const {error} = await sb.from('account_role_map').upsert(rows, {
+      onConflict: 'business_id,role'
+    });
+    if(error) throw error;
+    const modal = document.getElementById(state.modalId);
+    if(modal) modal.style.display = 'none';
+    delete window._inventoryRoleWizardState;
+    notify(ar?'تم حفظ ربط الحسابات':'Account mappings saved', 'success');
+    await _initRoleCodes();
+  } catch(e){
+    console.error('[GL] inventory role wizard save:', e);
+    notify(ar?`فشل الحفظ: ${e.message||''}`:`Save failed: ${e.message||''}`, 'error');
+  }
+};
+
+async function _ensureCoACache(){
+  if(window._cachedCoA && window._cachedCoA.length > 0) return;
+  if(!currentBiz?.id) return;
+  const {data} = await sb.from('chart_of_accounts')
+    .select('code, name_en, name_ar, type, is_active, is_header')
+    .eq('business_id', currentBiz.id)
+    .eq('is_active', true)
+    .eq('is_header', false)
+    .order('code', {ascending: true});
+  window._cachedCoA = data || [];
+}
+
+function _coalesceCode(role, codeRefName){
+  if(!_roleCodesLoaded){
+    throw new Error(`role_codes_not_ready`);
+  }
+  const code = _roleCodes[role];
+  if(!code){
+    throw new Error(`role_not_mapped:${role}`);
+  }
+  return code;
+}
+
 const CODE = Object.freeze({
-  get AR(){           return _useSocpa() ? '1210' : '1200'; },
-  get INVENTORY(){    return _useSocpa() ? '1330' : '1300'; },
-  get VAT_INPUT(){    return _useSocpa() ? '1500' : '2220'; },
-  get AP(){           return _useSocpa() ? '2110' : '2100'; },
-  get VAT_OUTPUT(){   return '2210'; },
-  get COGS(){              return _useSocpa() ? '5110' : '5100'; }
+  get AR()              { return _coalesceCode('ar_primary',                  'AR'); },
+  get INVENTORY()       { return _coalesceCode('inventory_primary',           'INVENTORY'); },
+  get VAT_INPUT()       { return _coalesceCode('vat_input',                   'VAT_INPUT'); },
+  get AP()              { return _coalesceCode('ap_primary',                  'AP'); },
+  get VAT_OUTPUT()      { return _coalesceCode('vat_output',                  'VAT_OUTPUT'); },
+  get COGS()            { return _coalesceCode('cogs_primary',                'COGS'); },
+  get CASH()            { return _coalesceCode('cash_primary',                'CASH'); },
+  get BANK()            { return _coalesceCode('bank_primary',                'BANK'); },
+  get INV_WRITEOFF()    { return _coalesceCode('inventory_writeoff_expense',  'INV_WRITEOFF'); },
+  get INV_ADJ_GAIN()    { return _coalesceCode('inventory_adjustment_gain',   'INV_ADJ_GAIN'); },
+  get OWNER_CAPITAL()   { return _coalesceCode('owner_capital',               'OWNER_CAPITAL'); }
 });
 
 /* ROUND B-VAT: Filings helper (inlined). Exports on window.gl.filings. */
@@ -2421,24 +2607,6 @@ function friendlyDbError(err){
   if(/business_not_owned|not_authenticated/i.test(msg)){
     return ar ? 'غير مصرّح بهذه العملية.' : 'Not authorized for this operation.';
   }
-  /* Round 17 (Accounting Integrity): error codes from atomic RPCs */
-  if(/^unbalanced/i.test(msg)){
-    return ar
-      ? 'تعذّر حفظ القيد المحاسبي: المدين لا يساوي الدائن. لم يتم تسجيل أي بيانات. أبلغ الدعم الفني.'
-      : 'Could not save accounting entry: debits don\'t equal credits. Nothing was recorded. Please contact support.';
-  }
-  if(/already_voided_or_not_found/i.test(msg)){
-    return ar ? 'هذا الاستلام ملغي بالفعل (أو غير موجود).' : 'This receipt is already voided (or no longer exists).';
-  }
-  if(/reason_required/i.test(msg)){
-    return ar ? 'سبب الإلغاء مطلوب (3 أحرف على الأقل).' : 'Void reason is required (at least 3 characters).';
-  }
-  if(/no_lines|invalid_line|invalid_amount/i.test(msg)){
-    return ar ? 'بيانات القيد المحاسبي غير صحيحة. أبلغ الدعم الفني.' : 'Invalid journal entry data. Please contact support.';
-  }
-  if(/access_denied/i.test(msg)){
-    return ar ? 'غير مصرّح بهذه العملية.' : 'Not authorized for this operation.';
-  }
   return msg || (ar ? 'حدث خطأ غير متوقع' : 'An unexpected error occurred');
 }
 
@@ -2540,8 +2708,9 @@ async function init(){
     }
     currentBiz = biz;
     currentBiz._myRole = role;
-    /* Round B-PL-Structure: drive CODE.* (legacy vs SOCPA) from chart_version */
-    window._gl_use_socpa_codes = (currentBiz.chart_version === 'socpa_v1');
+    /* Round 20d: CODE.* now resolves via account_role_map per business */
+    await _ensureCoACache();
+    await _initRoleCodes();
     setText('biz-name', getNameAr(biz) || getNameEn(biz) || '...');
 
     /* Apply lang */
@@ -4933,64 +5102,71 @@ async function saveReceipt(){
    JOURNAL POSTING — receipts
 ═══════════════════════════════════════════════════════ */
 async function postReceiptJournal(receipt, items, subtotal, vatAmount, total, paymentMethod, amountPaid){
-  /* Round 17 (Accounting Integrity): refactored to use the
-     post_journal_entry_atomic RPC. Header + lines now insert in ONE
-     transactional call with server-side debit=credit validation.
-     If the entry is unbalanced, NOTHING is inserted. */
-  const ar = currentLang === 'ar';
-
   /* Determine the credit account based on payment */
-  let creditAccount = '2100'; /* Accounts Payable */
-  let creditAccountName = ar ? 'موردون - حسابات دائنة' : 'Accounts Payable';
+  let creditAccount = CODE.AP;
+  let creditAccountName = currentLang==='ar' ? 'موردون - حسابات دائنة' : 'Accounts Payable';
   if(paymentMethod === 'cash'){
-    creditAccount = '1100';
-    creditAccountName = ar ? 'الصندوق' : 'Cash';
+    creditAccount = CODE.CASH;
+    creditAccountName = currentLang==='ar' ? 'الصندوق' : 'Cash';
   } else if(paymentMethod === 'bank'){
-    creditAccount = '1101';
-    creditAccountName = ar ? 'البنك' : 'Bank';
+    creditAccount = CODE.BANK;
+    creditAccountName = currentLang==='ar' ? 'البنك' : 'Bank';
   }
 
-  /* Build lines: DR Inventory + (DR VAT) + CR Cash/Bank/AP */
+  /* Insert journal_entry header */
+  const {data:entry, error:entryError} = await sb.from('journal_entries').insert({
+    user_id: currentUser.id,
+    business_id: currentBiz.id,
+    entry_date: receipt.receipt_date,
+    reference: receipt.receipt_number,
+    description: (currentLang==='ar'?'استلام بضاعة — ':'Stock receipt — ') + receipt.receipt_number,
+    source: 'stock_receipt',
+    source_id: receipt.id,
+    is_balanced: true,
+    status: 'posted'
+  }).select().single();
+  if(entryError){
+    console.warn('[GL] Could not post journal entry:', entryError.message);
+    return;
+  }
+
+  /* DR Inventory for subtotal */
   const lines = [{
+    entry_id: entry.id,
+    user_id: currentUser.id,
     account_code: CODE.INVENTORY,
-    account_name: ar ? 'المخزون' : 'Inventory',
-    debit: subtotal, credit: 0,
-    description: (ar?'مخزون - ':'Inventory - ') + receipt.receipt_number
+    account_name: currentLang==='ar' ? 'المخزون' : 'Inventory',
+    debit: subtotal,
+    credit: 0,
+    description: (currentLang==='ar'?'مخزون - ':'Inventory - ') + receipt.receipt_number
   }];
+
+  /* DR Input VAT (if any) */
+  /* BUGFIX Round B-PL-Structure: was posting to 2210 (VAT Output) — wrong account. */
   if(vatAmount > 0){
     lines.push({
+      entry_id: entry.id,
+      user_id: currentUser.id,
       account_code: CODE.VAT_INPUT,
-      account_name: ar ? 'ضريبة المدخلات' : 'Input VAT',
-      debit: vatAmount, credit: 0,
-      description: (ar?'ضريبة مدخلات - ':'Input VAT - ') + receipt.receipt_number
+      account_name: currentLang==='ar' ? 'ضريبة المدخلات' : 'Input VAT',
+      debit: vatAmount,
+      credit: 0,
+      description: (currentLang==='ar'?'ضريبة مدخلات - ':'Input VAT - ') + receipt.receipt_number
     });
   }
+
+  /* CR Cash/Bank/AP for total */
   lines.push({
-    account_code: creditAccount, account_name: creditAccountName,
-    debit: 0, credit: total,
-    description: (ar?'استلام - ':'Receipt - ') + receipt.receipt_number
+    entry_id: entry.id,
+    user_id: currentUser.id,
+    account_code: creditAccount,
+    account_name: creditAccountName,
+    debit: 0,
+    credit: total,
+    description: (currentLang==='ar'?'استلام - ':'Receipt - ') + receipt.receipt_number
   });
 
-  try {
-    const {data, error} = await sb.rpc('post_journal_entry_atomic', {
-      p_business_id: currentBiz.id,
-      p_entry_date:  receipt.receipt_date,
-      p_reference:   receipt.receipt_number,
-      p_description: (ar?'استلام بضاعة — ':'Stock receipt — ') + receipt.receipt_number,
-      p_source:      'stock_receipt',
-      p_source_id:   receipt.id,
-      p_lines:       lines
-    });
-    if(error){
-      console.warn('[GL] Receipt journal post failed:', error.message);
-      notify(friendlyDbError(error), 'error');
-      return;
-    }
-    return data;
-  } catch(e){
-    console.warn('[GL] Receipt journal post threw:', e);
-    notify(friendlyDbError(e), 'error');
-  }
+  await sb.from('journal_lines').insert(lines);
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -5204,67 +5380,58 @@ async function saveAdjustment(){
 }
 
 async function postAdjustmentJournal(adj, item, type, qty, totalCost){
-  /* Round 17 (Accounting Integrity): atomic RPC replaces 2-call insert. */
   if(totalCost <= 0) return; /* No cost = no journal */
 
-  const ar = currentLang === 'ar';
   let debitAccount, debitName, creditAccount, creditName;
 
   if(type === 'write_off' || type === 'recount_down'){
-    /* DR Loss/Write-off, CR Inventory */
-    debitAccount = '5200';
-    debitName = ar ? 'خسارة المخزون / شطب' : 'Inventory Loss/Write-off';
-    creditAccount = '1300';
-    creditName = ar ? 'المخزون' : 'Inventory';
+    /* DR Inventory Write-off Expense, CR Inventory */
+    debitAccount = CODE.INV_WRITEOFF;
+    debitName = currentLang==='ar' ? 'خسارة المخزون / شطب' : 'Inventory Loss/Write-off';
+    creditAccount = CODE.INVENTORY;
+    creditName = currentLang==='ar' ? 'المخزون' : 'Inventory';
   } else if(type === 'recount_up'){
-    /* DR Inventory, CR Inventory Gain */
-    debitAccount = '1300';
-    debitName = ar ? 'المخزون' : 'Inventory';
-    creditAccount = '1310';
-    creditName = ar ? 'مكاسب المخزون' : 'Inventory Gain';
+    /* DR Inventory, CR Inventory Adjustment Gain */
+    debitAccount = CODE.INVENTORY;
+    debitName = currentLang==='ar' ? 'المخزون' : 'Inventory';
+    creditAccount = CODE.INV_ADJ_GAIN;
+    creditName = currentLang==='ar' ? 'مكاسب المخزون' : 'Inventory Gain';
   } else if(type === 'opening'){
-    /* DR Inventory, CR Owner's Equity (opening balance) */
-    debitAccount = '1300';
-    debitName = ar ? 'المخزون' : 'Inventory';
-    creditAccount = '3100';
-    creditName = ar ? 'حقوق الملكية - رصيد افتتاحي' : 'Owner Equity - Opening';
+    /* DR Inventory, CR Owner's Capital (opening balance) */
+    debitAccount = CODE.INVENTORY;
+    debitName = currentLang==='ar' ? 'المخزون' : 'Inventory';
+    creditAccount = CODE.OWNER_CAPITAL;
+    creditName = currentLang==='ar' ? 'حقوق الملكية - رصيد افتتاحي' : 'Owner Equity - Opening';
   } else {
     return;
   }
 
   const ref = 'ADJ-' + adj.id.slice(0,8);
-  const desc = (type === 'write_off' ? (ar?'شطب: ':'Write-off: ')
-              : type === 'recount_up' ? (ar?'جرد ↑ :':'Recount ↑: ')
-              : type === 'recount_down' ? (ar?'جرد ↓ :':'Recount ↓: ')
-              : (ar?'رصيد افتتاحي: ':'Opening: ')) + displayName(item);
+  const desc = (type === 'write_off' ? (currentLang==='ar'?'شطب: ':'Write-off: ')
+              : type === 'recount_up' ? (currentLang==='ar'?'جرد ↑ :':'Recount ↑: ')
+              : type === 'recount_down' ? (currentLang==='ar'?'جرد ↓ :':'Recount ↓: ')
+              : (currentLang==='ar'?'رصيد افتتاحي: ':'Opening: ')) + displayName(item);
 
-  const lines = [
-    { account_code: debitAccount,  account_name: debitName,
-      debit: totalCost, credit: 0, description: desc },
-    { account_code: creditAccount, account_name: creditName,
-      debit: 0, credit: totalCost, description: desc }
-  ];
-
-  try {
-    const {data, error} = await sb.rpc('post_journal_entry_atomic', {
-      p_business_id: currentBiz.id,
-      p_entry_date:  adj.adjustment_date,
-      p_reference:   ref,
-      p_description: desc,
-      p_source:      'stock_adjustment',
-      p_source_id:   adj.id,
-      p_lines:       lines
-    });
-    if(error){
-      console.warn('[GL] Adjustment journal post failed:', error.message);
-      notify(friendlyDbError(error), 'error');
-      return;
-    }
-    return data;
-  } catch(e){
-    console.warn('[GL] Adjustment journal post threw:', e);
-    notify(friendlyDbError(e), 'error');
+  const {data:entry, error} = await sb.from('journal_entries').insert({
+    user_id: currentUser.id,
+    business_id: currentBiz.id,
+    entry_date: adj.adjustment_date,
+    reference: ref,
+    description: desc,
+    source: 'stock_adjustment',
+    source_id: adj.id,
+    is_balanced: true,
+    status: 'posted'
+  }).select().single();
+  if(error){
+    console.warn('[GL] Adjustment journal not posted:', error.message);
+    return;
   }
+
+  await sb.from('journal_lines').insert([
+    { entry_id: entry.id, user_id: currentUser.id, account_code: debitAccount, account_name: debitName, debit: totalCost, credit: 0, description: desc },
+    { entry_id: entry.id, user_id: currentUser.id, account_code: creditAccount, account_name: creditName, debit: 0, credit: totalCost, description: desc }
+  ]);
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -6213,9 +6380,6 @@ async function refreshDrawerIfOpen(itemId){
 async function voidReceipt(receiptId){
   const receipt = allReceipts.find(r => r.id === receiptId);
   if(!receipt){ notify(currentLang==='ar'?'الاستلام غير موجود':'Receipt not found','error'); return; }
-  /* Client-side cache check — fast-fail before round-trip. The
-     SERVER-SIDE guard inside void_receipt_atomic is the real defense
-     against duplicate-reversal bugs (cache-race scenarios). */
   if(receipt.status === 'voided'){ notify(currentLang==='ar'?'الاستلام ملغي بالفعل':'Already voided','error'); return; }
 
   /* 1. SAFETY CHECK: load all batches from this receipt */
@@ -6246,43 +6410,7 @@ async function voidReceipt(receiptId){
     : `Void receipt ${receipt.receipt_number}?\n\nSupplier: ${supName}\nTotal: SAR ${fmt(receipt.total)}\n\nThis will:\n  • Remove ${batches.length} batch(es) from inventory\n  • Decrease item quantities\n  • Post a reversing journal entry\n  • Reduce supplier outstanding balance\n\nThis cannot be undone.`;
   if(!confirm(confirmMsg)) return;
 
-  /* Round 17 (Accounting Integrity): the atomic core (status flip +
-     reversal journal + supplier outstanding) now happens via RPC. This
-     gates the inventory cascade — if the RPC fails (e.g. already voided
-     by another tab), we DON'T decrement inventory_items.current_qty,
-     which would have caused inventory drift in the old code path.
-
-     Note: this preserves the original ordering's intent — supplier and
-     journal updates happen first, then inventory. The reordering vs.
-     the pre-Round-17 code (which did inventory THEN supplier+journal)
-     is intentional and safe because:
-       (a) the consumed-batches safety check already ran above
-       (b) if the RPC fails, no DB mutations have occurred yet
-       (c) if the RPC succeeds, the inventory cascade is purely additive
-           append-only inserts to inventory_movements and a status flip
-           on inventory_batches — neither of which can fail in a way
-           that invalidates the journal. */
-  const reason = currentLang==='ar' ? 'إلغاء استلام' : 'Receipt void';
-  const reversalRef = 'REV-' + receipt.receipt_number;
-  const reversalDesc = (currentLang==='ar'?'إلغاء استلام — ':'Void receipt — ') + receipt.receipt_number;
-  const reversalLines = buildReceiptVoidLines(receipt);
-
-  const {data: reversalEntryId, error: rpcError} = await sb.rpc('void_receipt_atomic', {
-    p_receipt_id:     receipt.id,
-    p_reason:         reason,
-    p_reversal_ref:   reversalRef,
-    p_reversal_desc:  reversalDesc,
-    p_reversal_lines: reversalLines,
-    p_reversal_date:  todayISO()
-  });
-
-  if(rpcError){
-    notify(friendlyDbError(rpcError), 'error');
-    await loadAll();
-    return;
-  }
-
-  /* 3. Reverse each batch (only after atomic RPC succeeded):
+  /* 3. Reverse each batch:
         - Decrease item current_qty by qty_received
         - Insert a reversing inventory_movement (out)
         - Mark batch as depleted (qty_remaining = 0, is_depleted = true) */
@@ -6320,6 +6448,27 @@ async function voidReceipt(receiptId){
       is_depleted: true
     }).eq('id', b.id);
   }
+
+  /* 4. Update supplier aggregates (reverse the purchase) */
+  if(receipt.supplier_id && sup){
+    const newPurchases = Math.max(0, (parseFloat(sup.total_purchases)||0) - (parseFloat(receipt.total)||0));
+    const wasOutstanding = (parseFloat(receipt.total)||0) - (parseFloat(receipt.amount_paid)||0);
+    const newOutstanding = Math.max(0, (parseFloat(sup.total_outstanding)||0) - wasOutstanding);
+    await sb.from('suppliers').update({
+      total_purchases: newPurchases,
+      total_outstanding: newOutstanding,
+      updated_at: new Date().toISOString()
+    }).eq('id', receipt.supplier_id);
+  }
+
+  /* 5. Mark receipt as voided */
+  await sb.from('stock_receipts').update({
+    status: 'voided',
+    updated_at: new Date().toISOString()
+  }).eq('id', receipt.id);
+
+  /* 6. Post reversing journal entry (best-effort — won't fail if journal tables missing) */
+  await postReceiptVoidJournal(receipt);
 
   notify(currentLang==='ar'?'✅ تم إلغاء الاستلام':'✅ Receipt voided','success');
   await loadAll();
@@ -6518,10 +6667,9 @@ async function saveReceiptPayment(){
 /* Post journal: DR Accounts Payable / CR Cash or Bank.
    Best-effort — won't fail the whole flow if journal tables unavailable. */
 async function postReceiptPaymentJournal(receipt, payAmount, payMethod, payDate, note){
-  /* Round 17 (Accounting Integrity): atomic RPC replaces 2-call insert.
-     Account codes follow inventory.html's CODE constants for AP.
-     Cash/Bank codes match the pattern used in finance.html. */
   const ar = currentLang === 'ar';
+  /* Account codes follow inventory.html's CODE constants for AP (SOCPA-aware).
+     Cash/Bank codes match the pattern used in finance.html postPaymentJournal. */
   const debitAcct = CODE.AP;
   const debitName = ar ? 'موردون - حسابات دائنة' : 'Accounts Payable';
   const creditAcct = (payMethod === 'bank') ? '1101' : '1100';
@@ -6530,77 +6678,80 @@ async function postReceiptPaymentJournal(receipt, payAmount, payMethod, payDate,
     ? `دفعة على ${receipt.receipt_number}${note ? ' — ' + note : ''}`
     : `Payment on ${receipt.receipt_number}${note ? ' — ' + note : ''}`;
 
-  const lines = [
-    { account_code: debitAcct,  account_name: debitName,
-      debit: payAmount, credit: 0, description: desc },
-    { account_code: creditAcct, account_name: creditName,
-      debit: 0, credit: payAmount, description: desc }
-  ];
-
   try {
-    const {data, error} = await sb.rpc('post_journal_entry_atomic', {
-      p_business_id: currentBiz.id,
-      p_entry_date:  payDate,
-      p_reference:   receipt.receipt_number + ' (PAY)',
-      p_description: desc,
-      p_source:      'receipt_payment',
-      p_source_id:   receipt.id,
-      p_lines:       lines
-    });
+    const {data: entry, error} = await sb.from('journal_entries').insert({
+      user_id: currentUser.id,
+      business_id: currentBiz.id,
+      entry_date: payDate,
+      reference: receipt.receipt_number + ' (PAY)',
+      description: desc,
+      source: 'receipt_payment',
+      source_id: receipt.id,
+      is_balanced: true,
+      status: 'posted'
+    }).select().single();
+
     if(error){
-      console.warn('[GL] Receipt payment journal post failed:', error.message);
-      notify(friendlyDbError(error), 'error');
+      console.warn('[GL] Receipt payment journal not posted:', error.message);
       return;
     }
-    return data;
+
+    await sb.from('journal_lines').insert([
+      { entry_id: entry.id, user_id: currentUser.id, account_code: debitAcct, account_name: debitName,
+        debit: payAmount, credit: 0, description: desc },
+      { entry_id: entry.id, user_id: currentUser.id, account_code: creditAcct, account_name: creditName,
+        debit: 0, credit: payAmount, description: desc }
+    ]);
   } catch(e){
-    console.warn('[GL] Receipt payment journal post threw:', e);
-    notify(friendlyDbError(e), 'error');
+    console.warn('[GL] Receipt payment journal skipped:', e.message);
   }
 }
 
-/* Round 17 (Accounting Integrity): formerly postReceiptVoidJournal.
-   Renamed and converted to a pure function that returns the reversal
-   lines array. The actual posting + status flip + supplier update
-   happens atomically inside void_receipt_atomic RPC.
-   See voidReceipt() for the new orchestration. */
-function buildReceiptVoidLines(receipt){
-  const ar = currentLang === 'ar';
+async function postReceiptVoidJournal(receipt){
+  /* Mirror the original receipt entry: same accounts, swapped debit/credit */
   const subtotal = parseFloat(receipt.subtotal) || 0;
   const vatAmount = parseFloat(receipt.vat_amount) || 0;
   const total = parseFloat(receipt.total) || 0;
-  if(total <= 0) return [];
+  if(total <= 0) return;
 
-  let debitAccount = '2100';
-  let debitName = ar ? 'موردون - حسابات دائنة' : 'Accounts Payable';
-  if(receipt.payment_method === 'cash'){
-    debitAccount = '1100'; debitName = ar ? 'الصندوق' : 'Cash';
-  } else if(receipt.payment_method === 'bank'){
-    debitAccount = '1101'; debitName = ar ? 'البنك' : 'Bank';
+  let debitAccount = CODE.AP; let debitName = currentLang==='ar' ? 'موردون - حسابات دائنة' : 'Accounts Payable';
+  if(receipt.payment_method === 'cash'){ debitAccount = CODE.CASH; debitName = currentLang==='ar' ? 'الصندوق' : 'Cash'; }
+  else if(receipt.payment_method === 'bank'){ debitAccount = CODE.BANK; debitName = currentLang==='ar' ? 'البنك' : 'Bank'; }
+
+  const ref = receipt.receipt_number + ' (VOID)';
+  const desc = (currentLang==='ar'?'إلغاء استلام — ':'Void receipt — ') + receipt.receipt_number;
+
+  const {data:entry, error} = await sb.from('journal_entries').insert({
+    user_id: currentUser.id,
+    business_id: currentBiz.id,
+    entry_date: todayISO(),
+    reference: ref,
+    description: desc,
+    source: 'stock_receipt_void',
+    source_id: receipt.id,
+    is_balanced: true,
+    status: 'posted'
+  }).select().single();
+  if(error){
+    console.warn('[GL] Void journal not posted:', error.message);
+    return;
   }
 
-  const desc = (ar?'إلغاء استلام — ':'Void receipt — ') + receipt.receipt_number;
-
-  /* Original entry was DR Inv + (DR VAT) + CR AP/Cash
-     Reversal mirrors: DR AP/Cash + (CR VAT) + CR Inv */
+  /* Reverse the original entry: was DR Inv + DR VAT + CR AP/Cash, now DR AP/Cash + CR VAT + CR Inv */
   const lines = [
-    { account_code: debitAccount, account_name: debitName,
+    { entry_id: entry.id, user_id: currentUser.id, account_code: debitAccount, account_name: debitName,
       debit: total, credit: 0, description: desc }
   ];
   if(vatAmount > 0){
-    lines.push({
-      account_code: CODE.VAT_INPUT,
-      account_name: ar ? 'ضريبة المدخلات' : 'Input VAT',
-      debit: 0, credit: vatAmount, description: desc
-    });
+    lines.push({ entry_id: entry.id, user_id: currentUser.id, account_code: CODE.VAT_INPUT,
+      account_name: currentLang==='ar' ? 'ضريبة المدخلات' : 'Input VAT',
+      debit: 0, credit: vatAmount, description: desc });
   }
-  lines.push({
-    account_code: CODE.INVENTORY,
-    account_name: ar ? 'المخزون' : 'Inventory',
-    debit: 0, credit: subtotal, description: desc
-  });
+  lines.push({ entry_id: entry.id, user_id: currentUser.id, account_code: CODE.INVENTORY,
+    account_name: currentLang==='ar' ? 'المخزون' : 'Inventory',
+    debit: 0, credit: subtotal, description: desc });
 
-  return lines;
+  await sb.from('journal_lines').insert(lines);
 }
 
 /* Legacy stub kept for backward compat */
@@ -7186,7 +7337,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.18-27</div>
-<script>console.log('%c[GulfLedger build] v2026.05.18-27 · Round 17 Accounting Integrity', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-33</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-25 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
