@@ -3627,6 +3627,36 @@ function inferAccountSubcategory(acct){
   return null;
 }
 
+/* Round 34: classify an income-typed account's balance into the correct
+   revenue vs contra-revenue bucket. Single source of truth for the
+   sign convention used by 9+ report sites; replaces ad-hoc `revenue += -b.net`
+   patterns that ignored contra accounts.
+
+   Income accounts are CR-normal:
+     - operating_revenue / other_revenue: b.net = dr-cr is typically NEGATIVE,
+       so -b.net is positive ("revenue amount").
+     - contra_revenue (Sales Returns, Allowances, Discounts): naturally DR-balance.
+       b.net = dr-cr is typically POSITIVE. The amount that REDUCES revenue is
+       therefore +b.net (the natural DR-direction reading).
+
+   Returns: { revenue, contra } — both expressed as positive amounts in
+            their natural direction. Caller computes net by:
+                netRevenue = revenue - contra
+
+   For null/undefined balance, returns {revenue:0, contra:0}.
+   For non-income types, returns {revenue:0, contra:0} (defensive). */
+function _classifyIncomeBalance(account, balance){
+  if(!account || account.type !== 'income') return { revenue: 0, contra: 0 };
+  if(!balance) return { revenue: 0, contra: 0 };
+  const sc = inferAccountSubcategory(account);
+  if(sc === 'contra_revenue'){
+    /* DR-natural reduction: return b.net (positive DR amount) */
+    return { revenue: 0, contra: (balance.net || 0) };
+  }
+  /* operating_revenue or other_revenue: CR-natural positive */
+  return { revenue: -(balance.net || 0), contra: 0 };
+}
+
 /* Lookup account by code from chart_of_accounts (fast O(1) via map) */
 const _accountMap = {};
 function rebuildAccountMap(){
@@ -5240,18 +5270,25 @@ async function renderPL(period){
 
   const formatVal = (n) => 'SAR ' + fmt(n);
 
-  /* Compute total for a bucket. Returns {now, prev}. For income/contra_revenue,
-     value = -net (CR is positive). For expense, value = net (DR is positive). */
+  /* Round 34: bucketTotal returns a positive amount in the bucket's natural
+     direction. For operating_revenue / other_revenue: CR-positive. For
+     contra_revenue: DR-positive (reduction amount). For expense: DR-positive.
+     Net revenue at the caller side: totRev - totContra. */
   const bucketTotal = (bucket) => {
     let now = 0, prev = 0;
     for(const a of bucket){
       const b = curBal[a.code];
       const bp = prevBal?.[a.code];
       if(a.type === 'income'){
-        if(b) now += -b.net;
-        if(bp) prev += -bp.net;
+        /* Route through the helper so contra_revenue is correctly handled
+           as a DR-positive reduction (was: -b.net which produced a NEGATIVE
+           value for contra and broke `netRev = totRev - totContra`). */
+        const c  = _classifyIncomeBalance(a, b);
+        const cp = _classifyIncomeBalance(a, bp);
+        now  += (c.revenue  + c.contra);   /* in this fn, bucket-natural is positive */
+        prev += (cp.revenue + cp.contra);
       } else {
-        if(b) now += b.net;
+        if(b)  now  += b.net;
         if(bp) prev += bp.net;
       }
     }
@@ -5634,16 +5671,20 @@ async function renderBalanceSheet(period){
     equityHTML += renderRow(a, displayVal);
   }
 
-  /* Retained earnings = sum of (income credit - debit) - sum of (expense debit - credit), all-time, excluding voided */
-  let totalIncomeAllTime = 0, totalExpenseAllTime = 0;
+  /* Retained earnings = net revenue (income - contra) − expenses, all-time,
+     excluding voided. Round 34: contra_revenue must REDUCE income, not add
+     to it; routes through _classifyIncomeBalance helper. */
+  let totalIncomeAllTime = 0, totalContraAllTime = 0, totalExpenseAllTime = 0;
   for(const a of chartOfAccounts){
     if(a.type === 'income' && !a.is_header){
-      totalIncomeAllTime += -(bal[a.code]?.net || 0);
+      const c = _classifyIncomeBalance(a, bal[a.code]);
+      totalIncomeAllTime  += c.revenue;
+      totalContraAllTime  += c.contra;
     } else if(a.type === 'expense' && !a.is_header){
       totalExpenseAllTime += (bal[a.code]?.net || 0);
     }
   }
-  const retainedEarnings = totalIncomeAllTime - totalExpenseAllTime;
+  const retainedEarnings = (totalIncomeAllTime - totalContraAllTime) - totalExpenseAllTime;
 
   const totalEquity = totalEquityFromAccounts + retainedEarnings;
   const totalLiabEq = totalLiabilities + totalEquity;
@@ -8755,7 +8796,7 @@ async function computeQawaemComplianceReport(fyYear){
   /* Balance Sheet at FY end (cumulative since inception) */
   const bsBal = await computeAccountBalances(null, fy.toISO);
   let totalAssets = 0, totalLiabilities = 0, totalEquityFromAccts = 0;
-  let totalIncomeAllTime = 0, totalExpenseAllTime = 0;
+  let totalIncomeAllTime = 0, totalContraAllTime = 0, totalExpenseAllTime = 0;
   for(const a of chartOfAccounts){
     if(!a.parent_code) continue;
     const b = bsBal[a.code];
@@ -8763,10 +8804,15 @@ async function computeQawaemComplianceReport(fyYear){
     if(a.type === 'asset' && b.net > 0.005) totalAssets += b.net;
     else if(a.type === 'liability' && -b.net > 0.005) totalLiabilities += -b.net;
     else if(a.type === 'equity' && -b.net > 0.005) totalEquityFromAccts += -b.net;
-    else if(a.type === 'income') totalIncomeAllTime += -b.net;
+    else if(a.type === 'income'){
+      /* Round 34: split out contra so retained earnings reflects NET revenue */
+      const c = _classifyIncomeBalance(a, b);
+      totalIncomeAllTime  += c.revenue;
+      totalContraAllTime  += c.contra;
+    }
     else if(a.type === 'expense') totalExpenseAllTime += b.net;
   }
-  const retainedEarnings = totalIncomeAllTime - totalExpenseAllTime;
+  const retainedEarnings = (totalIncomeAllTime - totalContraAllTime) - totalExpenseAllTime;
   const totalEquity = totalEquityFromAccts + retainedEarnings;
   const balanced = Math.abs(totalAssets - (totalLiabilities + totalEquity)) < 0.01;
 
@@ -9227,20 +9273,24 @@ async function confirmClosePeriod(){
     computeAccountBalances(null, toISO)
   ]);
 
-  /* P&L snapshot */
-  let revenue = 0, expenses = 0;
+  /* P&L snapshot — Round 34: route income through helper for contra handling */
+  let revenue = 0, contraRevenue = 0, expenses = 0;
   for(const a of chartOfAccounts){
     if(!a.parent_code) continue;
     const b = plBalances[a.code];
     if(!b) continue;
-    if(a.type === 'income') revenue += -b.net;
+    if(a.type === 'income'){
+      const c = _classifyIncomeBalance(a, b);
+      revenue       += c.revenue;
+      contraRevenue += c.contra;
+    }
     else if(a.type === 'expense') expenses += b.net;
   }
-  const netProfit = revenue - expenses;
+  const netProfit = (revenue - contraRevenue) - expenses;
 
   /* Balance sheet snapshot */
   let totalAssets = 0, totalLiabilities = 0, totalEquityFromAccts = 0;
-  let totalIncomeAllTime = 0, totalExpenseAllTime = 0;
+  let totalIncomeAllTime = 0, totalContraAllTime = 0, totalExpenseAllTime = 0;
   for(const a of chartOfAccounts){
     if(!a.parent_code) continue;
     const b = bsBalances[a.code];
@@ -9248,10 +9298,14 @@ async function confirmClosePeriod(){
     if(a.type === 'asset' && b.net > 0.005) totalAssets += b.net;
     else if(a.type === 'liability' && -b.net > 0.005) totalLiabilities += -b.net;
     else if(a.type === 'equity' && -b.net > 0.005) totalEquityFromAccts += -b.net;
-    else if(a.type === 'income') totalIncomeAllTime += -b.net;
+    else if(a.type === 'income'){
+      const c = _classifyIncomeBalance(a, b);
+      totalIncomeAllTime  += c.revenue;
+      totalContraAllTime  += c.contra;
+    }
     else if(a.type === 'expense') totalExpenseAllTime += b.net;
   }
-  const retainedEarnings = totalIncomeAllTime - totalExpenseAllTime;
+  const retainedEarnings = (totalIncomeAllTime - totalContraAllTime) - totalExpenseAllTime;
   const totalEquity = totalEquityFromAccts + retainedEarnings;
 
   /* Trial balance snapshot — per-account DR/CR */
@@ -11157,15 +11211,19 @@ async function renderAnnStep2(){
   /* Compute P&L for the fiscal year using existing helper */
   const balances = await computeAccountBalances(fy.startISO, fy.endISO);
 
-  /* Sum income (CR side) and expenses (DR side) */
-  let revenue = 0, totalExpenses = 0;
+  /* Sum income (CR side, net of contra) and expenses (DR side) — Round 34 */
+  let revenue = 0, contraRevenue = 0, totalExpenses = 0;
   let entertainmentExpense = 0, govFeesExpense = 0;
   /* Track non-deductible categories (entertainment is blocked, gov fines disallowed) */
   for(const a of chartOfAccounts){
     if(!a.parent_code) continue;
     const b = balances[a.code];
     if(!b) continue;
-    if(a.type === 'income') revenue += -b.net;  /* CR is positive */
+    if(a.type === 'income'){
+      const c = _classifyIncomeBalance(a, b);
+      revenue       += c.revenue;
+      contraRevenue += c.contra;
+    }
     else if(a.type === 'expense'){
       totalExpenses += b.net;  /* DR is positive */
       /* Identify non-deductible expense categories */
@@ -11173,6 +11231,8 @@ async function renderAnnStep2(){
       if(a.code === '6300') govFeesExpense += b.net;       /* Gov fees — partially blocked (penalties) */
     }
   }
+  /* Net revenue for Zakat base: gross revenue minus returns/allowances */
+  revenue = revenue - contraRevenue;
 
   const accountingProfit = revenue - totalExpenses;
 
@@ -12084,15 +12144,17 @@ async function renderQawStep1(){
 
   rebuildAccountMap();
 
-  /* Compute revenue from journal for FY */
+  /* Compute net revenue (income net of contra) from journal for FY — Round 34 */
   const balances = await computeAccountBalances(fy.startISO, fy.endISO);
-  let revenue = 0;
+  let revenue = 0, contraRevenue = 0;
   for(const a of chartOfAccounts){
     if(a.type === 'income' && !a.is_header){
-      const b = balances[a.code];
-      if(b) revenue += -b.net;
+      const c = _classifyIncomeBalance(a, balances[a.code]);
+      revenue       += c.revenue;
+      contraRevenue += c.contra;
     }
   }
+  revenue = revenue - contraRevenue;
 
   /* Compute total assets (BS-style: cumulative since inception to FY end) */
   const cumBal = await computeAccountBalances(null, fy.endISO);
@@ -12314,22 +12376,26 @@ async function renderQawStep2(){
   const fy = qawWizardState.fy;
   rebuildAccountMap();
 
-  /* Compute P&L for FY */
+  /* Compute P&L for FY — Round 34: route income through helper */
   const plBal = await computeAccountBalances(fy.startISO, fy.endISO);
-  let revenue = 0, expenses = 0;
+  let revenue = 0, contraRevenue = 0, expenses = 0;
   for(const a of chartOfAccounts){
     if(!a.parent_code) continue;
     const b = plBal[a.code];
     if(!b) continue;
-    if(a.type === 'income') revenue += -b.net;
+    if(a.type === 'income'){
+      const c = _classifyIncomeBalance(a, b);
+      revenue       += c.revenue;
+      contraRevenue += c.contra;
+    }
     else if(a.type === 'expense') expenses += b.net;
   }
-  const netProfit = revenue - expenses;
+  const netProfit = (revenue - contraRevenue) - expenses;
 
   /* Compute Balance Sheet at FY end (cumulative since inception) */
   const bsBal = await computeAccountBalances(null, fy.endISO);
   let totalAssets = 0, totalLiabilities = 0, totalEquityFromAccts = 0;
-  let totalIncomeAllTime = 0, totalExpenseAllTime = 0;
+  let totalIncomeAllTime = 0, totalContraAllTime = 0, totalExpenseAllTime = 0;
   for(const a of chartOfAccounts){
     if(!a.parent_code) continue;
     const b = bsBal[a.code];
@@ -12337,10 +12403,14 @@ async function renderQawStep2(){
     if(a.type === 'asset' && b.net > 0.005) totalAssets += b.net;
     else if(a.type === 'liability' && -b.net > 0.005) totalLiabilities += -b.net;
     else if(a.type === 'equity' && -b.net > 0.005) totalEquityFromAccts += -b.net;
-    else if(a.type === 'income') totalIncomeAllTime += -b.net;
+    else if(a.type === 'income'){
+      const c = _classifyIncomeBalance(a, b);
+      totalIncomeAllTime  += c.revenue;
+      totalContraAllTime  += c.contra;
+    }
     else if(a.type === 'expense') totalExpenseAllTime += b.net;
   }
-  const retainedEarnings = totalIncomeAllTime - totalExpenseAllTime;
+  const retainedEarnings = (totalIncomeAllTime - totalContraAllTime) - totalExpenseAllTime;
   const totalEquity = totalEquityFromAccts + retainedEarnings;
   const totalLiabEq = totalLiabilities + totalEquity;
   const balanced = Math.abs(totalAssets - totalLiabEq) < 0.01;
@@ -13170,7 +13240,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-41</div>
-<script>console.log('%c[GulfLedger build] v2026.05.18-28 · Special Entries UX (Tier 1)', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.20-42</div>
+<script>console.log('%c[GulfLedger build] v2026.05.20-42 · Round 34: contra_revenue sign fix across 9 report sites', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
