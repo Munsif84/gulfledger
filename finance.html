@@ -3109,6 +3109,10 @@ async function loadAllSuppliersForBills(){
 let allBankAccounts = [];
 let allBankTransactions = [];
 let editingBankAccountId = null;
+/* Round 29: cache of GL leaf accounts eligible for bank linkage (any active,
+   non-header asset). Sorted by name-pattern score so cash/bank-named ones
+   appear at the top of the picker. */
+let allEligibleGlLeaves = [];
 
 /* KSA bank shortlist for the picker — covers ~95% of pilot use cases.
    "Other" lets user type a custom bank name. */
@@ -3161,6 +3165,51 @@ async function loadBankAccounts(){
       .order('created_at', {ascending:true});
     allBankAccounts = reloaded || [];
   }
+}
+
+/* Round 29: load eligible GL leaf accounts for the bank-account picker.
+   Eligibility: active, non-header, type='asset'. We don't restrict by
+   subcategory or name patterns at the SQL level — instead we score each
+   row client-side so the picker can sort by likelihood while still
+   letting users override (e.g., a business that calls cash "1010 Petty
+   till"). The score is purely cosmetic ordering; nothing is hidden. */
+async function loadEligibleGlLeaves(){
+  if(!currentBiz?.id){ allEligibleGlLeaves = []; return; }
+  const {data, error} = await sb.from('chart_of_accounts')
+    .select('code, name_en, name_ar, type, subcategory, normal_balance')
+    .eq('business_id', currentBiz.id)
+    .eq('is_active', true)
+    .eq('is_header', false)
+    .eq('type', 'asset')
+    .order('code', {ascending:true});
+  if(error){
+    console.warn('[GL] loadEligibleGlLeaves:', error.message);
+    allEligibleGlLeaves = [];
+    return;
+  }
+  allEligibleGlLeaves = (data || []).map(row => ({
+    ...row,
+    score: _scoreGlLeafForBank(row)
+  })).sort((a,b) => b.score - a.score || (a.code||'').localeCompare(b.code||''));
+}
+
+/* Score a GL leaf for "bank-account-ness". Higher = more likely a cash/bank
+   account. Used only for display ordering — nothing gates on this. */
+function _scoreGlLeafForBank(coa){
+  let s = 0;
+  const en = String(coa.name_en || '').toLowerCase();
+  const ar = String(coa.name_ar || '');
+  const code = String(coa.code || '');
+  /* Strong: cash/bank name match in English */
+  if(/\b(cash|bank|petty|till|wallet|stc\s*pay|payment\s*card)\b/.test(en)) s += 10;
+  /* Strong: cash/bank name match in Arabic */
+  if(/نقد|بنك|صندوق|محفظة|مدفوعات/.test(ar)) s += 10;
+  /* Medium: codes in the 11xx range are conventionally cash/bank in
+     Saudi CoA templates (1100-1199) */
+  if(/^11/.test(code)) s += 5;
+  /* Light tie-breaker: current_asset subcategory */
+  if((coa.subcategory||'') === 'current_asset') s += 1;
+  return s;
 }
 
 async function autoSeedCashAccount(){
@@ -3295,6 +3344,7 @@ function renderBankAccounts(){
                 <div style="font-size:12px;color:var(--muted);margin-top:2px;">${escHTML(bank)} · ${escHTML(typeLabel)}</div>
               </div>
               ${a.is_default ? `<span style="background:var(--tint);color:var(--blue);font-size:10px;padding:2px 7px;border-radius:8px;font-weight:700;white-space:nowrap;" data-ar="افتراضي" data-en="Default">افتراضي</span>` : ''}
+              ${!a.gl_account_code ? `<span style="background:#fef3c7;color:#92400e;font-size:10px;padding:2px 7px;border-radius:8px;font-weight:700;white-space:nowrap;" title="${ar?'هذا الحساب غير مرتبط بحساب محاسبي — اضغط لإصلاحه':'This account is not linked to a GL account — click to fix'}" data-ar="⚠ غير مرتبط" data-en="⚠ Not linked">⚠ غير مرتبط</span>` : ''}
             </div>
             ${masked ? `<div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-bottom:8px;">${escHTML(masked)}</div>` : ''}
             <div style="display:flex;justify-content:space-between;align-items:flex-end;border-top:1px solid var(--border);padding-top:8px;">
@@ -3408,6 +3458,12 @@ async function openBankAccountModal(id){
   const isEdit = !!header;
   const title = isEdit ? (ar?'تعديل حساب':'Edit Account') : (ar?'حساب جديد':'New Account');
 
+  /* Round 29: ensure the GL-eligible cache is loaded before rendering the
+     picker. If the user got here via a deep link or the cache was missed
+     during boot (cold session), warm it now. ~50ms cost, only on first open. */
+  if(!allEligibleGlLeaves || allEligibleGlLeaves.length === 0){
+    await loadEligibleGlLeaves();
+  }
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay open';
   overlay.id = 'bank-modal';
@@ -3441,12 +3497,28 @@ async function openBankAccountModal(id){
           </div>
           <div class="field">
             <div class="field-label"><span data-ar="نوع الحساب" data-en="Account Type">نوع الحساب</span></div>
-            <select id="ba-type">
+            <select id="ba-type" onchange="onAccountTypeChange()">
               <option value="checking" ${header?.account_type === 'checking' || !header ? 'selected' : ''}>${ar?'جاري':'Checking'}</option>
               <option value="savings" ${header?.account_type === 'savings' ? 'selected' : ''}>${ar?'توفير':'Savings'}</option>
               <option value="cash" ${header?.account_type === 'cash' ? 'selected' : ''}>${ar?'نقد':'Cash'}</option>
               <option value="credit_card" ${header?.account_type === 'credit_card' ? 'selected' : ''}>${ar?'بطاقة ائتمان':'Credit card'}</option>
             </select>
+          </div>
+        </div>
+        <!-- Round 29: GL Account picker. Links bank_account → specific GL leaf
+             so the journal_lines trigger can derive bank_transactions rows. -->
+        <div class="field-row" id="ba-gl-row">
+          <div class="field">
+            <div class="field-label">
+              <span data-ar="الحساب المحاسبي المرتبط" data-en="Linked GL Account">الحساب المحاسبي المرتبط</span>
+              <span class="req">*</span>
+            </div>
+            <select id="ba-gl-account">
+              ${_renderGlAccountOptions(header)}
+            </select>
+            <div class="field-hint" style="margin-top:4px;line-height:1.5;">
+              <span data-ar="📒 يحدد أين تظهر معاملات هذا الحساب في دفتر الأستاذ" data-en="📒 Determines where this account's transactions land in the General Ledger">📒 يحدد أين تظهر معاملات هذا الحساب في دفتر الأستاذ</span>
+            </div>
           </div>
         </div>
         <!-- Custom bank name field — shown only when "Other" is picked -->
@@ -3514,6 +3586,91 @@ async function openBankAccountModal(id){
   `;
   document.body.appendChild(overlay);
   applyLang();
+}
+
+/* Round 29: render <option>s for the GL Account picker.
+   Marks accounts already linked to another bank_account with a tag,
+   marks recommended cash/bank-like accounts with a 💰 icon, and
+   pre-selects:
+     1. header.gl_account_code if editing an existing account
+     2. Otherwise: the highest-scoring unused candidate matching
+        the current account_type (cash → cash-like, checking/savings → bank-like) */
+function _renderGlAccountOptions(header){
+  const ar = currentLang === 'ar';
+  if(!allEligibleGlLeaves || allEligibleGlLeaves.length === 0){
+    return `<option value="">${ar?'⚠ لا توجد حسابات محاسبية متاحة':'⚠ No GL accounts available'}</option>`;
+  }
+  /* Map: gl_account_code → bank_account that already uses it (if any) */
+  const linkedMap = {};
+  for(const ba of (allBankAccounts || [])){
+    if(ba.gl_account_code) linkedMap[ba.gl_account_code] = ba;
+  }
+
+  /* Pre-selection logic */
+  let preselectedCode = header?.gl_account_code || null;
+  if(!preselectedCode){
+    /* New account: pick first eligible unused leaf matching the type */
+    const wantBank = (header?.account_type === 'cash' ? false : true);
+    /* Try strongly-matching unused first */
+    const wantedPattern = wantBank
+      ? /bank|بنك/i
+      : /cash|نقد|صندوق|petty|till/i;
+    let candidate = allEligibleGlLeaves.find(c =>
+      !linkedMap[c.code] &&
+      ((c.name_en && wantedPattern.test(c.name_en)) ||
+       (c.name_ar && wantedPattern.test(c.name_ar)))
+    );
+    /* Fallback: any unused */
+    if(!candidate) candidate = allEligibleGlLeaves.find(c => !linkedMap[c.code]);
+    if(candidate) preselectedCode = candidate.code;
+  }
+
+  const placeholder = `<option value="">${ar?'— اختر —':'— Select —'}</option>`;
+  const rows = allEligibleGlLeaves.map(c => {
+    const linkedBy = linkedMap[c.code];
+    /* Can the user pick this row? Only if it's free, OR it's the one this
+       bank_account is currently linked to (edit case). */
+    const isCurrentEdit = (header && header.gl_account_code === c.code);
+    const blocked = linkedBy && !isCurrentEdit;
+    const icon = c.score >= 10 ? '💰 ' : '';
+    const baseLabel = ar
+      ? `${c.code} · ${c.name_ar || c.name_en || ''}`
+      : `${c.code} · ${c.name_en || c.name_ar || ''}`;
+    const tag = blocked
+      ? (ar ? ` · ⚠ مستخدم بواسطة "${escHTML(linkedBy.account_name_ar || linkedBy.account_name || '')}"`
+            : ` · ⚠ used by "${escHTML(linkedBy.account_name || linkedBy.account_name_ar || '')}"`)
+      : '';
+    const sel = (preselectedCode === c.code && !blocked) ? 'selected' : '';
+    return `<option value="${escHTML(c.code)}" ${blocked ? 'disabled' : ''} ${sel}>${icon}${escHTML(baseLabel)}${tag}</option>`;
+  }).join('');
+  return placeholder + rows;
+}
+
+/* Round 29: when account_type changes, suggest a fresh GL code based on
+   the new type. Only fires when there's no manually-picked value yet
+   (or the picked value is incompatible with the new type). */
+function onAccountTypeChange(){
+  const typeSel = document.getElementById('ba-type');
+  const glSel = document.getElementById('ba-gl-account');
+  if(!typeSel || !glSel) return;
+  const newType = typeSel.value;
+  const linkedMap = {};
+  for(const ba of (allBankAccounts || [])){
+    if(ba.gl_account_code && ba.id !== editingBankAccountId){
+      linkedMap[ba.gl_account_code] = ba;
+    }
+  }
+  const wantBank = (newType === 'cash') ? false : true;
+  const wantedPattern = wantBank ? /bank|بنك/i : /cash|نقد|صندوق|petty|till/i;
+  /* Strongly-matching unused first */
+  let candidate = allEligibleGlLeaves.find(c =>
+    !linkedMap[c.code] &&
+    ((c.name_en && wantedPattern.test(c.name_en)) ||
+     (c.name_ar && wantedPattern.test(c.name_ar)))
+  );
+  /* Fallback: any unused */
+  if(!candidate) candidate = allEligibleGlLeaves.find(c => !linkedMap[c.code]);
+  if(candidate) glSel.value = candidate.code;
 }
 
 function closeBankAccountModal(){
@@ -3584,6 +3741,12 @@ async function saveBankAccount(){
     updated_at: new Date().toISOString()
   };
 
+  /* Round 29: read the GL Account picker. This is the authoritative source
+     for gl_account_code — overrides the old resolve_role auto-assignment.
+     If the picker is empty (very rare; only if no eligible GL accounts at
+     all), we fall back to resolve_role for backward compat. */
+  const pickedGlCode = (document.getElementById('ba-gl-account')?.value || '').trim() || null;
+
   if(!isEdit){
     payload.currency = document.getElementById('ba-currency').value;
     payload.opening_balance = parseFloat(document.getElementById('ba-opening').value) || 0;
@@ -3594,27 +3757,35 @@ async function saveBankAccount(){
        journal_lines will compute the real balance once attached. After Part 3
        the value updates live on every journal_line insert. */
     payload.current_balance = 0;
-    /* Round 28: resolve gl_account_code from account_type so the journal_lines
-       trigger can derive bank_transactions rows for this account. cash → 1100,
-       checking/savings → 1101 (resolved via role for multi-tenant CoA support).
-       UNIQUE constraint (business_id, gl_account_code) will reject a second
-       account of the same type — Round 29 will add the UX to map distinct GL
-       leaves for multi-account businesses. */
-    const role = (payload.account_type === 'cash')
-      ? 'cash_primary'
-      : (payload.account_type === 'checking' || payload.account_type === 'savings')
-        ? 'bank_primary'
-        : null;
-    if(role){
-      try {
-        const {data: code} = await sb.rpc('resolve_role', {
-          p_business_id: currentBiz.id,
-          p_role: role
-        });
-        if(code) payload.gl_account_code = code;
-      } catch(e){
-        console.warn('[GL] gl_account_code resolution failed:', e.message);
+
+    /* Round 29: prefer picker; fall back to resolve_role only if picker empty */
+    if(pickedGlCode){
+      payload.gl_account_code = pickedGlCode;
+    } else {
+      const role = (payload.account_type === 'cash')
+        ? 'cash_primary'
+        : (payload.account_type === 'checking' || payload.account_type === 'savings')
+          ? 'bank_primary'
+          : null;
+      if(role){
+        try {
+          const {data: code} = await sb.rpc('resolve_role', {
+            p_business_id: currentBiz.id,
+            p_role: role
+          });
+          if(code) payload.gl_account_code = code;
+        } catch(e){
+          console.warn('[GL] gl_account_code resolution failed:', e.message);
+        }
       }
+    }
+  } else {
+    /* Round 29: editing — let user re-link to a different GL leaf
+       (recovering legacy accounts with NULL gl_account_code, or switching
+       a misrouted link). Only update if user actually changed the value. */
+    const existing = allBankAccounts.find(a => a.id === editingBankAccountId);
+    if(pickedGlCode && pickedGlCode !== (existing?.gl_account_code || null)){
+      payload.gl_account_code = pickedGlCode;
     }
   }
 
@@ -3639,6 +3810,22 @@ async function saveBankAccount(){
     if((error.message||'').includes('does not exist') || error.code === '42P01'){
       notify(ar?'⚠ يجب تشغيل ميغريشن جداول البنوك أولاً':'⚠ Run bank_accounts migration first', 'error');
       console.error('bank_accounts table missing — run bank_accounts_migration.sql');
+      return;
+    }
+    /* Round 29: gl_account_code UNIQUE conflict — explain to the user. */
+    if(error.code === '23505' && /gl_?account|glcode/i.test(error.message||'')){
+      const conflictCode = payload.gl_account_code || pickedGlCode || '?';
+      const conflictAccount = allBankAccounts.find(
+        a => a.gl_account_code === conflictCode && a.id !== editingBankAccountId
+      );
+      const otherName = conflictAccount
+        ? (ar ? (conflictAccount.account_name_ar || conflictAccount.account_name)
+              : (conflictAccount.account_name    || conflictAccount.account_name_ar))
+        : '';
+      notify(ar
+        ? `⚠ الحساب المحاسبي ${conflictCode} مرتبط بالفعل بـ "${otherName}". اختر حساباً محاسبياً آخر.`
+        : `⚠ GL account ${conflictCode} is already linked to "${otherName}". Pick a different GL account.`,
+        'error');
       return;
     }
     console.error('[GL] saveBankAccount', error);
@@ -5269,10 +5456,12 @@ function switchTab(name){
     loadBills();
   }
 
-  /* Round 4h.1: lazy-load Banks data on first visit */
+  /* Round 4h.1: lazy-load Banks data on first visit.
+     Round 29: also load GL leaf accounts so the bank-account modal's
+     GL picker has its cache ready. */
   if(name === 'banks' && !window._banksLoaded){
     window._banksLoaded = true;
-    Promise.all([loadBankAccounts(), loadBankTransactions()]).then(renderBankAccounts);
+    Promise.all([loadBankAccounts(), loadBankTransactions(), loadEligibleGlLeaves()]).then(renderBankAccounts);
   }
 
   /* Round 4i.1: cashflow needs banks data too. Reuse the loaded flag. */
@@ -8561,7 +8750,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.20-33</div>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.20-34</div>
 <script>console.log('%c[GulfLedger build] v2026.05.17-22 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
