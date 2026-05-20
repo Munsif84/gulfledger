@@ -2337,10 +2337,17 @@ async function selfHealCriticalAccounts(){
 
 async function loadCoreData(){
   /* Chart of accounts — needed by Ledger and Reports */
+  /* Round 35: load ALL chart_of_accounts rows (active + inactive) — was
+     `.eq('is_active', true)`, which broke balance sheet integrity for any
+     business that deactivated an account with historical postings. The
+     `is_active` flag is a UX concern (pickability in dropdowns), NOT a
+     reports concern. Every account that ever had a journal_line must
+     appear in retained-earnings sweep + BS rollup or the books appear
+     unbalanced by the orphan balance. Per-render code can filter on
+     a.is_active when rendering pickers / new-entry forms. */
   const {data:coa, error: coaErr} = await sb.from('chart_of_accounts')
     .select('*')
     .eq('business_id', currentBiz?.id || '')
-    .eq('is_active', true)
     .order('display_order', {ascending: true});
 
   if(coaErr){
@@ -2360,7 +2367,7 @@ async function loadCoreData(){
       });
       if(!seedErr){
         const {data:coa2} = await sb.from('chart_of_accounts')
-          .select('*').eq('business_id', currentBiz?.id || '').eq('is_active', true)
+          .select('*').eq('business_id', currentBiz?.id || '')
           .order('display_order', {ascending:true});
         chartOfAccounts = coa2 || [];
       }
@@ -2380,7 +2387,7 @@ async function loadCoreData(){
     /* Re-fetch in case we just inserted any */
     if(window._gl_seeded_critical){
       const {data:coa3} = await sb.from('chart_of_accounts')
-        .select('*').eq('business_id', currentBiz?.id || '').eq('is_active', true)
+        .select('*').eq('business_id', currentBiz?.id || '')
         .order('display_order', {ascending:true});
       chartOfAccounts = coa3 || chartOfAccounts;
       window._gl_seeded_critical = false;
@@ -4440,8 +4447,12 @@ function renderManualEntryBody(){
 
   /* Account dropdown options (postable leaf accounts only — exclude headers
      since posting to a header account would corrupt the trial balance).
-     Round 24: removed parent_code requirement — orphan leaves are still postable. */
-  const acctOptions = chartOfAccounts.filter(a => !a.is_header).map(a =>
+     Round 24: removed parent_code requirement — orphan leaves are still postable.
+     Round 35: filter is_active !== false so deactivated accounts (e.g., 5200
+     deprecated by Migration 38) don't appear in the picker. They're still
+     loaded into chartOfAccounts so reports can include their historical
+     balances. */
+  const acctOptions = chartOfAccounts.filter(a => !a.is_header && a.is_active !== false).map(a =>
     `<option value="${a.code}">${a.code} — ${ar ? (a.name_ar || a.name_en || a.code) : (a.name_en || a.name_ar || a.code)}</option>`
   ).join('');
 
@@ -13240,7 +13251,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.20-42</div>
-<script>console.log('%c[GulfLedger build] v2026.05.20-42 · Round 34: contra_revenue sign fix across 9 report sites', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.20-43</div>
+<script>console.log('%c[GulfLedger build] v2026.05.20-43 · Round 35: BS includes inactive accounts; pickers still filter them', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
