@@ -3254,18 +3254,34 @@ async function autoRecordB2CPayment(invoiceId, invoiceNumber, total){
       return false;
     }
 
-    /* 2. Post journal entry — DR Cash/Bank / CR AR */
+    /* 2. Post journal entry — DR specific bank-linked GL account / CR AR.
+       Round 28: if the user picked a bank_account, debit its gl_account_code
+       (the trigger on journal_lines will derive the bank_transactions row).
+       Falls back to generic 1100 cash if no account picked (e.g., legacy
+       data missing bank_accounts). */
     try {
-      const accountCode = (method==='bank'||method==='card') ? '1101' : '1100';
-      const accountName = (method==='bank'||method==='card')
+      let accountCode = (method==='bank'||method==='card') ? '1101' : '1100';
+      let accountName = (method==='bank'||method==='card')
         ? (currentLang==='ar'?'البنك':'Bank')
         : (currentLang==='ar'?'النقد':'Cash');
+      if(accountId){
+        const {data: acc} = await sb.from('bank_accounts')
+          .select('gl_account_code, account_name, account_name_ar')
+          .eq('id', accountId).maybeSingle();
+        if(acc?.gl_account_code){
+          accountCode = acc.gl_account_code;
+          accountName = currentLang==='ar'
+            ? (acc.account_name_ar || acc.account_name || accountName)
+            : (acc.account_name || acc.account_name_ar || accountName);
+        }
+      }
       const {data: entry} = await sb.from('journal_entries').insert({
         user_id: currentUser.id, business_id: currentBiz?.id,
         entry_date: date,
         reference: 'AUTO-PMT-' + invoiceNumber,
         description: currentLang==='ar'?'دفعة فورية عند الإصدار':'Payment on issuance',
         source: 'payment',
+        source_id: invoiceId,
         status: 'posted', is_balanced: true
       }).select().single();
       if(entry){
@@ -3278,31 +3294,10 @@ async function autoRecordB2CPayment(invoiceId, invoiceNumber, total){
       }
     } catch(e){ console.warn('[GL] auto-payment journal skipped:', e.message); }
 
-    /* 3. Auto-create bank deposit if user picked an account */
-    if(accountId){
-      try {
-        const {data: acc} = await sb.from('bank_accounts').select('current_balance').eq('id', accountId).single();
-        if(acc){
-          const newBalance = (parseFloat(acc.current_balance)||0) + total;
-          await sb.from('bank_transactions').insert({
-            business_id: currentBiz?.id,
-            user_id: currentUser.id,
-            account_id: accountId,
-            transaction_type: 'deposit',
-            transaction_date: date,
-            amount: total,
-            balance_after: newBalance,
-            description: (currentLang==='ar' ? 'دفعة فاتورة ' : 'Invoice payment ') + invoiceNumber,
-            source_type: 'invoice',
-            source_id: invoiceId
-          });
-          await sb.from('bank_accounts').update({
-            current_balance: newBalance,
-            updated_at: new Date().toISOString()
-          }).eq('id', accountId);
-        }
-      } catch(e){ console.warn('[GL] auto-payment bank tx skipped:', e.message); }
-    }
+    /* Round 28 / Part 2: bank_transactions row + current_balance update are
+       now produced automatically by the journal_lines AFTER INSERT trigger
+       (_trg_sync_bank_transactions). The previous direct-insert block has
+       been removed — having both would duplicate. */
 
     return true;
   } catch(e){
@@ -6562,18 +6557,34 @@ async function confirmPayment(){
 
   if(error){notify(friendlyDbError(error),'r');throw error;}
 
-  /* Post journal entry */
+  /* Post journal entry — Round 28: if user picked a bank_account, use its
+     specific gl_account_code so the journal_lines trigger derives the
+     correct bank_transactions row. Falls back to generic 1100/1101 if
+     no account picked. */
+  const bankAccountId = v('pay-bank-account');
   try {
-    const accountCode = (method==='bank'||method==='card') ? '1101' : '1100';
-    const accountName = (method==='bank'||method==='card')
+    let accountCode = (method==='bank'||method==='card') ? '1101' : '1100';
+    let accountName = (method==='bank'||method==='card')
       ? (currentLang==='ar'?'البنك':'Bank')
       : (currentLang==='ar'?'النقد':'Cash');
+    if(bankAccountId){
+      const {data: acc} = await sb.from('bank_accounts')
+        .select('gl_account_code, account_name, account_name_ar')
+        .eq('id', bankAccountId).maybeSingle();
+      if(acc?.gl_account_code){
+        accountCode = acc.gl_account_code;
+        accountName = currentLang==='ar'
+          ? (acc.account_name_ar || acc.account_name || accountName)
+          : (acc.account_name || acc.account_name_ar || accountName);
+      }
+    }
     const {data:entry} = await sb.from('journal_entries').insert({
       user_id: currentUser.id, business_id: currentBiz?.id,
       entry_date: date,
       reference: ref || ('PMT-'+Date.now()),
       description: currentLang==='ar'?'استلام دفعة':'Payment received',
       source: 'payment',
+      source_id: _paymentInvoiceId,
       status: 'posted', is_balanced: true
     }).select().single();
     if(entry){
@@ -6586,41 +6597,10 @@ async function confirmPayment(){
     }
   } catch(e){console.warn('Journal skipped:', e.message);}
 
-  /* Round 4h.2: auto-create bank deposit transaction if user picked an account.
-     Tied to invoice via source_type='invoice', source_id=invoice.id (idempotent —
-     backfill checks for existing source_type+source_id before creating). */
-  const bankAccountId = v('pay-bank-account');
-  if(bankAccountId){
-    try {
-      const {data: acc} = await sb.from('bank_accounts').select('current_balance, currency').eq('id', bankAccountId).single();
-      if(acc){
-        const newBalance = (parseFloat(acc.current_balance)||0) + amount;
-        const {error: txErr} = await sb.from('bank_transactions').insert({
-          business_id: currentBiz?.id,
-          user_id: currentUser.id,
-          account_id: bankAccountId,
-          transaction_type: 'deposit',
-          transaction_date: date,
-          amount: amount,
-          balance_after: newBalance,
-          description: (currentLang==='ar' ? 'دفعة فاتورة ' : 'Invoice payment ') + (invData?.invoice_number || ('#' + _paymentInvoiceId.slice(0, 8))),
-          reference_number: ref || null,
-          source_type: 'invoice',
-          source_id: _paymentInvoiceId
-        });
-        if(!txErr){
-          await sb.from('bank_accounts').update({
-            current_balance: newBalance,
-            updated_at: new Date().toISOString()
-          }).eq('id', bankAccountId);
-        } else {
-          console.warn('[GL] auto-deposit failed (payment still recorded):', txErr);
-        }
-      }
-    } catch(e){
-      console.warn('[GL] bank deposit skipped:', e.message);
-    }
-  }
+  /* Round 28 / Part 2: bank_transactions and current_balance refresh are
+     now produced automatically by the journal_lines AFTER INSERT trigger
+     (_trg_sync_bank_transactions). The previous direct-insert block has
+     been removed — having both would duplicate. */
 
   /* Update customer aggregates */
   if(invData?.customer_id){
@@ -7242,7 +7222,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-35</div>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.20-36</div>
 <script>console.log('%c[GulfLedger build] v2026.05.17-26 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
