@@ -3175,12 +3175,16 @@ async function loadBankAccounts(){
    till"). The score is purely cosmetic ordering; nothing is hidden. */
 async function loadEligibleGlLeaves(){
   if(!currentBiz?.id){ allEligibleGlLeaves = []; return; }
+  /* Round 32: widened to also include liability leaves so credit_card
+     account_type has linkable candidates. _renderGlAccountOptions filters
+     the displayed rows by account_type at render time, so cash/checking/
+     savings still only see asset options. */
   const {data, error} = await sb.from('chart_of_accounts')
     .select('code, name_en, name_ar, type, subcategory, normal_balance')
     .eq('business_id', currentBiz.id)
     .eq('is_active', true)
     .eq('is_header', false)
-    .eq('type', 'asset')
+    .in('type', ['asset', 'liability'])
     .order('code', {ascending:true});
   if(error){
     console.warn('[GL] loadEligibleGlLeaves:', error.message);
@@ -3194,21 +3198,34 @@ async function loadEligibleGlLeaves(){
 }
 
 /* Score a GL leaf for "bank-account-ness". Higher = more likely a cash/bank
-   account. Used only for display ordering — nothing gates on this. */
+   or credit-card account. Used only for display ordering — nothing gates on
+   this. Round 32: extended for liability/credit-card patterns. */
 function _scoreGlLeafForBank(coa){
   let s = 0;
   const en = String(coa.name_en || '').toLowerCase();
   const ar = String(coa.name_ar || '');
   const code = String(coa.code || '');
-  /* Strong: cash/bank name match in English */
-  if(/\b(cash|bank|petty|till|wallet|stc\s*pay|payment\s*card)\b/.test(en)) s += 10;
-  /* Strong: cash/bank name match in Arabic */
-  if(/نقد|بنك|صندوق|محفظة|مدفوعات/.test(ar)) s += 10;
-  /* Medium: codes in the 11xx range are conventionally cash/bank in
-     Saudi CoA templates (1100-1199) */
-  if(/^11/.test(code)) s += 5;
-  /* Light tie-breaker: current_asset subcategory */
-  if((coa.subcategory||'') === 'current_asset') s += 1;
+  const type = String(coa.type || '');
+  if(type === 'asset'){
+    /* Strong: cash/bank name match in English */
+    if(/\b(cash|bank|petty|till|wallet|stc\s*pay|payment\s*card)\b/.test(en)) s += 10;
+    /* Strong: cash/bank name match in Arabic */
+    if(/نقد|بنك|صندوق|محفظة|مدفوعات/.test(ar)) s += 10;
+    /* Medium: codes in the 11xx range are conventionally cash/bank in
+       Saudi CoA templates (1100-1199) */
+    if(/^11/.test(code)) s += 5;
+    /* Light tie-breaker: current_asset subcategory */
+    if((coa.subcategory||'') === 'current_asset') s += 1;
+  } else if(type === 'liability'){
+    /* Strong: credit-card name match in English */
+    if(/\b(credit\s*card|cc\s*payable|card\s*payable|visa|mastercard)\b/.test(en)) s += 10;
+    /* Strong: credit-card name match in Arabic */
+    if(/بطاقة\s*ائتمان|بطاقة\s*الائتمان|بطاقات\s*ائتمان/.test(ar)) s += 10;
+    /* Medium: codes in the 23xx-25xx range are conventional credit-card slots */
+    if(/^2[3-5]/.test(code)) s += 5;
+    /* Light tie-breaker: current_liability subcategory */
+    if((coa.subcategory||'') === 'current_liability') s += 1;
+  }
   return s;
 }
 
@@ -3595,6 +3612,30 @@ async function openBankAccountModal(id){
      1. header.gl_account_code if editing an existing account
      2. Otherwise: the highest-scoring unused candidate matching
         the current account_type (cash → cash-like, checking/savings → bank-like) */
+/* Round 32: helpers for type-aware GL filtering.
+   Different bank_account types should be backed by different GL types:
+     cash/checking/savings → asset (cash on hand, bank account)
+     credit_card           → liability (you owe the card issuer)
+   The picker should only surface candidates of the right type so users
+   can't accidentally link e.g. a credit card to an asset account. */
+function _glTypesForAccountType(accountType){
+  if(accountType === 'credit_card') return ['liability'];
+  return ['asset'];
+}
+
+/* Returns a regex that strongly matches "good name" patterns for the
+   given account_type. Used both for pre-selection and onAccountTypeChange. */
+function _glNamePatternForAccountType(accountType){
+  if(accountType === 'credit_card'){
+    return /credit\s*card|cc\s*payable|card\s*payable|visa|mastercard|بطاقة\s*ائتمان|بطاقة\s*الائتمان/i;
+  }
+  if(accountType === 'cash'){
+    return /cash|petty|till|wallet|نقد|صندوق/i;
+  }
+  /* checking, savings, or any other future type that maps to a bank-like asset */
+  return /bank|بنك|stc\s*pay|payment\s*card|مدفوعات/i;
+}
+
 function _renderGlAccountOptions(header){
   const ar = currentLang === 'ar';
   if(!allEligibleGlLeaves || allEligibleGlLeaves.length === 0){
@@ -3606,33 +3647,49 @@ function _renderGlAccountOptions(header){
     if(ba.gl_account_code) linkedMap[ba.gl_account_code] = ba;
   }
 
+  /* Round 32: filter eligible leaves by account_type so users only see
+     candidates of the correct GL type. Default to 'checking' for new
+     accounts (matches the default in the <select id="ba-type">). */
+  const accountType = header?.account_type || 'checking';
+  const expectedGlTypes = _glTypesForAccountType(accountType);
+  const filteredLeaves = allEligibleGlLeaves.filter(c => expectedGlTypes.includes(c.type));
+
+  if(filteredLeaves.length === 0){
+    const friendlyMsg = accountType === 'credit_card'
+      ? (ar ? '⚠ لا يوجد حساب التزامات مناسب — أضف حساب بطاقة ائتمان أولاً'
+            : '⚠ No suitable liability GL account — add a Credit Card Payable account first')
+      : (ar ? '⚠ لا يوجد حساب أصول مناسب — أضف حساب نقد/بنك أولاً'
+            : '⚠ No suitable asset GL account — add a Cash/Bank account first');
+    return `<option value="">${friendlyMsg}</option>`;
+  }
+
   /* Pre-selection logic */
   let preselectedCode = header?.gl_account_code || null;
   if(!preselectedCode){
-    /* New account: pick first eligible unused leaf matching the type */
-    const wantBank = (header?.account_type === 'cash' ? false : true);
+    const wantedPattern = _glNamePatternForAccountType(accountType);
     /* Try strongly-matching unused first */
-    const wantedPattern = wantBank
-      ? /bank|بنك/i
-      : /cash|نقد|صندوق|petty|till/i;
-    let candidate = allEligibleGlLeaves.find(c =>
+    let candidate = filteredLeaves.find(c =>
       !linkedMap[c.code] &&
       ((c.name_en && wantedPattern.test(c.name_en)) ||
        (c.name_ar && wantedPattern.test(c.name_ar)))
     );
-    /* Fallback: any unused */
-    if(!candidate) candidate = allEligibleGlLeaves.find(c => !linkedMap[c.code]);
+    /* Fallback: any unused row of the right type */
+    if(!candidate) candidate = filteredLeaves.find(c => !linkedMap[c.code]);
     if(candidate) preselectedCode = candidate.code;
   }
 
   const placeholder = `<option value="">${ar?'— اختر —':'— Select —'}</option>`;
-  const rows = allEligibleGlLeaves.map(c => {
+  const rows = filteredLeaves.map(c => {
     const linkedBy = linkedMap[c.code];
     /* Can the user pick this row? Only if it's free, OR it's the one this
        bank_account is currently linked to (edit case). */
     const isCurrentEdit = (header && header.gl_account_code === c.code);
     const blocked = linkedBy && !isCurrentEdit;
-    const icon = c.score >= 10 ? '💰 ' : '';
+    /* Round 32: 💰 for cash/bank candidates, 💳 for credit-card candidates */
+    let icon = '';
+    if(c.score >= 10){
+      icon = (c.type === 'liability') ? '💳 ' : '💰 ';
+    }
     const baseLabel = ar
       ? `${c.code} · ${c.name_ar || c.name_en || ''}`
       : `${c.code} · ${c.name_en || c.name_ar || ''}`;
@@ -3646,31 +3703,23 @@ function _renderGlAccountOptions(header){
   return placeholder + rows;
 }
 
-/* Round 29: when account_type changes, suggest a fresh GL code based on
-   the new type. Only fires when there's no manually-picked value yet
-   (or the picked value is incompatible with the new type). */
+/* Round 29: when account_type changes, re-render the GL picker so the
+   filtered options + auto-suggestion reflect the new type.
+   Round 32: extended to handle credit_card → liability-type accounts. */
 function onAccountTypeChange(){
   const typeSel = document.getElementById('ba-type');
   const glSel = document.getElementById('ba-gl-account');
   if(!typeSel || !glSel) return;
   const newType = typeSel.value;
-  const linkedMap = {};
-  for(const ba of (allBankAccounts || [])){
-    if(ba.gl_account_code && ba.id !== editingBankAccountId){
-      linkedMap[ba.gl_account_code] = ba;
-    }
-  }
-  const wantBank = (newType === 'cash') ? false : true;
-  const wantedPattern = wantBank ? /bank|بنك/i : /cash|نقد|صندوق|petty|till/i;
-  /* Strongly-matching unused first */
-  let candidate = allEligibleGlLeaves.find(c =>
-    !linkedMap[c.code] &&
-    ((c.name_en && wantedPattern.test(c.name_en)) ||
-     (c.name_ar && wantedPattern.test(c.name_ar)))
-  );
-  /* Fallback: any unused */
-  if(!candidate) candidate = allEligibleGlLeaves.find(c => !linkedMap[c.code]);
-  if(candidate) glSel.value = candidate.code;
+  /* Build a transient header-like object for the renderer so it picks
+     options matching the NEW type (not the edited account's old type). */
+  const existingHeader = editingBankAccountId
+    ? allBankAccounts.find(a => a.id === editingBankAccountId)
+    : null;
+  const transientHeader = existingHeader
+    ? { ...existingHeader, account_type: newType }
+    : { account_type: newType };
+  glSel.innerHTML = _renderGlAccountOptions(transientHeader);
 }
 
 function closeBankAccountModal(){
@@ -3762,11 +3811,18 @@ async function saveBankAccount(){
     if(pickedGlCode){
       payload.gl_account_code = pickedGlCode;
     } else {
+      /* Round 32: extend auto-resolve to credit_card via credit_card_payable
+         role (Migration 39). When unmapped, returns NULL (allow_silent_fallback=
+         false), so the picker stays empty and the user is forced to wire it
+         up explicitly — wrong-account routing on credit cards would corrupt
+         AP aging. */
       const role = (payload.account_type === 'cash')
         ? 'cash_primary'
         : (payload.account_type === 'checking' || payload.account_type === 'savings')
           ? 'bank_primary'
-          : null;
+          : (payload.account_type === 'credit_card')
+            ? 'credit_card_payable'
+            : null;
       if(role){
         try {
           const {data: code} = await sb.rpc('resolve_role', {
@@ -8750,7 +8806,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.20-34</div>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.20-35</div>
 <script>console.log('%c[GulfLedger build] v2026.05.17-22 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
