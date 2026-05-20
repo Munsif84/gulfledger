@@ -1712,15 +1712,24 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
       vatDueDate = new Date(now.getFullYear(), q*3+3, 30);
     }
 
-    const {data:allInv}=await sb.from('invoices').select('total,vat_amount,subtotal,issue_date,invoice_number,buyer_name,payment_status,due_date,amount_paid').eq('business_id', biz.id).order('issue_date',{ascending:false});
+    /* Round 30: filter out voided invoices at the query level so every
+       downstream stat (revenue, output VAT, AR outstanding, recent list)
+       reflects only the active book. `status` is also pulled in case any
+       per-row checks are added in future. */
+    const {data:allInv}=await sb.from('invoices').select('total,vat_amount,subtotal,issue_date,invoice_number,buyer_name,payment_status,due_date,amount_paid,status').eq('business_id', biz.id).neq('status','voided').order('issue_date',{ascending:false});
 
     /* Also fetch expenses for Input VAT — VAT Payable = Output - Input.
        AP Round 2: also pulls total, amount_paid, due_date for the cashflow widget.
        AP Round 3: ALSO pulls stock_receipts so the "Owed to suppliers" total
-       includes goods-supplier bills (was only counting service-vendor expenses). */
+       includes goods-supplier bills (was only counting service-vendor expenses).
+       Round 30: added subtotal, category, description, expense_number so the
+       Expenses tile (monthExp) and Recent Expenses widget can be derived
+       from the same active-only dataset (was previously a separate
+       journal_entries query that double-counted voided expense reversals
+       and was capped at 4 rows). */
     const [allExpensesResult, allReceiptsResult] = await Promise.all([
       sb.from('expenses')
-        .select('vat_amount,vat_recoverable,expense_date,status,total,amount_paid,due_date,payment_status')
+        .select('vat_amount,vat_recoverable,expense_date,status,total,amount_paid,due_date,payment_status,subtotal,category,description,expense_number')
         .eq('business_id', biz.id)
         .neq('status','voided'),
       sb.from('stock_receipts')
@@ -1895,43 +1904,66 @@ body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:var(--i
       }
     }
 
-    // Load expenses this month
-    const {data:expEntries}=await sb.from('journal_entries')
-      .select('*, journal_lines(*)')
-      .eq('business_id', biz.id)
-      .eq('source','expense')
-      .gte('entry_date',monthStart)
-      .order('entry_date',{ascending:false})
-      .limit(4);
-    const EXP_NAMES={'5200':'رواتب','5300':'إيجار','5400':'مرافق','5500':'تسويق','5750':'سفر','5700':'رسوم بنكية','5800':'أتعاب','5900':'متنوع'};
-    const EXP_NAMES_EN={'5200':'Salaries','5300':'Rent','5400':'Utilities','5500':'Marketing','5750':'Travel','5700':'Bank Fees','5800':'Prof. Fees','5900':'Misc'};
+    /* Round 30: derive both the Recent Expenses widget AND the monthExp
+       total from the SAME allExpenses dataset (already filtered to active,
+       not voided). Previous implementation queried journal_entries with
+       source='expense' AND .limit(4) — which (a) capped the total at 4
+       rows (drastically understating monthly expense), (b) didn't net
+       expense_void reversal entries (overstating when voids exist), and
+       (c) double-classified categories via account-code suffix matching.
+       The expenses table has the right shape and is already loaded; reuse it. */
+    const EXP_NAMES = {
+      rent:'إيجار', salaries:'رواتب', utilities:'مرافق', communications:'اتصالات',
+      supplies:'مستلزمات', professional:'خدمات مهنية', marketing:'تسويق',
+      vehicle:'سيارات', travel:'سفر', maintenance:'صيانة', insurance:'تأمين',
+      bank_charges:'رسوم بنكية', gov_fees:'رسوم حكومية', entertainment:'ضيافة',
+      other:'متنوع'
+    };
+    const EXP_NAMES_EN = {
+      rent:'Rent', salaries:'Salaries', utilities:'Utilities', communications:'Communications',
+      supplies:'Office Supplies', professional:'Professional', marketing:'Marketing',
+      vehicle:'Vehicle', travel:'Travel', maintenance:'Maintenance', insurance:'Insurance',
+      bank_charges:'Bank Charges', gov_fees:'Gov. Fees', entertainment:'Entertainment',
+      other:'Misc'
+    };
 
-    let monthExp=0;
-    const re=document.getElementById('recent-expenses');
-    if(expEntries&&expEntries.length){
-      let rows='';
-      expEntries.forEach(e=>{
-        const expLine=(e.journal_lines||[]).find(l=>l.account_code?.startsWith('5')&&l.debit>0);
-        const crLine=(e.journal_lines||[]).find(l=>l.credit>0);
-        if(!expLine)return;
-        const amt=crLine?.credit||expLine.debit||0;
-        monthExp+=amt;
-        const catName=L==='ar'?(EXP_NAMES[expLine.account_code]||'مصروف'):(EXP_NAMES_EN[expLine.account_code]||'Expense');
-        rows+=`<div class="act-item">
+    /* Month-bounded active expenses: full set, NOT capped at 4. */
+    const monthExpenses = (allExpenses || []).filter(e =>
+      e.expense_date >= monthStart && e.expense_date <= monthEnd
+    );
+    /* Total expense = SUBTOTAL net of VAT (consistent with how revenue is
+       computed from invoice.subtotal). This is the P&L expense figure. */
+    let monthExp = monthExpenses.reduce((s, e) => s + (parseFloat(e.subtotal) || 0), 0);
+
+    /* Recent Expenses widget: 4 most recent in the month. */
+    const re = document.getElementById('recent-expenses');
+    const recentExpenses = monthExpenses
+      .slice()
+      .sort((a, b) => (b.expense_date||'').localeCompare(a.expense_date||''))
+      .slice(0, 4);
+
+    if(recentExpenses.length){
+      const rows = recentExpenses.map(e => {
+        const amt = parseFloat(e.subtotal) || 0;
+        const catKey = e.category || 'other';
+        const catName = L === 'ar'
+          ? (EXP_NAMES[catKey] || 'مصروف')
+          : (EXP_NAMES_EN[catKey] || 'Expense');
+        const descText = (e.description || '').replace(/\(شامل VAT\)/, '').trim()
+                      || e.expense_number
+                      || '';
+        return `<div class="act-item">
           <div class="act-icon exp">💸</div>
           <div class="act-body">
             <div class="act-name">${escapeHtml(catName)}</div>
-            <div class="act-meta">${escapeHtml(e.description?.replace(/\(شامل VAT\)/,'').trim()||'')} · ${e.entry_date}</div>
+            <div class="act-meta">${escapeHtml(descText)} · ${e.expense_date}</div>
           </div>
           <div class="act-amount c-red">SAR ${fmt(amt)}</div>
         </div>`;
-      });
-      re.innerHTML=rows||`<div class="act-empty">
-        <span class="act-empty-icon">📭</span>
-        <span>${L==='ar'?'لا مصاريف هذا الشهر':'No expenses this month'}</span>
-      </div>`;
+      }).join('');
+      re.innerHTML = rows;
     } else {
-      re.innerHTML=`<div class="act-empty">
+      re.innerHTML = `<div class="act-empty">
         <span class="act-empty-icon">📭</span>
         <span>${L==='ar'?'لا مصاريف هذا الشهر':'No expenses this month'}</span>
       </div>`;
@@ -2448,7 +2480,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء (Ctrl+Shift+R للتحديث) · Build version (Ctrl+Shift+R to refresh)">v2026.05.17-12</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-12 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء (Ctrl+Shift+R للتحديث) · Build version (Ctrl+Shift+R to refresh)">v2026.05.20-13</div>
+<script>console.log('%c[GulfLedger build] v2026.05.20-13 · 2026-05-20T10:30:00Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
