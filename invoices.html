@@ -3254,34 +3254,18 @@ async function autoRecordB2CPayment(invoiceId, invoiceNumber, total){
       return false;
     }
 
-    /* 2. Post journal entry — DR specific bank-linked GL account / CR AR.
-       Round 28: if the user picked a bank_account, debit its gl_account_code
-       (the trigger on journal_lines will derive the bank_transactions row).
-       Falls back to generic 1100 cash if no account picked (e.g., legacy
-       data missing bank_accounts). */
+    /* 2. Post journal entry — DR Cash/Bank / CR AR */
     try {
-      let accountCode = (method==='bank'||method==='card') ? '1101' : '1100';
-      let accountName = (method==='bank'||method==='card')
+      const accountCode = (method==='bank'||method==='card') ? '1101' : '1100';
+      const accountName = (method==='bank'||method==='card')
         ? (currentLang==='ar'?'البنك':'Bank')
         : (currentLang==='ar'?'النقد':'Cash');
-      if(accountId){
-        const {data: acc} = await sb.from('bank_accounts')
-          .select('gl_account_code, account_name, account_name_ar')
-          .eq('id', accountId).maybeSingle();
-        if(acc?.gl_account_code){
-          accountCode = acc.gl_account_code;
-          accountName = currentLang==='ar'
-            ? (acc.account_name_ar || acc.account_name || accountName)
-            : (acc.account_name || acc.account_name_ar || accountName);
-        }
-      }
       const {data: entry} = await sb.from('journal_entries').insert({
         user_id: currentUser.id, business_id: currentBiz?.id,
         entry_date: date,
         reference: 'AUTO-PMT-' + invoiceNumber,
         description: currentLang==='ar'?'دفعة فورية عند الإصدار':'Payment on issuance',
         source: 'payment',
-        source_id: invoiceId,
         status: 'posted', is_balanced: true
       }).select().single();
       if(entry){
@@ -3294,10 +3278,31 @@ async function autoRecordB2CPayment(invoiceId, invoiceNumber, total){
       }
     } catch(e){ console.warn('[GL] auto-payment journal skipped:', e.message); }
 
-    /* Round 28 / Part 2: bank_transactions row + current_balance update are
-       now produced automatically by the journal_lines AFTER INSERT trigger
-       (_trg_sync_bank_transactions). The previous direct-insert block has
-       been removed — having both would duplicate. */
+    /* 3. Auto-create bank deposit if user picked an account */
+    if(accountId){
+      try {
+        const {data: acc} = await sb.from('bank_accounts').select('current_balance').eq('id', accountId).single();
+        if(acc){
+          const newBalance = (parseFloat(acc.current_balance)||0) + total;
+          await sb.from('bank_transactions').insert({
+            business_id: currentBiz?.id,
+            user_id: currentUser.id,
+            account_id: accountId,
+            transaction_type: 'deposit',
+            transaction_date: date,
+            amount: total,
+            balance_after: newBalance,
+            description: (currentLang==='ar' ? 'دفعة فاتورة ' : 'Invoice payment ') + invoiceNumber,
+            source_type: 'invoice',
+            source_id: invoiceId
+          });
+          await sb.from('bank_accounts').update({
+            current_balance: newBalance,
+            updated_at: new Date().toISOString()
+          }).eq('id', accountId);
+        }
+      } catch(e){ console.warn('[GL] auto-payment bank tx skipped:', e.message); }
+    }
 
     return true;
   } catch(e){
@@ -5656,6 +5661,7 @@ async function generateInvoice(){
   };
 
   let invoiceId = currentInvoiceId;
+  const wasNewInsert = !invoiceId;  /* Round 39: track so stock-block cleanup only deletes freshly-inserted headers */
   if(invoiceId){
     let {error} = await sb.from('invoices').update(payload).eq('id', invoiceId);
     /* Round C bugfix: an UPDATE can also hit invoices_business_invnum_unique
@@ -5752,22 +5758,35 @@ async function generateInvoice(){
       /* Build human-readable summary line per item */
       const lines = shortfalls.map(s =>
         ar
-          ? `• ${s.name} — متوفر ${s.avail}, مطلوب ${s.req} (نقص ${s.req - s.avail})`
+          ? `• ${s.name} — متوفر ${s.avail}، مطلوب ${s.req} (نقص ${s.req - s.avail})`
           : `• ${s.name} — available ${s.avail}, requested ${s.req} (short by ${s.req - s.avail})`
       ).join('\n');
       const header = ar
-        ? '⚠️ المخزون غير كافٍ للأصناف التالية:\n\n'
-        : '⚠️ Insufficient stock for these items:\n\n';
+        ? '⚠️ المخزون غير كافٍ — لا يمكن إصدار الفاتورة:\n\n'
+        : '⚠️ Insufficient stock — cannot issue this invoice:\n\n';
       const footer = ar
-        ? '\n\nالاستمرار سيؤدي إلى مخزون سالب. هل تريد المتابعة على أي حال؟'
-        : '\n\nContinuing will result in negative stock. Save anyway?';
-      if(!confirm(header + lines + footer)){
-        throw new Error('insufficient_stock');
+        ? '\n\nيجب تسجيل شراء المخزون أولاً قبل البيع. هذا يضمن دقة تكلفة البضاعة المباعة والقوائم المالية.'
+        : '\n\nRecord the stock purchase before selling. This keeps Cost of Goods Sold and the financial statements accurate.';
+      /* Round 39 (stock-integrity fix): HARD BLOCK. Previously this was a
+         confirm() with "Save anyway?" that allowed the user to proceed,
+         driving inventory negative and fabricating COGS from the item's
+         static cost_price with no real purchase backing it. That violated
+         the matching principle (COGS for goods never bought) and corrupted
+         both the inventory asset and gross profit. Per the decision to
+         "prevent booking if stock is zero", overselling is now refused
+         outright — no override. The user must record the purchase first.
+
+         Because this check runs BEFORE the sale journal entry, the COGS
+         entry, and the inventory decrement (all below), a block here means
+         NOTHING financial is posted. Note: the invoice header row was
+         inserted just above; we delete it on block so no orphan remains. */
+      notify((ar ? header : header) + lines + footer, 'r');
+      /* Clean up the orphan invoice header that was inserted before this check */
+      if(invoiceId && wasNewInsert){
+        try { await sb.from('invoices').delete().eq('id', invoiceId); }
+        catch(cleanupErr){ console.warn('[GL] orphan invoice cleanup failed:', cleanupErr.message); }
       }
-      /* User explicitly opted in. Proceed. The decrement code below clamps to 0
-         for inventory_items.current_qty (Math.max line 3007), which is consistent
-         with the prior WAC behavior. FIFO consumption RPC tolerates partial
-         availability — if it can't consume the full qty, fallback to invItem.cost_price. */
+      throw new Error('insufficient_stock');
     }
   }
 
@@ -6557,34 +6576,18 @@ async function confirmPayment(){
 
   if(error){notify(friendlyDbError(error),'r');throw error;}
 
-  /* Post journal entry — Round 28: if user picked a bank_account, use its
-     specific gl_account_code so the journal_lines trigger derives the
-     correct bank_transactions row. Falls back to generic 1100/1101 if
-     no account picked. */
-  const bankAccountId = v('pay-bank-account');
+  /* Post journal entry */
   try {
-    let accountCode = (method==='bank'||method==='card') ? '1101' : '1100';
-    let accountName = (method==='bank'||method==='card')
+    const accountCode = (method==='bank'||method==='card') ? '1101' : '1100';
+    const accountName = (method==='bank'||method==='card')
       ? (currentLang==='ar'?'البنك':'Bank')
       : (currentLang==='ar'?'النقد':'Cash');
-    if(bankAccountId){
-      const {data: acc} = await sb.from('bank_accounts')
-        .select('gl_account_code, account_name, account_name_ar')
-        .eq('id', bankAccountId).maybeSingle();
-      if(acc?.gl_account_code){
-        accountCode = acc.gl_account_code;
-        accountName = currentLang==='ar'
-          ? (acc.account_name_ar || acc.account_name || accountName)
-          : (acc.account_name || acc.account_name_ar || accountName);
-      }
-    }
     const {data:entry} = await sb.from('journal_entries').insert({
       user_id: currentUser.id, business_id: currentBiz?.id,
       entry_date: date,
       reference: ref || ('PMT-'+Date.now()),
       description: currentLang==='ar'?'استلام دفعة':'Payment received',
       source: 'payment',
-      source_id: _paymentInvoiceId,
       status: 'posted', is_balanced: true
     }).select().single();
     if(entry){
@@ -6597,10 +6600,41 @@ async function confirmPayment(){
     }
   } catch(e){console.warn('Journal skipped:', e.message);}
 
-  /* Round 28 / Part 2: bank_transactions and current_balance refresh are
-     now produced automatically by the journal_lines AFTER INSERT trigger
-     (_trg_sync_bank_transactions). The previous direct-insert block has
-     been removed — having both would duplicate. */
+  /* Round 4h.2: auto-create bank deposit transaction if user picked an account.
+     Tied to invoice via source_type='invoice', source_id=invoice.id (idempotent —
+     backfill checks for existing source_type+source_id before creating). */
+  const bankAccountId = v('pay-bank-account');
+  if(bankAccountId){
+    try {
+      const {data: acc} = await sb.from('bank_accounts').select('current_balance, currency').eq('id', bankAccountId).single();
+      if(acc){
+        const newBalance = (parseFloat(acc.current_balance)||0) + amount;
+        const {error: txErr} = await sb.from('bank_transactions').insert({
+          business_id: currentBiz?.id,
+          user_id: currentUser.id,
+          account_id: bankAccountId,
+          transaction_type: 'deposit',
+          transaction_date: date,
+          amount: amount,
+          balance_after: newBalance,
+          description: (currentLang==='ar' ? 'دفعة فاتورة ' : 'Invoice payment ') + (invData?.invoice_number || ('#' + _paymentInvoiceId.slice(0, 8))),
+          reference_number: ref || null,
+          source_type: 'invoice',
+          source_id: _paymentInvoiceId
+        });
+        if(!txErr){
+          await sb.from('bank_accounts').update({
+            current_balance: newBalance,
+            updated_at: new Date().toISOString()
+          }).eq('id', bankAccountId);
+        } else {
+          console.warn('[GL] auto-deposit failed (payment still recorded):', txErr);
+        }
+      }
+    } catch(e){
+      console.warn('[GL] bank deposit skipped:', e.message);
+    }
+  }
 
   /* Update customer aggregates */
   if(invData?.customer_id){
@@ -7222,7 +7256,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.20-36</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-26 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.21-37</div>
+<script>console.log('%c[GulfLedger build] v2026.05.21-37 · Round 39: hard-block overselling (no fabricated COGS)', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
