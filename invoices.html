@@ -5809,7 +5809,6 @@ async function generateInvoice(){
   if(currentBiz?.id){
     try {
       let totalCOGS = 0;
-      const useFIFO = (currentBiz.costing_method || 'wac') === 'fifo';
 
       for(let idx = 0; idx < validItems.length; idx++){
         const it = validItems[idx];
@@ -5827,13 +5826,20 @@ async function generateInvoice(){
         const newQty = roundCurrency((invItem.current_qty||0) - it.qty);
 
         let itemCOGS;
-        if(useFIFO){
-          /* Round 4m: pass selected invoice location to drain only batches there */
-          itemCOGS = await consumeFIFOBatches(it.itemId, it.qty, currentBiz.id, invoiceId, itemIdBySort[idx], payload.location_id);
-          if(!itemCOGS) itemCOGS = (invItem.cost_price||0) * it.qty;
-        } else {
-          itemCOGS = (invItem.cost_price||0) * it.qty;
-        }
+        /* Round 40: both FIFO and WAC now go through the unified consume RPC
+           (consume_inventory_unified). This drains real batches, writes
+           stock_consumption rows (so void/restore works), and computes COGS
+           from actual batch costs — FIFO per-batch, WAC weighted-average.
+           Replaces the old split where WAC used `cost_price × qty` inline
+           (which left batches stale and used a static, often-wrong cost). */
+        itemCOGS = await consumeInventoryUnified(
+          it.itemId, it.qty, currentBiz.id, invoiceId, itemIdBySort[idx],
+          payload.location_id, (currentBiz.costing_method || 'wac')
+        );
+        /* Fallback only if the RPC returned nothing unexpectedly (should not
+           happen — it raises insufficient_stock rather than returning 0, and
+           the pre-insert guard already blocked shortfalls). Kept defensive. */
+        if(itemCOGS == null) itemCOGS = (invItem.cost_price||0) * it.qty;
         totalCOGS += itemCOGS;
 
         await sb.from('inventory_items').update({
@@ -6078,6 +6084,32 @@ async function consumeFIFOBatches(itemId, qtyNeeded, businessId, invoiceId, invo
   if(error){
     /* Re-throw so caller can show negative-stock error and roll back the invoice */
     const err = new Error(error.message || 'consume_fifo_failed');
+    err.code = error.code;
+    err.details = error.details;
+    throw err;
+  }
+  return parseFloat(data?.total_cost) || 0;
+}
+
+/* Round 40: unified inventory consumption (FIFO + WAC share one RPC).
+   Drains real batches, writes stock_consumption rows (void/restore-safe),
+   computes COGS from actual batch costs — FIFO per-batch, WAC weighted-avg.
+   Supersedes the old split where WAC used a static cost_price × qty inline
+   and never touched batches. Raises insufficient_stock on shortfall (the
+   pre-insert guard already blocks this, but the RPC enforces it atomically
+   too, protecting against races). */
+async function consumeInventoryUnified(itemId, qtyNeeded, businessId, invoiceId, invoiceItemId, locationId, method){
+  const {data, error} = await sb.rpc('consume_inventory_unified', {
+    p_business_id:     businessId,
+    p_invoice_id:      invoiceId,
+    p_invoice_item_id: invoiceItemId,
+    p_item_id:         itemId,
+    p_qty_needed:      qtyNeeded,
+    p_location_id:     locationId || null,
+    p_method:          (method || 'wac')
+  });
+  if(error){
+    const err = new Error(error.message || 'consume_inventory_failed');
     err.code = error.code;
     err.details = error.details;
     throw err;
@@ -7245,7 +7277,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.21-39</div>
-<script>console.log('%c[GulfLedger build] v2026.05.21-39 · Round 39: oversell hard-block + trimmed message', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.21-40</div>
+<script>console.log('%c[GulfLedger build] v2026.05.21-40 · Round 40: unified inventory consume (FIFO+WAC, real batch costing)', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
