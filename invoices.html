@@ -5660,8 +5660,81 @@ async function generateInvoice(){
     updated_at: new Date().toISOString()
   };
 
+  /* Round 39 (stock-integrity, hoisted): HARD BLOCK insufficient stock
+     BEFORE the invoice is inserted. This is the corrected ordering — the
+     prior version inserted the invoice as status='posted' first, then
+     checked stock; on a block it tried to delete the orphan header but the
+     invoices_prevent_nondraft_delete compliance trigger refused (you can't
+     delete a posted invoice), leaving a dangling INV row with no GL backing
+     and a burned invoice number. Running the check here means a blocked
+     sale never creates anything: no invoice header, no journal entry, no
+     COGS, no consumed number.
+
+     Rationale: previously a confirm("Save anyway?") let the user oversell,
+     driving inventory negative and fabricating COGS from the item's static
+     cost_price with no purchase backing — violating the matching principle
+     and corrupting gross profit + inventory asset. Per the decision to
+     "prevent booking if stock is zero", overselling is refused outright. */
+  if(currentBiz?.id){
+    const useFIFO = (currentBiz.costing_method || 'wac') === 'fifo';
+    const locId = v('f-location') || null;
+    const reqByItem = {};
+    for(const it of validItems){
+      if(!it.itemId || !it.qty) continue;
+      reqByItem[it.itemId] = (reqByItem[it.itemId] || 0) + Math.abs(it.qty);
+    }
+    const shortfalls = []; /* [{name, avail, req}] */
+    for(const itemId of Object.keys(reqByItem)){
+      let avail = 0;
+      if(useFIFO){
+        let q = sb.from('inventory_batches')
+          .select('qty_remaining')
+          .eq('item_id', itemId)
+          .eq('business_id', currentBiz.id)
+          .eq('is_depleted', false);
+        if(locId) q = q.eq('location_id', locId);
+        const {data: batches} = await q;
+        avail = (batches || []).reduce((s, b) => s + (parseFloat(b.qty_remaining) || 0), 0);
+      } else if(locId){
+        /* WAC + location: aggregate from stock_by_location view */
+        const {data: rows} = await sb.from('stock_by_location')
+          .select('qty')
+          .eq('item_id', itemId)
+          .eq('location_id', locId);
+        avail = (rows || []).reduce((s, r) => s + (parseFloat(r.qty) || 0), 0);
+      } else {
+        const {data: itemRow} = await sb.from('inventory_items')
+          .select('current_qty').eq('id', itemId).single();
+        avail = parseFloat(itemRow?.current_qty) || 0;
+      }
+      if(avail < reqByItem[itemId]){
+        const {data: itemRow} = await sb.from('inventory_items')
+          .select('name, name_ar').eq('id', itemId).single();
+        const itemName = (currentLang === 'ar' ? itemRow?.name_ar : itemRow?.name) || itemRow?.name || itemId;
+        shortfalls.push({ name: itemName, avail, req: reqByItem[itemId] });
+      }
+    }
+
+    if(shortfalls.length > 0){
+      const ar = currentLang === 'ar';
+      const lines = shortfalls.map(s =>
+        ar
+          ? `• ${s.name} — متوفر ${s.avail}، مطلوب ${s.req} (نقص ${s.req - s.avail})`
+          : `• ${s.name} — available ${s.avail}, requested ${s.req} (short by ${s.req - s.avail})`
+      ).join('\n');
+      const header = ar
+        ? '⚠️ المخزون غير كافٍ — لا يمكن إصدار الفاتورة:\n\n'
+        : '⚠️ Insufficient stock — cannot issue this invoice:\n\n';
+      const footer = ar
+        ? '\n\nيجب تسجيل شراء المخزون أولاً قبل البيع. هذا يضمن دقة تكلفة البضاعة المباعة والقوائم المالية.'
+        : '\n\nRecord the stock purchase before selling. This keeps Cost of Goods Sold and the financial statements accurate.';
+      notify(header + lines + footer, 'r');
+      throw new Error('insufficient_stock');   /* nothing inserted yet — clean abort */
+    }
+  }
+
   let invoiceId = currentInvoiceId;
-  const wasNewInsert = !invoiceId;  /* Round 39: track so stock-block cleanup only deletes freshly-inserted headers */
+  const wasNewInsert = !invoiceId;
   if(invoiceId){
     let {error} = await sb.from('invoices').update(payload).eq('id', invoiceId);
     /* Round C bugfix: an UPDATE can also hit invoices_business_invnum_unique
@@ -5704,90 +5777,6 @@ async function generateInvoice(){
     if(error){notify(friendlyDbError(error),'r');throw error;}
     invoiceId = data.id;
     currentInvoiceId = invoiceId;
-  }
-
-  /* Round C (Layer 3): Pre-check stock availability across BOTH costing modes.
-     FIFO uses inventory_batches.qty_remaining, WAC uses inventory_items.current_qty.
-     If any item is short, show a single confirm() listing all shortfalls.
-     User accepts → proceed (allows negative stock); cancels → abort save.
-
-     Replaces Round 13 (M-3) hard-block which only fired in FIFO mode and
-     silently allowed negative stock under WAC. */
-  if(currentBiz?.id){
-    const useFIFO = (currentBiz.costing_method || 'wac') === 'fifo';
-    const locId = v('f-location') || null;       /* Round 4m */
-    const reqByItem = {};
-    for(const it of validItems){
-      if(!it.itemId || !it.qty) continue;
-      reqByItem[it.itemId] = (reqByItem[it.itemId] || 0) + Math.abs(it.qty);
-    }
-    const shortfalls = []; /* [{name, avail, req}] */
-    for(const itemId of Object.keys(reqByItem)){
-      let avail = 0;
-      if(useFIFO){
-        let q = sb.from('inventory_batches')
-          .select('qty_remaining')
-          .eq('item_id', itemId)
-          .eq('business_id', currentBiz.id)
-          .eq('is_depleted', false);
-        if(locId) q = q.eq('location_id', locId);    /* Round 4m */
-        const {data: batches} = await q;
-        avail = (batches || []).reduce((s, b) => s + (parseFloat(b.qty_remaining) || 0), 0);
-      } else if(locId){
-        /* WAC + location: aggregate from stock_by_location view */
-        const {data: rows} = await sb.from('stock_by_location')
-          .select('qty')
-          .eq('item_id', itemId)
-          .eq('location_id', locId);
-        avail = (rows || []).reduce((s, r) => s + (parseFloat(r.qty) || 0), 0);
-      } else {
-        const {data: itemRow} = await sb.from('inventory_items')
-          .select('current_qty').eq('id', itemId).single();
-        avail = parseFloat(itemRow?.current_qty) || 0;
-      }
-      if(avail < reqByItem[itemId]){
-        const {data: itemRow} = await sb.from('inventory_items')
-          .select('name, name_ar').eq('id', itemId).single();
-        const itemName = (currentLang === 'ar' ? itemRow?.name_ar : itemRow?.name) || itemRow?.name || itemId;
-        shortfalls.push({ name: itemName, avail, req: reqByItem[itemId] });
-      }
-    }
-
-    if(shortfalls.length > 0){
-      const ar = currentLang === 'ar';
-      /* Build human-readable summary line per item */
-      const lines = shortfalls.map(s =>
-        ar
-          ? `• ${s.name} — متوفر ${s.avail}، مطلوب ${s.req} (نقص ${s.req - s.avail})`
-          : `• ${s.name} — available ${s.avail}, requested ${s.req} (short by ${s.req - s.avail})`
-      ).join('\n');
-      const header = ar
-        ? '⚠️ المخزون غير كافٍ — لا يمكن إصدار الفاتورة:\n\n'
-        : '⚠️ Insufficient stock — cannot issue this invoice:\n\n';
-      const footer = ar
-        ? '\n\nيجب تسجيل شراء المخزون أولاً قبل البيع. هذا يضمن دقة تكلفة البضاعة المباعة والقوائم المالية.'
-        : '\n\nRecord the stock purchase before selling. This keeps Cost of Goods Sold and the financial statements accurate.';
-      /* Round 39 (stock-integrity fix): HARD BLOCK. Previously this was a
-         confirm() with "Save anyway?" that allowed the user to proceed,
-         driving inventory negative and fabricating COGS from the item's
-         static cost_price with no real purchase backing it. That violated
-         the matching principle (COGS for goods never bought) and corrupted
-         both the inventory asset and gross profit. Per the decision to
-         "prevent booking if stock is zero", overselling is now refused
-         outright — no override. The user must record the purchase first.
-
-         Because this check runs BEFORE the sale journal entry, the COGS
-         entry, and the inventory decrement (all below), a block here means
-         NOTHING financial is posted. Note: the invoice header row was
-         inserted just above; we delete it on block so no orphan remains. */
-      notify((ar ? header : header) + lines + footer, 'r');
-      /* Clean up the orphan invoice header that was inserted before this check */
-      if(invoiceId && wasNewInsert){
-        try { await sb.from('invoices').delete().eq('id', invoiceId); }
-        catch(cleanupErr){ console.warn('[GL] orphan invoice cleanup failed:', cleanupErr.message); }
-      }
-      throw new Error('insufficient_stock');
-    }
   }
 
   /* Save invoice items — return rows so we have IDs for stock_consumption */
@@ -7256,7 +7245,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.21-37</div>
-<script>console.log('%c[GulfLedger build] v2026.05.21-37 · Round 39: hard-block overselling (no fabricated COGS)', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.21-38</div>
+<script>console.log('%c[GulfLedger build] v2026.05.21-38 · Round 39: oversell hard-block (check BEFORE insert — no orphan)', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
