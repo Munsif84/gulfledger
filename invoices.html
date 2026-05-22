@@ -3274,6 +3274,7 @@ async function autoRecordB2CPayment(invoiceId, invoiceNumber, total){
         reference: 'AUTO-PMT-' + invoiceNumber,
         description: currentLang==='ar'?'دفعة فورية عند الإصدار':'Payment on issuance',
         source: 'payment',
+        source_id: invoiceId,   /* Round 42: link payment to its invoice so reversals can find it */
         status: 'posted', is_balanced: true
       }).select().single();
       if(entry){
@@ -3349,147 +3350,22 @@ async function openPaymentForInvoiceId(invoiceId){
    ZATCA Article 53: credit note must reference original invoice, sequential
    numbering, same VAT treatment. Scope v1: full-invoice reversal only. */
 async function reverseInvoiceById(invoiceId){
+  /* Round 42: consolidated onto the ZATCA credit-note RPC. This preview-path
+     entry now delegates to voidInvoice (which calls
+     issue_credit_note_for_invoice) so there is ONE reversal path. The prior
+     standalone implementation here posted only the sale-side credit note
+     (no COGS reversal, no inventory restore, no payment reversal) — partial
+     and inconsistent with the list-view reversal. */
   history.replaceState(null, '', 'invoices.html');
   const ar = currentLang === 'ar';
-
-  /* Load the original invoice and its items */
-  const {data: inv, error: invErr} = await sb.from('invoices')
-    .select('*')
-    .eq('id', invoiceId)
-    .single();
-  if(invErr || !inv){
-    notify(ar?'الفاتورة غير موجودة':'Invoice not found','r');
-    return;
+  const {data: inv, error} = await sb.from('invoices')
+    .select('id, invoice_number, total, buyer_name, status, credited_at')
+    .eq('id', invoiceId).single();
+  if(error || !inv){ notify(ar?'الفاتورة غير موجودة':'Invoice not found','r'); return; }
+  if(inv.status === 'voided' || inv.credited_at){
+    notify(ar?'تم عكس هذه الفاتورة بالفعل':'This invoice is already reversed','info'); return;
   }
-  if(inv.status === 'voided'){
-    notify(ar?'الفاتورة ملغية بالفعل':'Invoice already voided','info');
-    return;
-  }
-  if(inv.credited_at){
-    notify(ar?'تم إصدار إشعار دائن لهذه الفاتورة بالفعل':'A credit note already exists for this invoice','info');
-    return;
-  }
-
-  /* Confirmation with ZATCA-aware language */
-  const confirmMsg = ar
-    ? `سيتم إصدار إشعار دائن (Credit Note) للفاتورة ${inv.invoice_number} بالكامل (SAR ${fmt(inv.total)}).\n\nهذا إجراء محاسبي رسمي ولا يمكن التراجع عنه.\n\nملاحظة: راجع مع محاسبك القانوني قبل المتابعة.\n\nمتابعة؟`
-    : `A Credit Note will be issued for the full amount of invoice ${inv.invoice_number} (SAR ${fmt(inv.total)}).\n\nThis is an official accounting entry and cannot be undone.\n\nNote: Review with your CPA before proceeding.\n\nContinue?`;
-  if(!confirm(confirmMsg)) return;
-
-  /* Reason input */
-  const reasonAr = prompt(ar?'سبب الإلغاء (اختياري):':'Reason for credit (optional):', '');
-
-  try {
-    /* Get items for the original invoice */
-    const {data: items} = await sb.from('invoice_items')
-      .select('*')
-      .eq('invoice_id', invoiceId)
-      .order('sort_order', {ascending: true});
-
-    /* Generate next CN number for this business */
-    const cnNumber = await generateNextCreditNoteNumber();
-
-    /* Insert credit note header */
-    const {data: cn, error: cnErr} = await sb.from('credit_notes').insert({
-      business_id: currentBiz.id,
-      user_id: currentUser.id,
-      credit_note_number: cnNumber,
-      issue_date: todayISO(),
-      reason: reasonAr || (ar?'إلغاء الفاتورة':'Invoice reversal'),
-      original_invoice_id: invoiceId,
-      original_invoice_number: inv.invoice_number,
-      customer_id: inv.customer_id,
-      customer_name_ar: inv.buyer_name,
-      customer_name_en: inv.buyer_name_en,
-      customer_trn: inv.buyer_trn,
-      subtotal: inv.subtotal,
-      discount_amount: inv.discount_amount || 0,
-      vat_amount: inv.vat_amount,
-      total: inv.total,
-      status: 'issued'
-    }).select().single();
-
-    if(cnErr){
-      if((cnErr.message||'').includes('does not exist') || cnErr.code === '42P01'){
-        notify(ar?'⚠ يجب تشغيل ميغريشن إشعارات الدائن أولاً':'⚠ Run credit_notes_migration.sql first','r');
-        console.error('credit_notes table missing — run credit_notes_migration.sql');
-        return;
-      }
-      throw cnErr;
-    }
-
-    /* Insert items snapshot. invoice_items uses sort_order; credit_note_items uses display_order. */
-    if(items && items.length > 0){
-      const cnItems = items.map((it, i) => ({
-        credit_note_id: cn.id,
-        description: it.description,
-        description_ar: it.description_ar,
-        quantity: it.quantity,
-        unit_price: it.unit_price,
-        discount_pct: it.discount_pct || 0,
-        subtotal: it.subtotal,
-        vat_amount: it.vat_amount,
-        total: it.total,
-        display_order: it.sort_order != null ? it.sort_order : i
-      }));
-      await sb.from('credit_note_items').insert(cnItems);
-    }
-
-    /* Mark invoice as credited (link back) */
-    await sb.from('invoices').update({
-      credited_at: new Date().toISOString(),
-      credit_note_id: cn.id,
-      status: 'voided',
-      updated_at: new Date().toISOString()
-    }).eq('id', invoiceId);
-
-    /* Reverse customer aggregates if applicable */
-    if(inv.customer_id){
-      const {data:cust} = await sb.from('customers').select('total_invoiced,total_outstanding').eq('id', inv.customer_id).single();
-      if(cust){
-        await sb.from('customers').update({
-          total_invoiced: Math.max(0, (parseFloat(cust.total_invoiced)||0) - (parseFloat(inv.total)||0)),
-          total_outstanding: Math.max(0, (parseFloat(cust.total_outstanding)||0) - ((parseFloat(inv.total)||0) - (parseFloat(inv.amount_paid)||0))),
-          updated_at: new Date().toISOString()
-        }).eq('id', inv.customer_id);
-      }
-    }
-
-    /* Post reversal journal entry: DR Sales / CR AR (mirror of original) */
-    try {
-      const {data: entry} = await sb.from('journal_entries').insert({
-        user_id: currentUser.id, business_id: currentBiz.id,
-        entry_date: todayISO(),
-        reference: cnNumber,
-        description: ar?'إشعار دائن — إلغاء فاتورة':'Credit note — invoice reversal',
-        source: 'credit_note',
-        status: 'posted', is_balanced: true
-      }).select().single();
-      if(entry){
-        await sb.from('journal_lines').insert([
-          /* Round 26: post sales reduction to Sales Returns (4190 contra-revenue),
-             not to Sales (4100). Industry-standard accounting; ZATCA Form 201
-             Box 13 (Adjustments). */
-          {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.SALES_RETURNS, account_name:ar?'مردودات المبيعات':'Sales Returns',
-           debit:inv.subtotal, credit:0, description:ar?'مردود مبيعات':'Sales return'},
-          {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.VAT_OUTPUT, account_name:ar?'ضريبة القيمة المضافة المستحقة':'VAT Output',
-           debit:inv.vat_amount, credit:0, description:ar?'عكس ضريبة':'Reverse VAT'},
-          {entry_id:entry.id, user_id:currentUser.id, account_code:CODE.AR, account_name:ar?'ذمم مدينة تجارية':'Trade Receivables',
-           debit:0, credit:inv.total, description:ar?'إقفال ذمة':'Clear receivable'}
-        ]);
-      }
-    } catch(e){ console.warn('CN journal skipped:', e.message); }
-
-    notify(ar
-      ? `✅ تم إصدار إشعار دائن ${cnNumber}`
-      : `✅ Credit note ${cnNumber} issued`,'g');
-
-    /* Reload invoice list */
-    await loadInvoices();
-  } catch(e){
-    console.error('[GL] reverseInvoice', e);
-    notify(ar?`فشل: ${e.message}`:`Failed: ${e.message}`,'r');
-  }
+  return voidInvoice(inv.id, inv.invoice_number, inv.total || 0, inv.buyer_name || '');
 }
 
 /* Generate next sequential CN number per business: CN-YYYY-NNN */
@@ -6214,241 +6090,64 @@ async function deleteDraft(id, num){
    VOID INVOICE — preserved (credit note reversal)
 ═══════════════════════════════════════════════════════ */
 async function voidInvoice(id, num, total, buyerName){
-  /* User-friendly action with clear explanation of what really happens
-     (Internally still a void — posts credit-note reversal in the journal,
-      restores inventory consumed by this invoice, marks invoice as voided) */
-  const message = currentLang==='ar'
+  /* Round 42: ZATCA-compliant reversal via issue_credit_note_for_invoice RPC.
+     Replaces the prior mirror-reverse logic which (a) erased revenue from 4100
+     instead of using Sales Returns 4190 (non-compliant), (b) double-reversed
+     COGS due to source_id ambiguity, and (c) never reversed the customer
+     payment. The RPC does it all atomically: sale reversal to 4190, single
+     COGS reversal, inventory restore, payment refund if paid, formal linked
+     credit_notes record, customer aggregate reversal — original invoice JE
+     preserved per Saudi e-invoicing law. */
+  const ar = currentLang==='ar';
+  const message = ar
     ? `إلغاء الفاتورة ${num}؟\n\n` +
-      `🔹 سيتم إنشاء "إشعار دائن" تلقائياً لإلغاء الفاتورة محاسبياً.\n` +
-      `🔹 ستتم إعادة الكميات المخصومة إلى المخزون تلقائياً.\n` +
-      `🔹 الفاتورة الأصلية ستبقى محفوظة (لا يمكن حذفها بحسب نظام الزكاة).\n` +
-      `🔹 ستظهر الفاتورة في القائمة بوضع "ملغية".\n\n` +
+      `🔹 سيتم إنشاء "إشعار دائن" مرتبط بالفاتورة الأصلية لعكسها محاسبياً.\n` +
+      `🔹 ستتم إعادة الكميات إلى المخزون وعكس تكلفة البضاعة المباعة.\n` +
+      `🔹 إذا كانت الفاتورة مدفوعة، سيتم عكس الدفعة (استرداد).\n` +
+      `🔹 الفاتورة الأصلية تبقى محفوظة (نظام الزكاة وفاتورة).\n\n` +
       `هل تريد المتابعة؟`
     : `Reverse invoice ${num}?\n\n` +
-      `🔹 A "Credit Note" will be created automatically to reverse this invoice in your books.\n` +
-      `🔹 Stock consumed by this invoice will be returned to inventory automatically.\n` +
-      `🔹 The original invoice stays preserved (cannot be deleted per Saudi tax law).\n` +
-      `🔹 The invoice will appear in the list as "Reversed".\n\n` +
+      `🔹 A linked Credit Note will reverse this invoice (Sales Returns).\n` +
+      `🔹 Stock returns to inventory and COGS is reversed.\n` +
+      `🔹 If the invoice was paid, the payment is reversed (refund).\n` +
+      `🔹 The original invoice stays preserved (ZATCA / Fatoora).\n\n` +
       `Continue?`;
   if(!confirm(message)) return;
 
+  const reason = prompt(ar?'سبب الإلغاء (اختياري):':'Reason for reversal (optional):', '') || null;
+
   try {
-    /* Round 13 (H-1): Restore inventory FIRST. If restoration fails, abort
-       so we don't end up with reversed books but consumed stock. */
-    let restoreInfo = null;
-    try {
-      const {data: restoreResult, error: restoreErr} = await sb.rpc('restore_inventory_for_invoice', {
-        p_invoice_id: id
-      });
-      if(restoreErr){
-        notify((currentLang==='ar'?'فشل إعادة المخزون: ':'Failed to restore inventory: ') + restoreErr.message, 'r');
-        return;
-      }
-      restoreInfo = restoreResult;
-    } catch(e){
-      console.warn('[GL] restore_inventory_for_invoice not available; continuing without restoration:', e.message);
-    }
+    /* Generate the next formal CN number for this business */
+    let cnNumber = null;
+    try { cnNumber = await generateNextCreditNoteNumber(); }
+    catch(e){ console.warn('[GL] CN number gen failed, RPC will synthesize:', e.message); }
 
-    /* If we did restore inventory, also write reversal stock_movements rows for the audit trail */
-    if(restoreInfo && restoreInfo.restored_lines > 0){
-      const {data: invLines} = await sb.from('invoice_items')
-        .select('id, quantity, sort_order')
-        .eq('invoice_id', id);
-      /* Find which inventory items were sold via inventory_movements (out) for this invoice ref */
-      const {data: outMoves} = await sb.from('inventory_movements')
-        .select('item_id, quantity, unit_cost')
-        .eq('reference', num)
-        .eq('movement_type', 'out');
-      if(outMoves && outMoves.length){
-        const reversalRows = [];
-        for(const m of outMoves){
-          /* Re-fetch current item qty for balance_after */
-          const {data: itm} = await sb.from('inventory_items').select('current_qty').eq('id', m.item_id).single();
-          const newQty = (parseFloat(itm?.current_qty)||0) + parseFloat(m.quantity);
-          await sb.from('inventory_items').update({
-            current_qty: newQty,
-            updated_at: new Date().toISOString()
-          }).eq('id', m.item_id);
-          reversalRows.push({
-            business_id: currentBiz.id,
-            item_id: m.item_id,
-            movement_type: 'in',
-            quantity: m.quantity,
-            balance_after: newQty,
-            unit_cost: m.unit_cost,
-            reference: num + '-VOID',
-            note: (currentLang==='ar'?'إعادة من إلغاء فاتورة ':'Return from voided invoice ') + num,
-            movement_date: new Date().toISOString().slice(0,10)
-          });
-        }
-        if(reversalRows.length){
-          await sb.from('inventory_movements').insert(reversalRows);
-        }
-      }
-    }
-
-    /* Now reverse the journal */
-    const {data:entries} = await sb.from('journal_entries')
-      .select('id,journal_lines(*)')
-      .eq('source_id', id).eq('source','invoice').eq('business_id', currentBiz?.id || '');
-
-    if(entries && entries.length){
-      const orig = entries[0];
-      const origLines = orig.journal_lines || [];
-
-      const {data:cnEntry} = await sb.from('journal_entries').insert({
-        user_id: currentUser.id, business_id: currentBiz?.id,
-        entry_date: todayISO(),
-        reference: 'CN-' + num,
-        description: (currentLang==='ar'?'إشعار دائن — إلغاء فاتورة ':'Credit Note — Void ') + num,
-        source: 'credit_note', source_id: id,
-        status: 'posted', is_balanced: true
-      }).select().single();
-
-      if(cnEntry){
-        await sb.from('journal_lines').insert(origLines.map(l => ({
-          entry_id: cnEntry.id, user_id: currentUser.id,
-          account_code: l.account_code, account_name: l.account_name,
-          debit: l.credit, credit: l.debit,
-          description: (currentLang==='ar'?'إشعار دائن: ':'CN: ') + l.description
-        })));
-      }
-
-      await sb.from('journal_entries').update({status:'reversed', updated_at:new Date().toISOString()}).eq('id', orig.id);
-    }
-
-    /* Also reverse the COGS journal entry if it exists */
-    const {data: cogsEntries} = await sb.from('journal_entries')
-      .select('id,journal_lines(*)')
-      .eq('reference', num + '-COGS')
-      .eq('source','invoice').eq('business_id', currentBiz?.id || '');
-    if(cogsEntries && cogsEntries.length){
-      const cogsOrig = cogsEntries[0];
-      const cogsLines = cogsOrig.journal_lines || [];
-      const {data: cogsRev} = await sb.from('journal_entries').insert({
-        user_id: currentUser.id, business_id: currentBiz?.id,
-        entry_date: todayISO(),
-        reference: 'CN-' + num + '-COGS',
-        description: (currentLang==='ar'?'عكس COGS — إلغاء فاتورة ':'COGS reversal — voided invoice ') + num,
-        source: 'credit_note', source_id: id,
-        status: 'posted', is_balanced: true
-      }).select().single();
-      if(cogsRev){
-        await sb.from('journal_lines').insert(cogsLines.map(l => ({
-          entry_id: cogsRev.id, user_id: currentUser.id,
-          account_code: l.account_code, account_name: l.account_name,
-          debit: l.credit, credit: l.debit,
-          description: (currentLang==='ar'?'عكس COGS: ':'COGS rev: ') + (l.description || '')
-        })));
-      }
-      await sb.from('journal_entries').update({status:'reversed', updated_at:new Date().toISOString()}).eq('id', cogsOrig.id);
-    }
-
-    await sb.from('invoices').update({status:'voided', updated_at:new Date().toISOString()}).eq('id', id);
-
-    /* Round 4l.7: ALSO create the formal credit_notes record (was missing — caused
-       Credit Notes tab to be empty even after reversals). This is a separate insert
-       from the journal reversal above; both are needed for a complete ZATCA audit trail. */
-    let createdCnId = null;
-    let createdCnNumber = null;
-    try {
-      const reasonAr = prompt(currentLang==='ar'?'سبب الإلغاء (اختياري):':'Reason for credit (optional):', '');
-
-      /* Get the full invoice + items for the snapshot */
-      const {data: fullInv} = await sb.from('invoices').select('*').eq('id', id).single();
-      const {data: items} = await sb.from('invoice_items')
-        .select('*').eq('invoice_id', id).order('sort_order', {ascending: true});
-
-      const cnNumber = await generateNextCreditNoteNumber();
-
-      const {data: cn, error: cnErr} = await sb.from('credit_notes').insert({
-        business_id: currentBiz.id,
-        user_id: currentUser.id,
-        credit_note_number: cnNumber,
-        issue_date: todayISO(),
-        reason: reasonAr || (currentLang==='ar'?'إلغاء الفاتورة':'Invoice reversal'),
-        original_invoice_id: id,
-        original_invoice_number: num,
-        customer_id: fullInv?.customer_id || null,
-        customer_name_ar: fullInv?.buyer_name || buyerName,
-        customer_name_en: fullInv?.buyer_name_en || null,
-        customer_trn: fullInv?.buyer_trn || null,
-        subtotal: fullInv?.subtotal || 0,
-        discount_amount: fullInv?.discount_amount || 0,
-        vat_amount: fullInv?.vat_amount || 0,
-        total: fullInv?.total || total,
-        status: 'issued',
-        is_partial: false
-      }).select().single();
-
-      if(cnErr){
-        if((cnErr.message||'').includes('does not exist') || cnErr.code === '42P01'){
-          console.error('[GL] credit_notes table missing — run credit_notes_migration.sql');
-          notify('⚠ ' + (currentLang==='ar'?'يجب تشغيل ميغريشن إشعارات الدائن':'Run credit_notes_migration.sql'),'r');
-        } else {
-          console.error('[GL] credit_notes insert failed:', cnErr);
-          notify((currentLang==='ar'?'تحذير: تم الإلغاء لكن الإشعار الدائن لم يُسجل: ':'Warning: voided but credit note row not saved: ') + cnErr.message, 'r');
-        }
-      } else if(cn){
-        createdCnId = cn.id;
-        createdCnNumber = cn.credit_note_number;
-        /* Insert items snapshot. invoice_items uses sort_order; credit_note_items uses display_order. */
-        if(items && items.length > 0){
-          const cnItems = items.map((it, i) => ({
-            credit_note_id: cn.id,
-            description: it.description,
-            description_ar: it.description_ar,
-            quantity: it.quantity,
-            unit_price: it.unit_price,
-            discount_pct: it.discount_pct || 0,
-            subtotal: it.subtotal,
-            vat_amount: it.vat_amount,
-            total: it.total,
-            display_order: it.sort_order != null ? it.sort_order : i
-          }));
-          await sb.from('credit_note_items').insert(cnItems);
-        }
-        /* Link invoice → CN */
-        await sb.from('invoices').update({
-          credited_at: new Date().toISOString(),
-          credit_note_id: cn.id,
-          updated_at: new Date().toISOString()
-        }).eq('id', id);
-      }
-    } catch(cnErr){
-      console.error('[GL] credit note creation skipped:', cnErr);
-    }
-
-    /* Tailor success message based on whether inventory was actually restored */
-    let successMsg;
-    const cnSuffix = createdCnNumber ? (currentLang==='ar' ? ` · إشعار دائن ${createdCnNumber}` : ` · CN ${createdCnNumber}`) : '';
-    if(currentLang === 'ar'){
-      if(restoreInfo && restoreInfo.restored_lines > 0){
-        successMsg = `✅ تم إلغاء الفاتورة ${num}${cnSuffix} - الكميات أُعيدت إلى المخزون`;
-      } else if(restoreInfo && restoreInfo.retroactive){
-        successMsg = `✅ تم إلغاء الفاتورة ${num}${cnSuffix} - (فاتورة قبل تتبع الاستهلاك، عدّل المخزون يدوياً إذا لزم الأمر)`;
-      } else {
-        successMsg = `✅ تم إلغاء الفاتورة ${num}${cnSuffix}`;
-      }
-    } else {
-      if(restoreInfo && restoreInfo.restored_lines > 0){
-        successMsg = `✅ Invoice ${num}${cnSuffix} reversed — stock returned to inventory`;
-      } else if(restoreInfo && restoreInfo.retroactive){
-        successMsg = `✅ Invoice ${num}${cnSuffix} reversed — (pre-Round 13 invoice, adjust inventory manually if needed)`;
-      } else {
-        successMsg = `✅ Invoice ${num}${cnSuffix} reversed`;
-      }
-    }
-    /* Round 16 (M-6): audit log */
-    await writeAuditLog({
-      entity_type: 'invoice',
-      entity_id: id,
-      entity_reference: num,
-      action: 'voided',
-      after_data: {total: total, retroactive: !!(restoreInfo && restoreInfo.retroactive), restored_lines: restoreInfo?.restored_lines || 0},
-      reason: 'invoice voided + credit note created'
+    const {data: result, error} = await sb.rpc('issue_credit_note_for_invoice', {
+      p_invoice_id: id,
+      p_reason: reason,
+      p_cn_number: cnNumber
     });
-    notify(successMsg, 'g');
+
+    if(error){
+      notify((ar?'فشل الإلغاء: ':'Reversal failed: ') + (error.message||''), 'r');
+      return;
+    }
+
+    /* Audit log */
+    try {
+      await writeAuditLog({
+        entity_type: 'invoice', entity_id: id, entity_reference: num,
+        action: 'reversed_credit_note',
+        after_data: result,
+        reason: 'invoice reversed via ZATCA credit note'
+      });
+    } catch(e){ console.warn('[GL] audit log skipped:', e.message); }
+
+    const cn = result?.credit_note_number || cnNumber || '';
+    const refundNote = result?.payment_reversed
+      ? (ar?` (مع استرداد ${fmt(result.payment_amount)})`:` (refund ${fmt(result.payment_amount)})`)
+      : '';
+    notify((ar?`✅ تم إصدار إشعار دائن ${cn}${refundNote}`:`✅ Credit note ${cn} issued${refundNote}`), 'g');
     loadInvoices();
   } catch(e){
     notify((currentLang==='ar'?'خطأ: ':'Error: ') + e.message, 'r');
@@ -6620,6 +6319,7 @@ async function confirmPayment(){
       reference: ref || ('PMT-'+Date.now()),
       description: currentLang==='ar'?'استلام دفعة':'Payment received',
       source: 'payment',
+      source_id: _paymentInvoiceId,   /* Round 42: link payment to its invoice so reversals can find it */
       status: 'posted', is_balanced: true
     }).select().single();
     if(entry){
@@ -7262,7 +6962,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.21-41</div>
-<script>console.log('%c[GulfLedger build] v2026.05.21-41 · Round 41: payment bank-routing + double-count fix', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.21-42</div>
+<script>console.log('%c[GulfLedger build] v2026.05.21-42 · Round 42: ZATCA credit-note reversal (single path, COGS+inventory+payment)', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
