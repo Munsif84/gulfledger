@@ -3254,12 +3254,20 @@ async function autoRecordB2CPayment(invoiceId, invoiceNumber, total){
       return false;
     }
 
-    /* 2. Post journal entry — DR Cash/Bank / CR AR */
+    /* 2. Post journal entry — DR [selected account GL] / CR AR.
+       Round 40 fix — resolve GL code from the selected account (accountId)
+       instead of the hardcoded 1101/1100 method guess. */
     try {
-      const accountCode = (method==='bank'||method==='card') ? '1101' : '1100';
-      const accountName = (method==='bank'||method==='card')
+      let payGl = null, payGlName = null;
+      if(accountId){
+        const {data: ba} = await sb.from('bank_accounts')
+          .select('gl_account_code, account_name').eq('id', accountId).single();
+        if(ba?.gl_account_code){ payGl = ba.gl_account_code; payGlName = ba.account_name; }
+      }
+      const accountCode = payGl || ((method==='bank'||method==='card') ? '1101' : '1100');
+      const accountName = payGlName || ((method==='bank'||method==='card')
         ? (currentLang==='ar'?'البنك':'Bank')
-        : (currentLang==='ar'?'النقد':'Cash');
+        : (currentLang==='ar'?'النقد':'Cash'));
       const {data: entry} = await sb.from('journal_entries').insert({
         user_id: currentUser.id, business_id: currentBiz?.id,
         entry_date: date,
@@ -3278,31 +3286,18 @@ async function autoRecordB2CPayment(invoiceId, invoiceNumber, total){
       }
     } catch(e){ console.warn('[GL] auto-payment journal skipped:', e.message); }
 
-    /* 3. Auto-create bank deposit if user picked an account */
-    if(accountId){
-      try {
-        const {data: acc} = await sb.from('bank_accounts').select('current_balance').eq('id', accountId).single();
-        if(acc){
-          const newBalance = (parseFloat(acc.current_balance)||0) + total;
-          await sb.from('bank_transactions').insert({
-            business_id: currentBiz?.id,
-            user_id: currentUser.id,
-            account_id: accountId,
-            transaction_type: 'deposit',
-            transaction_date: date,
-            amount: total,
-            balance_after: newBalance,
-            description: (currentLang==='ar' ? 'دفعة فاتورة ' : 'Invoice payment ') + invoiceNumber,
-            source_type: 'invoice',
-            source_id: invoiceId
-          });
-          await sb.from('bank_accounts').update({
-            current_balance: newBalance,
-            updated_at: new Date().toISOString()
-          }).eq('id', accountId);
-        }
-      } catch(e){ console.warn('[GL] auto-payment bank tx skipped:', e.message); }
-    }
+    /* 3. Bank balance + deposit record:
+       Round 40 fix — REMOVED the manual bank_transactions insert and the
+       manual current_balance update that used to live here. They double-
+       counted: the journal line posted in step 2 (DR bank GL code) fires
+       the sync_bank_transactions_on_journal_line trigger, which ALREADY
+       (a) inserts the bank_transactions deposit row and (b) refreshes
+       bank_accounts.current_balance from the GL via bank_account_balance().
+       Doing it manually here as well added the payment to the balance a
+       second time (e.g. a 2,035.50 payment moved the stored balance by
+       4,071) and created a duplicate bank_transactions row. The trigger is
+       the single source of truth — derived from the GL, always correct,
+       and routes to the right account via gl_account_code automatically. */
 
     return true;
   } catch(e){
@@ -6597,12 +6592,28 @@ async function confirmPayment(){
 
   if(error){notify(friendlyDbError(error),'r');throw error;}
 
-  /* Post journal entry */
+  /* Post journal entry.
+     Round 40 fix — route the debit to the SELECTED account's real GL code
+     (was hardcoded 1101/1100 from the method dropdown, which ignored the
+     account the user actually picked: paying into Credit Card (2500) or a
+     second bank account still posted to 1101). We resolve gl_account_code
+     from the chosen bank account; fall back to the old method-based guess
+     only if no account was selected (e.g. legacy cash with no bank record). */
+  const _bankAcctId = v('pay-bank-account');
+  let _payGlCode = null, _payGlName = null;
+  if(_bankAcctId){
+    const {data: _ba} = await sb.from('bank_accounts')
+      .select('gl_account_code, account_name').eq('id', _bankAcctId).single();
+    if(_ba?.gl_account_code){
+      _payGlCode = _ba.gl_account_code;
+      _payGlName = _ba.account_name;
+    }
+  }
   try {
-    const accountCode = (method==='bank'||method==='card') ? '1101' : '1100';
-    const accountName = (method==='bank'||method==='card')
+    const accountCode = _payGlCode || ((method==='bank'||method==='card') ? '1101' : '1100');
+    const accountName = _payGlName || ((method==='bank'||method==='card')
       ? (currentLang==='ar'?'البنك':'Bank')
-      : (currentLang==='ar'?'النقد':'Cash');
+      : (currentLang==='ar'?'النقد':'Cash'));
     const {data:entry} = await sb.from('journal_entries').insert({
       user_id: currentUser.id, business_id: currentBiz?.id,
       entry_date: date,
@@ -6621,41 +6632,15 @@ async function confirmPayment(){
     }
   } catch(e){console.warn('Journal skipped:', e.message);}
 
-  /* Round 4h.2: auto-create bank deposit transaction if user picked an account.
-     Tied to invoice via source_type='invoice', source_id=invoice.id (idempotent —
-     backfill checks for existing source_type+source_id before creating). */
-  const bankAccountId = v('pay-bank-account');
-  if(bankAccountId){
-    try {
-      const {data: acc} = await sb.from('bank_accounts').select('current_balance, currency').eq('id', bankAccountId).single();
-      if(acc){
-        const newBalance = (parseFloat(acc.current_balance)||0) + amount;
-        const {error: txErr} = await sb.from('bank_transactions').insert({
-          business_id: currentBiz?.id,
-          user_id: currentUser.id,
-          account_id: bankAccountId,
-          transaction_type: 'deposit',
-          transaction_date: date,
-          amount: amount,
-          balance_after: newBalance,
-          description: (currentLang==='ar' ? 'دفعة فاتورة ' : 'Invoice payment ') + (invData?.invoice_number || ('#' + _paymentInvoiceId.slice(0, 8))),
-          reference_number: ref || null,
-          source_type: 'invoice',
-          source_id: _paymentInvoiceId
-        });
-        if(!txErr){
-          await sb.from('bank_accounts').update({
-            current_balance: newBalance,
-            updated_at: new Date().toISOString()
-          }).eq('id', bankAccountId);
-        } else {
-          console.warn('[GL] auto-deposit failed (payment still recorded):', txErr);
-        }
-      }
-    } catch(e){
-      console.warn('[GL] bank deposit skipped:', e.message);
-    }
-  }
+  /* Round 40 fix — REMOVED the manual bank_transactions insert + manual
+     current_balance update that was here. The journal line posted above
+     (debit to the bank's gl_account_code) fires the
+     sync_bank_transactions_on_journal_line trigger, which already inserts
+     the deposit row AND refreshes current_balance from the GL. Doing it
+     manually too double-counted the payment (a 2,035.50 payment moved the
+     stored balance by 4,071) and created a duplicate bank_transactions row.
+     The trigger is the single source of truth and now routes correctly
+     because the journal line carries the selected account's GL code. */
 
   /* Update customer aggregates */
   if(invData?.customer_id){
@@ -7277,7 +7262,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.21-40</div>
-<script>console.log('%c[GulfLedger build] v2026.05.21-40 · Round 40: unified inventory consume (FIFO+WAC, real batch costing)', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.21-41</div>
+<script>console.log('%c[GulfLedger build] v2026.05.21-41 · Round 41: payment bank-routing + double-count fix', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
