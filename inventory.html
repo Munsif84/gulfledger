@@ -3324,8 +3324,55 @@ async function commitStockTake(takeId){
       movement_date: new Date().toISOString().slice(0,10)
     });
 
-    /* Also update the item's current_qty to match actual */
-    await sb.from('inventory_items').update({current_qty: actual}).eq('id', ln.item_id);
+    /* Round 43: reconcile the BATCH ledger to the physical count — not just
+       current_qty. Previously the stock-take set current_qty=actual but left
+       inventory_batches untouched, so batches and current_qty diverged (and the
+       oversell guard, which reads batches, would be wrong). A stock-take
+       variance IS a stock adjustment, so we apply the SAME batch convention as
+       saveAdjustment(): surplus → new adjustment batch; shortage → drain FIFO. */
+    if(variance > 0){
+      /* Surplus: add an adjustment batch at the take cost (like adjust_in) */
+      await sb.from('inventory_batches').insert({
+        business_id: currentBiz.id,
+        user_id: currentUser.id,
+        item_id: ln.item_id,
+        qty_received: variance,
+        qty_remaining: variance,
+        original_qty: variance,
+        unit_cost: cost,
+        received_date: new Date().toISOString().slice(0,10),
+        is_depleted: false,
+        reference: 'STK-' + String(takeId).slice(0,8),
+        notes: 'Stock-take surplus'
+      });
+    } else {
+      /* Shortage: drain FIFO (oldest first), like adjust_out */
+      const {data: batches} = await sb.from('inventory_batches')
+        .select('*')
+        .eq('item_id', ln.item_id)
+        .eq('business_id', currentBiz.id)
+        .eq('is_depleted', false)
+        .order('received_date', {ascending:true})
+        .order('created_at', {ascending:true});
+      let qtyLeft = Math.abs(variance);
+      for(const batch of (batches||[])){
+        if(qtyLeft <= 0) break;
+        const consume = Math.min(qtyLeft, parseFloat(batch.qty_remaining));
+        qtyLeft -= consume;
+        const newRemaining = Math.round((parseFloat(batch.qty_remaining) - consume) * 1000) / 1000;
+        await sb.from('inventory_batches').update({
+          qty_remaining: newRemaining,
+          is_depleted: newRemaining <= 0.0001
+        }).eq('id', batch.id);
+      }
+      /* If qtyLeft remains, the count went below recorded batch stock entirely —
+         current_qty=actual still reflects the physical truth; batches are now all
+         depleted. (A negative-beyond-batches count is itself a data signal.) */
+    }
+
+    /* Update the item's current_qty to match the physical count (authoritative).
+       After the batch reconciliation above, SUM(qty_remaining) should equal this. */
+    await sb.from('inventory_items').update({current_qty: actual, updated_at: new Date().toISOString()}).eq('id', ln.item_id);
   }
 
   /* Insert all movements */
@@ -7318,7 +7365,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.22-34</div>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.22-35</div>
 <script>console.log('%c[GulfLedger build] v2026.05.17-25 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
