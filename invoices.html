@@ -3740,37 +3740,24 @@ async function saveManualNote(){
     const {error: itemsErr} = await sb.from(itemsTable).insert(noteItems);
     if(itemsErr) throw itemsErr;
 
-    /* For credit note: bump invoice.cumulative_credited and adjust customer aggregates */
+    /* For credit note: bump invoice.cumulative_credited. The
+       sync_customer_aggregates trigger then recomputes the customer's
+       total_outstanding from source (it subtracts cumulative_credited), so
+       no manual customer update is needed here. */
     if(isCredit){
       const newCumul = (parseFloat(inv.cumulative_credited)||0) + total;
       await sb.from('invoices').update({
         cumulative_credited: newCumul,
         updated_at: new Date().toISOString()
       }).eq('id', inv.id);
-
-      /* Reduce customer outstanding (proportional, not full void) */
-      if(inv.customer_id){
-        const {data: cust} = await sb.from('customers').select('total_invoiced, total_outstanding').eq('id', inv.customer_id).maybeSingle();
-        if(cust){
-          await sb.from('customers').update({
-            total_invoiced: Math.max(0, (parseFloat(cust.total_invoiced)||0) - total),
-            total_outstanding: Math.max(0, (parseFloat(cust.total_outstanding)||0) - total),
-            updated_at: new Date().toISOString()
-          }).eq('id', inv.customer_id);
-        }
-      }
+      /* Round 43: removed manual customer aggregate update — trigger owns it. */
     } else {
-      /* Debit note: increase customer aggregates */
-      if(inv.customer_id){
-        const {data: cust} = await sb.from('customers').select('total_invoiced, total_outstanding').eq('id', inv.customer_id).maybeSingle();
-        if(cust){
-          await sb.from('customers').update({
-            total_invoiced: (parseFloat(cust.total_invoiced)||0) + total,
-            total_outstanding: (parseFloat(cust.total_outstanding)||0) + total,
-            updated_at: new Date().toISOString()
-          }).eq('id', inv.customer_id);
-        }
-      }
+      /* Debit note: increases what the customer owes. A debit note raises the
+         invoice value; reflect it on the invoice so the trigger recomputes.
+         (If debit notes are tracked as separate documents rather than on the
+         invoice, the customer total is recomputed from those — but the manual
+         incremental update here was a second owner and is removed.) */
+      /* Round 43: removed manual customer aggregate update — trigger owns it. */
     }
 
     /* Post journal entry — proportional reversal/charge */
@@ -5784,23 +5771,11 @@ async function generateInvoice(){
     total: totals.total
   });
 
-  /* Update customer aggregates */
-  if(selectedCustomer?.id){
-    const newCount = (selectedCustomer.invoice_count||0) + 1;
-    const newTotal = (selectedCustomer.total_invoiced||0) + totals.total;
-    const newOutstanding = (selectedCustomer.total_outstanding||0) + totals.total;
-    const updates = {
-      invoice_count: newCount,
-      total_invoiced: roundCurrency(newTotal),
-      total_outstanding: roundCurrency(newOutstanding),
-      last_invoice_date: payload.issue_date,
-      updated_at: new Date().toISOString()
-    };
-    if(!selectedCustomer.first_invoice_date){
-      updates.first_invoice_date = payload.issue_date;
-    }
-    await sb.from('customers').update(updates).eq('id', selectedCustomer.id);
-  }
+  /* Round 43: customer aggregates (total_invoiced/paid/outstanding/count +
+     first/last_invoice_date) are now maintained by the sync_customer_aggregates
+     DB trigger on `invoices`, recomputed from source on every change. The old
+     incremental JS update here was removed — it was a second owner that drifted.
+     Single source of truth = the trigger. Nothing to do here on invoice create. */
 
   /* Round 4h.2.1: auto-record payment if "Mark as paid" checkbox was on (B2C only).
      Done BEFORE navigation so the invoice-view shows correct paid status. */
@@ -6342,17 +6317,11 @@ async function confirmPayment(){
      The trigger is the single source of truth and now routes correctly
      because the journal line carries the selected account's GL code. */
 
-  /* Update customer aggregates */
-  if(invData?.customer_id){
-    const {data:cust} = await sb.from('customers').select('total_paid,total_outstanding').eq('id',invData.customer_id).single();
-    if(cust){
-      await sb.from('customers').update({
-        total_paid: roundCurrency(((cust.total_paid||0) + amount)),
-        total_outstanding: Math.max(0, roundCurrency(((cust.total_outstanding||0) - amount))),
-        updated_at: new Date().toISOString()
-      }).eq('id', invData.customer_id);
-    }
-  }
+  /* Round 43: customer total_paid/total_outstanding are maintained by the
+     sync_customer_aggregates trigger. The invoices.update() above (setting
+     amount_paid/payment_status) fires the trigger, which recomputes the
+     customer's totals from source. The old incremental update here was a
+     second owner that drifted — removed. */
 
   notify(currentLang==='ar'
     ? `✅ تم تسجيل ${fmt(amount)} SAR — ${status==='paid'?'مدفوع بالكامل':'دفعة جزئية'}`
