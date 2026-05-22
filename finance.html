@@ -91,10 +91,7 @@ const _REQUIRED_ROLES_FOR_FINANCE = [
   'sales_revenue',      /* CODE.SALES_STANDARD */
   'cogs_primary',       /* CODE.COGS */
   'cash_primary',       /* CODE.CASH (new in 20c) */
-  'bank_primary',       /* CODE.BANK (new in 20c) */
-  'owner_capital',      /* CODE.OWNER_CAPITAL (Round 28: opening balances + owner deposits) */
-  'owner_drawings',     /* CODE.OWNER_DRAWINGS (Round 28: owner withdrawals) */
-  'bank_charges'        /* CODE.BANK_CHARGES (Round 28: bank fees) */
+  'bank_primary'        /* CODE.BANK (new in 20c) */
 ];
 
 async function _initRoleCodes(){
@@ -276,10 +273,7 @@ const CODE = Object.freeze({
   get SALES_STANDARD() { return _coalesceCode('sales_revenue',     'SALES_STANDARD'); },
   get COGS()           { return _coalesceCode('cogs_primary',      'COGS'); },
   get CASH()           { return _coalesceCode('cash_primary',      'CASH'); },
-  get BANK()           { return _coalesceCode('bank_primary',      'BANK'); },
-  get OWNER_CAPITAL()  { return _coalesceCode('owner_capital',     'OWNER_CAPITAL'); },
-  get OWNER_DRAWINGS() { return _coalesceCode('owner_drawings',    'OWNER_DRAWINGS'); },
-  get BANK_CHARGES()   { return _coalesceCode('bank_charges',      'BANK_CHARGES'); }
+  get BANK()           { return _coalesceCode('bank_primary',      'BANK'); }
 });
 
 /* ROUND B-VAT: Filings helper (inlined). Exports on window.gl.filings. */
@@ -992,15 +986,6 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 .field textarea{resize:vertical;min-height:60px;}
 .field-hint{font-size:11px;color:var(--muted);margin-top:3px;}
 .section-title-sm{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:14px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--tint);display:flex;align-items:center;gap:6px;}
-
-/* ─── Round 28: transaction-kind cards (manual cash movement picker) ─── */
-.tx-tpl-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;margin-bottom:14px;}
-.tx-tpl-card{padding:12px 14px;background:#fff;border:1.5px solid var(--border);border-radius:10px;cursor:pointer;text-align:start;transition:all .15s;}
-.tx-tpl-card:hover{border-color:var(--blue);background:var(--tint);}
-.tx-tpl-card.on{border-color:var(--blue);background:var(--tint);box-shadow:0 0 0 3px rgba(0,108,53,0.1);}
-.tx-tpl-card .icon{font-size:18px;margin-bottom:4px;}
-.tx-tpl-card .title{font-size:13px;font-weight:700;color:var(--ink);margin-bottom:3px;}
-.tx-tpl-card .sub{font-size:11px;color:var(--muted);line-height:1.4;}
 
 /* ─── INLINE WARNING BANNER ─── */
 .warning-banner{padding:9px 12px;border-radius:8px;font-size:12px;line-height:1.4;display:flex;gap:8px;align-items:flex-start;margin-top:6px;}
@@ -3109,10 +3094,6 @@ async function loadAllSuppliersForBills(){
 let allBankAccounts = [];
 let allBankTransactions = [];
 let editingBankAccountId = null;
-/* Round 29: cache of GL leaf accounts eligible for bank linkage (any active,
-   non-header asset). Sorted by name-pattern score so cash/bank-named ones
-   appear at the top of the picker. */
-let allEligibleGlLeaves = [];
 
 /* KSA bank shortlist for the picker — covers ~95% of pilot use cases.
    "Other" lets user type a custom bank name. */
@@ -3165,68 +3146,6 @@ async function loadBankAccounts(){
       .order('created_at', {ascending:true});
     allBankAccounts = reloaded || [];
   }
-}
-
-/* Round 29: load eligible GL leaf accounts for the bank-account picker.
-   Eligibility: active, non-header, type='asset'. We don't restrict by
-   subcategory or name patterns at the SQL level — instead we score each
-   row client-side so the picker can sort by likelihood while still
-   letting users override (e.g., a business that calls cash "1010 Petty
-   till"). The score is purely cosmetic ordering; nothing is hidden. */
-async function loadEligibleGlLeaves(){
-  if(!currentBiz?.id){ allEligibleGlLeaves = []; return; }
-  /* Round 32: widened to also include liability leaves so credit_card
-     account_type has linkable candidates. _renderGlAccountOptions filters
-     the displayed rows by account_type at render time, so cash/checking/
-     savings still only see asset options. */
-  const {data, error} = await sb.from('chart_of_accounts')
-    .select('code, name_en, name_ar, type, subcategory, normal_balance')
-    .eq('business_id', currentBiz.id)
-    .eq('is_active', true)
-    .eq('is_header', false)
-    .in('type', ['asset', 'liability'])
-    .order('code', {ascending:true});
-  if(error){
-    console.warn('[GL] loadEligibleGlLeaves:', error.message);
-    allEligibleGlLeaves = [];
-    return;
-  }
-  allEligibleGlLeaves = (data || []).map(row => ({
-    ...row,
-    score: _scoreGlLeafForBank(row)
-  })).sort((a,b) => b.score - a.score || (a.code||'').localeCompare(b.code||''));
-}
-
-/* Score a GL leaf for "bank-account-ness". Higher = more likely a cash/bank
-   or credit-card account. Used only for display ordering — nothing gates on
-   this. Round 32: extended for liability/credit-card patterns. */
-function _scoreGlLeafForBank(coa){
-  let s = 0;
-  const en = String(coa.name_en || '').toLowerCase();
-  const ar = String(coa.name_ar || '');
-  const code = String(coa.code || '');
-  const type = String(coa.type || '');
-  if(type === 'asset'){
-    /* Strong: cash/bank name match in English */
-    if(/\b(cash|bank|petty|till|wallet|stc\s*pay|payment\s*card)\b/.test(en)) s += 10;
-    /* Strong: cash/bank name match in Arabic */
-    if(/نقد|بنك|صندوق|محفظة|مدفوعات/.test(ar)) s += 10;
-    /* Medium: codes in the 11xx range are conventionally cash/bank in
-       Saudi CoA templates (1100-1199) */
-    if(/^11/.test(code)) s += 5;
-    /* Light tie-breaker: current_asset subcategory */
-    if((coa.subcategory||'') === 'current_asset') s += 1;
-  } else if(type === 'liability'){
-    /* Strong: credit-card name match in English */
-    if(/\b(credit\s*card|cc\s*payable|card\s*payable|visa|mastercard)\b/.test(en)) s += 10;
-    /* Strong: credit-card name match in Arabic */
-    if(/بطاقة\s*ائتمان|بطاقة\s*الائتمان|بطاقات\s*ائتمان/.test(ar)) s += 10;
-    /* Medium: codes in the 23xx-25xx range are conventional credit-card slots */
-    if(/^2[3-5]/.test(code)) s += 5;
-    /* Light tie-breaker: current_liability subcategory */
-    if((coa.subcategory||'') === 'current_liability') s += 1;
-  }
-  return s;
 }
 
 async function autoSeedCashAccount(){
@@ -3361,7 +3280,6 @@ function renderBankAccounts(){
                 <div style="font-size:12px;color:var(--muted);margin-top:2px;">${escHTML(bank)} · ${escHTML(typeLabel)}</div>
               </div>
               ${a.is_default ? `<span style="background:var(--tint);color:var(--blue);font-size:10px;padding:2px 7px;border-radius:8px;font-weight:700;white-space:nowrap;" data-ar="افتراضي" data-en="Default">افتراضي</span>` : ''}
-              ${!a.gl_account_code ? `<span style="background:#fef3c7;color:#92400e;font-size:10px;padding:2px 7px;border-radius:8px;font-weight:700;white-space:nowrap;" title="${ar?'هذا الحساب غير مرتبط بحساب محاسبي — اضغط لإصلاحه':'This account is not linked to a GL account — click to fix'}" data-ar="⚠ غير مرتبط" data-en="⚠ Not linked">⚠ غير مرتبط</span>` : ''}
             </div>
             ${masked ? `<div style="font-size:11px;color:var(--muted);font-family:'DM Mono',monospace;margin-bottom:8px;">${escHTML(masked)}</div>` : ''}
             <div style="display:flex;justify-content:space-between;align-items:flex-end;border-top:1px solid var(--border);padding-top:8px;">
@@ -3475,12 +3393,6 @@ async function openBankAccountModal(id){
   const isEdit = !!header;
   const title = isEdit ? (ar?'تعديل حساب':'Edit Account') : (ar?'حساب جديد':'New Account');
 
-  /* Round 29: ensure the GL-eligible cache is loaded before rendering the
-     picker. If the user got here via a deep link or the cache was missed
-     during boot (cold session), warm it now. ~50ms cost, only on first open. */
-  if(!allEligibleGlLeaves || allEligibleGlLeaves.length === 0){
-    await loadEligibleGlLeaves();
-  }
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay open';
   overlay.id = 'bank-modal';
@@ -3514,28 +3426,12 @@ async function openBankAccountModal(id){
           </div>
           <div class="field">
             <div class="field-label"><span data-ar="نوع الحساب" data-en="Account Type">نوع الحساب</span></div>
-            <select id="ba-type" onchange="onAccountTypeChange()">
+            <select id="ba-type">
               <option value="checking" ${header?.account_type === 'checking' || !header ? 'selected' : ''}>${ar?'جاري':'Checking'}</option>
               <option value="savings" ${header?.account_type === 'savings' ? 'selected' : ''}>${ar?'توفير':'Savings'}</option>
               <option value="cash" ${header?.account_type === 'cash' ? 'selected' : ''}>${ar?'نقد':'Cash'}</option>
               <option value="credit_card" ${header?.account_type === 'credit_card' ? 'selected' : ''}>${ar?'بطاقة ائتمان':'Credit card'}</option>
             </select>
-          </div>
-        </div>
-        <!-- Round 29: GL Account picker. Links bank_account → specific GL leaf
-             so the journal_lines trigger can derive bank_transactions rows. -->
-        <div class="field-row" id="ba-gl-row">
-          <div class="field">
-            <div class="field-label">
-              <span data-ar="الحساب المحاسبي المرتبط" data-en="Linked GL Account">الحساب المحاسبي المرتبط</span>
-              <span class="req">*</span>
-            </div>
-            <select id="ba-gl-account">
-              ${_renderGlAccountOptions(header)}
-            </select>
-            <div class="field-hint" style="margin-top:4px;line-height:1.5;">
-              <span data-ar="📒 يحدد أين تظهر معاملات هذا الحساب في دفتر الأستاذ" data-en="📒 Determines where this account's transactions land in the General Ledger">📒 يحدد أين تظهر معاملات هذا الحساب في دفتر الأستاذ</span>
-            </div>
           </div>
         </div>
         <!-- Custom bank name field — shown only when "Other" is picked -->
@@ -3603,123 +3499,6 @@ async function openBankAccountModal(id){
   `;
   document.body.appendChild(overlay);
   applyLang();
-}
-
-/* Round 29: render <option>s for the GL Account picker.
-   Marks accounts already linked to another bank_account with a tag,
-   marks recommended cash/bank-like accounts with a 💰 icon, and
-   pre-selects:
-     1. header.gl_account_code if editing an existing account
-     2. Otherwise: the highest-scoring unused candidate matching
-        the current account_type (cash → cash-like, checking/savings → bank-like) */
-/* Round 32: helpers for type-aware GL filtering.
-   Different bank_account types should be backed by different GL types:
-     cash/checking/savings → asset (cash on hand, bank account)
-     credit_card           → liability (you owe the card issuer)
-   The picker should only surface candidates of the right type so users
-   can't accidentally link e.g. a credit card to an asset account. */
-function _glTypesForAccountType(accountType){
-  if(accountType === 'credit_card') return ['liability'];
-  return ['asset'];
-}
-
-/* Returns a regex that strongly matches "good name" patterns for the
-   given account_type. Used both for pre-selection and onAccountTypeChange. */
-function _glNamePatternForAccountType(accountType){
-  if(accountType === 'credit_card'){
-    return /credit\s*card|cc\s*payable|card\s*payable|visa|mastercard|بطاقة\s*ائتمان|بطاقة\s*الائتمان/i;
-  }
-  if(accountType === 'cash'){
-    return /cash|petty|till|wallet|نقد|صندوق/i;
-  }
-  /* checking, savings, or any other future type that maps to a bank-like asset */
-  return /bank|بنك|stc\s*pay|payment\s*card|مدفوعات/i;
-}
-
-function _renderGlAccountOptions(header){
-  const ar = currentLang === 'ar';
-  if(!allEligibleGlLeaves || allEligibleGlLeaves.length === 0){
-    return `<option value="">${ar?'⚠ لا توجد حسابات محاسبية متاحة':'⚠ No GL accounts available'}</option>`;
-  }
-  /* Map: gl_account_code → bank_account that already uses it (if any) */
-  const linkedMap = {};
-  for(const ba of (allBankAccounts || [])){
-    if(ba.gl_account_code) linkedMap[ba.gl_account_code] = ba;
-  }
-
-  /* Round 32: filter eligible leaves by account_type so users only see
-     candidates of the correct GL type. Default to 'checking' for new
-     accounts (matches the default in the <select id="ba-type">). */
-  const accountType = header?.account_type || 'checking';
-  const expectedGlTypes = _glTypesForAccountType(accountType);
-  const filteredLeaves = allEligibleGlLeaves.filter(c => expectedGlTypes.includes(c.type));
-
-  if(filteredLeaves.length === 0){
-    const friendlyMsg = accountType === 'credit_card'
-      ? (ar ? '⚠ لا يوجد حساب التزامات مناسب — أضف حساب بطاقة ائتمان أولاً'
-            : '⚠ No suitable liability GL account — add a Credit Card Payable account first')
-      : (ar ? '⚠ لا يوجد حساب أصول مناسب — أضف حساب نقد/بنك أولاً'
-            : '⚠ No suitable asset GL account — add a Cash/Bank account first');
-    return `<option value="">${friendlyMsg}</option>`;
-  }
-
-  /* Pre-selection logic */
-  let preselectedCode = header?.gl_account_code || null;
-  if(!preselectedCode){
-    const wantedPattern = _glNamePatternForAccountType(accountType);
-    /* Try strongly-matching unused first */
-    let candidate = filteredLeaves.find(c =>
-      !linkedMap[c.code] &&
-      ((c.name_en && wantedPattern.test(c.name_en)) ||
-       (c.name_ar && wantedPattern.test(c.name_ar)))
-    );
-    /* Fallback: any unused row of the right type */
-    if(!candidate) candidate = filteredLeaves.find(c => !linkedMap[c.code]);
-    if(candidate) preselectedCode = candidate.code;
-  }
-
-  const placeholder = `<option value="">${ar?'— اختر —':'— Select —'}</option>`;
-  const rows = filteredLeaves.map(c => {
-    const linkedBy = linkedMap[c.code];
-    /* Can the user pick this row? Only if it's free, OR it's the one this
-       bank_account is currently linked to (edit case). */
-    const isCurrentEdit = (header && header.gl_account_code === c.code);
-    const blocked = linkedBy && !isCurrentEdit;
-    /* Round 32: 💰 for cash/bank candidates, 💳 for credit-card candidates */
-    let icon = '';
-    if(c.score >= 10){
-      icon = (c.type === 'liability') ? '💳 ' : '💰 ';
-    }
-    const baseLabel = ar
-      ? `${c.code} · ${c.name_ar || c.name_en || ''}`
-      : `${c.code} · ${c.name_en || c.name_ar || ''}`;
-    const tag = blocked
-      ? (ar ? ` · ⚠ مستخدم بواسطة "${escHTML(linkedBy.account_name_ar || linkedBy.account_name || '')}"`
-            : ` · ⚠ used by "${escHTML(linkedBy.account_name || linkedBy.account_name_ar || '')}"`)
-      : '';
-    const sel = (preselectedCode === c.code && !blocked) ? 'selected' : '';
-    return `<option value="${escHTML(c.code)}" ${blocked ? 'disabled' : ''} ${sel}>${icon}${escHTML(baseLabel)}${tag}</option>`;
-  }).join('');
-  return placeholder + rows;
-}
-
-/* Round 29: when account_type changes, re-render the GL picker so the
-   filtered options + auto-suggestion reflect the new type.
-   Round 32: extended to handle credit_card → liability-type accounts. */
-function onAccountTypeChange(){
-  const typeSel = document.getElementById('ba-type');
-  const glSel = document.getElementById('ba-gl-account');
-  if(!typeSel || !glSel) return;
-  const newType = typeSel.value;
-  /* Build a transient header-like object for the renderer so it picks
-     options matching the NEW type (not the edited account's old type). */
-  const existingHeader = editingBankAccountId
-    ? allBankAccounts.find(a => a.id === editingBankAccountId)
-    : null;
-  const transientHeader = existingHeader
-    ? { ...existingHeader, account_type: newType }
-    : { account_type: newType };
-  glSel.innerHTML = _renderGlAccountOptions(transientHeader);
 }
 
 function closeBankAccountModal(){
@@ -3790,59 +3569,11 @@ async function saveBankAccount(){
     updated_at: new Date().toISOString()
   };
 
-  /* Round 29: read the GL Account picker. This is the authoritative source
-     for gl_account_code — overrides the old resolve_role auto-assignment.
-     If the picker is empty (very rare; only if no eligible GL accounts at
-     all), we fall back to resolve_role for backward compat. */
-  const pickedGlCode = (document.getElementById('ba-gl-account')?.value || '').trim() || null;
-
   if(!isEdit){
     payload.currency = document.getElementById('ba-currency').value;
     payload.opening_balance = parseFloat(document.getElementById('ba-opening').value) || 0;
     payload.opening_date = document.getElementById('ba-opening-date').value || todayISO();
-    /* Round 28: current_balance is now derived from GL by bank_account_balance(),
-       not maintained by JS math. For new accounts we seed it to 0 here; the
-       opening-balance journal entry below + the AFTER INSERT trigger on
-       journal_lines will compute the real balance once attached. After Part 3
-       the value updates live on every journal_line insert. */
-    payload.current_balance = 0;
-
-    /* Round 29: prefer picker; fall back to resolve_role only if picker empty */
-    if(pickedGlCode){
-      payload.gl_account_code = pickedGlCode;
-    } else {
-      /* Round 32: extend auto-resolve to credit_card via credit_card_payable
-         role (Migration 39). When unmapped, returns NULL (allow_silent_fallback=
-         false), so the picker stays empty and the user is forced to wire it
-         up explicitly — wrong-account routing on credit cards would corrupt
-         AP aging. */
-      const role = (payload.account_type === 'cash')
-        ? 'cash_primary'
-        : (payload.account_type === 'checking' || payload.account_type === 'savings')
-          ? 'bank_primary'
-          : (payload.account_type === 'credit_card')
-            ? 'credit_card_payable'
-            : null;
-      if(role){
-        try {
-          const {data: code} = await sb.rpc('resolve_role', {
-            p_business_id: currentBiz.id,
-            p_role: role
-          });
-          if(code) payload.gl_account_code = code;
-        } catch(e){
-          console.warn('[GL] gl_account_code resolution failed:', e.message);
-        }
-      }
-    }
-  } else {
-    /* Round 29: editing — let user re-link to a different GL leaf
-       (recovering legacy accounts with NULL gl_account_code, or switching
-       a misrouted link). Only update if user actually changed the value. */
-    const existing = allBankAccounts.find(a => a.id === editingBankAccountId);
-    if(pickedGlCode && pickedGlCode !== (existing?.gl_account_code || null)){
-      payload.gl_account_code = pickedGlCode;
-    }
+    payload.current_balance = payload.opening_balance;
   }
 
   /* If is_default checked, unset default on other accounts first (one default per business) */
@@ -3868,104 +3599,27 @@ async function saveBankAccount(){
       console.error('bank_accounts table missing — run bank_accounts_migration.sql');
       return;
     }
-    /* Round 29: gl_account_code UNIQUE conflict — explain to the user. */
-    if(error.code === '23505' && /gl_?account|glcode/i.test(error.message||'')){
-      const conflictCode = payload.gl_account_code || pickedGlCode || '?';
-      const conflictAccount = allBankAccounts.find(
-        a => a.gl_account_code === conflictCode && a.id !== editingBankAccountId
-      );
-      const otherName = conflictAccount
-        ? (ar ? (conflictAccount.account_name_ar || conflictAccount.account_name)
-              : (conflictAccount.account_name    || conflictAccount.account_name_ar))
-        : '';
-      notify(ar
-        ? `⚠ الحساب المحاسبي ${conflictCode} مرتبط بالفعل بـ "${otherName}". اختر حساباً محاسبياً آخر.`
-        : `⚠ GL account ${conflictCode} is already linked to "${otherName}". Pick a different GL account.`,
-        'error');
-      return;
-    }
     console.error('[GL] saveBankAccount', error);
     notify((ar?'فشل الحفظ: ':'Save failed: ') + (error.message||''), 'error');
     return;
   }
 
-  /* Round 28: opening balance is now booked via a journal entry instead of
-     a direct bank_transactions insert. The journal_lines AFTER INSERT trigger
-     will derive the matching bank_transactions row automatically.
-     DR specific bank/cash GL leaf / CR Owner's Capital (positive opening)
-     DR Owner's Capital / CR specific bank/cash GL leaf (negative opening,
-     rare — interpreted as owner drawing the balance out at start).
-     If gl_account_code didn't resolve (no role mapped), we silently skip
-     the journal — the balance can be entered manually later. */
-  let openingJournalWarning = null;
-  if(!isEdit && payload.opening_balance !== 0 && saved?.gl_account_code){
-    const amount = Math.abs(payload.opening_balance);
-    const isDeposit = payload.opening_balance > 0;
-    const desc = ar ? 'الرصيد الافتتاحي' : 'Opening balance';
-    let equityCode = null;
-    try {
-      const {data: c} = await sb.rpc('resolve_role', {
-        p_business_id: currentBiz.id,
-        p_role: 'owner_capital'
-      });
-      equityCode = c;
-    } catch(_e){ /* fall through, journal will be skipped */ }
-
-    if(equityCode){
-      try {
-        const {data: entry, error: eErr} = await sb.from('journal_entries').insert({
-          user_id: currentUser.id,
-          business_id: currentBiz.id,
-          entry_date: payload.opening_date,
-          reference: 'OPEN-' + (payload.account_name || saved.id.slice(0, 8)),
-          description: desc,
-          source: 'opening',
-          source_id: saved.id,
-          status: 'posted',
-          is_balanced: true
-        }).select().single();
-        if(eErr) throw eErr;
-        if(entry){
-          const cashName = ar
-            ? (payload.account_name_ar || payload.account_name || 'الصندوق')
-            : (payload.account_name    || payload.account_name_ar || 'Cash');
-          const equityName = ar ? 'رأس مال المالك' : 'Owner’s Capital';
-          await sb.from('journal_lines').insert([
-            { entry_id: entry.id, user_id: currentUser.id,
-              account_code: isDeposit ? saved.gl_account_code : equityCode,
-              account_name: isDeposit ? cashName : equityName,
-              debit: amount, credit: 0, description: desc },
-            { entry_id: entry.id, user_id: currentUser.id,
-              account_code: isDeposit ? equityCode : saved.gl_account_code,
-              account_name: isDeposit ? equityName : cashName,
-              debit: 0, credit: amount, description: desc }
-          ]);
-        }
-      } catch(e){
-        console.warn('[GL] opening-balance journal skipped:', e.message);
-        if(/period_closed/i.test(e.message||'')){
-          openingJournalWarning = ar
-            ? 'تم حفظ الحساب لكن لم يتم تسجيل الرصيد الافتتاحي — التاريخ ضمن فترة مغلقة. سجّل القيد يدوياً بتاريخ خارج الفترة.'
-            : 'Account saved but the opening-balance journal was not posted — the date falls in a closed period. Post it manually with a date outside the closed period.';
-        } else {
-          openingJournalWarning = ar
-            ? 'تم حفظ الحساب لكن فشل قيد الرصيد الافتتاحي — راجع السجل'
-            : 'Account saved but the opening-balance journal failed — check the log';
-        }
-      }
-    } else {
-      console.warn('[GL] owner_capital role not mapped; opening-balance journal skipped');
-      openingJournalWarning = ar
-        ? 'تم حفظ الحساب لكن لم يتم تسجيل الرصيد الافتتاحي — قم بربط حساب رأس مال المالك في الإعدادات'
-        : 'Account saved but the opening-balance journal was skipped — map Owner’s Capital in Settings';
-    }
+  /* For new accounts: if opening balance != 0, create an opening transaction so the audit trail is intact */
+  if(!isEdit && payload.opening_balance !== 0){
+    await sb.from('bank_transactions').insert({
+      business_id: currentBiz.id,
+      user_id: currentUser.id,
+      account_id: saved.id,
+      transaction_type: payload.opening_balance > 0 ? 'deposit' : 'withdrawal',
+      transaction_date: payload.opening_date,
+      amount: Math.abs(payload.opening_balance),
+      balance_after: payload.opening_balance,
+      description: ar ? 'الرصيد الافتتاحي' : 'Opening balance',
+      source_type: 'opening'
+    });
   }
 
-  if(openingJournalWarning){
-    notify(openingJournalWarning, 'error');
-  } else {
-    notify(ar?'✅ تم الحفظ':'✅ Saved', 'success');
-  }
+  notify(ar?'✅ تم الحفظ':'✅ Saved', 'success');
   closeBankAccountModal();
   await Promise.all([loadBankAccounts(), loadBankTransactions()]);
   renderBankAccounts();
@@ -4017,54 +3671,31 @@ function openTransactionModal(prefilledAccountId){
     ? allBankAccounts.find(a => a.id === prefilledAccountId)
     : (allBankAccounts.find(a => a.is_default) || allBankAccounts.find(a => a.is_active) || allBankAccounts[0]);
 
-  /* Round 28: this modal now posts a journal entry instead of writing
-     bank_transactions directly. Each "kind" maps to a specific contra
-     account via role resolution — owner_capital, owner_drawings, or
-     bank_charges. The journal_lines AFTER INSERT trigger derives the
-     bank_transactions row automatically. */
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay open';
   overlay.id = 'tx-modal';
   overlay.innerHTML = `
-    <div class="modal" style="max-width:600px;">
+    <div class="modal" style="max-width:560px;">
       <div class="modal-head">
         <div class="modal-title" data-ar="معاملة جديدة" data-en="New Transaction">معاملة جديدة</div>
         <button class="modal-close" onclick="closeTransactionModal()">×</button>
       </div>
       <div class="modal-body">
         <div class="field">
-          <div class="field-label"><span data-ar="نوع المعاملة" data-en="Transaction Type">نوع المعاملة</span><span class="req">*</span></div>
-          <div class="tx-tpl-grid" id="tx-tpl-grid">
-            <div class="tx-tpl-card on" data-kind="owner_deposit" onclick="setTxKind(this,'owner_deposit')">
-              <div class="icon">💰</div>
-              <div class="title">${ar?'إيداع من المالك':'Owner Deposit'}</div>
-              <div class="sub">${ar?'المالك أودع مبلغ في حساب المنشأة':'You put personal money into the business'}</div>
-            </div>
-            <div class="tx-tpl-card" data-kind="owner_withdrawal" onclick="setTxKind(this,'owner_withdrawal')">
-              <div class="icon">🏧</div>
-              <div class="title">${ar?'سحب من قبل المالك':'Owner Withdrawal'}</div>
-              <div class="sub">${ar?'المالك أخذ مبلغ لاستخدام شخصي':'You took money out for personal use'}</div>
-            </div>
-            <div class="tx-tpl-card" data-kind="bank_fee" onclick="setTxKind(this,'bank_fee')">
-              <div class="icon">💸</div>
-              <div class="title">${ar?'رسوم بنكية':'Bank Fee / Charge'}</div>
-              <div class="sub">${ar?'البنك خصم رسوم تحويل أو عمولة':'Bank charged a fee or commission'}</div>
-            </div>
-            <div class="tx-tpl-card" data-kind="other" onclick="setTxKind(this,'other')">
-              <div class="icon">📝</div>
-              <div class="title">${ar?'قيد يدوي آخر':'Other / Custom Entry'}</div>
-              <div class="sub">${ar?'فتح قيد محاسبي مخصص':'Open custom journal entry'}</div>
-            </div>
-          </div>
-          <input type="hidden" id="tx-kind" value="owner_deposit">
-        </div>
-        <div class="field">
           <div class="field-label"><span data-ar="الحساب" data-en="Account">الحساب</span><span class="req">*</span></div>
-          <select id="tx-account">
+          <select id="tx-account" onchange="onTxAccountChange()">
             ${allBankAccounts.filter(a => a.is_active).map(a => `
               <option value="${a.id}" ${a.id === defaultAccount?.id ? 'selected' : ''}>${escHTML(ar ? (a.account_name_ar || a.account_name) : a.account_name)} · ${a.currency} · ${fmt(parseFloat(a.current_balance)||0)}</option>
             `).join('')}
           </select>
+        </div>
+        <div class="field">
+          <div class="field-label"><span data-ar="نوع المعاملة" data-en="Type">نوع المعاملة</span><span class="req">*</span></div>
+          <div style="display:flex;gap:6px;background:var(--tint);padding:4px;border-radius:8px;">
+            <button type="button" class="tx-type-btn active" data-type="deposit" onclick="setTxType(this,'deposit')" style="flex:1;padding:8px;border:none;background:#fff;color:var(--green);border-radius:6px;font-weight:700;cursor:pointer;">⬇ ${ar?'إيداع':'Deposit'}</button>
+            <button type="button" class="tx-type-btn" data-type="withdrawal" onclick="setTxType(this,'withdrawal')" style="flex:1;padding:8px;border:none;background:transparent;color:var(--muted);border-radius:6px;cursor:pointer;">⬆ ${ar?'سحب':'Withdrawal'}</button>
+          </div>
+          <input type="hidden" id="tx-type" value="deposit">
         </div>
         <div class="field-row double">
           <div class="field">
@@ -4077,16 +3708,22 @@ function openTransactionModal(prefilledAccountId){
           </div>
         </div>
         <div class="field">
-          <div class="field-label"><span data-ar="الوصف" data-en="Description">الوصف</span><span class="opt">(optional)</span></div>
-          <input type="text" id="tx-description" placeholder="${ar?'تفاصيل المعاملة':'Transaction details'}">
+          <div class="field-label"><span data-ar="الوصف" data-en="Description">الوصف</span></div>
+          <input type="text" id="tx-description" placeholder="${ar?'مثل: راتب موظف، إيجار، مبيعات':'e.g. Salary, rent, sales'}">
+        </div>
+        <div class="field-row double">
+          <div class="field">
+            <div class="field-label"><span data-ar="رقم المرجع" data-en="Reference #">رقم المرجع</span><span class="opt">(optional)</span></div>
+            <input type="text" id="tx-reference" placeholder="${ar?'رقم الشيك أو الحوالة':'Cheque/transfer ref'}">
+          </div>
+          <div class="field">
+            <div class="field-label"><span data-ar="الطرف الآخر" data-en="Counterparty">الطرف الآخر</span><span class="opt">(optional)</span></div>
+            <input type="text" id="tx-counterparty">
+          </div>
         </div>
         <div class="field">
-          <div class="field-label"><span data-ar="رقم المرجع" data-en="Reference #">رقم المرجع</span><span class="opt">(optional)</span></div>
-          <input type="text" id="tx-reference" placeholder="${ar?'رقم الشيك أو الحوالة':'Cheque / transfer ref'}">
-        </div>
-        <div class="warning-banner blue" style="margin-top:6px;">
-          <span>ℹ</span>
-          <span data-ar="سيتم إنشاء قيد محاسبي مزدوج تلقائياً" data-en="A balanced journal entry is posted automatically">سيتم إنشاء قيد محاسبي مزدوج تلقائياً</span>
+          <div class="field-label"><span data-ar="ملاحظات" data-en="Notes">ملاحظات</span><span class="opt">(optional)</span></div>
+          <textarea id="tx-notes" rows="2"></textarea>
         </div>
       </div>
       <div class="modal-foot">
@@ -4103,192 +3740,70 @@ function closeTransactionModal(){
   document.getElementById('tx-modal')?.remove();
 }
 
-/* Round 28: replaced setTxType (deposit/withdrawal toggle) with a kind picker.
-   Each kind maps to a specific contra-account role at save time. */
-function setTxKind(cardEl, kind){
-  document.querySelectorAll('#tx-tpl-grid .tx-tpl-card').forEach(c => c.classList.remove('on'));
-  cardEl.classList.add('on');
-  setVal('tx-kind', kind);
-
-  /* "Other" sends user to accounting.html's free-form JE modal — accountants
-     have full debit/credit flexibility there. Defer routing until they click
-     Save (so they don't lose their amount/date if they misclick). */
-}
-
-function onTxAccountChange(){
-  /* Kept as a stub for backward compat; no behavior needed. */
+function setTxType(btn, type){
+  document.querySelectorAll('.tx-type-btn').forEach(b => {
+    b.classList.remove('active');
+    b.style.background = 'transparent';
+    b.style.color = 'var(--muted)';
+  });
+  btn.classList.add('active');
+  btn.style.background = '#fff';
+  btn.style.color = type === 'deposit' ? 'var(--green)' : 'var(--red)';
+  setVal('tx-type', type);
 }
 
 function onTxAccountChange(){
   /* Could update placeholder/hints based on currency in future */
 }
 
-/* Round 28: saveTransaction now posts a JOURNAL ENTRY instead of writing
-   bank_transactions directly. The kind picker maps each option to a
-   specific contra-account role; the bank-side account_code comes from
-   the picked bank_account's gl_account_code. The journal_lines AFTER
-   INSERT trigger derives the bank_transactions row automatically.
-
-   Direction map:
-     owner_deposit     → DR bank.gl_account_code / CR owner_capital     (deposit)
-     owner_withdrawal  → DR owner_drawings       / CR bank.gl_account_code (withdrawal)
-     bank_fee          → DR bank_charges         / CR bank.gl_account_code (withdrawal)
-     other             → opens accounting.html free-form JE modal (with prefill) */
 async function saveTransaction(){
   if(!currentBiz?.id || !currentUser){
     notify(currentLang==='ar'?'لم يتم تحميل المستخدم':'Auth not loaded', 'error');
     return;
   }
   const ar = currentLang === 'ar';
-  const accountId   = document.getElementById('tx-account').value;
-  const kind        = document.getElementById('tx-kind').value || 'owner_deposit';
-  const date        = document.getElementById('tx-date').value;
-  const amount      = parseFloat(document.getElementById('tx-amount').value) || 0;
-  const description = document.getElementById('tx-description').value || null;
-  const reference   = document.getElementById('tx-reference').value || null;
+  const accountId = document.getElementById('tx-account').value;
+  const type = document.getElementById('tx-type').value;
+  const date = document.getElementById('tx-date').value;
+  const amount = parseFloat(document.getElementById('tx-amount').value) || 0;
 
   if(!accountId){ notify(ar?'اختر الحساب':'Select an account','error'); return; }
   if(!date){ notify(ar?'التاريخ مطلوب':'Date is required','error'); return; }
-
-  /* Special routing: "Other" hands off to accounting.html's full JE modal.
-     We don't need amount/account in this case — we just redirect with
-     query params so the user can author the free-form entry there. */
-  if(kind === 'other'){
-    const params = new URLSearchParams();
-    params.set('tab', 'ledger');
-    params.set('action', 'new_je');
-    if(date)        params.set('date', date);
-    if(amount > 0)  params.set('amount', String(amount));
-    if(accountId)   params.set('bank_account', accountId);
-    if(description) params.set('desc', description);
-    window.location.href = 'accounting.html?' + params.toString();
-    return;
-  }
-
   if(amount <= 0){ notify(ar?'أدخل مبلغاً صحيحاً':'Enter a valid amount','error'); return; }
 
   const account = allBankAccounts.find(a => a.id === accountId);
   if(!account){ notify(ar?'الحساب غير موجود':'Account not found','error'); return; }
 
-  /* Resolve the bank-side GL code from the picked account.
-     If the account has no gl_account_code (legacy account created before
-     Round 27 + somehow missed the Migration 34 backfill), block with a
-     clear message — Round 29 setup wizard will repair it. */
-  const cashSide = await resolveBankCashSide(account, 'bank');
-  if(!cashSide.code){
-    notify(ar
-      ? '⚠ الحساب غير مرتبط بحساب محاسبي — راجع الإعدادات'
-      : '⚠ Account not linked to a GL account — check Settings', 'error');
-    return;
-  }
-  /* Sanity: resolveBankCashSide may return the generic CASH/BANK role
-     codes if the bank_account row didn't have gl_account_code. For
-     manual transactions on a specific bank_account, we REQUIRE the
-     account-specific gl_account_code so the trigger picks up the row. */
-  if(!account.gl_account_code){
-    notify(ar
-      ? '⚠ يجب ربط هذا الحساب بحساب محاسبي قبل تسجيل المعاملات'
-      : '⚠ This account needs a GL link before recording transactions', 'error');
-    return;
-  }
+  /* Compute new balance */
+  const currentBal = parseFloat(account.current_balance) || 0;
+  const newBal = type === 'deposit' ? currentBal + amount : currentBal - amount;
 
-  const cashCode = account.gl_account_code;
-  const cashName = ar
-    ? (account.account_name_ar || account.account_name || 'النقد')
-    : (account.account_name    || account.account_name_ar || 'Cash');
-
-  /* Resolve the contra-account role for this kind via resolve_role
-     (sensitive roles refuse silent fallback — if unmapped, we abort
-     and direct the user to settings). */
-  const kindMap = {
-    owner_deposit:    { role: 'owner_capital',   labelAr: 'إيداع من المالك',  labelEn: 'Owner Deposit',
-                        contraName: { ar: 'رأس مال المالك',    en: 'Owner’s Capital' },
-                        cashIsDebit: true,
-                        source: 'manual', refPrefix: 'OWN-DEP-' },
-    owner_withdrawal: { role: 'owner_drawings',  labelAr: 'سحب من قبل المالك',labelEn: 'Owner Withdrawal',
-                        contraName: { ar: 'مسحوبات المالك',     en: 'Owner Drawings' },
-                        cashIsDebit: false,
-                        source: 'manual', refPrefix: 'OWN-WD-' },
-    bank_fee:         { role: 'bank_charges',    labelAr: 'رسوم بنكية',       labelEn: 'Bank Fee',
-                        contraName: { ar: 'رسوم وعمولات بنكية',en: 'Bank Charges' },
-                        cashIsDebit: false,
-                        source: 'manual', refPrefix: 'BANK-FEE-' }
-  };
-  const cfg = kindMap[kind];
-  if(!cfg){
-    notify(ar?'نوع غير معروف':'Unknown kind', 'error');
+  /* Insert transaction */
+  const {error: txErr} = await sb.from('bank_transactions').insert({
+    business_id: currentBiz.id,
+    user_id: currentUser.id,
+    account_id: accountId,
+    transaction_type: type,
+    transaction_date: date,
+    amount: amount,
+    balance_after: newBal,
+    description: document.getElementById('tx-description').value || null,
+    reference_number: document.getElementById('tx-reference').value || null,
+    counterparty: document.getElementById('tx-counterparty').value || null,
+    notes: document.getElementById('tx-notes').value || null,
+    source_type: 'manual'
+  });
+  if(txErr){
+    console.error('[GL] saveTransaction', txErr);
+    notify((ar?'فشل الحفظ: ':'Save failed: ') + (txErr.message||''), 'error');
     return;
   }
 
-  let contraCode = null;
-  try {
-    const {data} = await sb.rpc('resolve_role', {
-      p_business_id: currentBiz.id,
-      p_role: cfg.role
-    });
-    contraCode = data;
-  } catch(e){
-    console.warn('[GL] resolve_role failed for', cfg.role, e.message);
-  }
-  if(!contraCode){
-    notify(ar
-      ? `⚠ لم يتم ربط دور "${cfg.labelAr}" بحساب محاسبي — راجع الإعدادات`
-      : `⚠ Role "${cfg.labelEn}" is not mapped to an account — check Settings`, 'error');
-    return;
-  }
-
-  const desc = description
-    ? description
-    : (ar ? cfg.labelAr : cfg.labelEn);
-
-  /* Post the journal entry */
-  try {
-    const {data: entry, error: eErr} = await sb.from('journal_entries').insert({
-      user_id: currentUser.id,
-      business_id: currentBiz.id,
-      entry_date: date,
-      reference: reference || (cfg.refPrefix + Date.now()),
-      description: desc,
-      source: cfg.source,
-      source_id: account.id,
-      status: 'posted',
-      is_balanced: true
-    }).select().single();
-    if(eErr || !entry){
-      console.error('[GL] saveTransaction entry insert', eErr);
-      notify((ar?'فشل الحفظ: ':'Save failed: ') + (eErr?.message||''), 'error');
-      return;
-    }
-
-    const contraName = ar ? cfg.contraName.ar : cfg.contraName.en;
-    const lines = cfg.cashIsDebit
-      ? [
-          { entry_id: entry.id, user_id: currentUser.id, account_code: cashCode,   account_name: cashName,
-            debit: amount, credit: 0, description: desc },
-          { entry_id: entry.id, user_id: currentUser.id, account_code: contraCode, account_name: contraName,
-            debit: 0, credit: amount, description: desc }
-        ]
-      : [
-          { entry_id: entry.id, user_id: currentUser.id, account_code: contraCode, account_name: contraName,
-            debit: amount, credit: 0, description: desc },
-          { entry_id: entry.id, user_id: currentUser.id, account_code: cashCode,   account_name: cashName,
-            debit: 0, credit: amount, description: desc }
-        ];
-
-    const {error: lErr} = await sb.from('journal_lines').insert(lines);
-    if(lErr){
-      /* Best-effort cleanup of the entry header — without lines it's an
-         empty entry. Don't block the user on the cleanup itself. */
-      await sb.from('journal_entries').delete().eq('id', entry.id);
-      console.error('[GL] saveTransaction lines insert', lErr);
-      notify((ar?'فشل الحفظ: ':'Save failed: ') + (lErr.message||''), 'error');
-      return;
-    }
-  } catch(e){
-    console.error('[GL] saveTransaction failed:', e);
-    notify((ar?'فشل الحفظ: ':'Save failed: ') + (e.message||''), 'error');
-    return;
-  }
+  /* Update account balance */
+  await sb.from('bank_accounts').update({
+    current_balance: newBal,
+    updated_at: new Date().toISOString()
+  }).eq('id', accountId);
 
   notify(ar?'✅ تم الحفظ':'✅ Saved', 'success');
   closeTransactionModal();
@@ -4433,79 +3948,66 @@ async function saveTransfer(){
   const to = allBankAccounts.find(a => a.id === toId);
   if(!from || !to){ notify(ar?'الحساب غير موجود':'Account not found','error'); return; }
 
-  /* Round 28: transfers now post a single balanced journal entry instead
-     of two bank_transactions rows. The journal_lines AFTER INSERT trigger
-     derives BOTH bank_transactions rows automatically:
-       Line 1: DR to.gl_account_code   → trigger writes "deposit"   on to-account
-       Line 2: CR from.gl_account_code → trigger writes "withdrawal" on from-account
-     transfer_pair_id is no longer needed at the bank-transactions level —
-     both rows share the same journal_entry.id which is the natural pair link. */
-
-  /* Both accounts must be GL-linked for the trigger to find them. If
-     either lacks gl_account_code (legacy account), abort with a clear
-     message and direct user to settings (Round 29 will fix this UX). */
-  if(!from.gl_account_code || !to.gl_account_code){
-    notify(ar
-      ? '⚠ يجب ربط كلا الحسابين بحسابات محاسبية قبل التحويل — راجع الإعدادات'
-      : '⚠ Both accounts must be GL-linked before transferring — check Settings', 'error');
-    return;
-  }
-
-  /* FX handling (kept for future use; today single-currency only):
-     when from/to are different currencies, the amount received differs
-     from the amount sent, and the difference becomes an FX gain/loss
-     line. For Round 28 we only support same-currency transfers; mixed
-     currency triggers a clear error rather than partially booking. */
+  /* FX handling */
   const sameCurrency = from.currency === to.currency;
-  if(!sameCurrency){
-    notify(ar
-      ? '⚠ التحويل بين العملات لم يُدعم بعد — قيد المحاسبة يتطلب حساب فروقات سعر الصرف'
-      : '⚠ Cross-currency transfer is not yet supported — booking requires an FX gain/loss account', 'error');
+  const fxRate = sameCurrency ? 1 : (parseFloat(document.getElementById('tr-fx-rate').value) || 0);
+  if(!sameCurrency && fxRate <= 0){
+    notify(ar?'سعر الصرف مطلوب':'Exchange rate required', 'error');
+    return;
+  }
+  const amountReceived = amount * fxRate;
+
+  /* Compute new balances */
+  const fromNewBal = (parseFloat(from.current_balance)||0) - amount;
+  const toNewBal = (parseFloat(to.current_balance)||0) + amountReceived;
+
+  /* Insert two transactions and link them via transfer_pair_id.
+     Insert OUT first, get its id, insert IN with pair_id = OUT.id, then update OUT.pair_id = IN.id. */
+  const {data: outTx, error: outErr} = await sb.from('bank_transactions').insert({
+    business_id: currentBiz.id,
+    user_id: currentUser.id,
+    account_id: fromId,
+    transaction_type: 'transfer_out',
+    transaction_date: date,
+    amount: amount,
+    balance_after: fromNewBal,
+    description: description || (ar?`تحويل إلى ${to.account_name_ar || to.account_name}`:`Transfer to ${to.account_name || to.account_name_ar}`),
+    source_type: 'transfer',
+    transfer_fx_rate: sameCurrency ? null : fxRate
+  }).select().single();
+  if(outErr){
+    console.error('[GL] saveTransfer out', outErr);
+    notify((ar?'فشل التحويل: ':'Transfer failed: ') + (outErr.message||''), 'error');
     return;
   }
 
-  const fromName = ar ? (from.account_name_ar || from.account_name) : (from.account_name || from.account_name_ar);
-  const toName   = ar ? (to.account_name_ar   || to.account_name)   : (to.account_name   || to.account_name_ar);
-  const desc = description || (ar
-    ? `تحويل من ${fromName} إلى ${toName}`
-    : `Transfer ${fromName} → ${toName}`);
-
-  try {
-    const {data: entry, error: eErr} = await sb.from('journal_entries').insert({
-      user_id: currentUser.id,
-      business_id: currentBiz.id,
-      entry_date: date,
-      reference: 'TRF-' + Date.now(),
-      description: desc,
-      source: 'transfer',
-      status: 'posted',
-      is_balanced: true
-    }).select().single();
-    if(eErr || !entry){
-      console.error('[GL] saveTransfer entry insert', eErr);
-      notify((ar?'فشل التحويل: ':'Transfer failed: ') + (eErr?.message||''), 'error');
-      return;
-    }
-
-    const {error: lErr} = await sb.from('journal_lines').insert([
-      { entry_id: entry.id, user_id: currentUser.id,
-        account_code: to.gl_account_code, account_name: toName,
-        debit: amount, credit: 0, description: desc },
-      { entry_id: entry.id, user_id: currentUser.id,
-        account_code: from.gl_account_code, account_name: fromName,
-        debit: 0, credit: amount, description: desc }
-    ]);
-    if(lErr){
-      await sb.from('journal_entries').delete().eq('id', entry.id);
-      console.error('[GL] saveTransfer lines insert', lErr);
-      notify((ar?'فشل التحويل: ':'Transfer failed: ') + (lErr.message||''), 'error');
-      return;
-    }
-  } catch(e){
-    console.error('[GL] saveTransfer failed:', e);
-    notify((ar?'فشل التحويل: ':'Transfer failed: ') + (e.message||''), 'error');
+  const {data: inTx, error: inErr} = await sb.from('bank_transactions').insert({
+    business_id: currentBiz.id,
+    user_id: currentUser.id,
+    account_id: toId,
+    transaction_type: 'transfer_in',
+    transaction_date: date,
+    amount: amountReceived,
+    balance_after: toNewBal,
+    description: description || (ar?`تحويل من ${from.account_name_ar || from.account_name}`:`Transfer from ${from.account_name || from.account_name_ar}`),
+    source_type: 'transfer',
+    transfer_pair_id: outTx.id,
+    transfer_fx_rate: sameCurrency ? null : fxRate
+  }).select().single();
+  if(inErr){
+    /* Rollback: delete the OUT transaction */
+    await sb.from('bank_transactions').delete().eq('id', outTx.id);
+    console.error('[GL] saveTransfer in', inErr);
+    notify((ar?'فشل التحويل: ':'Transfer failed: ') + (inErr.message||''), 'error');
     return;
   }
+
+  /* Update OUT to point to IN (for symmetric pair lookup) */
+  await sb.from('bank_transactions').update({transfer_pair_id: inTx.id}).eq('id', outTx.id);
+
+  /* Update both account balances */
+  await sb.from('bank_accounts').update({current_balance: fromNewBal, updated_at: new Date().toISOString()}).eq('id', fromId);
+  await sb.from('bank_accounts').update({current_balance: toNewBal, updated_at: new Date().toISOString()}).eq('id', toId);
 
   notify(ar?'✅ تم التحويل':'✅ Transfer complete', 'success');
   closeTransferModal();
@@ -5512,12 +5014,10 @@ function switchTab(name){
     loadBills();
   }
 
-  /* Round 4h.1: lazy-load Banks data on first visit.
-     Round 29: also load GL leaf accounts so the bank-account modal's
-     GL picker has its cache ready. */
+  /* Round 4h.1: lazy-load Banks data on first visit */
   if(name === 'banks' && !window._banksLoaded){
     window._banksLoaded = true;
-    Promise.all([loadBankAccounts(), loadBankTransactions(), loadEligibleGlLeaves()]).then(renderBankAccounts);
+    Promise.all([loadBankAccounts(), loadBankTransactions()]).then(renderBankAccounts);
   }
 
   /* Round 4i.1: cashflow needs banks data too. Reuse the loaded flag. */
@@ -6763,20 +6263,10 @@ async function saveExpense(){
     return;
   }
 
-  /* Update vendor totals (best-effort) */
-  if(vendorId){
-    const vendor = allVendors.find(s => s.id === vendorId);
-    if(vendor){
-      const newPurchases = (parseFloat(vendor.total_purchases) || 0) + total;
-      const outstandingDelta = total - amountPaid;
-      const newOutstanding = (parseFloat(vendor.total_outstanding) || 0) + outstandingDelta;
-      await sb.from('suppliers').update({
-        total_purchases: newPurchases,
-        total_outstanding: newOutstanding,
-        updated_at: new Date().toISOString()
-      }).eq('id', vendorId);
-    }
-  }
+  /* Round 43: supplier total_purchases/total_outstanding are now maintained by
+     the sync_supplier_aggregates trigger on `expenses`. The expenses insert
+     above fires it, recomputing the supplier from source (receipts + expenses).
+     The old incremental update here was a second owner that drifted — removed. */
 
   /* Audit log */
   await writeAuditLog({
@@ -6798,12 +6288,7 @@ async function saveExpense(){
 async function postExpenseJournal(expense, cat){
   /* DR Expense Account (subtotal)
      DR Input VAT (if recoverable) — else add VAT to expense
-     CR Cash / Bank / AP
-
-     Round 28: if expense.bank_account_id is set, the cash side uses that
-     account's specific gl_account_code (so the journal_lines trigger
-     creates the correct bank_transactions row). Otherwise falls back to
-     the generic CODE.CASH / CODE.BANK roles. */
+     CR Cash / Bank / AP */
   if((parseFloat(expense.total) || 0) <= 0) return;
 
   const ar = currentLang === 'ar';
@@ -6811,14 +6296,9 @@ async function postExpenseJournal(expense, cat){
   const expenseAcctName = ar ? (cat?.ar || 'مصروف') : (cat?.en || 'Expense');
 
   let creditAcct, creditName;
-  if(expense.payment_method === 'cash' || expense.payment_method === 'bank'){
-    const cashSide = await resolveBankCashSide(expense.bank_account_id || null, expense.payment_method);
-    creditAcct = cashSide.code;
-    creditName = ar ? cashSide.nameAr : cashSide.nameEn;
-  } else {
-    creditAcct = CODE.AP;
-    creditName = ar ? 'موردون - حسابات دائنة' : 'Accounts Payable';
-  }
+  if(expense.payment_method === 'cash'){ creditAcct = CODE.CASH; creditName = ar?'الصندوق':'Cash'; }
+  else if(expense.payment_method === 'bank'){ creditAcct = CODE.BANK; creditName = ar?'البنك':'Bank'; }
+  else { creditAcct = CODE.AP; creditName = ar?'موردون - حسابات دائنة':'Accounts Payable'; }
 
   /* Try to insert into journal_entries / journal_lines if those tables exist.
      Wrapped in try-catch so it doesn't fail the expense if missing. */
@@ -7215,20 +6695,9 @@ async function confirmVoidExpense(){
   const btn = document.getElementById('btn-confirm-void');
   btn.disabled = true;
 
-  /* 1. Update vendor outstanding (subtract the unpaid portion that we previously added) */
-  if(exp.supplier_id){
-    const vendor = allVendors.find(s => s.id === exp.supplier_id);
-    if(vendor){
-      const wasOutstanding = (parseFloat(exp.total)||0) - (parseFloat(exp.amount_paid)||0);
-      const newOutstanding = Math.max(0, (parseFloat(vendor.total_outstanding)||0) - wasOutstanding);
-      const newPurchases = Math.max(0, (parseFloat(vendor.total_purchases)||0) - (parseFloat(exp.total)||0));
-      await sb.from('suppliers').update({
-        total_purchases: newPurchases,
-        total_outstanding: newOutstanding,
-        updated_at: new Date().toISOString()
-      }).eq('id', exp.supplier_id);
-    }
-  }
+  /* Round 43: supplier totals maintained by sync_supplier_aggregates trigger
+     on `expenses`. The status='voided' update later in this function fires it,
+     recomputing the supplier from source. Manual update removed. */
 
   /* 2. Mark expense voided */
   const {error} = await sb.from('expenses').update({
@@ -7444,29 +6913,48 @@ async function confirmPayment(){
     return;
   }
 
-  /* 2. Reduce vendor outstanding by the payment amount */
-  if(exp.supplier_id){
-    const vendor = allVendors.find(s => s.id === exp.supplier_id);
-    if(vendor){
-      const newOutstanding = Math.max(0, (parseFloat(vendor.total_outstanding) || 0) - newPayAmount);
-      await sb.from('suppliers').update({
-        total_outstanding: newOutstanding,
-        updated_at: new Date().toISOString()
-      }).eq('id', exp.supplier_id);
+  /* 2. Round 43: supplier outstanding maintained by sync_supplier_aggregates
+     trigger. The expenses.amount_paid update above fires it. Manual update removed. */
+
+  /* 3. Post payment journal entry: DR Accounts Payable / CR Cash or Bank */
+  await postPaymentJournal(exp, newPayAmount, payMethod, payDate, payNote);
+
+  /* Round 4h.2: auto-create bank withdrawal if user picked an account.
+     Tied to expense via source_type='expense', source_id=expense.id (idempotent
+     for backfill: backfill checks for existing source_type+source_id). */
+  const bankAccountId = document.getElementById('pay-bank-account-exp')?.value;
+  if(bankAccountId){
+    try {
+      const {data: acc} = await sb.from('bank_accounts').select('current_balance, currency').eq('id', bankAccountId).single();
+      if(acc){
+        const newBalance = (parseFloat(acc.current_balance)||0) - newPayAmount;
+        const {error: txErr} = await sb.from('bank_transactions').insert({
+          business_id: currentBiz.id,
+          user_id: currentUser.id,
+          account_id: bankAccountId,
+          transaction_type: 'withdrawal',
+          transaction_date: payDate,
+          amount: newPayAmount,
+          balance_after: newBalance,
+          description: (currentLang==='ar' ? 'دفع مصروف ' : 'Expense payment ') + (exp.expense_number || ''),
+          counterparty: exp.vendor_name_snapshot || null,
+          notes: payNote || null,
+          source_type: 'expense',
+          source_id: currentPayExpenseId
+        });
+        if(!txErr){
+          await sb.from('bank_accounts').update({
+            current_balance: newBalance,
+            updated_at: new Date().toISOString()
+          }).eq('id', bankAccountId);
+        } else {
+          console.warn('[GL] auto-withdrawal failed (payment still recorded):', txErr);
+        }
+      }
+    } catch(e){
+      console.warn('[GL] bank withdrawal skipped:', e.message);
     }
   }
-
-  /* 3. Post payment journal entry: DR Accounts Payable / CR specific
-     bank-linked GL account. Round 28: pass the picked bank_account so
-     the journal_line uses its gl_account_code, and the AFTER INSERT
-     trigger on journal_lines derives the bank_transactions row. */
-  const bankAccountId = document.getElementById('pay-bank-account-exp')?.value || null;
-  await postPaymentJournal(exp, newPayAmount, payMethod, payDate, payNote, bankAccountId);
-
-  /* Round 28 / Part 2: bank_transactions row + current_balance refresh are
-     now produced automatically by the journal_lines AFTER INSERT trigger
-     (_trg_sync_bank_transactions). The previous direct-insert block has
-     been removed — having both would duplicate. */
 
   /* 4. Audit log */
   await writeAuditLog({
@@ -7496,54 +6984,14 @@ async function confirmPayment(){
   }
 }
 
-/* Round 28 / Part 2: helper that returns the GL code + display name for
-   the cash side of a journal entry. If the caller supplies a bank_account
-   row (or its id), use its specific gl_account_code so the journal_lines
-   trigger derives the correct bank_transactions row. Otherwise fall back
-   to the generic CODE.CASH / CODE.BANK roles.
-   Returns: { code, nameAr, nameEn } */
-async function resolveBankCashSide(bankAccountOrId, paymentMethod){
-  const ar = currentLang === 'ar';
-  /* Default: generic role-based codes */
-  const isBank = (paymentMethod === 'bank' || paymentMethod === 'card');
-  const defaults = {
-    code:   isBank ? CODE.BANK : CODE.CASH,
-    nameAr: isBank ? 'البنك' : 'الصندوق',
-    nameEn: isBank ? 'Bank'  : 'Cash'
-  };
-
-  if(!bankAccountOrId) return defaults;
-
-  /* If we got an ID, look up the row; if we got a row, use it directly */
-  let acc = (typeof bankAccountOrId === 'string')
-    ? null
-    : bankAccountOrId;
-  if(!acc){
-    const {data} = await sb.from('bank_accounts')
-      .select('gl_account_code, account_name, account_name_ar')
-      .eq('id', bankAccountOrId).maybeSingle();
-    acc = data;
-  }
-  if(!acc?.gl_account_code) return defaults;
-
-  return {
-    code:   acc.gl_account_code,
-    nameAr: acc.account_name_ar || acc.account_name || defaults.nameAr,
-    nameEn: acc.account_name    || acc.account_name_ar || defaults.nameEn
-  };
-}
-
-async function postPaymentJournal(exp, payAmount, payMethod, payDate, note, bankAccountOrId){
+async function postPaymentJournal(exp, payAmount, payMethod, payDate, note){
   const ar = currentLang === 'ar';
   const debitAcct = CODE.AP;
   const debitName = ar ? 'موردون - حسابات دائنة' : 'Accounts Payable';
-
-  /* Round 28: resolve the cash-side account from the picked bank_account
-     so the trigger writes the correct bank_transactions row. */
-  const cashSide = await resolveBankCashSide(bankAccountOrId, payMethod);
-  const creditAcct = cashSide.code;
-  const creditName = ar ? cashSide.nameAr : cashSide.nameEn;
-
+  const creditAcct = (payMethod === 'bank') ? CODE.BANK : CODE.CASH;
+  const creditName = (payMethod === 'bank')
+    ? (ar ? 'البنك' : 'Bank')
+    : (ar ? 'الصندوق' : 'Cash');
   const desc = ar
     ? `دفعة على ${exp.expense_number}${note ? ' — ' + note : ''}`
     : `Payment on ${exp.expense_number}${note ? ' — ' + note : ''}`;
@@ -7581,20 +7029,10 @@ async function postExpenseVoidJournal(exp){
   const expenseAcct = exp.account_code || cat?.account || '6900';
   const expenseAcctName = ar ? (cat?.ar || 'مصروف') : (cat?.en || 'Expense');
 
-  /* Round 28: cash side now uses the specific bank_account's gl_account_code
-     if the original expense recorded it. The void journal puts the cash
-     back into the SAME bank_account it left from (audit-correct).
-     Falls back to generic CODE.CASH/BANK for legacy expenses (created
-     before Migration 34 added expenses.bank_account_id). */
   let creditAcct, creditName;
-  if(exp.payment_method === 'cash' || exp.payment_method === 'bank'){
-    const cashSide = await resolveBankCashSide(exp.bank_account_id || null, exp.payment_method);
-    creditAcct = cashSide.code;
-    creditName = ar ? cashSide.nameAr : cashSide.nameEn;
-  } else {
-    creditAcct = CODE.AP;
-    creditName = ar ? 'موردون - حسابات دائنة' : 'Accounts Payable';
-  }
+  if(exp.payment_method === 'cash'){ creditAcct = CODE.CASH; creditName = ar?'الصندوق':'Cash'; }
+  else if(exp.payment_method === 'bank'){ creditAcct = CODE.BANK; creditName = ar?'البنك':'Bank'; }
+  else { creditAcct = CODE.AP; creditName = ar?'موردون - حسابات دائنة':'Accounts Payable'; }
 
   try {
     const {data:entry, error} = await sb.from('journal_entries').insert({
@@ -8806,7 +8244,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.20-35</div>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.22-33</div>
 <script>console.log('%c[GulfLedger build] v2026.05.17-22 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>

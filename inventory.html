@@ -5078,16 +5078,15 @@ async function saveReceipt(){
         - CR Cash/Bank/AP for total */
   await postReceiptJournal(receipt, validItems, subtotal, vatAmount, total, paymentMethod, amountPaid);
 
-  /* 4. Update supplier aggregates */
+  /* 4. Round 43: supplier total_purchases/total_outstanding maintained by the
+     sync_supplier_aggregates trigger on `stock_receipts` (fired by the receipt
+     insert in postReceiptJournal/step above). We only stamp first_purchase_date
+     here (a one-time field the trigger doesn't manage). */
   if(receiptPayload.supplier_id){
     const sup = allSuppliers.find(s => s.id === receiptPayload.supplier_id);
-    if(sup){
-      const newPurchases = (parseFloat(sup.total_purchases)||0) + total;
-      const newOutstanding = (parseFloat(sup.total_outstanding)||0) + (total - amountPaid);
+    if(sup && !sup.first_purchase_date){
       await sb.from('suppliers').update({
-        total_purchases: newPurchases,
-        total_outstanding: newOutstanding,
-        first_purchase_date: sup.first_purchase_date || receiptPayload.receipt_date,
+        first_purchase_date: receiptPayload.receipt_date,
         updated_at: new Date().toISOString()
       }).eq('id', receiptPayload.supplier_id);
     }
@@ -6449,17 +6448,9 @@ async function voidReceipt(receiptId){
     }).eq('id', b.id);
   }
 
-  /* 4. Update supplier aggregates (reverse the purchase) */
-  if(receipt.supplier_id && sup){
-    const newPurchases = Math.max(0, (parseFloat(sup.total_purchases)||0) - (parseFloat(receipt.total)||0));
-    const wasOutstanding = (parseFloat(receipt.total)||0) - (parseFloat(receipt.amount_paid)||0);
-    const newOutstanding = Math.max(0, (parseFloat(sup.total_outstanding)||0) - wasOutstanding);
-    await sb.from('suppliers').update({
-      total_purchases: newPurchases,
-      total_outstanding: newOutstanding,
-      updated_at: new Date().toISOString()
-    }).eq('id', receipt.supplier_id);
-  }
+  /* 4. Round 43: supplier totals maintained by sync_supplier_aggregates trigger
+     on `stock_receipts`. The status='voided' update later in this function fires
+     it, recomputing from source. Manual reverse removed. */
 
   /* 5. Mark receipt as voided */
   await sb.from('stock_receipts').update({
@@ -6618,18 +6609,8 @@ async function saveReceiptPayment(){
     return;
   }
 
-  /* 2. Reduce supplier outstanding by the payment amount */
-  if(receipt.supplier_id){
-    const sup = allSuppliers.find(s => s.id === receipt.supplier_id);
-    if(sup){
-      const newOutstanding = Math.max(0, (parseFloat(sup.total_outstanding) || 0) - newPayAmount);
-      const {error: supErr} = await sb.from('suppliers').update({
-        total_outstanding: newOutstanding,
-        updated_at: new Date().toISOString()
-      }).eq('id', receipt.supplier_id);
-      if(supErr) console.warn('[GL] supplier outstanding update failed:', supErr);
-    }
-  }
+  /* 2. Round 43: supplier outstanding maintained by sync_supplier_aggregates
+     trigger. The stock_receipts.amount_paid update above fires it. Manual removed. */
 
   /* 3. Post payment journal entry: DR AP / CR Cash or Bank */
   await postReceiptPaymentJournal(receipt, newPayAmount, payMethod, payDate, payNote);
@@ -7337,7 +7318,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.19-33</div>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.05.22-34</div>
 <script>console.log('%c[GulfLedger build] v2026.05.17-25 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
