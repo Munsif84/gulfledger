@@ -331,14 +331,6 @@ html.lang-switching *::after {
   animation-delay: 0s !important;
 }
 
-
-/* Numbers stay LTR even in RTL layouts — correct accounting / ZATCA convention */
-.num,.row-num,.row-amount,.stat-val{
-  font-variant-numeric:tabular-nums;
-  direction:ltr;
-  unicode-bidi:isolate;
-}
-
 /* ─── TOPNAV (matches dashboard.html) ─── */
 .topnav{height:44px;min-height:44px;box-sizing:border-box;background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:300;box-shadow:0 2px 8px rgba(0,0,0,0.15);}
 .nav-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
@@ -473,19 +465,71 @@ html.lang-switching *::after {
 .tbl{width:100%;border-collapse:collapse;font-size:14px;}
 .tbl th,.tbl td{text-align:start;}
 .tbl th{padding:10px 14px;background:var(--color-bg-subtle);color:var(--color-text-muted);font-size:12px;font-weight:500;border-bottom:1px solid var(--border);white-space:nowrap;}
-/* Round 46 (UX phase 1.3): default = nowrap. This guarantees the invoice
-   number, date, amount, status, type, ZATCA cells stay single-line.
-   Long customer names get .wrap-allowed to opt-out and may use 2 lines if needed. */
 .tbl td{padding:11px 14px;border-bottom:1px solid var(--tint);vertical-align:middle;white-space:nowrap;}
 .tbl td.wrap-allowed{white-space:normal;}
 .tbl tr:last-child td{border-bottom:none;}
 .tbl tr.clickable{cursor:pointer;}
 .tbl tr.clickable:hover td{background:#fafbfa;}
-/* Round 46 (UX phase 1.2): header alignment + data alignment follow the
-   document direction together. In LTR, both header and column data are
-   left-aligned; in RTL, both right-aligned. Numbers stay readable via
-   tabular figures (each digit fixed width). The only true override is
-   `.center` which is intentional for narrow icon/actions columns. */
+
+/* ════════════════════════════════════════════════════════════════════════
+   MOBILE TABLE → CARD TRANSFORMATION  (Round 46 UX phase 2)
+   ──────────────────────────────────────────────────────────────────────
+   Below 720px, every .tbl table becomes a stack of cards (no horizontal
+   scrolling, no display:none of data). The INVOICES table (#inv-list)
+   additionally gets focal-pair positioning so customer-name + amount are
+   the visual anchors. Other tables (#cn-list, #dn-list, #cust-list) get
+   the basic card transformation — columns stack in document order, which
+   is acceptable since they're scanned less often.
+   ════════════════════════════════════════════════════════════════════════ */
+@media (max-width: 720px) {
+  /* — Basic card transformation, applies to every .tbl — */
+  .table-wrap { overflow-x: visible; }
+  .tbl, .tbl thead, .tbl tbody, .tbl tr, .tbl td { display: block; width: 100%; }
+  .tbl thead { display: none; }
+
+  .tbl tr {
+    background: var(--color-bg-surface);
+    border: 1px solid var(--color-border);
+    border-radius: var(--radius-lg);
+    padding: var(--space-3) var(--space-4);
+    margin-bottom: var(--space-3);
+    box-shadow: var(--shadow-sm);
+  }
+  .tbl tr.clickable:hover td { background: transparent; }
+  .tbl tr.clickable { -webkit-tap-highlight-color: var(--color-primary-soft); }
+
+  .tbl td {
+    padding: 2px 0;
+    border: none;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0;
+  }
+
+  /* — INVOICES-SPECIFIC focal-pair layout (only inside #inv-list) — */
+  /* Columns: 1=invoice#, 2=date, 3=customer, 4=type, 5=amount, 6=status, 7=ZATCA, 8=actions */
+  #inv-list .tbl tr {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    grid-template-areas:
+      "name    amount"
+      "ref     status"
+      "date    zatca"
+      "type    actions";
+    gap: var(--space-1) var(--space-3);
+    align-items: baseline;
+  }
+  #inv-list .tbl td:nth-child(3) { grid-area: name; font-size: var(--text-base); font-weight: 500; color: var(--color-text-strong); }
+  #inv-list .tbl td:nth-child(5) { grid-area: amount; font-size: var(--text-lg); font-weight: 500; color: var(--color-text-strong); text-align: end; font-variant-numeric: tabular-nums; direction: ltr; unicode-bidi: isolate; }
+  #inv-list .tbl td:nth-child(1) { grid-area: ref; font-size: var(--text-xs); color: var(--color-primary); font-weight: 500; }
+  #inv-list .tbl td:nth-child(6) { grid-area: status; text-align: end; }
+  #inv-list .tbl td:nth-child(2) { grid-area: date; font-size: var(--text-xs); color: var(--color-text-muted); }
+  #inv-list .tbl td:nth-child(7) { grid-area: zatca; text-align: end; font-size: var(--text-xs); color: var(--color-text-muted); }
+  #inv-list .tbl td:nth-child(4) { grid-area: type; font-size: var(--text-xs); color: var(--color-text-muted); }
+  #inv-list .tbl td:nth-child(8) { grid-area: actions; text-align: end; }
+  .tbl td .badge { font-size: var(--text-xs); }
+}
 .tbl .num,.tbl th.num{font-family:inherit;font-variant-numeric:tabular-nums;}
 .tbl .center,.tbl th.center{text-align:center;}
 .tbl tr.voided td{opacity:0.55;text-decoration:line-through;}
@@ -638,7 +682,7 @@ html.lang-switching *::after {
 /* List header row — column labels (must mirror .list-row grid exactly) */
 .list-header{display:grid;gap:16px;align-items:center;padding:10px 18px;background:var(--bg);border-bottom:1px solid var(--border);font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;}
 /* Invoice list: 8 columns — #, Date, Customer, Type, Amount, Status, ZATCA, Actions */
-.list-header.invoices-header{grid-template-columns:140px 95px minmax(170px, 1fr) 70px 120px 100px 130px 180px;}
+.list-header.invoices-header{grid-template-columns:130px 95px minmax(170px, 1fr) 70px 120px 100px 130px 180px;}
 /* Customer list: 8 columns — avatar, code, name, type, last invoice, outstanding, total, actions */
 .list-header.customers-header{grid-template-columns:36px 90px minmax(160px, 1fr) 70px 110px 120px 120px 200px;}
 .list-header span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
@@ -646,19 +690,16 @@ html.lang-switching *::after {
 .list-header .h-actions{text-align:end;}
 @media(max-width:900px){.list-header{display:none;}}
 
-.list-row{display:grid;grid-template-columns:140px 95px minmax(170px, 1fr) 70px 120px 100px 130px 180px;gap:14px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--tint);cursor:pointer;transition:background .12s;}
+.list-row{display:grid;grid-template-columns:130px 95px minmax(170px, 1fr) 70px 120px 100px 130px 180px;gap:14px;align-items:center;padding:14px 18px;border-bottom:1px solid var(--tint);cursor:pointer;transition:background .12s;}
 .list-row:last-child{border-bottom:none;}
 .list-row:hover{background:#fafffe;}
 .list-row.voided{opacity:0.55;}
 .list-row.voided .row-num{text-decoration:line-through;}
 
-.row-num{font-family:inherit;font-variant-numeric:tabular-nums;font-size:13px;font-weight:700;color:var(--blue);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
-.row-date{font-size:12px;color:var(--muted);font-family:inherit;font-variant-numeric:tabular-nums;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
+.row-num{font-family:inherit;font-variant-numeric:tabular-nums;font-size:13px;font-weight:700;color:var(--blue);}
+.row-date{font-size:12px;color:var(--muted);font-family:inherit;font-variant-numeric:tabular-nums;}
 .row-buyer{font-size:14px;color:var(--ink);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0;}
-.row-amount{font-family:inherit;font-variant-numeric:tabular-nums;font-size:14px;font-weight:700;color:var(--ink);text-align:end;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;}
-/* Catch-all: any direct child cell of a list-row must never wrap.
-   This guarantees the table grid stays at a single consistent row height. */
-.list-row > * { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.row-amount{font-family:inherit;font-variant-numeric:tabular-nums;font-size:14px;font-weight:700;color:var(--ink);text-align:end;}
 
 .badge{font-size:12px;font-weight:500;padding:2px 8px;border-radius:6px;display:inline-flex;align-items:center;gap:4px;white-space:nowrap;}
 .badge-paid{background:var(--color-status-success-bg);color:var(--color-status-success);}
@@ -7257,7 +7298,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-uxsys</div>
-<script>console.log('%c[GulfLedger build] v2026.06.06-uxsys · Round 46: UX phase 1 design system rollout to invoices', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-mobile</div>
+<script>console.log('%c[GulfLedger build] v2026.06.06-mobile · Round 46: UX phase 2 — mobile table→card transformation for invoice list', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
