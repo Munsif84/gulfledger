@@ -10,9 +10,8 @@
   ACTIVE SECTIONS (as of Round 46):
 
     Business profile
-      business             Name, TRN, CR, address, contact
+      business             Name, TRN, CR, address, contact, logo
       tax-profile          VAT registration, tax periods
-      branding             Logo, brand color, stamp
       localization         Default language, currency, date format
 
     Invoice & layout
@@ -23,17 +22,24 @@
       inventory-costing    FIFO/WAC, valuation methods
       inventory-analytics  Reporting toggles
 
-    Accounting
-      account-mappings     Default GL account mappings for invoice/expense flows
-
     Team & account
       team                 Multi-user roles
       account              Login email, password change, danger zone
 
-  REMOVED Round 46: zatca, notifications, integrations, affiliate
-    These were "Coming Soon" stubs hidden from users. Deleted because not in
-    active roadmap. Add back as real sections when the corresponding feature
-    ships, not before.
+  REMOVED Round 46:
+    - zatca, notifications, integrations, affiliate
+        Were "Coming Soon" stubs hidden from users. Deleted when not in
+        active roadmap. Add back as real sections when features ship.
+    - account-mappings
+        Role→account mapping is automatic from the chart-of-accounts seed
+        at business creation. Manual override no longer exposed because
+        most businesses don't need it; the triggers and posting RPCs read
+        account_role_map directly.
+    - branding (consolidated)
+        Logo upload moved into Business profile (it's a business-identity
+        field). Brand color picker removed entirely — the design system
+        provides a coherent Saudi green throughout; per-tenant color
+        customization undermines consistency.
 
   REQUIRED SQL: Run settings-sql-migration.sql in Supabase first.
 ═══════════════════════════════════════════════════════════════════════════════
@@ -685,12 +691,7 @@ html.lang-switching *::after {
       <button class="sidebar-link" onclick="showSection('tax-profile', this)">
         <span class="icon">🏛</span>
         <span data-ar="الكيان والملكية" data-en="Tax Profile">الكيان والملكية</span>
-      </button>
-      <button class="sidebar-link" onclick="showSection('branding', this)">
-        <span class="icon">🎨</span>
-        <span data-ar="الهوية والشعار" data-en="Branding">الهوية والشعار</span>
-      </button>
-      <button class="sidebar-link" onclick="showSection('localization', this)">
+      </button>      <button class="sidebar-link" onclick="showSection('localization', this)">
         <span class="icon">🌍</span>
         <span data-ar="اللغة والعملة" data-en="Localization">اللغة والعملة</span>
       </button>
@@ -721,12 +722,7 @@ html.lang-switching *::after {
     </div>
 
     <div class="sidebar-group">
-      <div class="sidebar-group-label" data-ar="المحاسبة" data-en="Accounting">المحاسبة</div>
-      <button class="sidebar-link" onclick="showSection('account-mappings', this)">
-        <span class="icon">🔗</span>
-        <span data-ar="ربط الحسابات" data-en="Account Mappings">ربط الحسابات</span>
-      </button>
-    </div>
+      <div class="sidebar-group-label" data-ar="المحاسبة" data-en="Accounting">المحاسبة</div>    </div>
 
     <div class="sidebar-group">
       <div class="sidebar-group-label" data-ar="متقدم" data-en="Advanced">متقدم</div>
@@ -872,6 +868,35 @@ html.lang-switching *::after {
             </div>
           </div>
         </div>
+        <!-- Round 46: Logo moved here from old Branding section.
+             Logo is fundamentally a business-identity field, belongs with
+             name/TRN/CR. The old Branding section had only color picker
+             remaining, which we removed in favor of design-system consistency. -->
+        <div class="field" style="margin-top:18px;">
+          <div class="field-label">
+            <span data-ar="الشعار" data-en="Logo">الشعار</span>
+            <span class="field-hint-inline" style="font-weight:400;color:var(--muted);font-size:12px;margin-inline-start:8px;" data-ar="يظهر على فواتيرك ومستنداتك" data-en="Shown on your invoices and documents">يظهر على فواتيرك ومستنداتك</span>
+          </div>
+          <div class="logo-upload-wrap">
+            <div class="logo-preview" id="logo-preview">
+              <span class="logo-preview-empty">🏢</span>
+            </div>
+            <div class="logo-upload-info">
+              <div class="name" id="logo-status" data-ar="لم يُرفع شعار بعد" data-en="No logo uploaded yet">لم يُرفع شعار بعد</div>
+              <div class="meta" data-ar="PNG / JPG / SVG · بحد أقصى 500KB" data-en="PNG / JPG / SVG · Max 500KB">PNG / JPG / SVG · بحد أقصى 500KB</div>
+              <div class="actions">
+                <button class="btn btn-secondary" onclick="document.getElementById('logo-input').click()">
+                  📤 <span data-ar="رفع شعار" data-en="Upload Logo">رفع شعار</span>
+                </button>
+                <button class="btn btn-ghost" onclick="removeLogo()" id="btn-remove-logo" style="display:none;">
+                  🗑 <span data-ar="إزالة" data-en="Remove">إزالة</span>
+                </button>
+              </div>
+              <input type="file" id="logo-input" accept="image/*" style="display:none;" onchange="handleLogoUpload(event)">
+            </div>
+          </div>
+        </div>
+
       </div>
       <div class="section-foot">
         <span class="save-status" id="save-status-business">✓ <span data-ar="تم الحفظ" data-en="Saved">تم الحفظ</span></span>
@@ -1043,70 +1068,6 @@ html.lang-switching *::after {
     </div>
 
     <!-- ═════════ BRANDING ═════════ -->
-    <div class="section-card" id="sec-branding" style="display:none;">
-      <div class="section-header">
-        <div class="section-title-wrap">
-          <div class="section-title">
-            <span class="icon">🎨</span>
-            <span data-ar="الهوية والشعار" data-en="Branding">الهوية والشعار</span>
-          </div>
-          <div class="section-sub" data-ar="الشعار واللون يظهرون على الفواتير ولوحات العميل." data-en="Logo and color appear on invoices and customer-facing pages.">الشعار واللون يظهرون على الفواتير ولوحات العميل.</div>
-        </div>
-      </div>
-      <div class="section-body">
-        <!-- Logo upload -->
-        <div class="field" style="margin-bottom:18px;">
-          <div class="field-label">
-            <span data-ar="الشعار" data-en="Logo">الشعار</span>
-          </div>
-          <div class="logo-upload-wrap">
-            <div class="logo-preview" id="logo-preview">
-              <span class="logo-preview-empty">🏢</span>
-            </div>
-            <div class="logo-upload-info">
-              <div class="name" id="logo-status" data-ar="لم يُرفع شعار بعد" data-en="No logo uploaded yet">لم يُرفع شعار بعد</div>
-              <div class="meta" data-ar="PNG / JPG / SVG · بحد أقصى 500KB" data-en="PNG / JPG / SVG · Max 500KB">PNG / JPG / SVG · بحد أقصى 500KB</div>
-              <div class="actions">
-                <button class="btn btn-secondary" onclick="document.getElementById('logo-input').click()">
-                  📤 <span data-ar="رفع شعار" data-en="Upload Logo">رفع شعار</span>
-                </button>
-                <button class="btn btn-ghost" onclick="removeLogo()" id="btn-remove-logo" style="display:none;">
-                  🗑 <span data-ar="إزالة" data-en="Remove">إزالة</span>
-                </button>
-              </div>
-              <input type="file" id="logo-input" accept="image/*" style="display:none;" onchange="handleLogoUpload(event)">
-            </div>
-          </div>
-        </div>
-
-        <!-- Brand color -->
-        <div class="field">
-          <div class="field-label">
-            <span data-ar="اللون الأساسي" data-en="Brand Color">اللون الأساسي</span>
-          </div>
-          <div class="color-picker-wrap">
-            <div class="color-swatch active" style="background:#006C35;" onclick="setBrandColor('#006C35')" title="أخضر سعودي · Saudi Green"></div>
-            <div class="color-swatch" style="background:#1E3A8A;" onclick="setBrandColor('#1E3A8A')" title="أزرق ملكي · Royal Blue"></div>
-            <div class="color-swatch" style="background:#7C3AED;" onclick="setBrandColor('#7C3AED')" title="بنفسجي · Purple"></div>
-            <div class="color-swatch" style="background:#DC2626;" onclick="setBrandColor('#DC2626')" title="أحمر · Red"></div>
-            <div class="color-swatch" style="background:#0891B2;" onclick="setBrandColor('#0891B2')" title="تركواز · Teal"></div>
-            <div class="color-swatch" style="background:#0D2618;" onclick="setBrandColor('#0D2618')" title="أخضر داكن · Dark Green"></div>
-            <div style="margin-inline-start:12px;display:flex;gap:6px;align-items:center;">
-              <input type="color" id="brand-color-input" class="color-input" value="#006C35" oninput="syncColorInputs()">
-              <input type="text" id="brand-color-text" class="color-text-input mono" value="#006C35" oninput="onColorTextInput()">
-            </div>
-          </div>
-          <div class="field-hint" data-ar="هذا اللون يظهر في رأس الفاتورة وأزرار الإجراءات." data-en="This color appears on invoice header and action buttons.">هذا اللون يظهر في رأس الفاتورة وأزرار الإجراءات.</div>
-        </div>
-      </div>
-      <div class="section-foot">
-        <span class="save-status" id="save-status-branding">✓ <span data-ar="تم الحفظ" data-en="Saved">تم الحفظ</span></span>
-        <button class="btn btn-primary" onclick="saveBranding()">
-          <span data-ar="حفظ التغييرات" data-en="Save Changes">حفظ التغييرات</span>
-        </button>
-      </div>
-    </div>
-
     <!-- ═════════ INVOICE DEFAULTS ═════════ -->
     <div class="section-card" id="sec-invoice" style="display:none;">
       <div class="section-header">
@@ -1762,25 +1723,6 @@ html.lang-switching *::after {
     <!-- ═════════ INTEGRATIONS (Coming Soon placeholder) ═════════ -->
     <!-- ═════════ AFFILIATE PROGRAM (Coming Soon placeholder) ═════════ -->
     <!-- ═════════ ACCOUNT MAPPINGS (Round 18) ═════════ -->
-    <div class="section-card" id="sec-account-mappings" style="display:none;">
-      <div class="section-header">
-        <div class="section-title-wrap">
-          <div class="section-title">
-            <span class="icon">🔗</span>
-            <span data-ar="ربط الحسابات" data-en="Account Mappings">ربط الحسابات</span>
-          </div>
-          <div class="section-sub" data-ar="اربط كل غرض محاسبي بأحد حساباتك. سيستخدم النظام هذه الروابط لتسجيل القيود تلقائياً عند إنشاء الفواتير والمصاريف وغيرها." data-en="Connect each accounting purpose to one of your accounts. The system uses these mappings to automatically post journal entries when you create invoices, expenses, and more.">اربط كل غرض محاسبي بأحد حساباتك. سيستخدم النظام هذه الروابط لتسجيل القيود تلقائياً عند إنشاء الفواتير والمصاريف وغيرها.</div>
-        </div>
-      </div>
-      <div class="section-body">
-        <div id="arm-loading" style="text-align:center;padding:40px;color:var(--muted);">
-          <div style="font-size:24px;margin-bottom:8px;">⏳</div>
-          <span data-ar="جاري تحميل الاقتراحات..." data-en="Loading suggestions...">Loading suggestions...</span>
-        </div>
-        <div id="arm-content" style="display:none;"></div>
-      </div>
-    </div>
-
     <!-- ═════════ ACCOUNT & SECURITY ═════════ -->
     <div class="section-card" id="sec-account" style="display:none;">
       <div class="section-header">
@@ -2125,8 +2067,6 @@ function populateAllForms(){
     setText('logo-status', currentLang==='ar' ? 'تم رفع الشعار' : 'Logo uploaded');
     document.getElementById('btn-remove-logo').style.display = '';
   }
-  const color = b.brand_color || '#006C35';
-  setBrandColor(color);
 
   /* Tax Profile */
   setVal('legal-entity-type', b.legal_entity_type || '');
@@ -2254,12 +2194,27 @@ async function saveBusiness(){
     updated_at: new Date().toISOString()
   };
 
+  /* Round 46: include logo with business save (logo was previously in
+     a separate Branding section, now folded in here). */
+  if(currentBiz._pendingLogo){
+    payload.logo_base64 = currentBiz._pendingLogo;
+  } else if(currentBiz._removeLogo){
+    payload.logo_base64 = null;
+  }
+
   const {error} = await sb.from('businesses').update(payload).eq('id', currentBiz.id);
   if(error){
     notify(error.message, 'error');
     return;
   }
   Object.assign(currentBiz, payload);
+  delete currentBiz._pendingLogo;
+  delete currentBiz._removeLogo;
+  /* Sync logo to localStorage for other pages */
+  if('logo_base64' in payload){
+    if(payload.logo_base64) localStorage.setItem('gl_logo_base64', payload.logo_base64);
+    else localStorage.removeItem('gl_logo_base64');
+  }
   setText('biz-name', payload.name_ar);
   showSaveStatus('business');
   notify(currentLang==='ar'?'✅ تم حفظ بيانات المنشأة':'✅ Business profile saved', 'success');
@@ -2300,31 +2255,9 @@ function removeLogo(){
   currentBiz._removeLogo = true;
 }
 
-function setBrandColor(hex){
-  document.getElementById('brand-color-input').value = hex;
-  document.getElementById('brand-color-text').value = hex.toUpperCase();
-  document.querySelectorAll('.color-swatch').forEach(s => {
-    s.classList.toggle('active', s.style.backgroundColor && rgbToHex(s.style.backgroundColor).toLowerCase() === hex.toLowerCase());
-  });
-}
 
-function rgbToHex(rgb){
-  const m = rgb.match(/\d+/g);
-  if(!m || m.length < 3) return rgb;
-  return '#' + m.slice(0,3).map(n => parseInt(n).toString(16).padStart(2,'0')).join('').toUpperCase();
-}
 
-function syncColorInputs(){
-  const hex = document.getElementById('brand-color-input').value;
-  setBrandColor(hex);
-}
 
-function onColorTextInput(){
-  const hex = document.getElementById('brand-color-text').value.trim();
-  if(/^#[0-9A-Fa-f]{6}$/.test(hex)){
-    setBrandColor(hex);
-  }
-}
 
 /* ═══════════════════════════════════════════════════════
    TAX PROFILE — Zakat/CIT determination
@@ -2857,34 +2790,6 @@ async function saveTaxProfile(){
   notify(currentLang==='ar'?'✅ تم حفظ بيانات الشركاء والضرائب':'✅ Partners and tax profile saved', 'success');
 }
 
-async function saveBranding(){
-  const payload = {
-    brand_color: v('brand-color-text') || '#006C35',
-    updated_at: new Date().toISOString()
-  };
-  if(currentBiz._pendingLogo){
-    payload.logo_base64 = currentBiz._pendingLogo;
-  } else if(currentBiz._removeLogo){
-    payload.logo_base64 = null;
-  }
-
-  const {error} = await sb.from('businesses').update(payload).eq('id', currentBiz.id);
-  if(error){
-    notify(error.message, 'error');
-    return;
-  }
-  Object.assign(currentBiz, payload);
-  delete currentBiz._pendingLogo;
-  delete currentBiz._removeLogo;
-  /* Sync to localStorage for other pages */
-  if(payload.brand_color) localStorage.setItem('gl_brand_color', payload.brand_color);
-  if('logo_base64' in payload){
-    if(payload.logo_base64) localStorage.setItem('gl_logo_base64', payload.logo_base64);
-    else localStorage.removeItem('gl_logo_base64');
-  }
-  showSaveStatus('branding');
-  notify(currentLang==='ar'?'✅ تم حفظ التصميم':'✅ Branding saved', 'success');
-}
 
 /* ═══════════════════════════════════════════════════════
    INVOICE DEFAULTS SAVE
@@ -3738,379 +3643,17 @@ const _arm = {
   }
 };
 
-async function loadAccountMappings(){
-  const ar = currentLang === 'ar';
-  if(!currentBiz) return;
-  /* Lazy-load: only fetch once per visit; user can refresh by clicking the section again */
-  if(_arm.loaded){
-    renderAccountMappings();
-    return;
-  }
-  document.getElementById('arm-loading').style.display = '';
-  document.getElementById('arm-content').style.display = 'none';
 
-  try {
-    /* 1. Load auto-detect suggestions */
-    const {data: detected, error: detectErr} = await sb.rpc('detect_account_role_mappings', {
-      p_business_id: currentBiz.id
-    });
-    if(detectErr) throw detectErr;
 
-    /* 2. Load full CoA for the business (for dropdown options) */
-    const {data: coa, error: coaErr} = await sb.from('chart_of_accounts')
-      .select('code, name_en, name_ar, type, normal_balance, is_header, is_active')
-      .eq('business_id', currentBiz.id)
-      .eq('is_active', true)
-      .eq('is_header', false)
-      .order('code', {ascending: true});
-    if(coaErr) throw coaErr;
 
-    _arm.detected = detected || [];
-    _arm.coa = coa || [];
 
-    /* 3. Pre-fill draft with existing mappings AND high-confidence suggestions */
-    _arm.draft.clear();
-    for(const row of _arm.detected){
-      if(row.current_mapping){
-        _arm.draft.set(row.role, row.current_mapping);
-      } else if(row.confidence === 'high' && row.suggested_code){
-        /* Optimistic pre-fill — user can change before save */
-        _arm.draft.set(row.role, row.suggested_code);
-      }
-    }
 
-    /* 4. Group by group_name */
-    Object.keys(_arm.groups).forEach(k => _arm.groups[k] = []);
-    for(const row of _arm.detected){
-      if(_arm.groups[row.group_name]){
-        _arm.groups[row.group_name].push(row);
-      }
-    }
 
-    _arm.loaded = true;
-    document.getElementById('arm-loading').style.display = 'none';
-    document.getElementById('arm-content').style.display = '';
-    renderAccountMappings();
-  } catch(e){
-    console.error('[ARM] load failed:', e);
-    document.getElementById('arm-loading').innerHTML =
-      `<div style="color:var(--red);font-size:13px;">⚠ ${ar?'فشل تحميل اقتراحات الربط':'Failed to load mapping suggestions'}: ${e.message || ''}</div>`;
-  }
-}
 
-function _armOriginalCode(role){
-  /* Returns the value that was loaded — used to detect "dirty" rows */
-  const row = _arm.detected.find(r => r.role === role);
-  if(!row) return null;
-  if(row.current_mapping) return row.current_mapping;
-  if(row.confidence === 'high' && row.suggested_code) return row.suggested_code;
-  return null;
-}
 
-function _armCountChanges(){
-  let n = 0;
-  for(const [role, code] of _arm.draft.entries()){
-    if(code !== _armOriginalCode(role)) n++;
-  }
-  /* Also count removals — roles where we had an original but draft has no entry */
-  for(const row of _arm.detected){
-    const orig = _armOriginalCode(row.role);
-    if(orig && !_arm.draft.has(row.role)) n++;
-  }
-  return n;
-}
 
-function renderAccountMappings(){
-  const ar = currentLang === 'ar';
-  const content = document.getElementById('arm-content');
-  if(!content) return;
 
-  /* Compute progress: total mapped vs total roles; required mapped */
-  const total       = _arm.detected.length;
-  const mapped      = [..._arm.draft.values()].filter(Boolean).length;
-  const reqRoles    = _arm.detected.filter(r => r.is_required);
-  const reqMapped   = reqRoles.filter(r => _arm.draft.get(r.role)).length;
-  const highSuggested = _arm.detected.filter(r =>
-    r.confidence === 'high' &&
-    r.suggested_code &&
-    !_arm.draft.get(r.role)
-  ).length;
-  const pct = total > 0 ? Math.round((mapped / total) * 100) : 0;
-  const changes = _armCountChanges();
 
-  let html = `
-    <div class="arm-progress-card">
-      <div class="arm-progress-row">
-        <span class="arm-progress-label">${ar?'تقدم الإعداد':'Setup progress'}</span>
-        <span class="arm-progress-meta">
-          ${ar?`${mapped} من ${total} مربوط`:`${mapped} of ${total} mapped`}
-          · <strong style="color:${reqMapped===reqRoles.length?'var(--green)':'var(--amber)'};">
-            ${ar?`${reqMapped} من ${reqRoles.length} مطلوب`:`${reqMapped} of ${reqRoles.length} required`}
-            ${reqMapped===reqRoles.length?'✓':''}
-          </strong>
-        </span>
-      </div>
-      <div class="arm-progress-bar">
-        <div class="arm-progress-fill" style="width:${pct}%;"></div>
-      </div>
-      <div class="arm-bulk-actions">
-        ${highSuggested > 0 ? `
-          <button class="arm-bulk-btn" onclick="armAcceptAllHigh()">
-            ${ar?`قبول ${highSuggested} اقتراح عالي الثقة`:`Accept ${highSuggested} high-confidence suggestions`}
-          </button>
-        ` : ''}
-        <button class="arm-bulk-btn secondary" onclick="armReloadFromServer()">
-          ↻ ${ar?'إعادة الفحص':'Re-detect'}
-        </button>
-      </div>
-    </div>
-  `;
-
-  /* Render each group in display_order */
-  const groupOrder = ['money','ar_ap','inventory','fixed_assets','equity','debt','sales','expenses'];
-  for(const g of groupOrder){
-    const rows = _arm.groups[g];
-    if(!rows || rows.length === 0) continue;
-    const label = _arm.groupLabels[g] || {ar:g, en:g};
-    html += `<div class="arm-group">
-      <div class="arm-group-title">${ar?label.ar:label.en}</div>
-      ${rows.map(armRowHTML).join('')}
-    </div>`;
-  }
-
-  /* Sticky bottom toolbar */
-  html += `
-    <div class="arm-toolbar-bottom">
-      <span class="arm-toolbar-meta ${changes > 0 ? 'has-changes' : ''}" id="arm-changes-meta">
-        ${changes > 0
-          ? (ar?`${changes} تغيير غير محفوظ`:`${changes} unsaved change${changes===1?'':'s'}`)
-          : (ar?'لا توجد تغييرات غير محفوظة':'No unsaved changes')}
-      </span>
-      <button class="arm-discard-btn" onclick="armDiscardChanges()" ${changes===0?'disabled':''}>
-        ${ar?'تجاهل':'Discard'}
-      </button>
-      <button class="arm-save-btn" onclick="armSaveAll()" ${changes===0?'disabled':''}>
-        💾 ${ar?'حفظ كل الروابط':'Save All Mappings'}
-      </button>
-    </div>
-  `;
-
-  content.innerHTML = html;
-}
-
-function armRowHTML(row){
-  const ar = currentLang === 'ar';
-  const draftCode = _arm.draft.get(row.role) || '';
-  const origCode = _armOriginalCode(row.role);
-  const isDirty = draftCode !== (origCode || '');
-  const isEmpty = !draftCode;
-  const label = ar ? row.label_ar : row.label_en;
-
-  /* Build account dropdown — filtered to qualifying types from role_catalog,
-     but if the role has none in this CoA, we fall back to showing all postable
-     accounts so the user has SOMETHING to pick. */
-  const qualifyingTypes = _armRoleTypes(row.role);
-  let candidates = _arm.coa;
-  if(qualifyingTypes && qualifyingTypes.length){
-    const filtered = _arm.coa.filter(a => qualifyingTypes.includes(a.type));
-    if(filtered.length > 0) candidates = filtered;
-  }
-
-  const opts = [
-    `<option value="" ${!draftCode?'selected':''}>— ${ar?'غير مربوط':'not mapped'} —</option>`,
-    ...candidates.map(a => {
-      const accName = ar ? (a.name_ar || a.name_en || a.code) : (a.name_en || a.name_ar || a.code);
-      return `<option value="${escHTMLAttr(a.code)}" ${a.code===draftCode?'selected':''}>${escHTML(a.code)} — ${escHTML(accName)}</option>`;
-    })
-  ].join('');
-
-  /* Confidence badge: if user made a change, show "modified"; else show original confidence */
-  let confLabel, confClass;
-  if(isDirty){
-    confLabel = ar?'تم التعديل':'modified';
-    confClass = 'dirty';
-  } else if(row.current_mapping){
-    confLabel = ar?'محفوظ':'saved';
-    confClass = 'already_mapped';
-  } else {
-    confClass = row.confidence;
-    confLabel = ({
-      high:   {ar:'ثقة عالية',  en:'high confidence'},
-      medium: {ar:'ثقة متوسطة', en:'medium confidence'},
-      low:    {ar:'ثقة منخفضة', en:'low confidence'},
-      none:   {ar:'لا يوجد اقتراح',  en:'no suggestion'}
-    }[row.confidence] || {ar:'-',en:'-'})[ar?'ar':'en'];
-  }
-
-  /* "Why?" panel — shows candidate list with scores */
-  const candList = (() => {
-    try { return Array.isArray(row.candidates) ? row.candidates : JSON.parse(row.candidates || '[]'); }
-    catch(e){ return []; }
-  })();
-  let whyHTML = '';
-  if(candList.length > 0 && !row.current_mapping){
-    whyHTML = `
-      <a href="#" class="arm-why-toggle" onclick="event.preventDefault();armToggleWhy('${row.role}');">
-        ${ar?'لماذا هذا الاقتراح؟ ▾':'Why this suggestion? ▾'}
-      </a>
-      <div class="arm-why-panel" id="arm-why-${row.role}">
-        ${candList.map(c => `
-          <div class="arm-why-cand">
-            <span class="arm-why-cand-name">${escHTML(c.code)} — ${escHTML(ar?(c.name_ar||c.name_en||''):(c.name_en||c.name_ar||''))}</span>
-            <span class="arm-why-cand-score">${ar?'النقاط':'score'}: ${c.score}</span>
-            <div style="margin-top:2px;font-size:10px;color:var(--muted);">
-              ${(c.reasons||[]).map(r => escHTML(r)).join(' · ')}
-            </div>
-          </div>
-        `).join('')}
-      </div>
-    `;
-  }
-
-  return `
-    <div class="arm-row">
-      <div class="arm-role-info">
-        <div class="arm-role-label">
-          ${escHTML(label)}
-          ${row.is_required ? `<span class="arm-role-required">${ar?'مطلوب':'REQUIRED'}</span>` : ''}
-        </div>
-        ${whyHTML}
-      </div>
-      <div class="arm-account-picker">
-        <select class="${isDirty?'dirty':''} ${isEmpty?'empty':''}" onchange="armChangeDraft('${row.role}', this.value)">
-          ${opts}
-        </select>
-      </div>
-      <span class="arm-conf ${confClass}">${confLabel}</span>
-    </div>
-  `;
-}
-
-function _armRoleTypes(role){
-  /* Returns the role_catalog.qualifying_types for the given role.
-     Stored in detect output as part of the candidates' meta — but
-     we don't have a direct field, so derive from the candidates'
-     types (top candidate's type is the qualifying type).
-     For roles with no candidates, fall back to inferring from
-     well-known role -> type mappings. */
-  const knownTypes = {
-    cash_primary: ['asset'], bank_primary: ['asset'], bank_savings: ['asset'],
-    ar_primary: ['asset'], ap_primary: ['liability'],
-    inventory_primary: ['asset'], cogs_primary: ['expense'],
-    fixed_assets_general: ['asset'], accumulated_depreciation: ['asset'],
-    depreciation_expense: ['expense'],
-    owner_capital: ['equity'], owner_drawings: ['equity'], retained_earnings: ['equity'],
-    loan_payable: ['liability'], interest_expense: ['expense'],
-    sales_revenue: ['income'], vat_output: ['liability'], vat_input: ['asset'],
-    salaries_expense: ['expense'], salaries_payable: ['liability'],
-    rent_expense: ['expense'], prepaid_rent: ['asset'], prepaid_general: ['asset'],
-    bank_charges: ['expense'], bad_debt_expense: ['expense'], general_expense: ['expense']
-  };
-  return knownTypes[role] || null;
-}
-
-function armChangeDraft(role, code){
-  if(code){
-    _arm.draft.set(role, code);
-  } else {
-    _arm.draft.delete(role);
-  }
-  renderAccountMappings();
-}
-
-function armToggleWhy(role){
-  const el = document.getElementById('arm-why-' + role);
-  if(el) el.classList.toggle('shown');
-}
-
-function armAcceptAllHigh(){
-  for(const row of _arm.detected){
-    if(row.confidence === 'high' && row.suggested_code && !_arm.draft.get(row.role)){
-      _arm.draft.set(row.role, row.suggested_code);
-    }
-  }
-  renderAccountMappings();
-}
-
-function armDiscardChanges(){
-  /* Reset draft to original state */
-  _arm.draft.clear();
-  for(const row of _arm.detected){
-    if(row.current_mapping){
-      _arm.draft.set(row.role, row.current_mapping);
-    } else if(row.confidence === 'high' && row.suggested_code){
-      _arm.draft.set(row.role, row.suggested_code);
-    }
-  }
-  renderAccountMappings();
-}
-
-async function armReloadFromServer(){
-  _arm.loaded = false;
-  await loadAccountMappings();
-}
-
-async function armSaveAll(){
-  const ar = currentLang === 'ar';
-  /* Compute upserts and deletes */
-  const upserts = [];
-  const deletes = [];
-  for(const row of _arm.detected){
-    const orig = _armOriginalCode(row.role);
-    const draftCode = _arm.draft.get(row.role) || null;
-    /* Only consider rows where:
-       - draft differs from current_mapping in the DB (not vs optimistic high-conf fill) */
-    const dbCurrent = row.current_mapping || null;
-    if(draftCode === dbCurrent) continue;  /* no DB-level change */
-    if(draftCode){
-      upserts.push({
-        business_id: currentBiz.id,
-        role: row.role,
-        account_code: draftCode,
-        mapped_by: currentUser?.id || null,
-        source: dbCurrent ? 'manual' : (orig === draftCode && row.confidence === 'high' ? 'auto_detect' : 'manual')
-      });
-    } else if(dbCurrent){
-      deletes.push(row.role);
-    }
-  }
-
-  if(upserts.length === 0 && deletes.length === 0){
-    notify(ar?'لا توجد تغييرات للحفظ':'No changes to save','info');
-    return;
-  }
-
-  try {
-    /* Upsert mappings (insert or update on PK conflict) */
-    if(upserts.length > 0){
-      const {error} = await sb.from('account_role_map').upsert(upserts, {
-        onConflict: 'business_id,role'
-      });
-      if(error) throw error;
-    }
-    /* Delete unmapped */
-    if(deletes.length > 0){
-      const {error} = await sb.from('account_role_map')
-        .delete()
-        .eq('business_id', currentBiz.id)
-        .in('role', deletes);
-      if(error) throw error;
-    }
-    notify(ar
-      ? `تم حفظ ${upserts.length + deletes.length} تغيير ✓`
-      : `Saved ${upserts.length + deletes.length} change${(upserts.length+deletes.length)===1?'':'s'} ✓`,
-      'success');
-    /* Reload to refresh current_mapping state */
-    _arm.loaded = false;
-    await loadAccountMappings();
-  } catch(e){
-    console.error('[ARM] save failed:', e);
-    notify(ar
-      ? `فشل الحفظ: ${e.message || ''}`
-      : `Save failed: ${e.message || ''}`,
-      'error');
-  }
-}
 
 /* Tiny helpers if not already in scope */
 function escHTMLAttr(s){ return escHTML(s).replace(/'/g,'&#39;'); }
@@ -4118,24 +3661,6 @@ if(typeof escHTML !== 'function'){
   window.escHTML = function(s){ if(s == null) return ''; return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;'); };
 }
 
-/* Hook into showSection: when the user navigates to account-mappings, load it */
-(function(){
-  const _origShowSection = window.showSection;
-  window.showSection = function(name, btn){
-    _origShowSection(name, btn);
-    if(name === 'account-mappings' && currentBiz){
-      loadAccountMappings();
-    }
-  };
-  /* Also handle initial-load hash navigation */
-  if(typeof window !== 'undefined'){
-    document.addEventListener('DOMContentLoaded', function(){
-      if(location.hash === '#account-mappings' && currentBiz){
-        loadAccountMappings();
-      }
-    });
-  }
-})();
 </script>
 
 <script>
@@ -4198,7 +3723,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-set1</div>
-<script>console.log('%c[GulfLedger build] v2026.06.06-set1 · Round 46: design system applied + 4 stub sections deleted', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-set2</div>
+<script>console.log('%c[GulfLedger build] v2026.06.06-set2 · Round 46: removed account-mappings + branding sections, logo merged into business profile', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
