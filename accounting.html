@@ -5185,6 +5185,33 @@ async function loadAndRenderReport(){
   if(loading) loading.style.display = 'none';
 }
 
+/* ─── Standard line items always shown ───────────────────────────────
+   Best practice: depreciation, salaries, rent, and similar standard line
+   items must appear in financial reports (P&L AND Trial Balance) even
+   when their balance is zero. Their absence is informative ("no
+   depreciation this period" tells the reader something) and their
+   presence reassures readers that the entity tracks them.
+
+   Defined at module scope so both renderPL and renderTrialBalance use the
+   same rule — keeps the reports internally consistent ("if depreciation
+   is in the P&L, it's also in the TB" matches user expectation).
+
+   Detection is by name keyword (English + Arabic) so the rule works
+   across both legacy chart (5300/5400/5950) and SOCPA chart
+   (7100/7200/7900) without code-coupling. */
+const STANDARD_LINE_KEYWORDS = [
+  /depreciat/i, /إهلاك/, /استهلاك/,                          // Depreciation
+  /salary|salaries|wages|payroll/i, /رواتب|أجور|مرتبات/,      // Salaries
+  /\brent\b/i, /إيجار/,                                      // Rent (\b avoids matching "Returns")
+  /utilities|electricity|water/i, /مرافق|كهرباء|ماء|مياه/,    // Utilities
+  /bad debt|allowance for doubtful/i, /ديون معدومة|مخصص ديون/, // Bad debt
+  /interest expense/i, /فوائد|مصاريف فوائد/                    // Interest expense
+];
+function isStandardLine(a){
+  const name = (a.name_en || '') + ' ' + (a.name_ar || '');
+  return STANDARD_LINE_KEYWORDS.some(rx => rx.test(name));
+}
+
 /* ─── PROFIT & LOSS — Round B-PL-Structure ──────────────────────────
    The new P&L renderer reads businesses.pl_format and renders:
    • 'by_function' → Sales, COGS, Gross Profit, OpEx, Operating Profit, Net Profit
@@ -5267,26 +5294,6 @@ async function renderPL(period){
     }
     return { now, prev };
   };
-
-  /* ─── Standard line items always shown ───────────────────────────
-     Best practice: depreciation, salaries, rent, and similar standard
-     line items must appear in the P&L even when zero. Their absence is
-     informative ("no depreciation this period" tells the reader something)
-     and their presence reassures readers that the entity tracks them.
-     We detect these by name keywords so the rule works across both legacy
-     and SOCPA chart codes. */
-  const STANDARD_LINE_KEYWORDS = [
-    /depreciat/i, /إهلاك/, /استهلاك/,         // Depreciation
-    /salary|salaries|wages|payroll/i, /رواتب|أجور|مرتبات/, // Salaries
-    /\brent\b/i, /إيجار/,                                  // Rent (use \b to avoid matching "Returns")
-    /utilities|electricity|water/i, /مرافق|كهرباء|ماء|مياه/, // Utilities
-    /bad debt|allowance for doubtful/i, /ديون معدومة|مخصص ديون/, // Bad debt
-    /interest expense/i, /فوائد|مصاريف فوائد/                // Interest expense
-  ];
-  function isStandardLine(a){
-    const name = (a.name_en || '') + ' ' + (a.name_ar || '');
-    return STANDARD_LINE_KEYWORDS.some(rx => rx.test(name));
-  }
 
   /* Render a row for one account. Hides zero-activity rows UNLESS the account
      is a standard line item (depreciation, salaries, rent, etc) — those are
@@ -6168,7 +6175,9 @@ async function renderTrialBalance(period){
       else if(net > 0.005){ drVal = net; }
     }
     const isZeroLine = (drVal < 0.005 && crVal < 0.005);
-    if(isZeroLine && !showZeros) continue;
+    /* Round 47: standard line items (depreciation, salaries, rent, etc) always shown,
+       matching P&L behavior — eliminates 'where is depreciation?' surprise. */
+    if(isZeroLine && !showZeros && !isStandardLine(a)) continue;
 
     totalDR += drVal;
     totalCR += crVal;
@@ -13210,7 +13219,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-acc1</div>
-<script>console.log('%c[GulfLedger build] v2026.06.06-acc1 · Round 47: P&L always-show standard lines (Depreciation/Salaries/Rent/Utilities/Bad-Debt/Interest); Trial Balance show-zeros toggle', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-acc2</div>
+<script>console.log('%c[GulfLedger build] v2026.06.06-acc2 · Round 47: standard lines (depreciation/salaries/rent/utilities/bad-debt/interest) always shown in BOTH P&L and Trial Balance — consistent across reports', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
