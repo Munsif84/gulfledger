@@ -961,19 +961,14 @@ html.lang-switching *::after {
                 <span data-ar="يمكنك إضافة فئات مخصصة لاحقاً." data-en="You can add custom categories later.">يمكنك إضافة فئات مخصصة لاحقاً.</span>
               </div>
             </div>
-            <!-- Round 47: P&L format derived from Business Activity. Auto-applies; advanced override available. -->
+            <!-- Round 47: P&L format is fully derived from Business Activity for SOCPA/IFRS compliance.
+                 No user choice — eliminates risk of misclassification. The hidden input below keeps
+                 the value submittable via the existing form pipeline; populated by _applyPlFormatForActivity. -->
             <div id="pl-format-derived" style="margin-top:10px;padding:8px 12px;background:#F8F8F4;border:1px solid var(--border);border-radius:7px;font-size:12px;color:var(--muted);display:none;">
-              <span data-ar="تنسيق قائمة الدخل المقترح:" data-en="Recommended P&L Format:">تنسيق قائمة الدخل المقترح:</span>
-              <strong id="pl-format-derived-label" style="color:var(--ink);font-weight:600;"></strong>
-              <a href="#" onclick="togglePlFormatOverride(event)" style="margin-inline-start:8px;color:var(--blue);font-weight:600;text-decoration:none;font-size:11px;" id="pl-format-override-link" data-ar="تغيير" data-en="change">تغيير</a>
-              <div id="pl-format-override-wrap" style="display:none;margin-top:6px;">
-                <select id="loc-pl-format" style="font-size:12px;padding:4px 8px;width:100%;max-width:340px;">
-                  <option value="by_function" data-ar="حسب الوظيفة (يظهر إجمالي الربح)" data-en="By Function (Gross Profit shown)">حسب الوظيفة (يظهر إجمالي الربح)</option>
-                  <option value="by_nature" data-ar="حسب الطبيعة (بدون تكلفة المبيعات)" data-en="By Nature (no COGS)">حسب الطبيعة (بدون تكلفة المبيعات)</option>
-                  <option value="mixed" data-ar="مختلط (يتكيف تلقائياً)" data-en="Mixed (auto-adapt)">مختلط (يتكيف تلقائياً)</option>
-                </select>
-              </div>
+              <span data-ar="تنسيق قائمة الدخل (يُحدَّد تلقائياً):" data-en="P&L Format (determined automatically):">تنسيق قائمة الدخل (يُحدَّد تلقائياً):</span>
+              <strong id="pl-format-derived-label" style="color:var(--ink);font-weight:600;margin-inline-start:4px;"></strong>
             </div>
+            <input type="hidden" id="loc-pl-format" value="by_function">
           </div>
         </div>
 
@@ -2100,19 +2095,10 @@ function populateAllForms(){
   setVal('loc-date-format', b.date_format || 'DD/MM/YYYY');
   setVal('loc-fiscal-year', b.fiscal_year_start || '01-01');
   /* Round 47: business_type + industry consolidated (id=industry).
-     Prefer business_type (richer); fallback to industry; default empty. */
+     Prefer business_type (richer); fallback to industry; default empty.
+     P&L format is fully derived from the activity — no override path. */
   setVal('industry', b.business_type || b.industry || '');
-  setVal('loc-pl-format', b.pl_format || 'by_function');
-  /* Detect override: user's saved pl_format differs from what derivation would pick */
-  const _activityVal = b.business_type || b.industry;
-  const _derived = ACTIVITY_PL_DEFAULTS[_activityVal];
-  if(b.pl_format && _derived && b.pl_format !== _derived){
-    if(currentBiz) currentBiz._plOverridden = true;
-  }
-  setTimeout(() => {
-    _applyPlFormatForActivity();
-    if(currentBiz?._plOverridden){ togglePlFormatOverride(); }
-  }, 0);
+  setTimeout(_applyPlFormatForActivity, 0);
 
   /* Account */
   setVal('account-email', currentUser?.email || '');
@@ -2968,30 +2954,53 @@ async function saveLocalization(){
 }
 
 /* P&L format derivation from Business Activity (Round 47).
-   business_type and industry consolidated to one field (DOM id=industry).
-   P&L format is auto-derived on activity change; an inline override is
-   available for advanced users via the "change" link. */
+   ─────────────────────────────────────────────────────────
+   business_type and industry consolidated into a single Business Activity
+   field (DOM id=industry). The P&L format is FULLY DETERMINED by the
+   activity — there is no user choice, eliminating the risk of misclassification.
 
-const ACTIVITY_PL_DEFAULTS = {
-  /* By Function — Gross Profit matters (trading + manufacturing) */
+   The three IFRS-recognized formats (Section 5 of IFRS for SMEs / IFRS 18):
+     by_function  — Cost of Sales + Gross Profit shown.  Used for businesses
+                    where input → finished-goods transformation is meaningful:
+                    trading (wholesale/retail/trading), manufacturing.
+     by_nature    — Expenses grouped by kind (salaries, depreciation, materials).
+                    Used for service businesses where "Cost of Sales" doesn't
+                    meaningfully exist: services, consulting, SaaS, real estate.
+     mixed        — Function for products + nature for services.  Used where
+                    both coexist meaningfully: hospitality, construction,
+                    restaurants (food cost AND service personnel together).
+
+   These defaults are SOCPA-compliant for the standard Saudi SME case.
+   Regulated industries (banking, insurance, telecom, oil & gas) require
+   accountant-supervised setup; we default them to by_function as a safe
+   placeholder, but their actual setup should never use this auto-flow. */
+
+const ACTIVITY_PL_DEFAULTS = Object.freeze({
   wholesale:'by_function', retail:'by_function', trading:'by_function',
   manufacturing:'by_function',
-  /* By Nature — no COGS (services, knowledge-work) */
   services:'by_nature', consulting:'by_nature', professional:'by_nature',
   saas:'by_nature', technology:'by_nature', healthcare:'by_nature',
   real_estate:'by_nature', education:'by_nature',
-  /* Mixed — food cost + service personnel coexist */
   hospitality:'mixed', restaurant:'mixed', construction:'mixed',
-  /* Regulated industries — accountant-supervised; safe default */
   banking:'by_function', insurance:'by_function',
   telecom:'by_function', natural_gas:'by_function', oil_gas_upstream:'by_function',
-};
+});
 
-const ACTIVITY_PL_LABELS = {
-  by_function: {ar:'حسب الوظيفة (يظهر إجمالي الربح)', en:'By Function (Gross Profit shown)'},
-  by_nature:   {ar:'حسب الطبيعة (بدون تكلفة المبيعات)', en:'By Nature (no COGS)'},
-  mixed:       {ar:'مختلط (يتكيف تلقائياً)', en:'Mixed (auto-adapt)'},
-};
+/* User-facing labels — plain language, no IFRS jargon. */
+const ACTIVITY_PL_LABELS = Object.freeze({
+  by_function: {
+    ar:'تكلفة المبيعات وإجمالي الربح',
+    en:'Cost of Sales & Gross Profit'
+  },
+  by_nature: {
+    ar:'قائمة مصاريف موحدة (بدون تكلفة مبيعات)',
+    en:'Unified expense list (no Cost of Sales)'
+  },
+  mixed: {
+    ar:'مزيج — مناسب للضيافة والإنشاءات',
+    en:'Mixed — for hospitality & construction'
+  },
+});
 
 function _applyPlFormatForActivity(){
   const activity = v('industry');
@@ -3001,29 +3010,13 @@ function _applyPlFormatForActivity(){
   if(!wrap) return;
   if(!derived){
     wrap.style.display = 'none';
+    setVal('loc-pl-format', '');  /* unset until activity chosen */
     return;
   }
   wrap.style.display = '';
   if(label) label.textContent = ACTIVITY_PL_LABELS[derived]?.[currentLang] || derived;
-  if(!currentBiz?._plOverridden){
-    setVal('loc-pl-format', derived);
-  }
-}
-
-function togglePlFormatOverride(ev){
-  if(ev) ev.preventDefault();
-  const wrap = document.getElementById('pl-format-override-wrap');
-  const link = document.getElementById('pl-format-override-link');
-  if(!wrap) return;
-  wrap.style.display = '';
-  if(link) link.style.display = 'none';
-  const sel = document.getElementById('loc-pl-format');
-  if(sel && !sel.dataset.boundOverride){
-    sel.dataset.boundOverride = '1';
-    sel.addEventListener('change', () => {
-      if(currentBiz) currentBiz._plOverridden = true;
-    });
-  }
+  /* Always write the derived value — no user override exists */
+  setVal('loc-pl-format', derived);
 }
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -3710,7 +3703,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-set4</div>
-<script>console.log('%c[GulfLedger build] v2026.06.06-set4 · Round 47: business_type + industry consolidated into Business Activity field; P&L format auto-derived with override', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-set5</div>
+<script>console.log('%c[GulfLedger build] v2026.06.06-set5 · Round 47: P&L format fully determined by Business Activity, no override (compliance-safe)', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
