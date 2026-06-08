@@ -5225,6 +5225,39 @@ async function loadAndRenderReport(){
   const period = document.getElementById('report-period')?.value || 'this_quarter';
   rebuildAccountMap();
 
+  /* Round 47: hard-block financial reports when Business Activity is unset.
+     Reports are the artifact shown to banks/auditors/ZATCA — they MUST be
+     activity-aware to claim SOCPA/ZATCA compliance. The underlying GL,
+     journal entries, and invoicing remain functional (users can still record
+     transactions during setup), but the formatted reports refuse to render
+     until activity context is established.
+
+     Why not just default to by_function? Because doing so would silently
+     produce reports that look correct but aren't classified per the user's
+     actual business — undermining the 100% compliance stance. Better to
+     block and prompt than to mislead. */
+  const _activity = currentBiz?.business_type || currentBiz?.industry;
+  if(!_activity){
+    if(loading) loading.style.display = 'none';
+    const ar = currentLang === 'ar';
+    content.innerHTML = `
+      <div class="report-empty" style="padding:48px 24px;text-align:center;">
+        <div class="icon" style="font-size:42px;margin-bottom:14px;">⚠</div>
+        <div style="font-size:16px;font-weight:700;color:var(--ink);margin-bottom:8px;">
+          ${ar ? 'لا يمكن عرض التقارير قبل تحديد النشاط التجاري' : 'Cannot show reports until Business Activity is set'}
+        </div>
+        <div style="font-size:13px;color:var(--muted);max-width:520px;margin:0 auto 18px;line-height:1.55;">
+          ${ar
+            ? 'القوائم المالية يجب أن تكون متوافقة مع طبيعة نشاطك التجاري لتلبية متطلبات سوكبا وزاتكا. حدّد نشاطك التجاري في الإعدادات لتفعيل التقارير.'
+            : 'Financial statements must match your business activity to satisfy SOCPA & ZATCA requirements. Set your Business Activity in Settings to enable reports.'}
+        </div>
+        <a href="settings.html#tax-profile" style="display:inline-block;padding:10px 22px;background:var(--green);color:#fff;border-radius:8px;text-decoration:none;font-size:14px;font-weight:700;">
+          ${ar ? 'افتح إعدادات النشاط ←' : 'Open Activity Settings →'}
+        </a>
+      </div>`;
+    return;
+  }
+
   try {
     if(reportView === 'pl') await renderPL(period);
     else if(reportView === 'bs') await renderBalanceSheet(period);
@@ -13271,7 +13304,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-acc3</div>
-<script>console.log('%c[GulfLedger build] v2026.06.06-acc3 · Round 47: activity-setup banner surfaces Business Activity gap; soft-block until set', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-acc4</div>
+<script>console.log('%c[GulfLedger build] v2026.06.06-acc4 · Round 47: financial reports hard-blocked until Business Activity is set (compliance gate)', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
