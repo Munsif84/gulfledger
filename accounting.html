@@ -1221,7 +1221,37 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   .acc-trust-banner, #period-locked-banner, .acc-footer, .notify,
   .gl-modal-overlay, .gl-qa-wrap, .lang-switch, .ledger-view-toggle,
   .ledger-toolbar, .filing-type-toggle, #insights-panel,
-  .last-updated, .setup-banner { display:none !important; }
+  /* Round 47: Activity-setup banner — fires when business_type is unset.
+     Visible only on accounting surfaces where chart-of-accounts behavior
+     depends on knowing the business activity. */
+  .activity-banner{
+    display:none;
+    background:linear-gradient(135deg, var(--amber, #d97706), #b45309);
+    color:#fff;
+    border-radius:10px;
+    padding:14px 18px;
+    margin:0 0 16px 0;
+    align-items:center;
+    justify-content:space-between;
+    gap:12px;
+    flex-wrap:wrap;
+    box-shadow:0 2px 8px rgba(0,0,0,0.08);
+  }
+  .activity-banner .ab-text h3{font-size:14px;color:#fff;margin:0 0 3px 0;font-weight:700;}
+  .activity-banner .ab-text p{font-size:13px;color:rgba(255,255,255,0.92);line-height:1.5;margin:0;}
+  .activity-banner .ab-cta{
+    padding:8px 18px;
+    background:#fff;
+    color:#b45309;
+    border-radius:7px;
+    text-decoration:none;
+    font-size:13px;
+    font-weight:700;
+    white-space:nowrap;
+    transition:transform .12s;
+  }
+  .activity-banner .ab-cta:hover{transform:translateY(-1px);}
+  .last-updated, .setup-banner, .activity-banner { display:none !important; }
 
   /* ─── Body & page resets ───
      Pure white background, no margins/padding (the @page rule handles outer
@@ -1721,6 +1751,17 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
 
     <div class="accounting-main">
 
+      <!-- Round 47: Activity-setup banner. Soft-block — visible until user sets
+           Business Activity in settings. Without business_type set, the system
+           can't seed the right chart of accounts for the customer's industry. -->
+      <div class="activity-banner" id="activity-banner" role="alert">
+        <div class="ab-text">
+          <h3 data-ar="⚠ حدّد نشاطك التجاري لتفعيل الحسابات المناسبة" data-en="⚠ Set your Business Activity to enable the right accounts">⚠ حدّد نشاطك التجاري لتفعيل الحسابات المناسبة</h3>
+          <p data-ar="بدون تحديد النشاط لا يمكن للنظام إعداد دليل حسابات متوافق مع سوكبا وزاتكا لمنشأتك. ستحصل حالياً على دليل عام." data-en="Without this, the system can't tailor your chart of accounts for SOCPA/ZATCA compliance. You're currently on a generic chart.">بدون تحديد النشاط لا يمكن للنظام إعداد دليل حسابات متوافق مع سوكبا وزاتكا لمنشأتك. ستحصل حالياً على دليل عام.</p>
+        </div>
+        <a href="settings.html#tax-profile" class="ab-cta" data-ar="افتح إعدادات النشاط ←" data-en="Open Activity Settings →">افتح إعدادات النشاط ←</a>
+      </div>
+
       <!-- Trust banner — happy-path placeholder. Real integrity checks come in
            Round B-3 (Ledger redesign with audit + "Why this entry?" feature).
            For now, this is a static reassurance that the books are current. -->
@@ -2165,6 +2206,15 @@ async function loadCurrentBusiness(sb, user){
 }
 
 /* ─── init ─── */
+/* Round 47: Activity-setup banner driver. Shows the banner when business_type
+   (Business Activity) is unset, hides it otherwise. */
+function updateActivityBanner(){
+  const banner = document.getElementById('activity-banner');
+  if(!banner) return;
+  const activity = currentBiz?.business_type || currentBiz?.industry;
+  banner.style.display = activity ? 'none' : 'flex';
+}
+
 async function init(){
   const {data:{session}} = await sb.auth.getSession();
   if(!session){ window.location.href = 'login.html'; return; }
@@ -2185,6 +2235,8 @@ async function init(){
      the correct codes. Set BEFORE any posting code can run. */
   window._gl_use_socpa_codes = (currentBiz.chart_version === 'socpa_v1');
   setText('biz-name', displayName(currentBiz) || currentBiz.name || '—');
+  /* Round 47: surface Business Activity gap if not set */
+  updateActivityBanner();
 
   setLang(currentLang);
   await loadCoreData();
@@ -13219,7 +13271,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-acc2</div>
-<script>console.log('%c[GulfLedger build] v2026.06.06-acc2 · Round 47: standard lines (depreciation/salaries/rent/utilities/bad-debt/interest) always shown in BOTH P&L and Trial Balance — consistent across reports', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-acc3</div>
+<script>console.log('%c[GulfLedger build] v2026.06.06-acc3 · Round 47: activity-setup banner surfaces Business Activity gap; soft-block until set', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
