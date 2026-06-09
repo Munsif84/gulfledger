@@ -2408,17 +2408,31 @@ async function loadCoreData(){
     chartOfAccounts = [];
   } else {
     chartOfAccounts = coa || [];
-    /* If empty, attempt to seed via the function */
+    /* Round 47: activity-aware seeding.
+       If chart is empty AND Business Activity is set, seed the SOCPA chart
+       tailored to that activity (CORE + activity pack). If activity is NOT
+       set, do NOT seed yet — the activity-setup banner and report gate will
+       prompt the user to set it first. This avoids seeding a generic chart
+       that would later have to be migrated.
+
+       For backward-compatibility with old businesses that already have
+       chart_version set (or that exist in the system pre-Round-47), we keep
+       the legacy RPC as a fallback path. */
     if(chartOfAccounts.length === 0){
-      const {error: seedErr} = await sb.rpc('seed_default_chart_of_accounts', {
-        p_user_id: currentUser.id,
-        p_business_id: currentBiz.id
-      });
-      if(!seedErr){
-        const {data:coa2} = await sb.from('chart_of_accounts')
-          .select('*').eq('business_id', currentBiz?.id || '').eq('is_active', true)
-          .order('display_order', {ascending:true});
-        chartOfAccounts = coa2 || [];
+      const activity = currentBiz.business_type || currentBiz.industry;
+      if(activity){
+        /* New path: seed SOCPA chart tailored to activity */
+        const seeded = await seedChartForActivity(activity);
+        if(seeded > 0){
+          const {data:coa2} = await sb.from('chart_of_accounts')
+            .select('*').eq('business_id', currentBiz?.id || '').eq('is_active', true)
+            .order('display_order', {ascending:true});
+          chartOfAccounts = coa2 || [];
+        }
+      } else {
+        /* No activity set yet. Do NOT seed — the banner/gate will prompt
+           the user to set it. Chart stays empty until they do. */
+        console.log('[GL] Chart empty and no Business Activity set — deferring seed until user picks activity.');
       }
     }
 
@@ -3364,6 +3378,214 @@ function setLedgerView(name){
      non_deductible_expense (excluded from tax base)
    ═══════════════════════════════════════════════════════════════════ */
 
+/* ═══════════════════════════════════════════════════════════════════════════
+   ACTIVITY-AWARE CHART OF ACCOUNTS SEEDING  (Round 47)
+   ─────────────────────────────────────────────────────────────────────────
+   When a business signs up and sets its Business Activity, we seed a SOCPA-
+   compliant chart of accounts TAILORED to that activity — not a generic chart.
+
+   Architecture: CORE + ACTIVITY PACK
+     • CORE_CHART_CODES — universal accounts every business needs (cash, bank,
+       AR, AP, VAT, equity, basic revenue, common expenses, taxes, GOSI/EOSB).
+       Roughly 70 accounts.
+     • ACTIVITY_CHART_PACKS — additional accounts per activity. A wholesale
+       business gets inventory/COGS-heavy accounts; a SaaS business gets
+       deferred revenue + service revenue split; construction gets WIP-
+       contracts + retention payable; etc.
+
+   The actual account definitions come from SOCPA_CHART_OF_ACCOUNTS (defined
+   below) — the packs reference codes from there. Single source of truth for
+   account data; packs just decide which subset to seed for which activity.
+
+   When future industry-specific accounts are added, they get appended to
+   SOCPA_CHART_OF_ACCOUNTS (with appropriate codes) and listed in the relevant
+   pack. No schema change required; per-business chart is just a SQL row set.
+*/
+
+const CORE_CHART_CODES = new Set([
+  /* Headers (always present) */
+  '1000', '1200', '1300', '1500', '1700', '2000', '2200', '2300', '2400',
+  '2500', '2600', '2700', '2800', '3000', '4000', '4100', '4200', '4900',
+  '5000', '6000', '7000', '8000', '9000',
+  /* Current Assets */
+  '1100', '1110', '1120', '1121', '1130',          // Cash, Bank
+  '1210',                                            // AR — Current
+  '1290',                                            // Allowance for doubtful
+  '1300', '1330',                                    // Inventory header + Finished Goods
+  '1400', '1410', '1420',                            // Prepayments (rent, insurance)
+  '1500', '1510', '1520', '1530', '1540', '1550', '1560',  // Other current (WHT recoverable etc)
+  /* Non-current Assets */
+  '1700', '1710', '1720', '1730', '1740', '1750', '1760', '1770',  // Fixed assets
+  '1780', '1790',                                    // Intangibles + Accumulated Depreciation
+  /* Current Liabilities */
+  '2100',                                            // Trade Payables
+  '2200', '2210', '2220', '2230',                    // VAT (Input/Output/Net)
+  '2300', '2310', '2320',                            // Salaries/wages payable
+  '2400',                                            // Accrued liabilities
+  '2500',                                            // Income tax payable
+  '2600',                                            // Short-term loans
+  '2700',                                            // Customer deposits
+  /* Non-current Liabilities */
+  '2800', '2810', '2820',                            // Long-term loans + EOSB
+  /* Equity */
+  '3100', '3200', '3300', '3500',                    // Capital, retained, drawings, statutory reserve
+  /* Revenue (core) */
+  '4100', '4110', '4120',                            // Sales — standard rated / zero rated
+  '4190',                                            // Sales returns
+  '4900',                                            // Other income
+  /* Cost of Sales (header always; leaf added by activity) */
+  '5000',
+  /* OpEx — Selling (core common ones) */
+  '6000', '6100', '6200',                            // Sales salaries, marketing
+  /* OpEx — G&A (the standard line items always present) */
+  '7000', '7100',                                    // G&A salaries
+  '7200',                                            // Rent — Office
+  '7300', '7310', '7320',                            // Utilities (electricity, water)
+  '7400',                                            // Telecom
+  '7500',                                            // Insurance
+  '7600',                                            // Legal & Professional
+  '7700',                                            // Stationery & Office Supplies
+  '7800',                                            // Maintenance & Repair
+  '7900',                                            // Depreciation — G&A
+  /* Finance + Tax (always present) */
+  '8000', '8400',                                    // Bank charges
+  '8700',                                            // Other expenses
+  '9000', '9100', '9200', '9210',                    // Zakat, income tax, WHT
+]);
+
+/* Activity packs — added on top of core. Each is a list of account codes
+   from SOCPA_CHART_OF_ACCOUNTS that the activity needs. */
+const ACTIVITY_CHART_PACKS = {
+  /* ─── Trading: COGS-heavy, AR aging important ─── */
+  wholesale:     ['5110', '5120', '5130',           // COGS — Materials/Labor/Overhead
+                  '1220', '1230', '1240',            // Full AR aging buckets
+                  '1310', '1320', '1340',            // Inventory subcategories (RM/WIP/Transit)
+                  '6300', '6400'],                   // Sales travel, shipping/delivery
+  retail:        ['5110',                            // Basic COGS
+                  '6110', '6400'],                   // Sales commissions, shipping
+  trading:       ['5110', '5120', '5130',           // Full COGS breakdown
+                  '1220', '1230', '1240',            // AR aging
+                  '1310', '1320', '1340',            // Inventory subcategories
+                  '6300', '6400'],                   // Travel, shipping
+
+  /* ─── Production: Full manufacturing accounts ─── */
+  manufacturing: ['5110', '5120', '5130', '5140',   // Materials/Labor/Overhead/Variance
+                  '1310', '1320', '1330', '1340',   // RM, WIP, FG, Transit
+                  '1220', '1230', '1240',            // AR aging
+                  '6300', '6400'],                   // Travel, shipping
+
+  /* ─── Construction: Contract accounts + retention ─── */
+  construction:  ['4150',                            // Contract Revenue
+                  '4160',                            // Contract Revenue — Long-term
+                  '1450',                            // Contract Assets (WIP-contracts)
+                  '2580',                            // Advance Billings (Contract Liability)
+                  '2590',                            // Retention Payable (10% typical)
+                  '5110', '5120', '5130',           // Contract costs breakdown
+                  '1220', '1230', '1240'],          // AR aging
+
+  /* ─── Services: Deferred revenue + service breakdown ─── */
+  services:      ['4210', '4220',                    // Service Revenue (std/zero rated)
+                  '2710',                            // Deferred Revenue
+                  '1460'],                           // Costs to obtain contract
+  consulting:    ['4210', '4220', '2710', '1460',
+                  '6300'],                           // Travel
+  professional:  ['4210', '4220', '2710', '1460'],
+  saas:          ['4210', '4220',
+                  '2710', '2720',                    // Deferred Revenue + Long-term Deferred Rev
+                  '1460'],                           // Costs to obtain
+  technology:    ['4210', '4220', '2710'],
+
+  /* ─── Hospitality: F&B + room revenue split ─── */
+  hospitality:   ['4130',                            // F&B Revenue
+                  '4140',                            // Room Revenue
+                  '4170',                            // Service Charges Revenue
+                  '5110', '5120',                    // F&B COGS
+                  '1310', '1330',                    // Beverage/F&B inventory
+                  '2330'],                           // Tips Payable
+  restaurant:    ['4130',                            // F&B Revenue
+                  '4170',                            // Service Charges
+                  '5110', '5120',                    // F&B COGS
+                  '1310', '1330',
+                  '2330'],                           // Tips Payable
+
+  /* ─── Regulated/specialized: limited additions, accountant supervision expected ─── */
+  healthcare:    ['4210',                            // Service Revenue (medical fees)
+                  '2710'],                           // Patient deposits
+  education:     ['4210',                            // Tuition Revenue
+                  '2710'],                           // Deferred Tuition
+  real_estate:   ['4280',                            // Rental Income
+                  '4290',                            // Investment Property Revenue
+                  '1780',                            // Investment Property
+                  '2750'],                           // Tenant Deposits
+  banking:       [],   // Accountant supervision
+  insurance:     [],   // Accountant supervision
+  telecom:       [],   // Accountant supervision
+  natural_gas:   [],   // Accountant supervision
+  oil_gas_upstream: [],  // Accountant supervision
+  other:         ['5110'],                           // Just basic COGS — flexible
+};
+
+/* Seed chart of accounts for a business based on its activity.
+   Returns the number of accounts inserted. */
+async function seedChartForActivity(activity){
+  if(!currentBiz?.id || !currentUser?.id){
+    console.warn('[GL seed] missing currentBiz or currentUser — cannot seed');
+    return 0;
+  }
+  if(!activity){
+    console.warn('[GL seed] no activity provided — cannot seed activity-specific chart');
+    return 0;
+  }
+
+  /* Build the list of codes to seed: core + activity pack */
+  const packCodes = ACTIVITY_CHART_PACKS[activity] || [];
+  const allCodes = new Set([...CORE_CHART_CODES, ...packCodes]);
+
+  /* Filter SOCPA chart to the needed accounts, preserving order */
+  const toSeed = SOCPA_CHART_OF_ACCOUNTS.filter(a => allCodes.has(a.code));
+
+  if(toSeed.length === 0){
+    console.warn('[GL seed] no accounts to seed for activity:', activity);
+    return 0;
+  }
+
+  /* Insert in chunks of 50 to stay within request limits */
+  const rows = toSeed.map(a => ({
+    user_id: currentUser.id,
+    business_id: currentBiz.id,
+    code: a.code,
+    name_en: a.name_en,
+    name_ar: a.name_ar,
+    type: a.type,
+    parent_code: a.parent_code || null,
+    is_active: true,
+    display_order: parseInt(a.code, 10) || 9999,
+  }));
+
+  let inserted = 0;
+  for(let i = 0; i < rows.length; i += 50){
+    const chunk = rows.slice(i, i + 50);
+    const {error} = await sb.from('chart_of_accounts').insert(chunk);
+    if(error){
+      console.error(`[GL seed] insert chunk ${i} failed:`, error);
+      return inserted;
+    }
+    inserted += chunk.length;
+  }
+
+  /* Mark this business as using the SOCPA v1 chart so other code paths
+     (e.g. selfHealCriticalAccounts, glMigrateChartOfAccounts) know not to
+     resurrect legacy codes. */
+  await sb.from('businesses')
+    .update({ chart_version: 'socpa_v1' })
+    .eq('id', currentBiz.id);
+  currentBiz.chart_version = 'socpa_v1';
+  window._gl_use_socpa_codes = true;
+
+  console.log(`[GL seed] ✓ Seeded ${inserted} accounts for activity "${activity}" (chart_version=socpa_v1)`);
+  return inserted;
+}
+
 const SOCPA_CHART_OF_ACCOUNTS = [
   /* 1xxx ASSETS */
   { code:'1000', name_en:'Current Assets',                     name_ar:'الأصول المتداولة',                type:'asset',     subcategory:'current_asset',      parent_code:null,    is_header:true,  normal:'DR' },
@@ -3510,6 +3732,28 @@ const SOCPA_CHART_OF_ACCOUNTS = [
   { code:'9210', name_en:'Zakat Expense',                      name_ar:'مصروف الزكاة',                       type:'expense', subcategory:'tax_expense', parent_code:'9200', is_header:false, normal:'DR' },
   { code:'9220', name_en:'Income Tax Expense (CIT)',           name_ar:'مصروف ضريبة الدخل',                  type:'expense', subcategory:'tax_expense', parent_code:'9200', is_header:false, normal:'DR' },
   { code:'9230', name_en:'Withholding Tax Expense',            name_ar:'مصروف ضريبة الاستقطاع',             type:'expense', subcategory:'tax_expense', parent_code:'9200', is_header:false, normal:'DR' }
+
+  /* ─── Round 47 additions: codes referenced by activity packs ─────────── */
+  /* 1xxx — additional assets */
+  { code:'1460', name_en:'Costs to Obtain Contract',           name_ar:'تكاليف الحصول على عقد',          type:'asset',     subcategory:'current_asset',      parent_code:'1400', is_header:false, normal:'DR' },
+  { code:'1510', name_en:'Prepaid Expenses — Other',           name_ar:'مصاريف مدفوعة مقدماً — أخرى',     type:'asset',     subcategory:'current_asset',      parent_code:'1500', is_header:false, normal:'DR' },
+  { code:'1520', name_en:'Employee Advances',                  name_ar:'سلف الموظفين',                    type:'asset',     subcategory:'current_asset',      parent_code:'1500', is_header:false, normal:'DR' },
+  { code:'1530', name_en:'Supplier Advances',                  name_ar:'دفعات للموردين',                  type:'asset',     subcategory:'current_asset',      parent_code:'1500', is_header:false, normal:'DR' },
+  { code:'1540', name_en:'Deposits & Guarantees Paid',         name_ar:'تأمينات وضمانات مدفوعة',          type:'asset',     subcategory:'current_asset',      parent_code:'1500', is_header:false, normal:'DR' },
+  { code:'1780', name_en:'Investment Property',                name_ar:'العقارات الاستثمارية',            type:'asset',     subcategory:'non_current_asset',  parent_code:'1700', is_header:false, normal:'DR' },
+  /* 2xxx — additional liabilities */
+  { code:'2580', name_en:'Advance Billings (Contract Liability)', name_ar:'فواتير مقدمة (التزامات عقود)', type:'liability', subcategory:'current_liability',  parent_code:'2000', is_header:false, normal:'CR' },
+  { code:'2590', name_en:'Retention Payable',                  name_ar:'محتجزات تحت الدفع',               type:'liability', subcategory:'current_liability',  parent_code:'2000', is_header:false, normal:'CR' },
+  { code:'2710', name_en:'Deferred Revenue (Short-term)',      name_ar:'إيرادات مؤجلة (قصيرة الأجل)',     type:'liability', subcategory:'current_liability',  parent_code:'2700', is_header:false, normal:'CR' },
+  { code:'2720', name_en:'Deferred Revenue (Long-term)',       name_ar:'إيرادات مؤجلة (طويلة الأجل)',     type:'liability', subcategory:'non_current_liability', parent_code:'2800', is_header:false, normal:'CR' },
+  { code:'2750', name_en:'Tenant Deposits',                    name_ar:'تأمينات المستأجرين',              type:'liability', subcategory:'non_current_liability', parent_code:'2800', is_header:false, normal:'CR' },
+  /* 4xxx — additional revenue */
+  { code:'4150', name_en:'Contract Revenue',                   name_ar:'إيرادات العقود',                  type:'income',    subcategory:'operating_revenue',  parent_code:'4100', is_header:false, normal:'CR' },
+  { code:'4160', name_en:'Contract Revenue — Long-term',       name_ar:'إيرادات عقود طويلة الأجل',        type:'income',    subcategory:'operating_revenue',  parent_code:'4100', is_header:false, normal:'CR' },
+  { code:'4170', name_en:'Service Charges Revenue',            name_ar:'إيرادات رسوم الخدمة',             type:'income',    subcategory:'operating_revenue',  parent_code:'4100', is_header:false, normal:'CR' },
+  { code:'4280', name_en:'Rental Income',                      name_ar:'إيرادات الإيجار',                 type:'income',    subcategory:'operating_revenue',  parent_code:'4200', is_header:false, normal:'CR' },
+  { code:'4290', name_en:'Investment Property Income',         name_ar:'إيرادات العقارات الاستثمارية',    type:'income',    subcategory:'operating_revenue',  parent_code:'4200', is_header:false, normal:'CR' },
+  { code:'4900', name_en:'Other Income',                       name_ar:'إيرادات أخرى',                    type:'income',    subcategory:'other_revenue',      parent_code:null,    is_header:true,  normal:'CR' },
 ];
 
 /* Semantic account-code constants. Use these everywhere instead of magic strings.
@@ -13304,7 +13548,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-acc4</div>
-<script>console.log('%c[GulfLedger build] v2026.06.06-acc4 · Round 47: financial reports hard-blocked until Business Activity is set (compliance gate)', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-acc5</div>
+<script>console.log('%c[GulfLedger build] v2026.06.06-acc5 · Round 47: activity-aware CoA seeding — core + per-activity pack from SOCPA chart', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
