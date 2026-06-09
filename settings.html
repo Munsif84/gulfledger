@@ -2297,6 +2297,26 @@ async function updateCategoryPreview(industry){
   preview.style.display = '';
 
   const all = window._allSystemCategories || [];
+  /* Round 47: the categories table was tagged when the industry dropdown had
+     fewer options. After consolidating business_type + industry to 21 options,
+     several new activity values have no direct tags. Map each new activity to
+     its nearest tagged equivalent so the preview reflects the right category
+     set immediately. Proper fix (re-tag the categories table) comes with the
+     full CoA pack work. */
+  const ACTIVITY_TAG_FALLBACK = {
+    wholesale: 'retail',        // similar inventory profile
+    trading: 'retail',          // similar inventory profile
+    consulting: 'services',     // services-like
+    professional: 'services',
+    saas: 'services',
+    technology: 'services',
+    restaurant: 'hospitality',
+    // Already-tagged: manufacturing, construction, healthcare, education, real_estate, retail, services, hospitality
+    // Untagged regulated industries (banking/insurance/telecom/natural_gas/oil_gas_upstream/other/general)
+    // fall through to universal-only — correct behavior.
+  };
+  const effectiveIndustry = ACTIVITY_TAG_FALLBACK[industry] || industry;
+
   /* Filter to categories visible for this industry:
      - industry_tag NULL or empty → universal (always shown)
      - contains 'universal'        → always shown
@@ -2305,7 +2325,7 @@ async function updateCategoryPreview(industry){
     const tags = c.industry_tag;
     if(!tags || tags.length === 0) return true;
     if(tags.includes('universal')) return true;
-    if(tags.includes(industry)) return true;
+    if(tags.includes(effectiveIndustry)) return true;
     return false;
   });
 
@@ -3703,7 +3723,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-set5</div>
-<script>console.log('%c[GulfLedger build] v2026.06.06-set5 · Round 47: P&L format fully determined by Business Activity, no override (compliance-safe)', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-set6</div>
+<script>console.log('%c[GulfLedger build] v2026.06.06-set6 · Round 47: category preview maps new activity values to existing tagged equivalents (wholesale→retail, saas→services, etc)', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
