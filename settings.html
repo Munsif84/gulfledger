@@ -2720,8 +2720,10 @@ async function saveTaxProfile(){
     legal_entity_type: entityType,
     industry: v('industry') || 'general',
     /* Round 47: business_type and industry consolidated (same value, two columns
-       for backward compatibility — older code reads either). */
+       for backward compatibility — older code reads either).
+       specific_business_type holds the granular picker value (e.g. 'pharmacy'). */
     business_type: v('industry') || null,
+    specific_business_type: document.getElementById('specific-business-type')?.value || null,
     pl_format: v('loc-pl-format') || 'by_function',
     vat_registered: document.getElementById('toggle-vat-registered')?.classList.contains('on') || false,
     vat_filing_frequency: v('vat-filing-frequency') || 'quarterly',
@@ -2736,10 +2738,11 @@ async function saveTaxProfile(){
   let {error: bizError} = await sb.from('businesses').update(bizPayload).eq('id', currentBiz.id);
   if(bizError){
     const errStr = String(bizError.message || bizError);
-    if(errStr.includes('business_type') || errStr.includes('pl_format')){
-      console.warn('[GL settings] Schema migration not run; saving Tax Profile without business_type/pl_format:', errStr);
+    if(errStr.includes('business_type') || errStr.includes('pl_format') || errStr.includes('specific_business_type')){
+      console.warn('[GL settings] Schema migration not run; saving Tax Profile without business_type/pl_format/specific_business_type:', errStr);
       const fallback = {...bizPayload};
       delete fallback.business_type;
+      delete fallback.specific_business_type;
       delete fallback.pl_format;
       const retry = await sb.from('businesses').update(fallback).eq('id', currentBiz.id);
       if(retry.error){ notify(retry.error.message, 'error'); return; }
@@ -3723,7 +3726,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-set6</div>
-<script>console.log('%c[GulfLedger build] v2026.06.06-set6 · Round 47: category preview maps new activity values to existing tagged equivalents (wholesale→retail, saas→services, etc)', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-set7</div>
+<script>console.log('%c[GulfLedger build] v2026.06.06-set7 · Round 47: Business Activity picker — 8 quick tiles + expandable 78-type catalog, specific_business_type column wiring', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
