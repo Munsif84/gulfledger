@@ -1680,6 +1680,10 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
           <span class="icon">🌳</span>
           <span data-ar="دليل الحسابات" data-en="Chart of Accounts">دليل الحسابات</span>
         </button>
+        <button class="sidebar-link" id="subtab-ledger-assets" onclick="switchSubtab('ledger-assets')">
+          <span class="icon"><svg class="gl-i"><use href="/gl-icons.svg#i-building"/></svg></span>
+          <span data-ar="الأصول الثابتة" data-en="Fixed Assets">الأصول الثابتة</span>
+        </button>
       </div>
 
       <!-- REPORTS group — 4 separate sidebar entries. Direct access to each
@@ -1869,6 +1873,98 @@ html,body{font-family:'Tajawal','Cairo',sans-serif;background:var(--bg);color:va
   </div>
 
   <!-- ════ PANE: REPORTS ════ -->
+    <!-- ═══════════ FIXED ASSETS (Round 48) ═══════════ -->
+  <div id="pane-assets" style="display:none;">
+    <div class="pane-toolbar" style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:16px;flex-wrap:wrap;">
+      <div style="font-size:15px;font-weight:800;color:var(--ink);display:flex;align-items:center;gap:8px;">
+        <svg class="gl-i"><use href="/gl-icons.svg#i-building"/></svg>
+        <span data-ar="سجل الأصول الثابتة" data-en="Fixed Asset Register">سجل الأصول الثابتة</span>
+      </div>
+      <button class="gl-btn is-primary is-sm" onclick="openAssetModal()">
+        <svg class="gl-i gl-i-sm"><use href="/gl-icons.svg#i-plus"/></svg>
+        <span data-ar="إضافة أصل" data-en="Add Asset">إضافة أصل</span>
+      </button>
+    </div>
+    <div id="fa-notice" style="display:none;" class="gl-card"></div>
+    <div id="fa-table-wrap" class="gl-card" style="padding:0;overflow-x:auto;">
+      <table class="gl-table" id="fa-table">
+        <thead><tr>
+          <th data-ar="الأصل" data-en="Asset">الأصل</th>
+          <th data-ar="الفئة" data-en="Category">الفئة</th>
+          <th data-ar="تاريخ الاقتناء" data-en="Acquired">تاريخ الاقتناء</th>
+          <th data-ar="التكلفة" data-en="Cost">التكلفة</th>
+          <th data-ar="الإهلاك المُرحَّل" data-en="Depreciation Posted">الإهلاك المُرحَّل</th>
+          <th data-ar="القيمة الدفترية" data-en="Net Book Value">القيمة الدفترية</th>
+          <th data-ar="الحالة" data-en="Status">الحالة</th>
+          <th></th>
+        </tr></thead>
+        <tbody id="fa-tbody"></tbody>
+      </table>
+      <div id="fa-empty" class="gl-empty" style="display:none;">
+        <span class="gl-i-disc is-neutral"><svg class="gl-i"><use href="/gl-icons.svg#i-building"/></svg></span>
+        <div class="gl-empty-title" data-ar="لا توجد أصول مسجلة بعد" data-en="No assets registered yet">لا توجد أصول مسجلة بعد</div>
+        <div class="gl-empty-sub" data-ar="سجّل أصولك الثابتة لاحتساب الإهلاك الشهري وترحيله تلقائياً كقيود محاسبية." data-en="Register your fixed assets to compute straight-line depreciation and post it as journal entries.">سجّل أصولك الثابتة لاحتساب الإهلاك الشهري وترحيله تلقائياً كقيود محاسبية.</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Add Asset modal -->
+  <div class="gl-modal-overlay" id="fa-modal" style="display:none;" onclick="if(event.target===this)closeAssetModal()">
+    <div class="gl-modal" style="max-width:520px;">
+      <div class="gl-modal-head">
+        <span data-ar="إضافة أصل ثابت" data-en="Add Fixed Asset">إضافة أصل ثابت</span>
+        <button class="gl-modal-close" onclick="closeAssetModal()" aria-label="Close">✕</button>
+      </div>
+      <div class="gl-modal-body">
+        <div class="field" style="margin-bottom:12px;">
+          <div class="field-label"><span data-ar="اسم الأصل" data-en="Asset name">اسم الأصل</span> <span class="req">*</span></div>
+          <input type="text" id="fa-name" placeholder="سيارة توصيل — هايلكس 2024">
+        </div>
+        <div class="field-row double" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+          <div class="field">
+            <div class="field-label"><span data-ar="الفئة" data-en="Category">الفئة</span></div>
+            <select id="fa-category">
+              <option value="machinery">آلات ومعدات · Plant & Machinery</option>
+              <option value="vehicles">مركبات · Vehicles</option>
+              <option value="furniture">أثاث وتجهيزات · Furniture & Fixtures</option>
+              <option value="it">أجهزة تقنية · IT Equipment</option>
+              <option value="buildings">مباني · Buildings</option>
+              <option value="intangible">أصول غير ملموسة · Intangibles</option>
+              <option value="land">أراضي (لا تُهلك) · Land (no depreciation)</option>
+            </select>
+          </div>
+          <div class="field">
+            <div class="field-label"><span data-ar="تاريخ الاقتناء" data-en="Acquisition date">تاريخ الاقتناء</span> <span class="req">*</span></div>
+            <input type="date" id="fa-date" dir="ltr">
+          </div>
+        </div>
+        <div class="field-row double" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;">
+          <div class="field">
+            <div class="field-label"><span data-ar="التكلفة (ر.س)" data-en="Cost (SAR)">التكلفة (ر.س)</span> <span class="req">*</span></div>
+            <input type="number" id="fa-cost" min="0" step="0.01" dir="ltr" placeholder="120000">
+          </div>
+          <div class="field">
+            <div class="field-label"><span data-ar="القيمة التخريدية (ر.س)" data-en="Salvage value (SAR)">القيمة التخريدية (ر.س)</span></div>
+            <input type="number" id="fa-salvage" min="0" step="0.01" dir="ltr" placeholder="0">
+          </div>
+        </div>
+        <div class="field" style="margin-bottom:12px;">
+          <div class="field-label"><span data-ar="العمر الإنتاجي (شهور)" data-en="Useful life (months)">العمر الإنتاجي (شهور)</span> <span class="req">*</span></div>
+          <input type="number" id="fa-life" min="1" max="600" dir="ltr" placeholder="60">
+          <div class="field-hint" id="fa-monthly-preview" style="margin-top:6px;"></div>
+        </div>
+        <div class="field">
+          <div class="field-label"><span data-ar="ملاحظات" data-en="Notes">ملاحظات</span></div>
+          <input type="text" id="fa-notes" placeholder="">
+        </div>
+      </div>
+      <div class="gl-modal-foot" style="display:flex;justify-content:flex-end;gap:8px;">
+        <button class="gl-btn is-ghost" onclick="closeAssetModal()"><span data-ar="إلغاء" data-en="Cancel">إلغاء</span></button>
+        <button class="gl-btn is-primary" onclick="saveAsset()"><span data-ar="حفظ الأصل" data-en="Save Asset">حفظ الأصل</span></button>
+      </div>
+    </div>
+  </div>
+
   <div id="pane-reports" style="display:none;">
 
     <div class="report-toolbar">
@@ -2213,6 +2309,253 @@ function updateActivityBanner(){
   banner.style.display = activity ? 'none' : 'flex';
 }
 
+
+/* ═══════════════════════════════════════════════════════════════════════
+   FIXED ASSET REGISTER  (Round 48)
+   ─────────────────────────────────────────────────────────────────────
+   Straight-line depreciation, posted as ordinary journal entries:
+     DR 7900 إهلاك أصول إدارية / CR 1790 مجمع الإهلاك
+   Table: fixed_assets (migration round-48b). Monthly amount =
+   (cost − salvage) / useful_life_months; posting catches up all whole
+   months since last_depreciation_date (or acquisition), capped at the
+   remaining depreciable base. Land never depreciates (IAS 16). */
+
+function fmtSar(n){ return fmt(n) + ' ر.س'; }
+
+const FA_CATEGORY = {
+  land:       { ar:'أراضي',            en:'Land',                code:'1710', dep:false },
+  buildings:  { ar:'مباني',            en:'Buildings',           code:'1720', dep:true },
+  machinery:  { ar:'آلات ومعدات',      en:'Plant & Machinery',   code:'1730', dep:true },
+  vehicles:   { ar:'مركبات',           en:'Vehicles',            code:'1740', dep:true },
+  furniture:  { ar:'أثاث وتجهيزات',    en:'Furniture & Fixtures',code:'1750', dep:true },
+  it:         { ar:'أجهزة تقنية',      en:'IT Equipment',        code:'1760', dep:true },
+  intangible: { ar:'أصول غير ملموسة',  en:'Intangibles',         code:'1770', dep:true },
+};
+
+let faAssets = [];
+
+function faMonthly(a){
+  if(!FA_CATEGORY[a.category]?.dep) return 0;
+  return Math.max(0, (Number(a.cost) - Number(a.salvage_value || 0)) / Number(a.useful_life_months));
+}
+function faRemaining(a){
+  return Math.max(0, (Number(a.cost) - Number(a.salvage_value || 0)) - Number(a.depreciation_posted || 0));
+}
+function faMonthsBetween(fromStr, toDate){
+  const from = new Date(fromStr);
+  let months = (toDate.getFullYear() - from.getFullYear()) * 12 + (toDate.getMonth() - from.getMonth());
+  if(toDate.getDate() < from.getDate()) months -= 1;
+  return Math.max(0, months);
+}
+
+async function loadAssets(){
+  const ar = currentLang === 'ar';
+  const notice = document.getElementById('fa-notice');
+  const wrap = document.getElementById('fa-table-wrap');
+  if(!currentBiz){ return; }
+  const {data, error} = await sb.from('fixed_assets')
+    .select('*').eq('business_id', currentBiz.id)
+    .order('acquisition_date', {ascending: false});
+  if(error){
+    const msg = String(error.message || error);
+    if(msg.includes('fixed_assets')){
+      notice.style.display = '';
+      wrap.style.display = 'none';
+      notice.innerHTML = (ar
+        ? 'جدول الأصول الثابتة غير موجود بعد — قم بتشغيل migration <strong>round-48b-fixed-assets.sql</strong> في Supabase ثم حدّث الصفحة.'
+        : 'Fixed-assets table missing — run <strong>round-48b-fixed-assets.sql</strong> in Supabase, then refresh.');
+      return;
+    }
+    notify(msg, 'error');
+    return;
+  }
+  notice.style.display = 'none';
+  wrap.style.display = '';
+  faAssets = data || [];
+  renderAssets();
+}
+
+function renderAssets(){
+  const ar = currentLang === 'ar';
+  const tbody = document.getElementById('fa-tbody');
+  const empty = document.getElementById('fa-empty');
+  const table = document.getElementById('fa-table');
+  if(!tbody) return;
+  if(!faAssets.length){
+    tbody.innerHTML = '';
+    table.style.display = 'none';
+    empty.style.display = '';
+    return;
+  }
+  table.style.display = '';
+  empty.style.display = 'none';
+  tbody.innerHTML = faAssets.map(a => {
+    const cat = FA_CATEGORY[a.category] || {ar:a.category, en:a.category, dep:false};
+    const nbv = Number(a.cost) - Number(a.depreciation_posted || 0);
+    const monthly = faMonthly(a);
+    const pendingFrom = a.last_depreciation_date || a.acquisition_date;
+    const pendingMonths = cat.dep && a.status === 'active' ? faMonthsBetween(pendingFrom, new Date()) : 0;
+    const due = Math.min(monthly * pendingMonths, faRemaining(a));
+    const statusBadge = a.status === 'disposed'
+      ? `<span class="gl-badge">${ar?'مُستبعد':'Disposed'}</span>`
+      : a.status === 'fully_depreciated'
+        ? `<span class="gl-badge is-info">${ar?'مُهلك بالكامل':'Fully depreciated'}</span>`
+        : (due > 0.005
+            ? `<span class="gl-badge is-warning">${ar?'إهلاك مستحق':'Depreciation due'}</span>`
+            : `<span class="gl-badge is-success">${ar?'نشط':'Active'}</span>`);
+    const actions = [];
+    if(a.status === 'active' && cat.dep && due > 0.005){
+      actions.push(`<button class="gl-btn is-sm is-primary" onclick="postAssetDepreciation('${a.id}')">${ar?'ترحيل الإهلاك':'Post depreciation'} (${fmtSar(due)})</button>`);
+    }
+    if(a.status !== 'disposed'){
+      actions.push(`<button class="gl-btn is-sm is-ghost" onclick="disposeAsset('${a.id}')">${ar?'استبعاد':'Dispose'}</button>`);
+    }
+    return `<tr>
+      <td><strong>${a.name}</strong>${a.notes ? `<div style="font-size:11px;color:var(--muted);">${a.notes}</div>` : ''}</td>
+      <td>${ar ? cat.ar : cat.en}</td>
+      <td class="is-amount" style="text-align:start;">${a.acquisition_date}</td>
+      <td class="is-amount">${fmtSar(a.cost)}</td>
+      <td class="is-amount">${fmtSar(a.depreciation_posted || 0)}</td>
+      <td class="is-amount"><strong>${fmtSar(nbv)}</strong></td>
+      <td>${statusBadge}</td>
+      <td style="white-space:nowrap;">${actions.join(' ')}</td>
+    </tr>`;
+  }).join('');
+}
+
+function openAssetModal(){
+  const m = document.getElementById('fa-modal');
+  ['fa-name','fa-cost','fa-salvage','fa-life','fa-notes'].forEach(id => { const el = document.getElementById(id); if(el) el.value = ''; });
+  document.getElementById('fa-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('fa-category').value = 'machinery';
+  document.getElementById('fa-monthly-preview').textContent = '';
+  m.style.display = 'flex';
+  ['fa-cost','fa-salvage','fa-life'].forEach(id =>
+    document.getElementById(id).addEventListener('input', faPreviewMonthly));
+  document.getElementById('fa-category').addEventListener('change', faPreviewMonthly);
+  setTimeout(() => document.getElementById('fa-name')?.focus(), 50);
+}
+function closeAssetModal(){ document.getElementById('fa-modal').style.display = 'none'; }
+
+function faPreviewMonthly(){
+  const ar = currentLang === 'ar';
+  const cat = document.getElementById('fa-category').value;
+  const cost = Number(document.getElementById('fa-cost').value || 0);
+  const salvage = Number(document.getElementById('fa-salvage').value || 0);
+  const life = Number(document.getElementById('fa-life').value || 0);
+  const el = document.getElementById('fa-monthly-preview');
+  if(!FA_CATEGORY[cat]?.dep){ el.textContent = ar ? 'الأراضي لا تُهلك (معيار المحاسبة).' : 'Land is not depreciated.'; return; }
+  if(cost > 0 && life > 0){
+    const m = (cost - salvage) / life;
+    el.textContent = (ar ? 'الإهلاك الشهري: ' : 'Monthly depreciation: ') + fmtSar(Math.max(0, m));
+  } else el.textContent = '';
+}
+
+async function saveAsset(){
+  const ar = currentLang === 'ar';
+  const name = document.getElementById('fa-name').value.trim();
+  const category = document.getElementById('fa-category').value;
+  const date = document.getElementById('fa-date').value;
+  const cost = Number(document.getElementById('fa-cost').value || 0);
+  const salvage = Number(document.getElementById('fa-salvage').value || 0);
+  const life = Number(document.getElementById('fa-life').value || 0);
+  const notes = document.getElementById('fa-notes').value.trim() || null;
+  if(!name || !date || cost <= 0 || life <= 0){
+    notify(ar ? '⚠ أكمل: الاسم، التاريخ، التكلفة، العمر الإنتاجي' : '⚠ Complete: name, date, cost, useful life', 'error');
+    return;
+  }
+  if(salvage >= cost){
+    notify(ar ? '⚠ القيمة التخريدية يجب أن تكون أقل من التكلفة' : '⚠ Salvage must be below cost', 'error');
+    return;
+  }
+  const {error} = await sb.from('fixed_assets').insert({
+    business_id: currentBiz.id,
+    user_id: currentUser.id,
+    name, category,
+    asset_account_code: FA_CATEGORY[category].code,
+    acquisition_date: date,
+    cost, salvage_value: salvage,
+    useful_life_months: life,
+    notes
+  });
+  if(error){ notify(String(error.message || error), 'error'); return; }
+  closeAssetModal();
+  notify(ar ? '✅ تم تسجيل الأصل' : '✅ Asset registered', 'success');
+  loadAssets();
+}
+
+async function postAssetDepreciation(id){
+  const ar = currentLang === 'ar';
+  const a = faAssets.find(x => x.id === id);
+  if(!a) return;
+  const monthly = faMonthly(a);
+  const from = a.last_depreciation_date || a.acquisition_date;
+  const months = faMonthsBetween(from, new Date());
+  const amount = Math.round(Math.min(monthly * months, faRemaining(a)) * 100) / 100;
+  if(amount <= 0){ notify(ar ? 'لا يوجد إهلاك مستحق' : 'Nothing due', 'info'); return; }
+  const ok = confirm((ar
+    ? `ترحيل إهلاك «${a.name}»\n${months} شهر × ${fmtSar(monthly)} = ${fmtSar(amount)}\n\nقيد: مدين 7900 إهلاك / دائن 1790 مجمع الإهلاك`
+    : `Post depreciation for “${a.name}”\n${months} mo × ${fmtSar(monthly)} = ${fmtSar(amount)}\n\nJE: DR 7900 Depreciation / CR 1790 Accumulated`));
+  if(!ok) return;
+
+  const today = new Date().toISOString().slice(0,10);
+  const {data: entry, error: entErr} = await sb.from('journal_entries').insert({
+    user_id: currentUser.id,
+    business_id: currentBiz.id,
+    entry_date: today,
+    reference: 'DEP-' + (a.name || '').slice(0, 18),
+    description: (ar ? 'إهلاك — ' : 'Depreciation — ') + a.name + ` (${months} ${ar?'شهر':'mo'})`,
+    source: 'fixed_asset',
+    source_id: a.id,
+    status: 'posted',
+    is_balanced: true
+  }).select().single();
+  if(entErr || !entry){ notify(String(entErr?.message || 'JE insert failed'), 'error'); return; }
+
+  const {error: linesErr} = await sb.from('journal_lines').insert([
+    {entry_id: entry.id, user_id: currentUser.id, account_code: '7900',
+     account_name: 'إهلاك أصول إدارية', debit: amount, credit: 0,
+     description: 'Depreciation — ' + a.name},
+    {entry_id: entry.id, user_id: currentUser.id, account_code: '1790',
+     account_name: 'مجمع الإهلاك', debit: 0, credit: amount,
+     description: 'Accumulated depreciation — ' + a.name}
+  ]);
+  if(linesErr){
+    await sb.from('journal_entries').delete().eq('id', entry.id);
+    notify(String(linesErr.message || linesErr), 'error');
+    return;
+  }
+
+  const newPosted = Number(a.depreciation_posted || 0) + amount;
+  const fully = faRemaining({...a, depreciation_posted: newPosted}) <= 0.005;
+  const {error: updErr} = await sb.from('fixed_assets').update({
+    depreciation_posted: newPosted,
+    last_depreciation_date: today,
+    status: fully ? 'fully_depreciated' : 'active',
+    updated_at: new Date().toISOString()
+  }).eq('id', a.id);
+  if(updErr){ notify(String(updErr.message || updErr), 'error'); return; }
+
+  notify((ar ? '✅ تم ترحيل إهلاك ' : '✅ Depreciation posted: ') + fmtSar(amount), 'success');
+  loadAssets();
+}
+
+async function disposeAsset(id){
+  const ar = currentLang === 'ar';
+  const a = faAssets.find(x => x.id === id);
+  if(!a) return;
+  const ok = confirm(ar
+    ? `استبعاد «${a.name}»؟\n\nسيتم وضع علامة "مُستبعد" على الأصل. قيد الاستبعاد (إثبات المتحصلات والربح/الخسارة) يُسجَّل يدوياً من قيود اليومية.`
+    : `Dispose “${a.name}”?\n\nAsset will be marked disposed. Record the disposal JE (proceeds + gain/loss) manually from Journal Entries.`);
+  if(!ok) return;
+  const {error} = await sb.from('fixed_assets').update({
+    status: 'disposed', updated_at: new Date().toISOString()
+  }).eq('id', a.id);
+  if(error){ notify(String(error.message || error), 'error'); return; }
+  notify(ar ? '✅ تم الاستبعاد — لا تنسَ قيد الاستبعاد' : '✅ Disposed — remember the disposal JE', 'success');
+  loadAssets();
+}
+
 async function init(){
   const {data:{session}} = await sb.auth.getSession();
   if(!session){ window.location.href = 'login.html'; return; }
@@ -2264,7 +2607,9 @@ async function init(){
 
   /* Resolve sidebar entry name from URL params. */
   let sub;
-  if(subRaw === 'ledger'){
+  if(subRaw === 'assets'){
+    sub = 'ledger-assets';
+  } else if(subRaw === 'ledger'){
     /* ?sub=ledger or ?sub=ledger&view=coa */
     sub = (urlView === 'coa') ? 'ledger-coa' : 'ledger-journal';
   } else if(subRaw === 'reports'){
@@ -2489,6 +2834,7 @@ function switchSubtab(name){
   const paneMap = {
     'ledger-journal': 'pane-ledger',
     'ledger-coa':     'pane-ledger',
+    'ledger-assets':  'pane-assets',
     'report-pl':      'pane-reports', 'report-bs': 'pane-reports',
     'report-cf':      'pane-reports', 'report-tb': 'pane-reports',
     /* Round B-VAT-2: compliance reports also live in pane-reports */
@@ -2504,7 +2850,7 @@ function switchSubtab(name){
   }
 
   /* All sidebar buttons — toggle active class based on the name. */
-  ['ledger-journal','ledger-coa',
+  ['ledger-journal','ledger-coa','ledger-assets',
    'report-pl','report-bs','report-cf','report-tb',
    'report-vat','report-zakat','report-qawaem',
    'vat-return','vat-annual','vat-qawaem'].forEach(key => {
@@ -2512,7 +2858,7 @@ function switchSubtab(name){
   });
 
   /* Show only the relevant pane — pane-ledger, pane-reports, or pane-vat. */
-  ['pane-ledger','pane-reports','pane-vat'].forEach(pid => {
+  ['pane-ledger','pane-reports','pane-vat','pane-assets'].forEach(pid => {
     const pane = document.getElementById(pid);
     if(pane) pane.style.display = (pid === targetPane) ? '' : 'none';
   });
@@ -2525,6 +2871,8 @@ function switchSubtab(name){
     history.replaceState(null, '', '?sub=ledger');
   } else if(name === 'ledger-coa'){
     history.replaceState(null, '', '?sub=ledger&view=coa');
+  } else if(name === 'ledger-assets'){
+    history.replaceState(null, '', '?sub=assets');
   } else if(name.startsWith('report-')){
     const view = name.replace('report-', '');
     history.replaceState(null, '', '?sub=reports&view=' + view);
@@ -2542,6 +2890,10 @@ function switchSubtab(name){
     if(typeof setLedgerView === 'function'){
       setLedgerView(name === 'ledger-coa' ? 'coa' : 'journal');
     }
+  }
+
+  if(name === 'ledger-assets'){
+    loadAssets();
   }
 
   if(name.startsWith('report-')){
@@ -13546,7 +13898,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.11-ux4</div>
-<script>console.log('%c[GulfLedger build] v2026.06.11-ux4 · UX: command palette (Ctrl+K); includes ux3b comma hotfix', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.11-r48</div>
+<script>console.log('%c[GulfLedger build] v2026.06.11-r48 · Round 48: Fixed Asset Register (straight-line depreciation, JE posting)', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
