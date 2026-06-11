@@ -71,7 +71,13 @@
   + '.glc-empty{text-align:center;padding:28px 16px;color:var(--color-text-muted,#737373);font-size:13px;}'
   + '.glc-hint{display:flex;gap:14px;padding:8px 16px;border-top:1px solid var(--color-border,#E5E7EB);font-size:10.5px;color:var(--color-text-faint,#A3A3A3);}'
   + '.glc-hint b{font-weight:700;color:var(--color-text-muted,#737373);}'
-  + '@media (max-width:560px){.glc-backdrop{padding:8vh 8px 8px;}.glc{max-height:74vh;}}';
+  + '@media (max-width:560px){.glc-backdrop{padding:8vh 8px 8px;}.glc{max-height:74vh;}}'
+  /* Topnav trigger button (self-injected before .gl-qa-btn) */
+  + '.glc-trigger{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid rgba(255,255,255,0.28);border-radius:8px;background:rgba(255,255,255,0.10);color:#fff;font-family:var(--font-sans,sans-serif);font-size:12.5px;cursor:pointer;transition:background .12s,border-color .12s;margin-inline-end:8px;}'
+  + '.glc-trigger:hover{background:rgba(255,255,255,0.18);border-color:rgba(255,255,255,0.45);}'
+  + '.glc-trigger .glc-i{width:15px;height:15px;}'
+  + '.glc-trigger kbd{font-family:var(--font-sans,sans-serif);font-size:10px;font-weight:700;border:1px solid rgba(255,255,255,0.35);border-radius:4px;padding:1px 5px;opacity:0.85;}'
+  + '@media (max-width:719px){.glc-trigger .glc-tr-label,.glc-trigger kbd{display:none;}.glc-trigger{padding:7px 9px;margin-inline-end:6px;}}';
 
   var styleEl = document.createElement('style');
   styleEl.textContent = css;
@@ -90,7 +96,26 @@
     +   '<div class="glc-list" id="glc-list"></div>'
     +   '<div class="glc-hint"><span><b>↑↓</b> تنقّل · navigate</span><span><b>↵</b> فتح · open</span></div>'
     + '</div>';
-  function mount(){ if(document.body && !backdrop.isConnected) document.body.appendChild(backdrop); }
+  function mount(){
+    if(document.body && !backdrop.isConnected) document.body.appendChild(backdrop);
+    /* Discoverability: inject a search trigger before the Quick-Add button
+       in the topnav (present on every page). Zero per-page edits needed. */
+    if(!document.querySelector('.glc-trigger')){
+      var qa = document.querySelector('.gl-qa-btn');
+      if(qa && qa.parentNode){
+        var ar = lang() === 'ar';
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'glc-trigger';
+        btn.setAttribute('aria-label', ar ? 'بحث سريع' : 'Quick search');
+        btn.innerHTML = I('i-search')
+          + '<span class="glc-tr-label">' + (ar ? 'بحث' : 'Search') + '</span>'
+          + '<kbd>Ctrl K</kbd>';
+        btn.addEventListener('click', openPal);
+        qa.parentNode.insertBefore(btn, qa);
+      }
+    }
+  }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
   else mount();
 
