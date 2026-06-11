@@ -100,16 +100,130 @@
 
 </script>
 <style>
-  /* ─── Business Activity Picker — Round 47 (v2) ──────────────────────
-     Restructured layout: bounded panels, smooth transitions, auto-close on
-     selection, scrollable expanded list capped at 360px so it doesn't push
-     the rest of the form off-screen. */
-  .ba-picker { margin-top: 4px; }
+  /* ─── Business Activity Picker — Round 47 v3: modal-based ─────────
+     Field shows only the current selection as a clickable trigger.
+     Clicking opens a modal with search + tiles + full catalog.
+     Selection auto-closes the modal. */
+
+  /* Field trigger — looks like a select but is a button */
+  .ba-trigger {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 10px;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 14px;
+    font-family: inherit;
+    color: var(--ink);
+    text-align: start;
+    transition: border-color .12s;
+    min-height: 42px;
+  }
+  .ba-trigger:hover { border-color: var(--green); }
+  .ba-trigger:focus { outline: none; border-color: var(--green); box-shadow: 0 0 0 3px rgba(0,108,53,0.12); }
+  .ba-trigger.has-selection { border-color: var(--green); background: #F4FAF7; }
+  .ba-trigger-current { display: flex; align-items: center; gap: 8px; flex: 1; min-width: 0; }
+  .ba-trigger-current .ba-trigger-emoji { font-size: 18px; flex-shrink: 0; }
+  .ba-trigger-current .ba-trigger-label { font-weight: 600; color: var(--ink); }
+  .ba-trigger-current .ba-trigger-pack {
+    font-size: 11px; color: var(--muted); font-weight: 400;
+    margin-inline-start: 6px;
+  }
+  .ba-trigger-placeholder { color: var(--muted); font-weight: 400; }
+  .ba-trigger-arrow { color: var(--muted); font-size: 11px; flex-shrink: 0; }
+
+  /* Modal backdrop */
+  .ba-modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 25, 20, 0.45);
+    z-index: 9000;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+    backdrop-filter: blur(2px);
+    animation: ba-backdrop-in .15s ease-out;
+  }
+  @keyframes ba-backdrop-in { from { opacity: 0; } to { opacity: 1; } }
+
+  /* Modal panel */
+  .ba-modal {
+    width: 100%;
+    max-width: 720px;
+    max-height: 86vh;
+    background: #fff;
+    border-radius: 12px;
+    box-shadow: 0 24px 60px rgba(0,0,0,0.25);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+    animation: ba-modal-in .18s ease-out;
+  }
+  @keyframes ba-modal-in {
+    from { opacity: 0; transform: translateY(8px) scale(0.98); }
+    to   { opacity: 1; transform: translateY(0) scale(1); }
+  }
+  .ba-modal-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    gap: 12px;
+    padding: 18px 22px 14px;
+    border-bottom: 1px solid var(--border);
+  }
+  .ba-modal-title { font-size: 16px; font-weight: 700; color: var(--ink); }
+  .ba-modal-sub { font-size: 12px; color: var(--muted); margin-top: 3px; line-height: 1.45; }
+  .ba-modal-close {
+    width: 32px; height: 32px;
+    display: flex; align-items: center; justify-content: center;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    background: #fff;
+    cursor: pointer;
+    font-size: 14px;
+    color: var(--muted);
+    transition: all .12s;
+    flex-shrink: 0;
+  }
+  .ba-modal-close:hover { background: #f4f4f4; color: var(--ink); border-color: var(--muted); }
+  .ba-modal-search {
+    margin: 14px 22px 4px;
+    padding: 10px 14px;
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    font-size: 13.5px;
+    background: #fafafa;
+    font-family: inherit;
+  }
+  .ba-modal-search:focus { outline: none; border-color: var(--green); background: #fff; box-shadow: 0 0 0 3px rgba(0,108,53,0.10); }
+  .ba-modal-body {
+    flex: 1;
+    overflow-y: auto;
+    padding: 14px 22px 22px;
+  }
+  .ba-modal-section { margin-bottom: 18px; }
+  .ba-modal-section-title {
+    font-size: 11px;
+    font-weight: 700;
+    color: var(--muted);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+    margin-bottom: 8px;
+    padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  /* Tile grid inside modal */
   .ba-tiles {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
     gap: 8px;
-    margin-bottom: 10px;
   }
   .ba-tile {
     display: flex; flex-direction: column;
@@ -117,71 +231,47 @@
     padding: 12px 8px;
     border: 1.5px solid var(--border);
     border-radius: 8px;
-    background: #fff; cursor: pointer;
+    background: #fff;
+    cursor: pointer;
     transition: all .12s;
-    text-align: center; min-height: 80px;
+    text-align: center;
+    min-height: 78px;
+    font-family: inherit;
   }
   .ba-tile:hover { border-color: var(--green); background: #F4FAF7; }
   .ba-tile.selected {
     border-color: var(--green);
     background: #E8F5EE;
-    box-shadow: 0 0 0 2px rgba(0,108,53,0.15);
+    box-shadow: 0 0 0 2px rgba(0,108,53,0.18);
   }
   .ba-tile .ba-emoji { font-size: 22px; line-height: 1; }
   .ba-tile .ba-label { font-size: 11.5px; font-weight: 600; color: var(--ink); line-height: 1.25; }
-  .ba-more-btn {
-    width: 100%; padding: 9px;
-    border: 1.5px dashed var(--border);
-    border-radius: 8px; background: #fafafa;
-    cursor: pointer; font-size: 12.5px; font-weight: 600; color: var(--muted);
-    transition: all .12s;
-    margin-bottom: 8px;
-  }
-  .ba-more-btn:hover { border-color: var(--green); color: var(--green); background: #F4FAF7; }
-  .ba-expanded {
-    margin-bottom: 10px;
-    padding: 10px;
-    background: #fafafa;
-    border-radius: 8px;
-    border: 1px solid var(--border);
-    /* Bounded height: list scrolls inside the panel — doesn't push page down */
-    max-height: 360px;
-    overflow-y: auto;
-  }
-  .ba-section-title {
-    font-size: 11px; font-weight: 700; color: var(--muted);
-    text-transform: uppercase; letter-spacing: 0.5px;
-    margin: 12px 0 5px; padding-bottom: 3px;
-    border-bottom: 1px solid var(--border);
-    position: sticky; top: 0; background: #fafafa; z-index: 1;
-  }
-  .ba-section-title:first-child { margin-top: 0; }
+
+  /* Full-catalog options inside modal */
   .ba-options-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
     gap: 4px;
   }
   .ba-option {
     display: flex; align-items: center; gap: 8px;
-    padding: 6px 10px; border-radius: 5px;
-    cursor: pointer; font-size: 12px; transition: background .1s;
+    padding: 7px 11px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 12.5px;
+    transition: background .1s;
   }
-  .ba-option:hover { background: #fff; }
+  .ba-option:hover { background: #F4FAF7; }
   .ba-option.selected { background: var(--green); color: #fff; }
   .ba-option .ba-opt-emoji { font-size: 14px; flex-shrink: 0; }
-  .ba-search-input {
-    width: 100%; padding: 7px 10px; margin-bottom: 8px;
-    border: 1px solid var(--border); border-radius: 6px; font-size: 12.5px; background: #fff;
-    position: sticky; top: 0; z-index: 2;
+
+  /* Hidden when filter has zero matches */
+  .ba-no-results {
+    text-align: center;
+    padding: 30px 20px;
+    color: var(--muted);
+    font-size: 13px;
   }
-  .ba-current {
-    margin-top: 6px; padding: 7px 11px;
-    background: #E8F5EE; border-left: 3px solid var(--green);
-    border-radius: 4px; font-size: 12.5px;
-    display: flex; align-items: center; gap: 6px; flex-wrap: wrap;
-  }
-  [dir="rtl"] .ba-current { border-left: none; border-right: 3px solid var(--green); }
-  .ba-current strong { color: var(--green); font-weight: 700; }
 
 /* ─── Build version badge (Round NN of YYYY-MM-DD)
        Tiny corner badge so we can verify cached vs fresh file.
@@ -1023,23 +1113,17 @@ html.lang-switching *::after {
             <input type="hidden" id="specific-business-type" value="">
             <input type="hidden" id="loc-pl-format" value="by_function">
 
-            <div class="ba-picker" id="ba-picker">
-              <div class="ba-tiles" id="ba-quick-tiles"></div>
-              <button type="button" class="ba-more-btn" id="ba-more-btn" onclick="toggleBaExpanded()">
-                <span data-ar="المزيد من الخيارات (تجد نشاطك بدقة) ←" data-en="More options (find your exact type) →">المزيد من الخيارات (تجد نشاطك بدقة) ←</span>
-              </button>
-              <div class="ba-expanded" id="ba-expanded" style="display:none;">
-                <input type="text" class="ba-search-input" id="ba-search" placeholder="ابحث · Search..." oninput="filterBaList()">
-                <div id="ba-list"></div>
-              </div>
-              <div class="ba-current" id="ba-current" style="display:none;">
-                <span data-ar="نشاطك:" data-en="Your activity:">نشاطك:</span>
-                <strong id="ba-current-label"></strong>
-              </div>
-              <div id="pl-format-derived" style="margin-top:10px;padding:8px 12px;background:#F8F8F4;border:1px solid var(--border);border-radius:7px;font-size:12px;color:var(--muted);display:none;">
-                <span data-ar="تنسيق قائمة الدخل (يُحدَّد تلقائياً):" data-en="P&L Format (determined automatically):">تنسيق قائمة الدخل (يُحدَّد تلقائياً):</span>
-                <strong id="pl-format-derived-label" style="color:var(--ink);font-weight:600;margin-inline-start:4px;"></strong>
-              </div>
+            <!-- Compact field: shows current selection only. Click opens modal. -->
+            <button type="button" class="ba-trigger" id="ba-trigger" onclick="openBaModal()" aria-haspopup="dialog">
+              <span class="ba-trigger-current" id="ba-trigger-current">
+                <span class="ba-trigger-placeholder" data-ar="انقر لاختيار النشاط التجاري" data-en="Click to choose Business Activity">انقر لاختيار النشاط التجاري</span>
+              </span>
+              <span class="ba-trigger-arrow" aria-hidden="true">▾</span>
+            </button>
+            <!-- P&L format display (compact, appears under field after selection) -->
+            <div id="pl-format-derived" style="margin-top:8px;padding:6px 10px;background:#F8F8F4;border:1px solid var(--border);border-radius:6px;font-size:11.5px;color:var(--muted);display:none;">
+              <span data-ar="تنسيق قائمة الدخل (تلقائي):" data-en="P&L Format (auto):">تنسيق قائمة الدخل (تلقائي):</span>
+              <strong id="pl-format-derived-label" style="color:var(--ink);font-weight:600;margin-inline-start:4px;"></strong>
             </div>
             <div class="field-hint" id="industry-warning" style="display:none;color:var(--amber);font-weight:600;">
               ⚠️ <span data-ar="هذا القطاع له معدّلات ضريبية خاصة" data-en="This industry has special tax rates">هذا القطاع له معدّلات ضريبية خاصة</span>
@@ -3054,9 +3138,10 @@ async function saveLocalization(){
   notify(currentLang==='ar'?'✅ تم حفظ التفضيلات الإقليمية':'✅ Localization preferences saved', 'success');
 }
 
-/* P&L format derivation from Business Activity (Round 47).
+/* P&L format derivation from Business Activity (Round 47 v3).
    business_type + industry consolidated into one field (id=industry).
-   P&L format is FULLY DETERMINED by the activity — no user override. */
+   P&L format is FULLY DETERMINED by the activity — no user override.
+   Picker is now a modal (see ba-modal-backdrop element). */
 
 const ACTIVITY_PL_DEFAULTS = Object.freeze({
   wholesale:'by_function', retail:'by_function', trading:'by_function', manufacturing:'by_function',
@@ -3090,15 +3175,11 @@ function _applyPlFormatForActivity(){
 }
 
 /* ═════════════════════════════════════════════════════════════════════
-   BUSINESS ACTIVITY PICKER  (Round 47)
+   BUSINESS ACTIVITY PICKER — Modal version (Round 47 v3)
    ─────────────────────────────────────────────────────────────────────
-   Display layer: ~78 Saudi SME business types. Each maps to one of the
-   ~12 accounting packs in accounting.html's ACTIVITY_CHART_PACKS.
-   Customer picks "Pharmacy" → stores both:
-     • specific_business_type = 'pharmacy'   (granular, UX)
-     • business_type = 'retail'              (pack key, books)
-   Hidden #industry select is the single source of truth — set via
-   setVal('industry', packKey) on every selection. */
+   Field shows only the current selection as a clickable trigger.
+   Clicking opens a modal containing the search, quick tiles, and full
+   catalog. Selection auto-closes the modal and updates the trigger. */
 
 const BA_QUICK_TILES = [
   { id:'retail_store',    emoji:'🏪', ar:'محل تجزئة',          en:'Retail Store',           pack:'retail' },
@@ -3246,8 +3327,9 @@ const BA_BY_ID = Object.fromEntries(
   Object.values(BA_FULL_CATALOG).flat().concat(BA_QUICK_TILES).map(t => [t.id, t])
 );
 
-function renderBaPicker(){
-  const ar = (typeof currentLang !== 'undefined' && currentLang) ? currentLang === 'ar' : true;
+/* Render tiles + full list INSIDE the modal (called once on modal open) */
+function renderBaModalContent(){
+  const ar = currentLang === 'ar';
   const tilesEl = document.getElementById('ba-quick-tiles');
   if(tilesEl){
     tilesEl.innerHTML = BA_QUICK_TILES.map(t => `
@@ -3256,96 +3338,165 @@ function renderBaPicker(){
         <span class="ba-label">${ar ? t.ar : t.en}</span>
       </button>`).join('');
   }
-  const listEl = document.getElementById('ba-list');
+  const listEl = document.getElementById('ba-full-list');
   if(listEl){
     listEl.innerHTML = Object.entries(BA_FULL_CATALOG).map(([section, items]) => `
-      <div class="ba-section-title">${section}</div>
-      <div class="ba-options-grid">
-        ${items.map(t => `
-          <div class="ba-option" data-id="${t.id}" data-pack="${t.pack}" onclick="selectBusinessType('${t.id}')">
-            <span class="ba-opt-emoji">${t.emoji}</span>
-            <span>${ar ? t.ar : t.en}</span>
-          </div>`).join('')}
+      <div class="ba-modal-section">
+        <div class="ba-modal-section-title">${section}</div>
+        <div class="ba-options-grid">
+          ${items.map(t => `
+            <div class="ba-option" data-id="${t.id}" data-pack="${t.pack}" onclick="selectBusinessType('${t.id}')">
+              <span class="ba-opt-emoji">${t.emoji}</span>
+              <span>${ar ? t.ar : t.en}</span>
+            </div>`).join('')}
+        </div>
       </div>`).join('');
   }
+}
+
+/* Update the trigger button to reflect current selection */
+function updateBaTrigger(){
+  const trigger = document.getElementById('ba-trigger');
+  const cur = document.getElementById('ba-trigger-current');
+  const specificId = document.getElementById('specific-business-type')?.value;
+  const packKey = v('industry');
+  if(!trigger || !cur) return;
+  const item = specificId ? BA_BY_ID[specificId] : null;
+  if(item){
+    const ar = currentLang === 'ar';
+    cur.innerHTML = `
+      <span class="ba-trigger-emoji">${item.emoji}</span>
+      <span class="ba-trigger-label">${ar ? item.ar : item.en}</span>`;
+    trigger.classList.add('has-selection');
+  } else if(packKey){
+    /* Legacy data: only pack saved, no specific id. Show pack name. */
+    const PACK_NAMES_AR = {
+      retail:'تجارة التجزئة', wholesale:'تجارة الجملة', trading:'تجارة',
+      manufacturing:'صناعة', construction:'مقاولات', services:'خدمات',
+      consulting:'استشارات', professional:'مهن حرة', saas:'برمجيات',
+      technology:'تقنية', hospitality:'ضيافة', restaurant:'مطاعم',
+      healthcare:'رعاية صحية', education:'تعليم', real_estate:'عقارات', other:'أخرى',
+    };
+    const PACK_NAMES_EN = {
+      retail:'Retail', wholesale:'Wholesale', trading:'Trading',
+      manufacturing:'Manufacturing', construction:'Construction', services:'Services',
+      consulting:'Consulting', professional:'Professional', saas:'SaaS',
+      technology:'Technology', hospitality:'Hospitality', restaurant:'Restaurant',
+      healthcare:'Healthcare', education:'Education', real_estate:'Real Estate', other:'Other',
+    };
+    const ar = currentLang === 'ar';
+    const name = (ar ? PACK_NAMES_AR : PACK_NAMES_EN)[packKey] || packKey;
+    cur.innerHTML = `<span class="ba-trigger-label">${name}</span>
+                     <span class="ba-trigger-pack" data-ar="(انقر لتحديد النوع بدقة)" data-en="(click to refine)">${ar ? '(انقر لتحديد النوع بدقة)' : '(click to refine)'}</span>`;
+    trigger.classList.add('has-selection');
+  } else {
+    cur.innerHTML = `<span class="ba-trigger-placeholder">${currentLang === 'ar' ? 'انقر لاختيار النشاط التجاري' : 'Click to choose Business Activity'}</span>`;
+    trigger.classList.remove('has-selection');
+  }
+}
+
+let _baModalEscHandler = null;
+
+function openBaModal(){
+  const backdrop = document.getElementById('ba-modal-backdrop');
+  if(!backdrop) return;
+  renderBaModalContent();
+  /* Mark current selection inside modal */
+  const specificId = document.getElementById('specific-business-type')?.value;
+  if(specificId){
+    setTimeout(() => {
+      document.querySelectorAll(`.ba-tile[data-id="${specificId}"], .ba-option[data-id="${specificId}"]`)
+        .forEach(el => el.classList.add('selected'));
+    }, 0);
+  }
+  backdrop.style.display = 'flex';
+  /* Focus search */
+  setTimeout(() => document.getElementById('ba-modal-search')?.focus(), 100);
+  /* ESC to close */
+  _baModalEscHandler = (e) => { if(e.key === 'Escape') closeBaModal(); };
+  document.addEventListener('keydown', _baModalEscHandler);
+  /* Lock body scroll */
+  document.body.style.overflow = 'hidden';
+}
+
+function closeBaModal(){
+  const backdrop = document.getElementById('ba-modal-backdrop');
+  if(!backdrop) return;
+  backdrop.style.display = 'none';
+  /* Clear search */
+  const s = document.getElementById('ba-modal-search');
+  if(s) s.value = '';
+  filterBaModal();  /* reset filter visibility */
+  if(_baModalEscHandler){
+    document.removeEventListener('keydown', _baModalEscHandler);
+    _baModalEscHandler = null;
+  }
+  document.body.style.overflow = '';
+}
+
+function closeBaModalIfBackdrop(event){
+  if(event.target.id === 'ba-modal-backdrop') closeBaModal();
 }
 
 function selectBusinessType(specificId){
   const item = BA_BY_ID[specificId];
   if(!item){ console.warn('[BA picker] unknown id:', specificId); return; }
-  /* Mark selection in both quick tiles and expanded list */
-  document.querySelectorAll('.ba-tile, .ba-option').forEach(el => el.classList.remove('selected'));
-  document.querySelectorAll(`[data-id="${specificId}"]`).forEach(el => el.classList.add('selected'));
-  /* Persist underlying values */
+  /* Update underlying values */
   setVal('industry', item.pack);
   document.getElementById('specific-business-type').value = specificId;
-  /* Show "Your activity:" echo */
-  const cur = document.getElementById('ba-current');
-  const curLabel = document.getElementById('ba-current-label');
-  if(cur && curLabel){
-    curLabel.textContent = currentLang === 'ar' ? item.ar : item.en;
-    cur.style.display = '';
-  }
-  /* Round 47 v2: auto-close expanded panel + clear search so the user
-     sees the result of their selection without manual close. */
-  const expanded = document.getElementById('ba-expanded');
-  const moreBtn = document.getElementById('ba-more-btn');
-  if(expanded && expanded.style.display !== 'none'){
-    expanded.style.display = 'none';
-    if(moreBtn) moreBtn.style.display = '';
-    const search = document.getElementById('ba-search');
-    if(search) search.value = '';
-    /* Reset any hidden list items from previous search filter */
-    document.querySelectorAll('.ba-option, .ba-section-title, .ba-options-grid').forEach(el => el.style.display = '');
-  }
-  /* Trigger all downstream effects (warning, category preview, tax, P&L) */
+  /* Update the field trigger to show new selection */
+  updateBaTrigger();
+  /* Close modal */
+  closeBaModal();
+  /* Fire all downstream effects */
   onTaxProfileChange();
   _applyPlFormatForActivity();
-  /* Round 47 v2: scroll the "Your activity:" echo into view so user sees confirmation */
-  setTimeout(() => {
-    cur?.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
-  }, 60);
 }
 
-function toggleBaExpanded(){
-  const wrap = document.getElementById('ba-expanded');
-  const btn = document.getElementById('ba-more-btn');
-  if(!wrap || !btn) return;
-  if(wrap.style.display === 'none' || !wrap.style.display){
-    wrap.style.display = '';
-    btn.style.display = 'none';
-    setTimeout(() => document.getElementById('ba-search')?.focus(), 50);
-  } else {
-    wrap.style.display = 'none';
-    btn.style.display = '';
-  }
-}
-
-function filterBaList(){
-  const q = (document.getElementById('ba-search')?.value || '').toLowerCase().trim();
-  document.querySelectorAll('.ba-option').forEach(el => {
+function filterBaModal(){
+  const q = (document.getElementById('ba-modal-search')?.value || '').toLowerCase().trim();
+  /* Filter quick tiles */
+  document.querySelectorAll('#ba-quick-tiles .ba-tile').forEach(el => {
     el.style.display = (!q || el.textContent.toLowerCase().includes(q)) ? '' : 'none';
   });
-  document.querySelectorAll('.ba-section-title').forEach(title => {
-    const next = title.nextElementSibling;
-    if(!next) return;
-    const anyVisible = next.querySelector('.ba-option:not([style*="display: none"])');
-    title.style.display = anyVisible ? '' : 'none';
-    next.style.display  = anyVisible ? '' : 'none';
+  /* Hide quick-section title if no tiles visible */
+  const quickSection = document.getElementById('ba-quick-section');
+  if(quickSection){
+    const anyTileVisible = quickSection.querySelector('.ba-tile:not([style*="display: none"])');
+    quickSection.style.display = anyTileVisible ? '' : 'none';
+  }
+  /* Filter full-list options */
+  document.querySelectorAll('#ba-full-list .ba-option').forEach(el => {
+    el.style.display = (!q || el.textContent.toLowerCase().includes(q)) ? '' : 'none';
+  });
+  /* Hide section blocks that have no visible options */
+  document.querySelectorAll('#ba-full-list .ba-modal-section').forEach(sec => {
+    const anyVisible = sec.querySelector('.ba-option:not([style*="display: none"])');
+    sec.style.display = anyVisible ? '' : 'none';
   });
 }
 
 function restoreBaSelection(specificId, packKey){
-  if(specificId && BA_BY_ID[specificId]){ selectBusinessType(specificId); return; }
-  if(packKey){
-    const match = [...BA_QUICK_TILES, ...Object.values(BA_FULL_CATALOG).flat()].find(t => t.pack === packKey);
-    if(match){ selectBusinessType(match.id); return; }
+  /* Sets the hidden inputs and updates the trigger button. No modal involved. */
+  if(specificId && BA_BY_ID[specificId]){
+    const item = BA_BY_ID[specificId];
+    setVal('industry', item.pack);
+    document.getElementById('specific-business-type').value = specificId;
+  } else if(packKey){
+    setVal('industry', packKey);
+    document.getElementById('specific-business-type').value = '';
+  } else {
+    setVal('industry', '');
+    document.getElementById('specific-business-type').value = '';
   }
+  updateBaTrigger();
 }
 
 document.addEventListener('DOMContentLoaded', () => {
-  renderBaPicker();
+  /* Modal content is rendered on open. Just wire the change listener. */
   document.getElementById('industry')?.addEventListener('change', _applyPlFormatForActivity);
+  /* Initial trigger update (in case page loads with selection already saved) */
+  setTimeout(updateBaTrigger, 0);
 });
 
 /* ═══════════════════════════════════════════════════════
@@ -4028,7 +4179,34 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-set9</div>
-<script>console.log('%c[GulfLedger build] v2026.06.06-set9 · Round 47 v2: picker UX cleanup — own row, bounded expanded panel, auto-close on select, sticky search', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-set10</div>
+<script>console.log('%c[GulfLedger build] v2026.06.06-set10 · Round 47 v3: Business Activity picker as modal — compact field with single-line selection, modal opens on click with search + tiles + full catalog', 'color:#006C35;font-weight:bold;');</script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════
+     BUSINESS ACTIVITY PICKER MODAL  (Round 47 v3)
+     ───────────────────────────────────────────────────────────────────
+     Opens via openBaModal(). Closes on selection, on backdrop click,
+     or on ESC. Search filters BOTH tiles and full list. -->
+<div class="ba-modal-backdrop" id="ba-modal-backdrop" onclick="closeBaModalIfBackdrop(event)" role="dialog" aria-modal="true" aria-labelledby="ba-modal-title" style="display:none;">
+  <div class="ba-modal" onclick="event.stopPropagation();">
+    <div class="ba-modal-header">
+      <div>
+        <div class="ba-modal-title" id="ba-modal-title" data-ar="اختر نشاطك التجاري" data-en="Choose your Business Activity">اختر نشاطك التجاري</div>
+        <div class="ba-modal-sub" data-ar="نوع النشاط يحدد دليل الحسابات وتنسيق التقارير." data-en="Your activity determines the chart of accounts and report format.">نوع النشاط يحدد دليل الحسابات وتنسيق التقارير.</div>
+      </div>
+      <button type="button" class="ba-modal-close" onclick="closeBaModal()" aria-label="Close">✕</button>
+    </div>
+    <input type="text" class="ba-modal-search" id="ba-modal-search" placeholder="ابحث · Search…" oninput="filterBaModal()" autocomplete="off">
+    <div class="ba-modal-body" id="ba-modal-body">
+      <!-- Quick tiles section -->
+      <div class="ba-modal-section" id="ba-quick-section">
+        <div class="ba-modal-section-title" data-ar="الأنواع الشائعة" data-en="Common types">الأنواع الشائعة</div>
+        <div class="ba-tiles" id="ba-quick-tiles"></div>
+      </div>
+      <!-- Full catalog sections -->
+      <div id="ba-full-list"></div>
+    </div>
+  </div>
+</div>
 </body>
 </html>
