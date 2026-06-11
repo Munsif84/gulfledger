@@ -100,6 +100,68 @@
 
 </script>
 <style>
+  .ba-picker { margin-top: 6px; }
+  .ba-tiles {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(160px, 1fr));
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .ba-tile {
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center; gap: 6px;
+    padding: 14px 10px;
+    border: 1.5px solid var(--border);
+    border-radius: 9px;
+    background: #fff; cursor: pointer;
+    transition: all .12s;
+    text-align: center; min-height: 88px;
+  }
+  .ba-tile:hover { border-color: var(--green); background: #F4FAF7; transform: translateY(-1px); }
+  .ba-tile.selected { border-color: var(--green); background: #E8F5EE; box-shadow: 0 0 0 2px rgba(0,108,53,0.15); }
+  .ba-tile .ba-emoji { font-size: 24px; line-height: 1; }
+  .ba-tile .ba-label { font-size: 12px; font-weight: 600; color: var(--ink); line-height: 1.3; }
+  .ba-more-btn {
+    width: 100%; padding: 10px;
+    border: 1.5px dashed var(--border);
+    border-radius: 9px; background: #fafafa;
+    cursor: pointer; font-size: 13px; font-weight: 600; color: var(--muted);
+    transition: all .12s;
+  }
+  .ba-more-btn:hover { border-color: var(--green); color: var(--green); background: #F4FAF7; }
+  .ba-expanded {
+    margin-top: 12px; padding: 12px;
+    background: #fafafa; border-radius: 9px; border: 1px solid var(--border);
+  }
+  .ba-section-title {
+    font-size: 12px; font-weight: 700; color: var(--muted);
+    text-transform: uppercase; letter-spacing: 0.5px;
+    margin: 10px 0 6px; padding-bottom: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .ba-section-title:first-child { margin-top: 0; }
+  .ba-options-grid {
+    display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 6px;
+  }
+  .ba-option {
+    display: flex; align-items: center; gap: 8px;
+    padding: 8px 10px; border-radius: 6px;
+    cursor: pointer; font-size: 12.5px; transition: background .1s;
+  }
+  .ba-option:hover { background: #fff; }
+  .ba-option.selected { background: var(--green); color: #fff; }
+  .ba-option .ba-opt-emoji { font-size: 16px; flex-shrink: 0; }
+  .ba-search-input {
+    width: 100%; padding: 8px 12px; margin-bottom: 10px;
+    border: 1px solid var(--border); border-radius: 7px; font-size: 13px; background: #fff;
+  }
+  .ba-current {
+    margin-top: 8px; padding: 6px 10px;
+    background: #E8F5EE; border-left: 3px solid var(--green);
+    border-radius: 4px; font-size: 12px;
+  }
+  [dir="rtl"] .ba-current { border-left: none; border-right: 3px solid var(--green); }
+
 /* ─── Build version badge (Round NN of YYYY-MM-DD)
        Tiny corner badge so we can verify cached vs fresh file.
        Hidden on print. Use Ctrl+Shift+R to refresh if stale. */
@@ -920,30 +982,40 @@ html.lang-switching *::after {
               <span data-ar="النشاط التجاري · Business Activity" data-en="Business Activity · النشاط التجاري">النشاط التجاري · Business Activity</span>
               <span class="req">*</span>
             </div>
-            <select id="industry" onchange="onTaxProfileChange()">
-              <option value="">— <span data-ar="اختر" data-en="Choose">اختر</span> —</option>
-              <option value="wholesale">تجارة الجملة · Wholesale Trade</option>
-              <option value="retail">تجارة التجزئة · Retail Trade</option>
-              <option value="trading">تجارة عامة (استيراد/تصدير) · Trading (Import/Export)</option>
-              <option value="manufacturing">صناعة وتصنيع · Manufacturing</option>
-              <option value="construction">مقاولات وإنشاءات · Construction & Contracting</option>
-              <option value="services">خدمات عامة · Services — General</option>
-              <option value="consulting">استشارات · Services — Consulting</option>
-              <option value="professional">مهن حرة (محاماة/محاسبة/طب) · Services — Professional</option>
-              <option value="saas">برمجيات / SaaS · Software / SaaS</option>
-              <option value="technology">تقنية معلومات · Technology / IT</option>
-              <option value="hospitality">فنادق ومطاعم · Hospitality & Restaurants</option>
-              <option value="restaurant">مطاعم وكافيهات · Restaurants / Cafés</option>
-              <option value="healthcare">صحة وطب · Healthcare</option>
-              <option value="education">تعليم · Education</option>
-              <option value="real_estate">عقارات · Real Estate</option>
-              <option value="banking">⚠️ بنوك · Banking</option>
-              <option value="insurance">⚠️ تأمين · Insurance</option>
-              <option value="telecom">⚠️ اتصالات · Telecom</option>
-              <option value="natural_gas">⚠️ غاز طبيعي · Natural Gas</option>
-              <option value="oil_gas_upstream">⚠️ نفط وغاز (استخراج) · Oil & Hydrocarbons</option>
-              <option value="other">أخرى · Other</option>
+            <!-- Hidden select — single source of truth for pack key. Drives all existing wiring
+                 (onTaxProfileChange, _applyPlFormatForActivity, banner, seed). Visible picker writes to it. -->
+            <select id="industry" onchange="onTaxProfileChange()" style="display:none;" aria-hidden="true">
+              <option value=""></option>
+              <option value="wholesale"></option><option value="retail"></option>
+              <option value="trading"></option><option value="manufacturing"></option>
+              <option value="construction"></option><option value="services"></option>
+              <option value="consulting"></option><option value="professional"></option>
+              <option value="saas"></option><option value="technology"></option>
+              <option value="hospitality"></option><option value="restaurant"></option>
+              <option value="healthcare"></option><option value="education"></option>
+              <option value="real_estate"></option><option value="other"></option>
             </select>
+            <input type="hidden" id="specific-business-type" value="">
+            <input type="hidden" id="loc-pl-format" value="by_function">
+
+            <div class="ba-picker" id="ba-picker">
+              <div class="ba-tiles" id="ba-quick-tiles"></div>
+              <button type="button" class="ba-more-btn" id="ba-more-btn" onclick="toggleBaExpanded()">
+                <span data-ar="المزيد من الخيارات (تجد نشاطك بدقة) ←" data-en="More options (find your exact type) →">المزيد من الخيارات (تجد نشاطك بدقة) ←</span>
+              </button>
+              <div class="ba-expanded" id="ba-expanded" style="display:none;">
+                <input type="text" class="ba-search-input" id="ba-search" placeholder="ابحث · Search..." oninput="filterBaList()">
+                <div id="ba-list"></div>
+              </div>
+              <div class="ba-current" id="ba-current" style="display:none;">
+                <span data-ar="نشاطك:" data-en="Your activity:">نشاطك:</span>
+                <strong id="ba-current-label"></strong>
+              </div>
+              <div id="pl-format-derived" style="margin-top:10px;padding:8px 12px;background:#F8F8F4;border:1px solid var(--border);border-radius:7px;font-size:12px;color:var(--muted);display:none;">
+                <span data-ar="تنسيق قائمة الدخل (يُحدَّد تلقائياً):" data-en="P&L Format (determined automatically):">تنسيق قائمة الدخل (يُحدَّد تلقائياً):</span>
+                <strong id="pl-format-derived-label" style="color:var(--ink);font-weight:600;margin-inline-start:4px;"></strong>
+              </div>
+            </div>
             <div class="field-hint" id="industry-warning" style="display:none;color:var(--amber);font-weight:600;">
               ⚠️ <span data-ar="هذا القطاع له معدّلات ضريبية خاصة" data-en="This industry has special tax rates">هذا القطاع له معدّلات ضريبية خاصة</span>
             </div>
@@ -961,14 +1033,6 @@ html.lang-switching *::after {
                 <span data-ar="يمكنك إضافة فئات مخصصة لاحقاً." data-en="You can add custom categories later.">يمكنك إضافة فئات مخصصة لاحقاً.</span>
               </div>
             </div>
-            <!-- Round 47: P&L format is fully derived from Business Activity for SOCPA/IFRS compliance.
-                 No user choice — eliminates risk of misclassification. The hidden input below keeps
-                 the value submittable via the existing form pipeline; populated by _applyPlFormatForActivity. -->
-            <div id="pl-format-derived" style="margin-top:10px;padding:8px 12px;background:#F8F8F4;border:1px solid var(--border);border-radius:7px;font-size:12px;color:var(--muted);display:none;">
-              <span data-ar="تنسيق قائمة الدخل (يُحدَّد تلقائياً):" data-en="P&L Format (determined automatically):">تنسيق قائمة الدخل (يُحدَّد تلقائياً):</span>
-              <strong id="pl-format-derived-label" style="color:var(--ink);font-weight:600;margin-inline-start:4px;"></strong>
-            </div>
-            <input type="hidden" id="loc-pl-format" value="by_function">
           </div>
         </div>
 
@@ -2095,10 +2159,15 @@ function populateAllForms(){
   setVal('loc-date-format', b.date_format || 'DD/MM/YYYY');
   setVal('loc-fiscal-year', b.fiscal_year_start || '01-01');
   /* Round 47: business_type + industry consolidated (id=industry).
-     Prefer business_type (richer); fallback to industry; default empty.
-     P&L format is fully derived from the activity — no override path. */
+     Picker restores the granular tile if specific_business_type is saved,
+     otherwise picks the first tile matching the pack key. */
   setVal('industry', b.business_type || b.industry || '');
-  setTimeout(_applyPlFormatForActivity, 0);
+  document.getElementById('specific-business-type').value = b.specific_business_type || '';
+  setVal('loc-pl-format', b.pl_format || 'by_function');
+  setTimeout(() => {
+    restoreBaSelection(b.specific_business_type, b.business_type || b.industry);
+    _applyPlFormatForActivity();
+  }, 0);
 
   /* Account */
   setVal('account-email', currentUser?.email || '');
@@ -2297,30 +2366,15 @@ async function updateCategoryPreview(industry){
   preview.style.display = '';
 
   const all = window._allSystemCategories || [];
-  /* Round 47: the categories table was tagged when the industry dropdown had
-     fewer options. After consolidating business_type + industry to 21 options,
-     several new activity values have no direct tags. Map each new activity to
-     its nearest tagged equivalent so the preview reflects the right category
-     set immediately. Proper fix (re-tag the categories table) comes with the
-     full CoA pack work. */
+  /* Round 47: map new activity values to nearest existing tag in categories table
+     until the table is re-tagged with the new granular activity keys. */
   const ACTIVITY_TAG_FALLBACK = {
-    wholesale: 'retail',        // similar inventory profile
-    trading: 'retail',          // similar inventory profile
-    consulting: 'services',     // services-like
-    professional: 'services',
-    saas: 'services',
-    technology: 'services',
+    wholesale: 'retail', trading: 'retail',
+    consulting: 'services', professional: 'services',
+    saas: 'services', technology: 'services',
     restaurant: 'hospitality',
-    // Already-tagged: manufacturing, construction, healthcare, education, real_estate, retail, services, hospitality
-    // Untagged regulated industries (banking/insurance/telecom/natural_gas/oil_gas_upstream/other/general)
-    // fall through to universal-only — correct behavior.
   };
   const effectiveIndustry = ACTIVITY_TAG_FALLBACK[industry] || industry;
-
-  /* Filter to categories visible for this industry:
-     - industry_tag NULL or empty → universal (always shown)
-     - contains 'universal'        → always shown
-     - contains this industry      → shown for this industry */
   const visible = all.filter(c => {
     const tags = c.industry_tag;
     if(!tags || tags.length === 0) return true;
@@ -2719,9 +2773,8 @@ async function saveTaxProfile(){
   const bizPayload = {
     legal_entity_type: entityType,
     industry: v('industry') || 'general',
-    /* Round 47: business_type and industry consolidated (same value, two columns
-       for backward compatibility — older code reads either).
-       specific_business_type holds the granular picker value (e.g. 'pharmacy'). */
+    /* Round 47: business_type = activity pack (drives books). specific_business_type =
+       granular picker value (drives UX). pl_format = derived from activity. */
     business_type: v('industry') || null,
     specific_business_type: document.getElementById('specific-business-type')?.value || null,
     pl_format: v('loc-pl-format') || 'by_function',
@@ -2733,13 +2786,13 @@ async function saveTaxProfile(){
     updated_at: new Date().toISOString()
   };
 
-  /* If schema migration round-b-pl-structure.sql hasn't been run yet, business_type/
-     pl_format columns won't exist. Retry without them so the rest of the save proceeds. */
+  /* If schema migration hasn't been run, business_type/pl_format/specific_business_type
+     columns won't exist. Retry without them so the save proceeds. */
   let {error: bizError} = await sb.from('businesses').update(bizPayload).eq('id', currentBiz.id);
   if(bizError){
     const errStr = String(bizError.message || bizError);
     if(errStr.includes('business_type') || errStr.includes('pl_format') || errStr.includes('specific_business_type')){
-      console.warn('[GL settings] Schema migration not run; saving Tax Profile without business_type/pl_format/specific_business_type:', errStr);
+      console.warn('[GL settings] Schema migration not run; retrying without new columns:', errStr);
       const fallback = {...bizPayload};
       delete fallback.business_type;
       delete fallback.specific_business_type;
@@ -2977,52 +3030,22 @@ async function saveLocalization(){
 }
 
 /* P&L format derivation from Business Activity (Round 47).
-   ─────────────────────────────────────────────────────────
-   business_type and industry consolidated into a single Business Activity
-   field (DOM id=industry). The P&L format is FULLY DETERMINED by the
-   activity — there is no user choice, eliminating the risk of misclassification.
-
-   The three IFRS-recognized formats (Section 5 of IFRS for SMEs / IFRS 18):
-     by_function  — Cost of Sales + Gross Profit shown.  Used for businesses
-                    where input → finished-goods transformation is meaningful:
-                    trading (wholesale/retail/trading), manufacturing.
-     by_nature    — Expenses grouped by kind (salaries, depreciation, materials).
-                    Used for service businesses where "Cost of Sales" doesn't
-                    meaningfully exist: services, consulting, SaaS, real estate.
-     mixed        — Function for products + nature for services.  Used where
-                    both coexist meaningfully: hospitality, construction,
-                    restaurants (food cost AND service personnel together).
-
-   These defaults are SOCPA-compliant for the standard Saudi SME case.
-   Regulated industries (banking, insurance, telecom, oil & gas) require
-   accountant-supervised setup; we default them to by_function as a safe
-   placeholder, but their actual setup should never use this auto-flow. */
+   business_type + industry consolidated into one field (id=industry).
+   P&L format is FULLY DETERMINED by the activity — no user override. */
 
 const ACTIVITY_PL_DEFAULTS = Object.freeze({
-  wholesale:'by_function', retail:'by_function', trading:'by_function',
-  manufacturing:'by_function',
+  wholesale:'by_function', retail:'by_function', trading:'by_function', manufacturing:'by_function',
   services:'by_nature', consulting:'by_nature', professional:'by_nature',
   saas:'by_nature', technology:'by_nature', healthcare:'by_nature',
   real_estate:'by_nature', education:'by_nature',
   hospitality:'mixed', restaurant:'mixed', construction:'mixed',
-  banking:'by_function', insurance:'by_function',
-  telecom:'by_function', natural_gas:'by_function', oil_gas_upstream:'by_function',
+  other:'by_function',
 });
 
-/* User-facing labels — plain language, no IFRS jargon. */
 const ACTIVITY_PL_LABELS = Object.freeze({
-  by_function: {
-    ar:'تكلفة المبيعات وإجمالي الربح',
-    en:'Cost of Sales & Gross Profit'
-  },
-  by_nature: {
-    ar:'قائمة مصاريف موحدة (بدون تكلفة مبيعات)',
-    en:'Unified expense list (no Cost of Sales)'
-  },
-  mixed: {
-    ar:'مزيج — مناسب للضيافة والإنشاءات',
-    en:'Mixed — for hospitality & construction'
-  },
+  by_function: { ar:'تكلفة المبيعات وإجمالي الربح', en:'Cost of Sales & Gross Profit' },
+  by_nature:   { ar:'قائمة مصاريف موحدة (بدون تكلفة مبيعات)', en:'Unified expense list (no Cost of Sales)' },
+  mixed:       { ar:'مزيج — مناسب للضيافة والإنشاءات', en:'Mixed — for hospitality & construction' },
 });
 
 function _applyPlFormatForActivity(){
@@ -3033,16 +3056,249 @@ function _applyPlFormatForActivity(){
   if(!wrap) return;
   if(!derived){
     wrap.style.display = 'none';
-    setVal('loc-pl-format', '');  /* unset until activity chosen */
+    setVal('loc-pl-format', '');
     return;
   }
   wrap.style.display = '';
   if(label) label.textContent = ACTIVITY_PL_LABELS[derived]?.[currentLang] || derived;
-  /* Always write the derived value — no user override exists */
   setVal('loc-pl-format', derived);
 }
 
+/* ═════════════════════════════════════════════════════════════════════
+   BUSINESS ACTIVITY PICKER  (Round 47)
+   ─────────────────────────────────────────────────────────────────────
+   Display layer: ~78 Saudi SME business types. Each maps to one of the
+   ~12 accounting packs in accounting.html's ACTIVITY_CHART_PACKS.
+   Customer picks "Pharmacy" → stores both:
+     • specific_business_type = 'pharmacy'   (granular, UX)
+     • business_type = 'retail'              (pack key, books)
+   Hidden #industry select is the single source of truth — set via
+   setVal('industry', packKey) on every selection. */
+
+const BA_QUICK_TILES = [
+  { id:'retail_store',    emoji:'🏪', ar:'محل تجزئة',          en:'Retail Store',           pack:'retail' },
+  { id:'restaurant_cafe', emoji:'🍴', ar:'مطعم / كافيه',        en:'Restaurant / Café',      pack:'restaurant' },
+  { id:'clinic',          emoji:'🏥', ar:'عيادة',               en:'Clinic',                 pack:'professional' },
+  { id:'repair_shop',     emoji:'🔧', ar:'ورشة صيانة',          en:'Repair / Maintenance',   pack:'services' },
+  { id:'contracting',     emoji:'🏗', ar:'مقاولات وإنشاءات',    en:'Construction',           pack:'construction' },
+  { id:'professional',    emoji:'💼', ar:'خدمات مهنية',         en:'Professional Services',  pack:'professional' },
+  { id:'wholesale',       emoji:'📦', ar:'تجارة جملة',          en:'Wholesale Trade',        pack:'wholesale' },
+  { id:'software',        emoji:'💻', ar:'برمجيات وتقنية',      en:'Software / Technology',  pack:'saas' },
+];
+
+const BA_FULL_CATALOG = {
+  'Retail · تجارة التجزئة': [
+    { id:'pharmacy',          emoji:'💊', ar:'صيدلية',                en:'Pharmacy',                  pack:'retail' },
+    { id:'grocery',           emoji:'🛒', ar:'بقالة / سوبرماركت',     en:'Grocery / Supermarket',     pack:'retail' },
+    { id:'clothing_store',    emoji:'👗', ar:'محل ملابس',             en:'Clothing Store',            pack:'retail' },
+    { id:'electronics_store', emoji:'📱', ar:'محل إلكترونيات',        en:'Electronics Store',         pack:'retail' },
+    { id:'furniture_store',   emoji:'🪑', ar:'محل أثاث',              en:'Furniture Store',           pack:'retail' },
+    { id:'toy_store',         emoji:'🧸', ar:'محل ألعاب',             en:'Toy Store',                 pack:'retail' },
+    { id:'florist_gifts',     emoji:'🌸', ar:'محل ورود وهدايا',       en:'Florist / Gift Shop',       pack:'retail' },
+    { id:'butcher_grocer',    emoji:'🥩', ar:'ملحمة / محل خضروات',    en:'Butcher / Greengrocer',     pack:'retail' },
+    { id:'general_retail',    emoji:'🛍', ar:'محل تجزئة عام',         en:'General Retail Store',      pack:'retail' },
+    { id:'bakery_retail',     emoji:'🥖', ar:'مخبز (بيع)',            en:'Bakery (retail)',           pack:'retail' },
+    { id:'optical',           emoji:'👓', ar:'محل بصريات',            en:'Optical Store',             pack:'retail' },
+    { id:'cosmetics',         emoji:'💄', ar:'محل تجميل ومستحضرات',   en:'Beauty / Cosmetics Store',  pack:'retail' },
+    { id:'auto_parts',        emoji:'🚗', ar:'محل قطع غيار سيارات',   en:'Auto Parts Store',          pack:'retail' },
+  ],
+  'Wholesale · تجارة الجملة': [
+    { id:'general_wholesale', emoji:'📦', ar:'تجارة جملة عامة',       en:'General Wholesale',         pack:'wholesale' },
+    { id:'food_distributor',  emoji:'🍞', ar:'موزع مواد غذائية',      en:'Food Distributor',          pack:'wholesale' },
+    { id:'building_dist',     emoji:'🧱', ar:'موزع مواد بناء',        en:'Building Materials Dist.',  pack:'wholesale' },
+    { id:'pharma_dist',       emoji:'💊', ar:'موزع أدوية',            en:'Pharmaceutical Dist.',      pack:'wholesale' },
+    { id:'parts_dist',        emoji:'🛠', ar:'موزع قطع غيار',         en:'Spare Parts Distributor',   pack:'wholesale' },
+    { id:'electronics_dist',  emoji:'🔌', ar:'موزع إلكترونيات',       en:'Electronics Distributor',   pack:'wholesale' },
+  ],
+  'Trading · استيراد/تصدير': [
+    { id:'import_export',     emoji:'🚢', ar:'شركة استيراد وتصدير',   en:'Import / Export Company',   pack:'trading' },
+    { id:'intl_trading',      emoji:'🌍', ar:'تجارة دولية',           en:'International Trading',     pack:'trading' },
+  ],
+  'Manufacturing · صناعة': [
+    { id:'food_mfg',          emoji:'🏭', ar:'مصنع صناعات غذائية',    en:'Food Manufacturer',         pack:'manufacturing' },
+    { id:'furniture_mfg',     emoji:'🪵', ar:'مصنع أثاث وأخشاب',      en:'Furniture / Woodworking',   pack:'manufacturing' },
+    { id:'metal_mfg',         emoji:'🔧', ar:'مصنع تصنيع معدني',      en:'Metal Fabrication',         pack:'manufacturing' },
+    { id:'chemical_mfg',      emoji:'🧴', ar:'مصنع مواد كيماوية',     en:'Chemical Manufacturer',     pack:'manufacturing' },
+    { id:'textile_mfg',       emoji:'👕', ar:'مصنع نسيج وملابس',      en:'Textile / Garment Factory', pack:'manufacturing' },
+    { id:'packaging_mfg',     emoji:'📦', ar:'مصنع تعبئة وتغليف',     en:'Packaging Manufacturer',    pack:'manufacturing' },
+    { id:'building_mfg',      emoji:'🏗', ar:'مصنع مواد بناء',        en:'Building Materials Mfg.',   pack:'manufacturing' },
+  ],
+  'Construction · مقاولات': [
+    { id:'general_contract',  emoji:'🏗', ar:'مقاولات عامة',          en:'General Contracting',       pack:'construction' },
+    { id:'residential',       emoji:'🏠', ar:'مقاولات بناء سكني',     en:'Residential Construction',  pack:'construction' },
+    { id:'commercial',        emoji:'🏢', ar:'مقاولات بناء تجاري',    en:'Commercial Construction',   pack:'construction' },
+    { id:'electrical',        emoji:'🔌', ar:'مقاولات كهرباء',        en:'Electrical Contracting',    pack:'construction' },
+    { id:'plumbing',          emoji:'🚰', ar:'مقاولات سباكة',         en:'Plumbing Contracting',      pack:'construction' },
+    { id:'hvac',              emoji:'❄', ar:'مقاولات تكييف',         en:'HVAC Contracting',           pack:'construction' },
+    { id:'finishing',         emoji:'🎨', ar:'مقاولات تشطيبات',       en:'Interior Finishing',        pack:'construction' },
+    { id:'roads_infra',       emoji:'🛣', ar:'مقاولات طرق وبنية تحتية', en:'Roads & Infrastructure',  pack:'construction' },
+  ],
+  'Services · خدمات عامة': [
+    { id:'auto_repair',       emoji:'🚗', ar:'محل صيانة سيارات',      en:'Auto Repair Shop',          pack:'services' },
+    { id:'phone_repair',      emoji:'📱', ar:'محل صيانة جوالات',      en:'Phone Repair Shop',         pack:'services' },
+    { id:'appliance_repair',  emoji:'🖥', ar:'صيانة أجهزة كهربائية',  en:'Appliance Repair',          pack:'services' },
+    { id:'cleaning',          emoji:'🧹', ar:'خدمات نظافة',           en:'Cleaning Services',         pack:'services' },
+    { id:'landscaping',       emoji:'🌳', ar:'خدمات تنسيق حدائق',     en:'Landscaping Services',      pack:'services' },
+    { id:'moving',            emoji:'🚛', ar:'خدمات نقل وتخزين',      en:'Moving / Storage',          pack:'services' },
+    { id:'photography',       emoji:'📸', ar:'استوديو تصوير',         en:'Photography Studio',        pack:'services' },
+    { id:'salon',             emoji:'✂', ar:'صالون حلاقة / تجميل',   en:'Barbershop / Salon',         pack:'services' },
+    { id:'pet_grooming',      emoji:'🐕', ar:'خدمات بيطرية وعناية',   en:'Pet Services / Grooming',   pack:'services' },
+    { id:'car_wash',          emoji:'🚙', ar:'مغسلة سيارات',          en:'Car Wash',                  pack:'services' },
+  ],
+  'Consulting · استشارات': [
+    { id:'mgmt_consulting',   emoji:'💼', ar:'استشارات إدارية',       en:'Management Consulting',     pack:'consulting' },
+    { id:'fin_consulting',    emoji:'📊', ar:'استشارات مالية',        en:'Financial Consulting',      pack:'consulting' },
+    { id:'it_consulting',     emoji:'💻', ar:'استشارات تقنية',        en:'IT Consulting',             pack:'consulting' },
+    { id:'mkt_consulting',    emoji:'📈', ar:'استشارات تسويق',        en:'Marketing Consulting',      pack:'consulting' },
+    { id:'eng_consulting',    emoji:'🏗', ar:'استشارات هندسية',       en:'Engineering Consulting',    pack:'consulting' },
+  ],
+  'Professional · مهن حرة': [
+    { id:'law_firm',          emoji:'⚖', ar:'مكتب محاماة',           en:'Law Firm',                   pack:'professional' },
+    { id:'accounting_firm',   emoji:'📚', ar:'مكتب محاسبة',           en:'Accounting Firm',           pack:'professional' },
+    { id:'medical_clinic',    emoji:'🏥', ar:'عيادة طبية عامة',       en:'General Medical Clinic',    pack:'professional' },
+    { id:'dental_clinic',     emoji:'🦷', ar:'عيادة أسنان',           en:'Dental Clinic',             pack:'professional' },
+    { id:'ophthalmology',     emoji:'👁', ar:'عيادة عيون',            en:'Ophthalmology Clinic',      pack:'professional' },
+    { id:'specialist_clinic', emoji:'🩺', ar:'عيادة تخصصية',          en:'Specialist Clinic',         pack:'professional' },
+    { id:'physio',            emoji:'💆', ar:'مركز فيزيوثيرابي',      en:'Physiotherapy Center',      pack:'professional' },
+    { id:'medical_lab',       emoji:'🩹', ar:'مختبر تحاليل طبية',     en:'Medical Lab',               pack:'professional' },
+    { id:'eng_office',        emoji:'🏗', ar:'مكتب هندسي',            en:'Engineering Office',        pack:'professional' },
+    { id:'arch_office',       emoji:'🏛', ar:'مكتب معماري',           en:'Architectural Office',      pack:'professional' },
+    { id:'vet_clinic',        emoji:'🐾', ar:'عيادة بيطرية',          en:'Veterinary Clinic',         pack:'professional' },
+    { id:'translation',       emoji:'📝', ar:'مكتب ترجمة',            en:'Translation Office',        pack:'professional' },
+  ],
+  'SaaS & Subscription · اشتراكات': [
+    { id:'saas_platform',     emoji:'☁', ar:'منصة SaaS',             en:'SaaS Platform',              pack:'saas' },
+    { id:'subscription_app',  emoji:'📱', ar:'تطبيق اشتراك',          en:'Subscription App',          pack:'saas' },
+    { id:'digital_platform',  emoji:'🌐', ar:'منصة رقمية',            en:'Digital Platform',          pack:'saas' },
+  ],
+  'Technology · تقنية': [
+    { id:'software_dev',      emoji:'💻', ar:'تطوير برمجيات',         en:'Software Development',      pack:'technology' },
+    { id:'it_services',       emoji:'🛠', ar:'خدمات تقنية وشبكات',    en:'IT Services / Networking',  pack:'technology' },
+    { id:'digital_design',    emoji:'🎨', ar:'وكالة تصميم رقمي',      en:'Digital Design Agency',     pack:'technology' },
+    { id:'digital_mkt',       emoji:'📺', ar:'وكالة تسويق رقمي',      en:'Digital Marketing Agency',  pack:'technology' },
+    { id:'ecommerce',         emoji:'🛒', ar:'متجر إلكتروني',         en:'E-commerce Store',          pack:'technology' },
+  ],
+  'Hospitality · ضيافة': [
+    { id:'hotel',             emoji:'🏨', ar:'فندق',                  en:'Hotel',                     pack:'hospitality' },
+    { id:'resort',            emoji:'🏖', ar:'منتجع',                 en:'Resort',                    pack:'hospitality' },
+    { id:'furnished_apts',    emoji:'🏘', ar:'شقق فندقية',            en:'Furnished Apartments',      pack:'hospitality' },
+    { id:'tourist_camp',      emoji:'⛺', ar:'مخيم سياحي',            en:'Tourist Camp',               pack:'hospitality' },
+  ],
+  'Restaurants & Cafés · مطاعم': [
+    { id:'restaurant',        emoji:'🍽', ar:'مطعم',                  en:'Restaurant',                pack:'restaurant' },
+    { id:'cafe',              emoji:'☕', ar:'كافيه',                 en:'Café',                       pack:'restaurant' },
+    { id:'juice_bar',         emoji:'🥤', ar:'محل عصائر',             en:'Juice Bar',                 pack:'restaurant' },
+    { id:'ice_cream',         emoji:'🍦', ar:'محل آيس كريم',          en:'Ice Cream Shop',            pack:'restaurant' },
+    { id:'bakery_seating',    emoji:'🥖', ar:'مخبز ومعجنات (مع جلسات)', en:'Bakery & Pastry (with seating)', pack:'restaurant' },
+    { id:'fast_food',         emoji:'🍔', ar:'مطعم وجبات سريعة',      en:'Fast Food Restaurant',      pack:'restaurant' },
+    { id:'food_truck',        emoji:'🚚', ar:'شاحنة طعام',            en:'Food Truck',                pack:'restaurant' },
+    { id:'catering',          emoji:'🎉', ar:'خدمات تموين (كاترنج)',  en:'Catering Services',         pack:'restaurant' },
+  ],
+  'Healthcare · رعاية صحية': [
+    { id:'healthcare_center', emoji:'🏥', ar:'مركز رعاية صحية',       en:'Healthcare Center',         pack:'healthcare' },
+    { id:'large_dental',      emoji:'🦷', ar:'مركز أسنان كبير',       en:'Large Dental Center',       pack:'healthcare' },
+  ],
+  'Education · تعليم': [
+    { id:'private_school',    emoji:'🏫', ar:'مدرسة خاصة',            en:'Private School',            pack:'education' },
+    { id:'training_inst',     emoji:'📚', ar:'معهد تدريب',            en:'Training Institute',        pack:'education' },
+    { id:'kindergarten',      emoji:'🎓', ar:'روضة أطفال',            en:'Kindergarten / Daycare',    pack:'education' },
+    { id:'fitness',           emoji:'💪', ar:'مركز لياقة / صالة',     en:'Fitness Center / Gym',      pack:'education' },
+    { id:'music_school',      emoji:'🎵', ar:'معهد موسيقى',           en:'Music School',              pack:'education' },
+    { id:'language_school',   emoji:'🌐', ar:'مدرسة لغات',            en:'Language School',           pack:'education' },
+  ],
+  'Real Estate · عقارات': [
+    { id:'property_mgmt',     emoji:'🏢', ar:'إدارة عقارات',          en:'Property Management',       pack:'real_estate' },
+    { id:'real_estate_office', emoji:'🏠', ar:'مكتب عقاري',           en:'Real Estate Office',        pack:'real_estate' },
+    { id:'developer',         emoji:'🏗', ar:'مطور عقاري',            en:'Real Estate Developer',     pack:'real_estate' },
+    { id:'reit',              emoji:'🏘', ar:'شركة استثمار عقاري',    en:'Real Estate Investment',    pack:'real_estate' },
+  ],
+  'Other · أخرى': [
+    { id:'other',             emoji:'🏢', ar:'أخرى — حدد لاحقاً',     en:'Other — Specify Later',     pack:'other' },
+  ],
+};
+
+const BA_BY_ID = Object.fromEntries(
+  Object.values(BA_FULL_CATALOG).flat().concat(BA_QUICK_TILES).map(t => [t.id, t])
+);
+
+function renderBaPicker(){
+  const ar = (typeof currentLang !== 'undefined' && currentLang) ? currentLang === 'ar' : true;
+  const tilesEl = document.getElementById('ba-quick-tiles');
+  if(tilesEl){
+    tilesEl.innerHTML = BA_QUICK_TILES.map(t => `
+      <button type="button" class="ba-tile" data-id="${t.id}" data-pack="${t.pack}" onclick="selectBusinessType('${t.id}')">
+        <span class="ba-emoji">${t.emoji}</span>
+        <span class="ba-label">${ar ? t.ar : t.en}</span>
+      </button>`).join('');
+  }
+  const listEl = document.getElementById('ba-list');
+  if(listEl){
+    listEl.innerHTML = Object.entries(BA_FULL_CATALOG).map(([section, items]) => `
+      <div class="ba-section-title">${section}</div>
+      <div class="ba-options-grid">
+        ${items.map(t => `
+          <div class="ba-option" data-id="${t.id}" data-pack="${t.pack}" onclick="selectBusinessType('${t.id}')">
+            <span class="ba-opt-emoji">${t.emoji}</span>
+            <span>${ar ? t.ar : t.en}</span>
+          </div>`).join('')}
+      </div>`).join('');
+  }
+}
+
+function selectBusinessType(specificId){
+  const item = BA_BY_ID[specificId];
+  if(!item){ console.warn('[BA picker] unknown id:', specificId); return; }
+  document.querySelectorAll('.ba-tile, .ba-option').forEach(el => el.classList.remove('selected'));
+  document.querySelectorAll(`[data-id="${specificId}"]`).forEach(el => el.classList.add('selected'));
+  setVal('industry', item.pack);
+  document.getElementById('specific-business-type').value = specificId;
+  const cur = document.getElementById('ba-current');
+  const curLabel = document.getElementById('ba-current-label');
+  if(cur && curLabel){
+    curLabel.textContent = currentLang === 'ar' ? item.ar : item.en;
+    cur.style.display = '';
+  }
+  onTaxProfileChange();
+}
+
+function toggleBaExpanded(){
+  const wrap = document.getElementById('ba-expanded');
+  const btn = document.getElementById('ba-more-btn');
+  if(!wrap || !btn) return;
+  if(wrap.style.display === 'none' || !wrap.style.display){
+    wrap.style.display = '';
+    btn.style.display = 'none';
+    setTimeout(() => document.getElementById('ba-search')?.focus(), 50);
+  } else {
+    wrap.style.display = 'none';
+    btn.style.display = '';
+  }
+}
+
+function filterBaList(){
+  const q = (document.getElementById('ba-search')?.value || '').toLowerCase().trim();
+  document.querySelectorAll('.ba-option').forEach(el => {
+    el.style.display = (!q || el.textContent.toLowerCase().includes(q)) ? '' : 'none';
+  });
+  document.querySelectorAll('.ba-section-title').forEach(title => {
+    const next = title.nextElementSibling;
+    if(!next) return;
+    const anyVisible = next.querySelector('.ba-option:not([style*="display: none"])');
+    title.style.display = anyVisible ? '' : 'none';
+    next.style.display  = anyVisible ? '' : 'none';
+  });
+}
+
+function restoreBaSelection(specificId, packKey){
+  if(specificId && BA_BY_ID[specificId]){ selectBusinessType(specificId); return; }
+  if(packKey){
+    const match = [...BA_QUICK_TILES, ...Object.values(BA_FULL_CATALOG).flat()].find(t => t.pack === packKey);
+    if(match){ selectBusinessType(match.id); return; }
+  }
+}
+
 document.addEventListener('DOMContentLoaded', () => {
+  renderBaPicker();
   document.getElementById('industry')?.addEventListener('change', _applyPlFormatForActivity);
 });
 
@@ -3726,7 +3982,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-set7</div>
-<script>console.log('%c[GulfLedger build] v2026.06.06-set7 · Round 47: Business Activity picker — 8 quick tiles + expandable 78-type catalog, specific_business_type column wiring', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.06-set8</div>
+<script>console.log('%c[GulfLedger build] v2026.06.06-set8 · Round 47 properly applied: tile picker, 78 SME types, P&L auto-derived, no regulated industries', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
