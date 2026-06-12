@@ -1192,6 +1192,8 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
 .toolbar .search-wrap{min-width:0;}
 
 .gl-m-ic{display:inline-flex;align-items:center;color:var(--muted);}
+
+.stmt-create-row{grid-column:1 / -1;display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:7px 10px;margin-top:6px;background:var(--color-bg-subtle);border-radius:8px;}
 </style>
 </head>
 <body>
@@ -7206,7 +7208,7 @@ let _stmtRawHeaders = [];
 let _stmtRawRows = [];
 let _stmtColMap = {};            /* {date: 'colName', description: 'colName', ...} */
 let _stmtParsedLines = [];       /* [{tx_date, description, amount, ...}] */
-let _stmtMatches = [];           /* per-line match results */
+let _stmtMatches = []; let _stmtCreatedExpenses = 0;           /* per-line match results */
 let _stmtBookTxs = [];           /* candidate bank_transactions to match against */
 
 /* ──────────────────────────────────────────
@@ -7783,6 +7785,70 @@ function stmtFindBestMatch(line){
   return result;
 }
 
+/* ──────────────────────────────────────────
+   SMART CATEGORIZATION (Round 52)
+   Unmatched outflow lines get an expense-category suggestion:
+   (1) learned — a past expense with a similar description/vendor
+       reuses its category;
+   (2) keyword rules (AR/EN) mapped to EXPENSE_CATEGORIES codes;
+   (3) fallback 'other'.
+   The user reviews and can bulk-create expenses from bank lines.
+   ────────────────────────────────────────── */
+const STMT_CAT_KEYWORDS = [
+  { cat:'salaries',       kw:['راتب','رواتب','salary','payroll','wps','اجور','أجور'] },
+  { cat:'rent',           kw:['ايجار','إيجار','rent','ejar','عقار'] },
+  { cat:'utilities',      kw:['كهرباء','مياه','ماء','electric','water','sec ','الكهرباء','marafiq'] },
+  { cat:'communications', kw:['stc','mobily','zain','اتصالات','موبايلي','زين','internet','نت','فايبر','fiber'] },
+  { cat:'vehicle',        kw:['بنزين','وقود','محطة','fuel','petrol','aldrees','الدريس','ساسكو','sasco','naft','نفط'] },
+  { cat:'bank_charges',   kw:['رسوم','عمولة','fee','charge','commission','vat on fee','sadad fee'] },
+  { cat:'gov_fees',       kw:['زكاة','zatca','gosi','تأمينات','مقيم','muqeem','قوى','qiwa','بلدي','baladi','جوازات','sadad','سداد حكومي'] },
+  { cat:'insurance',      kw:['تأمين','insurance','tawuniya','التعاونية','bupa','بوبا','medgulf'] },
+  { cat:'supplies',       kw:['مكتبة','قرطاسية','مستلزمات','office','supplies','jarir','جرير'] },
+  { cat:'marketing',      kw:['اعلان','إعلان','تسويق','marketing','ads','google','meta','snap','تيك توك','tiktok'] },
+  { cat:'professional',   kw:['محاماة','محاسب','استشار','consult','legal','audit','accounting'] },
+  { cat:'maintenance',    kw:['صيانة','اصلاح','إصلاح','maintenance','repair'] },
+  { cat:'travel',         kw:['طيران','فندق','flight','hotel','airline','السعودية','flynas','ناس'] },
+];
+
+function stmtSuggestCategory(line){
+  const txt = (line.description_clean || line.description || '').toLowerCase();
+  if(!txt) return { cat: 'other', why: '' };
+  /* (1) learned from past expenses */
+  if(typeof allExpenses !== 'undefined' && Array.isArray(allExpenses)){
+    const tokens = txt.split(/\s+/).filter(t => t.length >= 4);
+    for(const ex of allExpenses){
+      const exTxt = ((ex.vendor_name_snapshot || '') + ' ' + (ex.description || '')).toLowerCase();
+      if(!exTxt.trim()) continue;
+      if(tokens.some(t => exTxt.includes(t))){
+        return { cat: ex.category || 'other', why: 'learned' };
+      }
+    }
+  }
+  /* (2) keyword rules */
+  for(const rule of STMT_CAT_KEYWORDS){
+    if(rule.kw.some(k => txt.includes(k))) return { cat: rule.cat, why: 'rule' };
+  }
+  return { cat: 'other', why: '' };
+}
+
+function stmtToggleCreate(idx, on){
+  const m = _stmtMatches[idx];
+  if(!m) return;
+  m.createExpense = on;
+  stmtUpdateCreateCount();
+}
+function stmtSetCreateCat(idx, cat){
+  const m = _stmtMatches[idx];
+  if(m) m.createCat = cat;
+}
+function stmtUpdateCreateCount(){
+  const n = _stmtMatches.filter(m => m.createExpense).length;
+  const el = document.getElementById('stmt-create-count');
+  if(el) el.textContent = n;
+  const btn = document.getElementById('stmt-bulk-create-note');
+  if(btn) btn.style.display = n ? '' : 'none';
+}
+
 function stmtAdvanceFromMatch(){
   /* Auto-confirm score >= 90, suggest 60-89, leave others unmatched */
   _stmtMatches.forEach(m => {
@@ -7859,6 +7925,26 @@ function stmtRenderReviewList(){
            <button class="match-action-btn reject" onclick="stmtRejectMatch(${realIdx})">✗ ${ar?'رفض':'Reject'}</button>`
         : `<button class="match-action-btn manual" onclick="stmtManualMatch(${realIdx})">🔗 ${ar?'مطابقة يدوية':'Match manually'}</button>`);
 
+    /* Round 52: unmatched outflow → offer expense creation with smart category */
+    let createHtml = '';
+    if(m.status !== 'confirmed' && m.line.amount < 0){
+      if(m.createCat === undefined){
+        const sug = stmtSuggestCategory(m.line);
+        m.createCat = sug.cat;
+        m.createWhy = sug.why;
+      }
+      const opts = EXPENSE_CATEGORIES.map(cc =>
+        `<option value="${cc.code}" ${cc.code===m.createCat?'selected':''}>${ar?cc.ar:cc.en}</option>`).join('');
+      createHtml = `<div class="stmt-create-row">
+        <label style="display:inline-flex;align-items:center;gap:6px;font-size:11.5px;cursor:pointer;">
+          <input type="checkbox" ${m.createExpense?'checked':''} onchange="stmtToggleCreate(${realIdx}, this.checked)">
+          <span>${ar?'إنشاء مصروف':'Create expense'}</span>
+        </label>
+        <select class="filter-select" style="min-height:30px;padding:4px 8px;font-size:11.5px;" onchange="stmtSetCreateCat(${realIdx}, this.value)">${opts}</select>
+        ${m.createWhy ? `<span class="gl-badge is-primary" style="font-size:9.5px;" title="${ar?'اقتراح ذكي':'Smart suggestion'}">${m.createWhy==='learned' ? (ar?'مُتعلَّم':'learned') : (ar?'مقترح':'auto')}</span>` : ''}
+      </div>`;
+    }
+
     return `<div class="match-row ${statusClass}">
       <div class="match-stmt-cell">
         <div class="date">${m.line.tx_date}</div>
@@ -7871,8 +7957,10 @@ function stmtRenderReviewList(){
         <div class="match-actions">${actionBtns}</div>
       </div>
       ${candHtml}
+      ${createHtml}
     </div>`;
   }).join('');
+  stmtUpdateCreateCount();
 }
 
 function stmtAcceptMatch(idx){
@@ -7977,6 +8065,52 @@ async function stmtSaveImport(){
     const {error: lErr} = await sb.from('bank_statement_lines').insert(chunk);
     if(lErr) throw lErr;
   }
+
+  /* 2b. Round 52: create expenses from flagged unmatched outflow lines */
+  const toCreate = _stmtMatches.filter(m => m.createExpense && m.line.amount < 0);
+  let createdCount = 0;
+  if(toCreate.length){
+    let baseNumber = await fetchNextExpenseNumber();
+    const baseMatch = String(baseNumber).match(/^(.*?)(\d+)$/);
+    for(const m of toCreate){
+      let expNo = baseNumber;
+      if(baseMatch) expNo = baseMatch[1] + String(parseInt(baseMatch[2],10) + createdCount).padStart(baseMatch[2].length, '0');
+      const catDef = categoryByCode(m.createCat) || categoryByCode('other');
+      const amt = Math.abs(m.line.amount);
+      const payload = {
+        user_id: currentUser.id,
+        business_id: currentBiz.id,
+        expense_number: expNo,
+        expense_date: m.line.tx_date,
+        category: m.createCat || 'other',
+        supplier_id: null,
+        vendor_name_snapshot: (m.line.description_clean || m.line.description || '').slice(0, 80) || null,
+        description: (m.line.description || '').slice(0, 200) || (currentLang==='ar'?'مستورد من كشف بنكي':'Imported from bank statement'),
+        notes: (currentLang==='ar'
+          ? 'مُنشأ من استيراد كشف بنكي — الضريبة غير مستخرجة من الكشف، راجعها إذا كانت الفاتورة تتضمن VAT.'
+          : 'Created from bank-statement import — VAT not extracted from statement; review if the underlying invoice includes VAT.'),
+        subtotal: amt,
+        vat_pct: 0,
+        vat_amount: 0,
+        total: amt,
+        vat_recoverable: false,
+        vat_block_reason: null,
+        payment_method: 'bank_transfer',
+        payment_status: 'paid',
+        amount_paid: amt,
+        due_date: null
+      };
+      let {error: exErr} = await sb.from('expenses').insert(payload);
+      if(exErr && exErr.code === '23505'){
+        payload.expense_number = await fetchNextExpenseNumber();
+        ({error: exErr} = await sb.from('expenses').insert(payload));
+      }
+      if(exErr){ console.warn('[stmt] expense create failed', exErr); continue; }
+      createdCount++;
+      m.status = 'created_expense';
+    }
+  }
+  _stmtCreatedExpenses = createdCount;
 
   /* 3. Update matched bank_transactions to set is_reconciled + reverse link */
   const confirmedMatches = _stmtMatches.filter(m => m.status === 'confirmed' && m.candidate);
@@ -8170,7 +8304,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.11-r51</div>
-<script>console.log('%c[GulfLedger build] v2026.06.11-r51 · Listbar progressive filters, profile identity header, brand decluttered', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.11-r52</div>
+<script>console.log('%c[GulfLedger build] v2026.06.11-r52 · Bank import: smart categorization + create-expenses-from-statement (P1 beachhead)', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
