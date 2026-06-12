@@ -36,6 +36,9 @@ export default async function handler(req, res) {
     }
     fwdHeaders["Content-Type"] = "application/json";
     fwdHeaders["Accept"] = "application/json";
+    // ZATCA's gateway rejects UA-less requests with a bare "Invalid Request".
+    fwdHeaders["User-Agent"] = "GulfLedger-EGS/1.0";
+    if (!fwdHeaders["Accept-Language"] && !fwdHeaders["accept-language"]) fwdHeaders["Accept-Language"] = "en";
 
     const upstream = await fetch(ZATCA_HOST + path, {
       method: "POST",
@@ -47,6 +50,7 @@ export default async function handler(req, res) {
       upstream_status: upstream.status,
       raw: raw.slice(0, 4000),
       server: upstream.headers.get("server") || "",
+      content_type: upstream.headers.get("content-type") || "",
     });
   } catch (e) {
     return res.status(500).json({ error: "relay_crashed", detail: String(e && e.message || e) });
