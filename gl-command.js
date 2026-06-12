@@ -101,7 +101,8 @@
     /* Discoverability: inject a search trigger before the Quick-Add button
        in the topnav (present on every page). Zero per-page edits needed. */
     if(!document.querySelector('.glc-trigger')){
-      var qa = document.querySelector('.gl-qa-btn');
+      var navRight = document.querySelector('.nav-right');
+      var qa = navRight ? navRight.firstElementChild : document.querySelector('.gl-qa-btn');
       if(qa && qa.parentNode){
         var ar = lang() === 'ar';
         var btn = document.createElement('button');
@@ -208,4 +209,34 @@
     var item = e.target.closest('.glc-item');
     if(item) exec(results[parseInt(item.dataset.i, 10)]);
   });
+
+  /* ── Business brand in topnav ─────────────────────────────────────
+     Fills #nav-biz from window.currentBiz (every page sets it during
+     init). localStorage cache gives an instant paint on navigation;
+     the live value corrects it once loaded. */
+  function glFillBiz(name){
+    if(!name) return;
+    var wrap = document.getElementById('nav-biz');
+    var disc = document.getElementById('nav-biz-disc');
+    var label = document.getElementById('nav-biz-name');
+    if(!wrap || !disc || !label) return;
+    label.textContent = name;
+    disc.textContent = name.trim().charAt(0).toUpperCase();
+    wrap.style.display = 'inline-flex';
+  }
+  function glBizBoot(){
+    try { glFillBiz(localStorage.getItem('gl_biz_name') || ''); } catch(_e){}
+    var tries = 0;
+    var t = setInterval(function(){
+      tries++;
+      var biz = (typeof currentBiz !== 'undefined') ? currentBiz : window.currentBiz;
+      if(biz && biz.name){
+        glFillBiz(biz.name);
+        try { localStorage.setItem('gl_biz_name', biz.name); } catch(_e){}
+        clearInterval(t);
+      } else if(tries > 40){ clearInterval(t); }
+    }, 250);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', glBizBoot);
+  else glBizBoot();
 })();
