@@ -210,33 +210,105 @@
     if(item) exec(results[parseInt(item.dataset.i, 10)]);
   });
 
-  /* ── Business brand in topnav ─────────────────────────────────────
-     Fills #nav-biz from window.currentBiz (every page sets it during
-     init). localStorage cache gives an instant paint on navigation;
-     the live value corrects it once loaded. */
-  function glFillBiz(name){
-    if(!name) return;
-    var wrap = document.getElementById('nav-biz');
-    var disc = document.getElementById('nav-biz-disc');
-    var label = document.getElementById('nav-biz-name');
-    if(!wrap || !disc || !label) return;
-    label.textContent = name;
-    disc.textContent = name.trim().charAt(0).toUpperCase();
-    wrap.style.display = 'inline-flex';
+  /* ── Profile identity header ─────────────────────────────────────
+     Business name + user email at the top of the avatar dropdown
+     (GitHub/QuickBooks pattern). Reads page globals currentBiz /
+     currentUser; caches name for instant paint. */
+  function glFillIdentity(bizName, email){
+    var dd = document.querySelector('.profile-dropdown');
+    if(!dd) return;
+    var id = dd.querySelector('.profile-id');
+    if(!id){
+      id = document.createElement('div');
+      id.className = 'profile-id';
+      id.innerHTML = '<div class="profile-id-biz"></div><div class="profile-id-user"></div>';
+      var div = document.createElement('div');
+      div.className = 'profile-divider';
+      dd.insertBefore(div, dd.firstChild);
+      dd.insertBefore(id, dd.firstChild);
+    }
+    if(bizName) id.querySelector('.profile-id-biz').textContent = bizName;
+    if(email) id.querySelector('.profile-id-user').textContent = email;
   }
-  function glBizBoot(){
-    try { glFillBiz(localStorage.getItem('gl_biz_name') || ''); } catch(_e){}
+  function glIdentityBoot(){
+    try { var n = localStorage.getItem('gl_biz_name'); if(n) glFillIdentity(n, ''); } catch(_e){}
     var tries = 0;
     var t = setInterval(function(){
       tries++;
-      var biz = (typeof currentBiz !== 'undefined') ? currentBiz : window.currentBiz;
+      var biz = (typeof currentBiz !== 'undefined') ? currentBiz : null;
+      var usr = (typeof currentUser !== 'undefined') ? currentUser : null;
       if(biz && biz.name){
-        glFillBiz(biz.name);
+        glFillIdentity(biz.name, (usr && usr.email) || '');
         try { localStorage.setItem('gl_biz_name', biz.name); } catch(_e){}
         clearInterval(t);
       } else if(tries > 40){ clearInterval(t); }
     }, 250);
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', glBizBoot);
-  else glBizBoot();
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', glIdentityBoot);
+  else glIdentityBoot();
+
+  /* ── Listbar progressive filters ──────────────────────────────────
+     For every .toolbar: keep search + the FIRST .filter-select inline;
+     move remaining .filter-select elements and any [data-lb="more"]
+     items into a "فلاتر" popover. [data-lb="link"] items become popover
+     footer links. Badge shows count of active (non-empty) filters. */
+  function glListbar(){
+    var ar = lang() === 'ar';
+    document.querySelectorAll('.toolbar').forEach(function(tb){
+      if(tb.dataset.lbDone) return;
+      var sels = Array.prototype.slice.call(tb.querySelectorAll('select.filter-select'));
+      var extras = Array.prototype.slice.call(tb.querySelectorAll('[data-lb="more"]'));
+      var links = Array.prototype.slice.call(tb.querySelectorAll('[data-lb="link"]'));
+      var movers = sels.slice(1).concat(extras);
+      if(!movers.length && !links.length) return;
+      tb.dataset.lbDone = '1';
+
+      var wrap = document.createElement('div');
+      wrap.className = 'lb-wrap';
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'lb-btn';
+      btn.innerHTML = '<svg class="gl-i"><use href="/gl-icons.svg#i-filter"/></svg>'
+        + '<span>' + (ar ? 'فلاتر' : 'Filters') + '</span>'
+        + '<span class="lb-badge" style="display:none;">0</span>';
+      var pop = document.createElement('div');
+      pop.className = 'lb-pop';
+      pop.innerHTML = '<div class="lb-pop-label">' + (ar ? 'تصفية النتائج' : 'Filter results') + '</div>';
+      movers.forEach(function(el){ el.style.display = ''; pop.appendChild(el); });
+      if(links.length){
+        var foot = document.createElement('div');
+        foot.className = 'lb-pop-foot';
+        links.forEach(function(a){ foot.appendChild(a); });
+        pop.appendChild(foot);
+      }
+      wrap.appendChild(btn); wrap.appendChild(pop);
+
+      var anchor = sels.length ? sels[0] : tb.querySelector('.search-wrap');
+      if(anchor && anchor.parentNode === tb) tb.insertBefore(wrap, anchor.nextSibling);
+      else tb.insertBefore(wrap, tb.children[1] || null);
+
+      function badge(){
+        var n = 0;
+        movers.forEach(function(el){
+          if(el.tagName === 'SELECT' && el.value) n++;
+        });
+        var b = btn.querySelector('.lb-badge');
+        b.textContent = n;
+        b.style.display = n ? '' : 'none';
+      }
+      pop.addEventListener('change', badge);
+      badge();
+      btn.addEventListener('click', function(e){
+        e.stopPropagation();
+        pop.classList.toggle('open');
+      });
+      document.addEventListener('click', function(e){
+        if(!wrap.contains(e.target)) pop.classList.remove('open');
+      });
+    });
+  }
+  window.glListbar = glListbar;
+  function glListbarBoot(){ glListbar(); setTimeout(glListbar, 800); setTimeout(glListbar, 2500); }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', glListbarBoot);
+  else glListbarBoot();
 })();
