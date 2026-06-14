@@ -1192,6 +1192,41 @@ html.lang-switching *::after {
       </div>
     </div>
 
+
+  <!-- ZATCA OTP guidance modal -->
+  <div class="gl-modal-overlay" id="zatca-otp-modal" style="display:none;" onclick="if(event.target===this)closeZatcaOtp()">
+    <div class="gl-modal">
+      <div class="gl-modal-head">
+        <div>
+          <h3 data-ar="رمز فاتورة (OTP)" data-en="Fatoora code (OTP)">رمز فاتورة (OTP)</h3>
+          <div class="gl-modal-sub" data-ar="رمز لمرة واحدة من بوابة فاتورة لتفويض ربط جهازك." data-en="A one-time code from the Fatoora portal that authorizes your device.">رمز لمرة واحدة من بوابة فاتورة لتفويض ربط جهازك.</div>
+        </div>
+        <button class="gl-modal-close" onclick="closeZatcaOtp()" aria-label="Close">✕</button>
+      </div>
+      <div class="gl-modal-body">
+        <div style="font-size:12.5px;color:var(--color-text-muted);line-height:1.75;margin-bottom:14px;">
+          <div style="font-weight:700;color:var(--color-text-strong);margin-bottom:8px;" data-ar="كيف تحصل على الرمز:" data-en="How to get the code:">كيف تحصل على الرمز:</div>
+          <ol style="margin:0;padding-inline-start:18px;display:flex;flex-direction:column;gap:7px;">
+            <li><span data-ar="افتح بوابة فاتورة وسجّل الدخول ببيانات منشأتك (إيراد / الرقم الضريبي)." data-en="Open the Fatoora portal and sign in with your business credentials (ERAD / Tax number).">افتح بوابة فاتورة وسجّل الدخول ببيانات منشأتك (إيراد / الرقم الضريبي).</span> <a id="zatca-otp-portal-link" href="https://fatoora.zatca.gov.sa" target="_blank" rel="noopener" style="color:var(--color-primary);font-weight:600;" data-ar="فتح البوابة ↗" data-en="Open portal ↗">فتح البوابة ↗</a></li>
+            <li data-ar="اختر «ربط جهاز/حل جديد» (Onboard new solution unit)." data-en="Choose “Onboard new solution unit/device”.">اختر «ربط جهاز/حل جديد» (Onboard new solution unit).</li>
+            <li data-ar="أدخل العدد 1 ثم «توليد الرمز» (Generate OTP)." data-en="Enter quantity 1, then “Generate OTP”.">أدخل العدد 1 ثم «توليد الرمز» (Generate OTP).</li>
+            <li data-ar="انسخ الرمز والصقه هنا (صالح لمدة ساعة واحدة)." data-en="Copy the code and paste it below (valid for 1 hour).">انسخ الرمز والصقه هنا (صالح لمدة ساعة واحدة).</li>
+          </ol>
+        </div>
+        <div class="gl-field">
+          <label class="gl-label" for="zatca-otp-input"><span data-ar="الرمز (OTP)" data-en="Code (OTP)">الرمز (OTP)</span></label>
+          <input type="text" id="zatca-otp-input" inputmode="numeric" placeholder="123456" dir="ltr" style="letter-spacing:3px;font-size:16px;text-align:center;">
+        </div>
+      </div>
+      <div class="gl-modal-foot">
+        <div class="gl-modal-actions">
+          <button class="gl-btn is-ghost" onclick="closeZatcaOtp()"><span data-ar="إلغاء" data-en="Cancel">إلغاء</span></button>
+          <button class="gl-btn is-primary" onclick="submitZatcaOtp()"><span data-ar="متابعة" data-en="Continue">متابعة</span></button>
+        </div>
+      </div>
+    </div>
+  </div>
+
     <div class="section-card" id="sec-tax-profile" style="display:none;">
       <div class="section-header">
         <div class="section-title-wrap">
@@ -4376,13 +4411,28 @@ async function saveZatcaMode(){
 
 /* Guided go-live: prompts OTP, calls the unified zatca function for onboard +
    (production) compliance-checks + production-csid, rendering each step. */
-async function startZatcaGoLive(){
-  const ar = currentLang === 'ar';
+function startZatcaGoLive(){
   const env = _zatcaMode === 'production' ? 'production' : 'simulation';
-  const otp = prompt(ar
-    ? 'أدخل رمز OTP من بوابة فاتورة (صلاحيته دقائق):'
-    : 'Enter the OTP from the Fatoora portal (valid a few minutes):');
-  if(!otp) return;
+  // Point the portal link at the right environment.
+  const link = document.getElementById('zatca-otp-portal-link');
+  if(link) link.href = env === 'production'
+    ? 'https://fatoora.zatca.gov.sa'
+    : 'https://fatoora.zatca.gov.sa';   /* simulation entry is via the same portal login */
+  document.getElementById('zatca-otp-input').value = '';
+  document.getElementById('zatca-otp-modal').style.display = 'flex';
+  setTimeout(() => document.getElementById('zatca-otp-input')?.focus(), 60);
+}
+function closeZatcaOtp(){ document.getElementById('zatca-otp-modal').style.display = 'none'; }
+
+async function submitZatcaOtp(){
+  const ar = currentLang === 'ar';
+  const otp = (document.getElementById('zatca-otp-input').value || '').trim();
+  if(!/^[0-9]{4,8}$/.test(otp)){
+    notify(ar ? '⚠ أدخل رمزاً صحيحاً (أرقام)' : '⚠ Enter a valid numeric code', 'error');
+    return;
+  }
+  closeZatcaOtp();
+  const env = _zatcaMode === 'production' ? 'production' : 'simulation';
   const stepsEl = document.getElementById('zatca-golive-steps');
   stepsEl.style.display = '';
   const steps = env === 'production'
