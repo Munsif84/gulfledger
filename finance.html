@@ -1314,6 +1314,10 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
           <span class="icon"><svg class="gl-i"><use href="/gl-icons.svg#i-swap"/></svg></span>
           <span data-ar="التسوية" data-en="Reconciliation">التسوية</span>
         </button>
+        <button class="sidebar-link" id="tab-optimize" onclick="switchTab('optimize')">
+          <span class="icon"><svg class="gl-i"><use href="/gl-icons.svg#i-sparkles"/></svg></span>
+          <span data-ar="توفير الضرائب" data-en="Tax Savings">توفير الضرائب</span>
+        </button>
       </div>
     </aside>
     <div class="finance-main">
@@ -1774,6 +1778,37 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
       <div id="recon-history-wrap"></div>
     </div>
   </div>
+
+  <!-- ═══════════ TAX SAVINGS HUB (AI optimizer) ═══════════ -->
+  <div id="pane-optimize" style="display:none;">
+    <div style="margin-bottom:16px;">
+      <h2 style="font-size:18px;font-weight:800;color:var(--color-text-strong);margin:0 0 4px;display:flex;align-items:center;gap:8px;">
+        <svg class="gl-i"><use href="/gl-icons.svg#i-sparkles"/></svg>
+        <span data-ar="توفير الضرائب" data-en="Tax Savings">توفير الضرائب</span>
+      </h2>
+      <div style="font-size:12.5px;color:var(--color-text-muted);" data-ar="نفحص سجلاتك ونجد فرصاً نظامية لاسترداد ضريبة أو خصم مصاريف فاتتك — توفير قانوني 100%." data-en="We scan your records for legal ways to recover VAT and capture missed deductions — 100% compliant.">نفحص سجلاتك ونجد فرصاً نظامية لاسترداد ضريبة أو خصم مصاريف فاتتك — توفير قانوني 100%.</div>
+    </div>
+
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:16px;flex-wrap:wrap;">
+      <select id="opt-period" class="filter-select" onchange="runTaxOptimizer()">
+        <option value="curr_quarter" data-ar="الربع الحالي" data-en="Current quarter">الربع الحالي</option>
+        <option value="prev_quarter" data-ar="الربع السابق" data-en="Previous quarter">الربع السابق</option>
+        <option value="ytd" data-ar="منذ بداية السنة" data-en="Year to date">منذ بداية السنة</option>
+      </select>
+      <button class="gl-btn is-primary is-sm" onclick="runTaxOptimizer()">
+        <svg class="gl-i gl-i-sm"><use href="/gl-icons.svg#i-refresh"/></svg>
+        <span data-ar="إعادة الفحص" data-en="Re-scan">إعادة الفحص</span>
+      </button>
+    </div>
+
+    <div id="opt-headline" style="display:none;"></div>
+    <div id="opt-results"></div>
+
+    <div style="margin-top:18px;font-size:11px;color:var(--color-text-faint);line-height:1.7;border-top:1px solid var(--color-border);padding-top:12px;">
+      <span data-ar="هذه اقتراحات للتوفير النظامي فقط، مبنية على بياناتك. القرار النهائي لك، ويُنصح بمراجعة مختص للمبالغ الكبيرة. لا نقترح أبداً إخفاء إيرادات أو مصاريف وهمية." data-en="These are legal optimization suggestions based on your own data. The decision is yours; consult a specialist for large amounts. We never suggest hiding revenue or fabricating expenses.">هذه اقتراحات للتوفير النظامي فقط، مبنية على بياناتك. القرار النهائي لك، ويُنصح بمراجعة مختص للمبالغ الكبيرة. لا نقترح أبداً إخفاء إيرادات أو مصاريف وهمية.</span>
+    </div>
+  </div>
+
 
     </div><!-- /.finance-main -->
   </div><!-- /.finance-shell -->
@@ -2404,6 +2439,26 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
 .ai-conf-high{background:#dcfce7;color:#16a34a;}
 .ai-conf-medium{background:#fef9c3;color:#ca8a04;}
 .ai-conf-low{background:#fee2e2;color:#dc2626;}
+
+/* Tax savings hub */
+.opt-loading,.opt-error,.opt-clean{display:flex;align-items:center;gap:10px;padding:16px;font-size:13px;color:var(--color-text-muted);border-radius:10px;background:var(--color-bg-subtle);}
+.opt-clean{flex-direction:column;text-align:center;padding:32px;color:var(--color-text-strong);font-weight:600;}
+.opt-headline-card{background:linear-gradient(135deg,#eef2ff,#fff);border:1px solid var(--color-primary);border-radius:14px;padding:18px 20px;margin-bottom:16px;}
+.opt-headline-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--color-text-muted);}
+.opt-headline-value{font-size:30px;font-weight:800;color:var(--color-primary);font-variant-numeric:tabular-nums;margin:4px 0;}
+.opt-headline-sum{font-size:13px;color:var(--color-text-default);line-height:1.7;}
+.opt-item{border:1px solid var(--color-border);border-radius:12px;padding:14px 16px;margin-bottom:10px;background:var(--color-bg-surface);}
+.opt-item-top{display:flex;justify-content:space-between;align-items:baseline;gap:12px;}
+.opt-item-title{font-size:14px;font-weight:700;color:var(--color-text-strong);}
+.opt-item-impact{font-size:15px;font-weight:800;color:var(--color-status-success,#16a34a);font-variant-numeric:tabular-nums;white-space:nowrap;}
+.opt-item-action{font-size:12.5px;color:var(--color-text-default);line-height:1.7;margin-top:6px;}
+.opt-item-basis{font-size:11.5px;color:var(--color-text-muted);line-height:1.6;margin-top:6px;}
+.opt-item-foot{display:flex;align-items:center;gap:10px;margin-top:9px;flex-wrap:wrap;}
+.opt-conf{font-size:10.5px;font-weight:700;padding:2px 9px;border-radius:9px;}
+.opt-conf-high{background:#dcfce7;color:#16a34a;}
+.opt-conf-medium{background:#fef9c3;color:#ca8a04;}
+.opt-conf-low{background:#fee2e2;color:#dc2626;}
+.opt-caution{font-size:11px;color:#b45309;}
 </style>
 
 
@@ -4926,12 +4981,17 @@ function closeReconDetail(){
 /* ─── tabs ─── */
 function switchTab(name){
   currentTab = name;
-  ['expenses','bills','banks','cashflow','reconciliation'].forEach(t => {
+  ['expenses','bills','banks','cashflow','reconciliation','optimize'].forEach(t => {
     document.getElementById('tab-'+t)?.classList.toggle('active', t === name);
     const pane = document.getElementById('pane-'+t);
     if(pane) pane.style.display = (t === name) ? '' : 'none';
   });
   history.replaceState(null, '', '?tab='+name);
+
+  if(name === 'optimize' && !window._optimizeLoaded){
+    window._optimizeLoaded = true;
+    runTaxOptimizer();
+  }
 
   /* Lazy-load Bills on first visit. */
   if(name === 'bills' && !window._billsLoaded){
@@ -8378,8 +8438,8 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.12-r54e</div>
-<script>console.log('%c[GulfLedger build] v2026.06.12-r54 · AI Bookkeeper: receipt scan → auto-filled expense (Claude vision)', 'color:#006C35;font-weight:bold;');
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.12-r56</div>
+<script>console.log('%c[GulfLedger build] v2026.06.12-r56 · Tax Savings hub: deterministic gap detection + AI optimization advisor (legal-only)', 'color:#006C35;font-weight:bold;');
 /* ═══════════════════════════════════════════════════════
    AI BOOKKEEPER — receipt scan → prefill expense form
    Calls the ai-scan-receipt Edge Function (Claude vision).
@@ -8468,6 +8528,185 @@ function aiApplyExtraction(x){
   }
   if(typeof recomputeTotals === 'function') recomputeTotals();
   showReceiptPreview(pendingReceiptFile);
+}
+
+/* ═══════════════════════════════════════════════════════════════════════
+   TAX SAVINGS HUB — deterministic gap detection + AI narration
+   ─────────────────────────────────────────────────────────────────────
+   Detection is EXACT and runs in the browser on real expense data — no AI
+   guessing about money. The AI only prioritizes & explains what we found.
+   Legal optimization only; never suggests evasion.
+═══════════════════════════════════════════════════════════════════════════ */
+function optPeriodRange(key){
+  const now = new Date();
+  const y = now.getFullYear();
+  const q = Math.floor(now.getMonth()/3);
+  if(key === 'prev_quarter'){
+    const pq = q === 0 ? 3 : q-1; const py = q === 0 ? y-1 : y;
+    const from = new Date(py, pq*3, 1); const to = new Date(py, pq*3+3, 0);
+    return { fromISO: from.toISOString().slice(0,10), toISO: to.toISOString().slice(0,10) };
+  }
+  if(key === 'ytd') return { fromISO: `${y}-01-01`, toISO: now.toISOString().slice(0,10) };
+  const from = new Date(y, q*3, 1);
+  return { fromISO: from.toISOString().slice(0,10), toISO: now.toISOString().slice(0,10) };
+}
+
+async function runTaxOptimizer(){
+  const ar = currentLang === 'ar';
+  const results = document.getElementById('opt-results');
+  const headline = document.getElementById('opt-headline');
+  if(!results) return;
+  headline.style.display = 'none';
+  results.innerHTML = `<div class="opt-loading"><span class="ai-spin"></span> ${ar?'نفحص سجلاتك بحثاً عن فرص توفير…':'Scanning your records for savings…'}</div>`;
+
+  const key = document.getElementById('opt-period')?.value || 'curr_quarter';
+  const { fromISO, toISO } = optPeriodRange(key);
+
+  /* ── Pull expenses for the period ── */
+  let expenses = [];
+  try {
+    const { data } = await sb.from('expenses')
+      .select('id, expense_date, vendor_name, description, amount, vat_amount, vat_rate, vat_recoverable, category, receipt_path, status')
+      .eq('business_id', currentBiz.id)
+      .gte('expense_date', fromISO).lte('expense_date', toISO);
+    expenses = data || [];
+  } catch(e){
+    results.innerHTML = `<div class="opt-error">⚠ ${ar?'تعذر قراءة المصاريف':'Could not read expenses'}</div>`;
+    return;
+  }
+
+  /* ── DETERMINISTIC GAP DETECTION (exact, legal) ── */
+  const findings = [];
+  const catOf = (code) => (typeof EXPENSE_CATEGORIES !== 'undefined') ? EXPENSE_CATEGORIES.find(x=>x.code===code) : null;
+
+  /* Gap 1: recoverable-category expense with NO VAT captured (likely lost input VAT) */
+  let missingVatCount = 0, missingVatBase = 0;
+  for(const e of expenses){
+    const cat = catOf(e.category);
+    const recoverableCat = cat ? cat.vat_recoverable_default : true;
+    const amt = Number(e.amount)||0;
+    const vat = Number(e.vat_amount)||0;
+    if(recoverableCat && amt > 0 && vat <= 0.005){
+      missingVatCount++;
+      /* if amount looks VAT-inclusive, recoverable VAT ≈ amount*15/115 */
+      missingVatBase += amt * 15/115;
+    }
+  }
+  if(missingVatCount > 0){
+    findings.push({
+      type: 'unclaimed_input_vat',
+      description: `${missingVatCount} recoverable-category expenses recorded with zero VAT — likely input VAT not captured`,
+      estimated_impact_sar: Math.round(missingVatBase*100)/100,
+      detail: { count: missingVatCount }
+    });
+  }
+
+  /* Gap 2: expenses with VAT but no receipt attached (claim at risk if audited) */
+  let noReceiptCount = 0, noReceiptVat = 0;
+  for(const e of expenses){
+    const vat = Number(e.vat_amount)||0;
+    if(vat > 0.005 && !e.receipt_path){ noReceiptCount++; noReceiptVat += vat; }
+  }
+  if(noReceiptCount > 0){
+    findings.push({
+      type: 'vat_claim_missing_receipt',
+      description: `${noReceiptCount} expenses claim VAT but have no receipt attached — claim could be denied on audit`,
+      estimated_impact_sar: Math.round(noReceiptVat*100)/100,
+      detail: { count: noReceiptCount }
+    });
+  }
+
+  /* Gap 3: recoverable VAT recorded but flagged non-recoverable (misclassification leaving money) */
+  let misflaggedCount = 0, misflaggedVat = 0;
+  for(const e of expenses){
+    const cat = catOf(e.category);
+    const vat = Number(e.vat_amount)||0;
+    if(cat && cat.vat_recoverable_default === true && e.vat_recoverable === false && vat > 0.005){
+      misflaggedCount++; misflaggedVat += vat;
+    }
+  }
+  if(misflaggedCount > 0){
+    findings.push({
+      type: 'recoverable_marked_blocked',
+      description: `${misflaggedCount} expenses in recoverable categories were marked non-recoverable — VAT you may be entitled to reclaim`,
+      estimated_impact_sar: Math.round(misflaggedVat*100)/100,
+      detail: { count: misflaggedCount }
+    });
+  }
+
+  /* Gap 4: uncategorized / 'other' expenses — potential missed proper deduction */
+  const otherCount = expenses.filter(e => !e.category || e.category === 'other').length;
+  if(otherCount >= 3){
+    findings.push({
+      type: 'uncategorized_expenses',
+      description: `${otherCount} expenses are uncategorized or 'other' — correct categorization may unlock recoverable VAT`,
+      estimated_impact_sar: 0,
+      detail: { count: otherCount }
+    });
+  }
+
+  const totals = {
+    period: { fromISO, toISO },
+    expense_count: expenses.length,
+    total_recorded_vat: Math.round(expenses.reduce((s,e)=>s+(Number(e.vat_amount)||0),0)*100)/100
+  };
+
+  /* ── No gaps: celebrate, skip AI ── */
+  if(findings.length === 0){
+    results.innerHTML = `<div class="opt-clean"><svg class="gl-i" style="width:32px;height:32px;color:var(--color-status-success,#16a34a);"><use href="/gl-icons.svg#i-check"/></svg>
+      <div>${ar?'سجلاتك تبدو مكتملة لهذه الفترة — لا فجوات واضحة.':'Your records look complete for this period — no clear gaps.'}</div></div>`;
+    return;
+  }
+
+  /* ── AI narration & prioritization ── */
+  try {
+    const { data, error } = await sb.functions.invoke('ai-tax-optimizer', {
+      body: { business_id: currentBiz.id, findings, totals, lang: ar?'ar':'en' }
+    });
+    let b = data;
+    if(error && error.context && typeof error.context.json === 'function'){ try { b = await error.context.json(); } catch(_){} }
+    if(!b || !b.ok) throw new Error((b && (b.message_ar||b.error)) || 'failed');
+    renderOptResults(b);
+  } catch(e){
+    /* Fallback: render the raw findings without AI narration */
+    renderOptResults({
+      summary: ar?'وجدنا فرص توفير محتملة:':'We found potential savings:',
+      total_opportunity_sar: findings.reduce((s,f)=>s+(f.estimated_impact_sar||0),0),
+      items: findings.map(f => ({ title: f.description, impact_sar: f.estimated_impact_sar||0, action: ar?'راجع هذه المصاريف.':'Review these expenses.', basis: '', confidence:'medium', caution:null }))
+    });
+    console.warn('optimizer ai', e);
+  }
+}
+
+function renderOptResults(b){
+  const ar = currentLang === 'ar';
+  const headline = document.getElementById('opt-headline');
+  const results = document.getElementById('opt-results');
+  const total = Number(b.total_opportunity_sar||0);
+  headline.style.display = '';
+  headline.innerHTML = `
+    <div class="opt-headline-card">
+      <div class="opt-headline-label">${ar?'إجمالي الفرصة المقدّرة':'Estimated total opportunity'}</div>
+      <div class="opt-headline-value">${fmt(total)} <span style="font-size:14px;">${ar?'ر.س':'SAR'}</span></div>
+      <div class="opt-headline-sum">${escHTML(b.summary||'')}</div>
+    </div>`;
+  const items = b.items || [];
+  results.innerHTML = items.map(it => {
+    const conf = it.confidence || 'medium';
+    const confLbl = ar ? ({high:'مؤكد',medium:'محتمل',low:'يحتاج تحقق'})[conf] : conf;
+    return `<div class="opt-item">
+      <div class="opt-item-top">
+        <div class="opt-item-title">${escHTML(it.title)}</div>
+        <div class="opt-item-impact">${it.impact_sar>0?('+'+fmt(it.impact_sar)+' '+(ar?'ر.س':'SAR')):''}</div>
+      </div>
+      <div class="opt-item-action">${escHTML(it.action||'')}</div>
+      ${it.basis?`<div class="opt-item-basis"><strong>${ar?'الأساس النظامي: ':'Basis: '}</strong>${escHTML(it.basis)}</div>`:''}
+      <div class="opt-item-foot">
+        <span class="opt-conf opt-conf-${conf}">${confLbl}</span>
+        ${it.caution?`<span class="opt-caution">⚠ ${escHTML(it.caution)}</span>`:''}
+      </div>
+    </div>`;
+  }).join('');
 }
 </script>
 </body>
