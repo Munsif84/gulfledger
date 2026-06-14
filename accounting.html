@@ -9590,7 +9590,10 @@ async function renderVatCompliancePane(){
 
     ${renderVatComplianceReportHTML(report)}
 
+    <div id="vat-explain-panel" style="display:none;"></div>
+
     <div style="display:flex;gap:8px;justify-content:center;margin-top:14px;flex-wrap:wrap;">
+      <button class="btn btn-primary" onclick="explainVatReport()"><svg class="gl-i gl-i-sm"><use href="/gl-icons.svg#i-sparkles"/></svg> ${ar?'اشرح لي هذا الإقرار':'Explain this return'}</button>
       <button class="btn btn-secondary" onclick="window.print()"><svg class="gl-i gl-i-sm"><use href="/gl-icons.svg#i-print"/></svg> ${ar?'طباعة / حفظ PDF':'Print / Save PDF'}</button>
       ${report.filingStatus.status === 'unfiled' ? `<button class="btn btn-primary" onclick="switchSubtab('vat-vat')">${ar?'الذهاب إلى التقديم ←':'Go to Filings →'}</button>` : ''}
     </div>
@@ -13618,6 +13621,17 @@ function qawPrintDeclaration(){
     .page { box-shadow: none; max-width: none; margin: 0; padding: 18mm 16mm; min-height: auto; }
     @page { size: A4; margin: 0; }
   }
+
+/* VAT AI explainer */
+.vat-explain-box{margin-top:14px;border:1px solid var(--border);border-radius:12px;background:linear-gradient(135deg,#eef2ff,#fff);overflow:hidden;}
+.vat-explain-box.loading,.vat-explain-box.error{padding:14px 16px;font-size:13px;color:var(--muted);display:flex;align-items:center;gap:9px;}
+.vat-explain-head{display:flex;align-items:center;gap:8px;padding:11px 16px;border-bottom:1px solid var(--border);font-size:13px;font-weight:800;color:var(--ink);}
+.vat-explain-head .gl-i{color:#4f46e5;}
+.vat-explain-close{margin-inline-start:auto;background:none;border:none;cursor:pointer;color:var(--muted);font-size:14px;}
+.vat-explain-body{padding:14px 16px;font-size:13px;line-height:1.85;color:var(--ink);}
+.vat-explain-foot{padding:9px 16px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);background:rgba(0,0,0,0.02);}
+.ai-spin-acc{width:15px;height:15px;border:2px solid var(--border);border-top-color:#4f46e5;border-radius:50%;animation:aispinacc .7s linear infinite;flex-shrink:0;display:inline-block;}
+@keyframes aispinacc{to{transform:rotate(360deg);}}
 </style>
 </head>
 <body>
@@ -13827,7 +13841,51 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.11-r51</div>
-<script>console.log('%c[GulfLedger build] v2026.06.11-r51 · Listbar progressive filters, profile identity header, brand decluttered', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.12-r55</div>
+<script>console.log('%c[GulfLedger build] v2026.06.12-r55 · AI Compliance Explainer on VAT return (grounded in computed report)', 'color:#006C35;font-weight:bold;');
+/* ═══════════════════════════════════════════════════════
+   AI VAT EXPLAINER — "why is this number?"
+   Sends the COMPUTED report (st.data) to ai-explain-vat;
+   the AI explains only those figures, never recomputes.
+═══════════════════════════════════════════════════════ */
+function _currentVatReport(){
+  // complianceReportState.vat.data holds the last computed report
+  try { return (typeof complianceReportState !== 'undefined' && complianceReportState.vat && complianceReportState.vat.data) ? complianceReportState.vat.data : null; }
+  catch(_e){ return null; }
+}
+
+async function explainVatReport(box){
+  const ar = currentLang === 'ar';
+  const report = _currentVatReport();
+  const panel = document.getElementById('vat-explain-panel');
+  if(!report || !panel){ notify(ar?'احسب التقرير أولاً':'Compute the report first','error'); return; }
+  panel.style.display = '';
+  panel.innerHTML = `<div class="vat-explain-box loading"><span class="ai-spin-acc"></span> ${ar?'جارٍ شرح الأرقام…':'Explaining the figures…'}</div>`;
+  try{
+    const { data, error } = await sb.functions.invoke('ai-explain-vat', {
+      body: { business_id: currentBiz.id, report, box: box || null, lang: ar?'ar':'en' }
+    });
+    let b = data;
+    if(error && error.context && typeof error.context.json === 'function'){ try { b = await error.context.json(); } catch(_){} }
+    if(!b || !b.ok || !b.explanation) throw new Error((b && (b.message_ar||b.error)) || 'failed');
+    // Render explanation (preserve line breaks, escape HTML)
+    const safe = escHTML(b.explanation).replace(/\n/g, '<br>');
+    panel.innerHTML = `
+      <div class="vat-explain-box">
+        <div class="vat-explain-head">
+          <svg class="gl-i gl-i-sm"><use href="/gl-icons.svg#i-sparkles"/></svg>
+          <span>${ar?'شرح الإقرار':'Return explained'}</span>
+          <button class="vat-explain-close" onclick="document.getElementById('vat-explain-panel').style.display='none'" aria-label="close">✕</button>
+        </div>
+        <div class="vat-explain-body">${safe}</div>
+        <div class="vat-explain-foot">${ar?'هذا الشرح للمساعدة فقط — راجع الأرقام قبل التقديم.':'For guidance only — review the figures before filing.'}</div>
+      </div>`;
+  }catch(e){
+    panel.innerHTML = `<div class="vat-explain-box error">⚠ ${ar?'تعذّر الشرح الآن — حاول مجدداً.':'Could not explain right now — try again.'}</div>`;
+    console.warn('explain-vat', e);
+  }
+}
+function explainVatBox(box){ explainVatReport(box); }
+</script>
 </body>
 </html>
