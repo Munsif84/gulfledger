@@ -45,7 +45,7 @@ Deno.serve(async (req) => {
 
   const { data: keys, error: keyErr } = await db
     .from("zatca_device_keys")
-    .select("csid_secret, compliance_request_id")
+    .select("csid_secret, compliance_secret, compliance_request_id")
     .eq("device_id", device.id)
     .single();
   if (keyErr || !keys?.csid_secret || !keys?.compliance_request_id) {
@@ -55,7 +55,7 @@ Deno.serve(async (req) => {
   const resp = await zatcaProductionCsid(
     device.environment as ZatcaEnvName,
     device.compliance_csid,
-    keys.csid_secret,
+    keys.compliance_secret || keys.csid_secret,
     keys.compliance_request_id,
   );
   if (!resp.ok) {
@@ -80,6 +80,7 @@ Deno.serve(async (req) => {
 
   const { error: ksErr } = await db.from("zatca_device_keys").update({
     csid_secret: prodSecret,
+    production_secret: prodSecret,
     updated_at: new Date().toISOString(),
   }).eq("device_id", device.id);
   if (ksErr) return json({ error: "db_secret_failed", detail: ksErr.message }, 500);
