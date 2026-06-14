@@ -2157,40 +2157,35 @@ async function init(){
   }
 
   function buildFallbackInsights(){
+    /* Action-oriented fallback. Deliberately does NOT restate the KPI tiles
+       (revenue/expenses/VAT/receivables shown above). Each card = a next step. */
     const now = new Date();
     const q = Math.floor(now.getMonth()/3);
     const vatDueDate = new Date(now.getFullYear(), q*3+3, 30);
     const daysToVat = Math.round((vatDueDate-now)/(1000*60*60*24));
-    const vatAmt = document.getElementById('s-vat')?.textContent||'SAR 0';
-    const revenue = document.getElementById('s-invoiced')?.textContent||'SAR 0';
-    const expenses= document.getElementById('s-expenses')?.textContent||'SAR 0';
+    const ar = (L==='ar');
+    const cards = [];
 
-    return [
-      {
-        type: daysToVat<=30?'warning':'info', icon:'📅',
-        title: L==='ar'?`VAT مستحق خلال ${daysToVat} يوم`:`VAT due in ${daysToVat} days`,
-        body: L==='ar'
-          ?`الضريبة المستحقة ${vatAmt}. تأكد من تقديم الإقرار قبل الموعد النهائي لتجنب الغرامات.`
-          :`Estimated VAT ${vatAmt}. Submit your return before the deadline to avoid penalties.`,
-        action_label: L==='ar'?'تقديم إقرار VAT →':'Submit VAT Return →', action_url:'accounting.html?sub=vat'
-      },
-      {
-        type:'info', icon:'📊',
-        title: L==='ar'?'أداء هذا الشهر':'This Month Performance',
-        body: L==='ar'
-          ?`المبيعات ${revenue} والمصاريف ${expenses}. راجع القوائم المالية للتفاصيل الكاملة.`
-          :`Revenue ${revenue}, Expenses ${expenses}. Review financial statements for full details.`,
-        action_label: L==='ar'?'القوائم المالية →':'Statements →', action_url:'statements.html'
-      },
-      {
-        type:'action', icon:'💰',
-        title: L==='ar'?'تابع مدفوعاتك':'Track Your Payments',
-        body: L==='ar'
-          ?'راجع الفواتير غير المدفوعة وتابع مع عملائك لتحسين التدفق النقدي وتقليل الذمم المدينة.'
-          :'Review unpaid invoices and follow up with customers to improve cash flow.',
-        action_label: L==='ar'?'الفواتير →':'Invoices →', action_url:'invoices.html'
-      }
-    ];
+    if(daysToVat <= 21){
+      cards.push({ type:'warning', icon:'⏰',
+        title: ar?`أمامك ${daysToVat} يوم لتقديم إقرار VAT`:`${daysToVat} days left to file VAT`,
+        body: ar?'جهّز إقرارك مبكراً وراجع الأرقام قبل الموعد لتفادي غرامة التأخير.':'Prepare your return early and review the figures before the deadline to avoid late penalties.',
+        action_label: ar?'مراجعة الإقرار':'Review return', action_url:'accounting.html?sub=vat&filing=return' });
+    }
+    cards.push({ type:'action', icon:'✨',
+      title: ar?'افحص فرص توفير الضريبة':'Check tax-saving opportunities',
+      body: ar?'قد تكون هناك ضريبة مدخلات لم تُطالب بها أو مصاريف ناقصة المستندات. افحص سجلاتك الآن.':'You may have unclaimed input VAT or expenses missing receipts. Scan your records to recover what you are owed.',
+      action_label: ar?'فحص المصاريف':'Scan expenses', action_url:'finance.html' });
+    cards.push({ type:'info', icon:'📥',
+      title: ar?'تابع الفواتير المتأخرة':'Chase overdue invoices',
+      body: ar?'متابعة العملاء على الفواتير المتأخرة تحسّن السيولة مباشرة.':'Following up on past-due invoices improves your cash position directly.',
+      action_label: ar?'الفواتير غير المدفوعة':'Unpaid invoices', action_url:'invoices.html?filter=unpaid' });
+    cards.push({ type:'action', icon:'📸',
+      title: ar?'صوّر إيصالاتك أولاً بأول':'Capture receipts as you go',
+      body: ar?'تسجيل المصاريف بإيصالاتها يحفظ حقك في استرداد الضريبة ويُجهّز إقرارك تلقائياً.':'Logging expenses with receipts protects your VAT claims and prepares your return automatically.',
+      action_label: ar?'إضافة مصروف':'Add expense', action_url:'finance.html' });
+
+    return cards.slice(0,3);
   }
 
   function renderInsights(insights){
@@ -2522,7 +2517,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء (Ctrl+Shift+R للتحديث) · Build version (Ctrl+Shift+R to refresh)">v2026.06.12-r57</div>
+<div class="gl-build-badge" title="رقم البناء (Ctrl+Shift+R للتحديث) · Build version (Ctrl+Shift+R to refresh)">v2026.06.12-r57b</div>
 <script>console.log('%c[GulfLedger build] v2026.06.12-r57 · Smart Insights wired to AI (tax savings + cash flow + overdue + compliance); green hero removed', 'color:#006C35;font-weight:bold;');
 </script>
 </body>
