@@ -53,7 +53,7 @@ Deno.serve(async (req) => {
   if (!device) return json({ error: "no_active_device", message_ar: "لا يوجد جهاز فوترة مفعّل — أكمل الربط مع فاتورة أولاً." }, 409);
 
   const { data: keys } = await db.from("zatca_device_keys").select("*").eq("device_id", device.id).single();
-  if (!keys?.private_key_hex || !keys?.csid_secret) return json({ error: "device_credentials_missing" }, 500);
+  if (!keys?.private_key_hex) return json({ error: "device_credentials_missing" }, 500);
 
   const env = device.environment as ZatcaEnvName;
   const pick = (...ks: string[]) => { for (const k of ks) { const v = (biz as Record<string, unknown>)[k]; if (v != null && String(v).trim() !== "") return String(v); } return ""; };
@@ -114,7 +114,13 @@ Deno.serve(async (req) => {
   });
 
   // ── Sign ──
-  const cert = parseCsidCertificate(String(device.production_csid || device.compliance_csid));
+  // Pick the credential pair that matches the endpoint:
+  // sandbox uses the compliance-invoice endpoint (compliance CSID+secret);
+  // production clearance/reporting uses the production CSID+secret.
+  const useProduction = env === "production" && device.production_csid;
+  const activeCsid = String(useProduction ? device.production_csid : (device.compliance_csid || device.production_csid));
+  const activeSecret = String(useProduction ? (keys.production_secret || keys.csid_secret) : (keys.compliance_secret || keys.csid_secret));
+  const cert = parseCsidCertificate(activeCsid);
   const signed = signInvoice(xml, String(keys.private_key_hex), cert, {
     sellerName: pick("name", "name_ar", "business_name") || "Business",
     sellerVat: pick("vat_number", "trn", "tax_number").replace(/\D/g, ""),
@@ -126,13 +132,13 @@ Deno.serve(async (req) => {
 
   // ── Submit ──
   const apiPayload = { invoiceHash: signed.invoiceHash, uuid, invoice: btoa(unescape(encodeURIComponent(signed.signedXml))) };
-  const csid = String(device.production_csid || device.compliance_csid);
-  const secret = String(keys.csid_secret);
+  
+  
   const resp = env === "sandbox"
-    ? await zatcaComplianceInvoiceCheck(env, csid, secret, apiPayload)
+    ? await zatcaComplianceInvoiceCheck(env, activeCsid, activeSecret, apiPayload)
     : (isSimplified
-        ? await zatcaReportInvoice(env, csid, secret, apiPayload)
-        : await zatcaClearInvoice(env, csid, secret, apiPayload));
+        ? await zatcaReportInvoice(env, activeCsid, activeSecret, apiPayload)
+        : await zatcaClearInvoice(env, activeCsid, activeSecret, apiPayload));
 
   const accepted = resp.status === 200 || resp.status === 202;
   const newStatus = !accepted ? "rejected" : (env === "sandbox" ? "compliance_ok" : (isSimplified ? "reported" : "cleared"));
