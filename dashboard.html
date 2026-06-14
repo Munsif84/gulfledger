@@ -561,8 +561,8 @@ body{background:var(--bg);color:var(--ink);}
 }
 
 /* Tax savings hero */
-.tax-hero{position:relative;background:linear-gradient(135deg,#4f46e5,#7c3aed);border-radius:16px;padding:18px 20px;margin-bottom:20px;cursor:pointer;overflow:hidden;transition:transform .15s,box-shadow .15s;}
-.tax-hero:hover{transform:translateY(-1px);box-shadow:0 10px 30px rgba(79,70,229,.3);}
+.tax-hero{position:relative;background:linear-gradient(135deg,var(--color-primary),var(--navy));border-radius:16px;padding:18px 20px;margin-bottom:20px;cursor:pointer;overflow:hidden;transition:transform .15s,box-shadow .15s;}
+.tax-hero:hover{transform:translateY(-1px);box-shadow:0 10px 30px rgba(0,108,53,.28);}
 .tax-hero-glow{position:absolute;inset-inline-end:-40px;top:-40px;width:160px;height:160px;background:radial-gradient(circle,rgba(255,255,255,.18),transparent 70%);}
 .tax-hero-content{position:relative;display:flex;align-items:center;gap:16px;}
 .tax-hero-icon{width:46px;height:46px;border-radius:12px;background:rgba(255,255,255,.18);display:flex;align-items:center;justify-content:center;color:#fff;flex-shrink:0;}
@@ -584,7 +584,7 @@ body{background:var(--bg);color:var(--ink);}
 .opt-conf-high{background:#dcfce7;color:#16a34a;}.opt-conf-medium{background:#fef9c3;color:#ca8a04;}.opt-conf-low{background:#fee2e2;color:#dc2626;}
 .opt-caution{font-size:11px;color:#b45309;}
 .opt-loading{display:flex;align-items:center;gap:10px;padding:16px;font-size:13px;color:var(--muted);}
-.opt-spin{width:15px;height:15px;border:2px solid var(--border);border-top-color:#4f46e5;border-radius:50%;animation:optspin .7s linear infinite;}
+.opt-spin{width:15px;height:15px;border:2px solid var(--border);border-top-color:var(--color-primary);border-radius:50%;animation:optspin .7s linear infinite;}
 @keyframes optspin{to{transform:rotate(360deg);}}
 </style>
 </head>
@@ -2524,7 +2524,7 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء (Ctrl+Shift+R للتحديث) · Build version (Ctrl+Shift+R to refresh)">v2026.06.12-r56</div>
+<div class="gl-build-badge" title="رقم البناء (Ctrl+Shift+R للتحديث) · Build version (Ctrl+Shift+R to refresh)">v2026.06.12-r56c</div>
 <script>console.log('%c[GulfLedger build] v2026.06.12-r56 · Tax Savings hero card on dashboard (AI optimizer, legal-only)', 'color:#006C35;font-weight:bold;');
 /* ═══════════════════════════════════════════════════════════════════════
    TAX SAVINGS HERO — dashboard hook
@@ -2590,7 +2590,16 @@ async function loadTaxSavings(){
     ? `${findings.length} فرص محتملة — اضغط للتفاصيل`
     : `${findings.length} potential opportunities — tap for details`;
 
-  /* AI narration (cached for the overlay) */
+  /* Seed the overlay IMMEDIATELY from deterministic findings so a tap always
+     works, even while the AI call is still running or if it fails. */
+  _taxFindings = {
+    ok: true,
+    total_opportunity_sar: rough,
+    summary: ar ? 'فرص توفير نظامية مبنية على سجلاتك:' : 'Legal savings opportunities from your records:',
+    items: findings.map(f => ({ title: f.description, impact_sar: f.estimated_impact_sar||0, action: ar?'راجع هذه المصاريف وأكمل الناقص.':'Review these expenses and complete what is missing.', basis:'', confidence:'medium', caution:null }))
+  };
+
+  /* AI narration (enriches the overlay when it arrives) */
   try {
     const { data, error } = await sb.functions.invoke('ai-tax-optimizer', {
       body: { business_id: currentBiz.id, findings, totals:{ period:{fromISO,toISO}, expense_count:expenses.length }, lang: ar?'ar':'en' }
@@ -2613,15 +2622,16 @@ async function loadTaxSavings(){
 function openTaxSavings(){
   const modal = document.getElementById('tax-savings-modal');
   const body = document.getElementById('tax-savings-body');
-  if(!modal || !_taxFindings) return;
+  if(!modal) return;
+  if(!_taxFindings){ loadTaxSavings(); return; }
   const ar = currentLang === 'ar';
   const b = _taxFindings;
   const total = Number(b.total_opportunity_sar||0);
   let html = '';
   if(total > 0){
-    html += `<div style="background:linear-gradient(135deg,#eef2ff,#fff);border:1px solid #c7d2fe;border-radius:14px;padding:16px 18px;margin-bottom:16px;">
+    html += `<div style="background:var(--color-primary-soft);border:1px solid var(--color-primary);border-radius:14px;padding:16px 18px;margin-bottom:16px;">
       <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);">${ar?'إجمالي الفرصة المقدّرة':'Estimated total opportunity'}</div>
-      <div style="font-size:28px;font-weight:800;color:#4f46e5;font-variant-numeric:tabular-nums;margin:4px 0;">${fmt(total)} <span style="font-size:14px;">${ar?'ر.س':'SAR'}</span></div>
+      <div style="font-size:28px;font-weight:800;color:var(--color-primary);font-variant-numeric:tabular-nums;margin:4px 0;">${fmt(total)} <span style="font-size:14px;">${ar?'ر.س':'SAR'}</span></div>
       <div style="font-size:13px;color:var(--ink);line-height:1.7;">${escHTML(b.summary||'')}</div></div>`;
   } else if(b.summary){
     html += `<div style="padding:8px 0 16px;font-size:13px;color:var(--ink);">${escHTML(b.summary)}</div>`;
