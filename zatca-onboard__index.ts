@@ -158,5 +158,6 @@ Deno.serve(async (req) => {
     status: "compliance",
     next_ar: "تم إصدار شهادة الامتثال. الخطوة التالية: اجتياز فحوصات الامتثال ثم إصدار شهادة الإنتاج.",
     next_step: "compliance-checks → zatca-production-csid",
+    _build: "r58-compliance-secret",
   });
 });
