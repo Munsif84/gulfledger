@@ -6098,8 +6098,8 @@ async function saveExpense(){
     btn.disabled = true;
     btn.textContent = currentLang==='ar' ? 'جارٍ الرفع...' : 'Uploading...';
     const {error: upErr} = await sb.storage.from('expense-receipts').upload(path, file, {
-      contentType: file.type,
-      upsert: false
+      contentType: glResolveMime(file) || 'application/octet-stream',
+      upsert: true
     });
     btn.disabled = false;
     btn.textContent = currentLang==='ar' ? 'حفظ ونشر' : 'Save & Post';
@@ -6330,14 +6330,26 @@ function closeDrawer(){
 }
 
 /* Attach a receipt to an existing expense from the drawer */
+
+/* Resolve a reliable MIME type — some browsers report PDFs/images with an
+   empty or octet-stream type, which the storage bucket rejects (415). Fall
+   back to the file extension. */
+function glResolveMime(file){
+  const t = (file.type || '').toLowerCase();
+  const known = ['application/pdf','image/png','image/jpeg','image/jpg','image/webp'];
+  if(known.includes(t)) return t;
+  const ext = (file.name.split('.').pop() || '').toLowerCase();
+  const map = { pdf:'application/pdf', png:'image/png', jpg:'image/jpeg', jpeg:'image/jpeg', webp:'image/webp', heic:'image/jpeg', heif:'image/jpeg' };
+  return map[ext] || '';
+}
+
 async function attachReceiptToExpense(expenseId, files){
   const ar = currentLang === 'ar';
   if(!files || files.length === 0) return;
   const file = files[0];
 
   /* Validate */
-  const ALLOWED = ['application/pdf','image/png','image/jpeg','image/jpg','image/webp'];
-  if(!ALLOWED.includes(file.type)){
+  if(!glResolveMime(file)){
     notify(ar?'نوع ملف غير مدعوم — استخدم PDF/JPG/PNG':'Unsupported file type — use PDF/JPG/PNG','error');
     return;
   }
@@ -6353,9 +6365,19 @@ async function attachReceiptToExpense(expenseId, files){
   const drop = document.getElementById(`drawer-file-drop-${expenseId}`);
   if(drop) drop.innerHTML = `<div class="file-drop-icon">⏳</div><div class="file-drop-text">${ar?'جارٍ الرفع...':'Uploading...'}</div>`;
 
+  const _mime = glResolveMime(file);
+  if(!_mime){
+    notify(ar?'نوع ملف غير مدعوم — استخدم PDF أو صورة JPG/PNG':'Unsupported file type — use PDF or JPG/PNG image','error');
+    if(drop) drop.innerHTML = `
+      <div class="file-drop-icon">📎</div>
+      <div class="file-drop-text">${ar?'انقر لإرفاق إيصال الآن':'Click to attach a receipt now'}</div>
+      <div class="file-drop-hint">${ar?'PDF / JPG / PNG · حتى 25MB':'PDF / JPG / PNG · up to 25MB'}</div>
+      <input type="file" id="drawer-file-input-${expenseId}" accept="application/pdf,image/png,image/jpeg,image/jpg,image/webp" onchange="attachReceiptToExpense('${expenseId}', this.files)" style="display:none;">`;
+    return;
+  }
   const {error: upErr} = await sb.storage.from('expense-receipts').upload(path, file, {
-    contentType: file.type,
-    upsert: false
+    contentType: _mime,
+    upsert: true
   });
   if(upErr){
     notify((ar?'فشل رفع الملف: ':'Upload failed: ') + upErr.message, 'error');
@@ -8332,7 +8354,7 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.12-r54b</div>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.12-r54c</div>
 <script>console.log('%c[GulfLedger build] v2026.06.12-r54 · AI Bookkeeper: receipt scan → auto-filled expense (Claude vision)', 'color:#006C35;font-weight:bold;');
 /* ═══════════════════════════════════════════════════════
    AI BOOKKEEPER — receipt scan → prefill expense form
