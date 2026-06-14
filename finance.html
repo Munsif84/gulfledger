@@ -1974,10 +1974,24 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
       <div class="section-title-sm">📎 <span data-ar="إيصال الإثبات" data-en="Proof Receipt">إيصال الإثبات</span></div>
 
       <div id="exp-receipt-area">
+        <div class="ai-scan-banner" id="ai-scan-banner">
+          <div class="ai-scan-left">
+            <svg class="gl-i" style="width:18px;height:18px;"><use href="/gl-icons.svg#i-sparkles"/></svg>
+            <div>
+              <div class="ai-scan-title" data-ar="مسح الإيصال بالذكاء الاصطناعي" data-en="Scan receipt with AI">مسح الإيصال بالذكاء الاصطناعي</div>
+              <div class="ai-scan-sub" data-ar="صوّر الإيصال وسنملأ الحقول تلقائياً — تراجعها وتؤكد." data-en="Snap a photo and we'll fill the form — you review and confirm.">صوّر الإيصال وسنملأ الحقول تلقائياً — تراجعها وتؤكد.</div>
+            </div>
+          </div>
+          <button type="button" class="gl-btn is-primary is-sm" onclick="document.getElementById('ai-scan-input').click()">
+            <span data-ar="مسح" data-en="Scan">مسح</span>
+          </button>
+          <input type="file" id="ai-scan-input" accept="image/png,image/jpeg,image/jpg,image/webp,application/pdf" capture="environment" style="display:none;" onchange="aiScanReceipt(this.files)">
+        </div>
+        <div id="ai-scan-status" style="display:none;"></div>
         <div class="file-drop" id="exp-file-drop" onclick="document.getElementById('exp-file-input').click()">
           <div class="file-drop-icon">📤</div>
           <div class="file-drop-text" data-ar="اسحب الملف هنا أو انقر للاختيار" data-en="Drag file here or click to choose">اسحب الملف هنا أو انقر للاختيار</div>
-          <div class="file-drop-hint" data-ar="PDF / JPG / PNG · حتى 5MB" data-en="PDF / JPG / PNG · up to 5MB">PDF / JPG / PNG · حتى 5MB</div>
+          <div class="file-drop-hint" data-ar="PDF / JPG / PNG · حتى 25MB" data-en="PDF / JPG / PNG · up to 25MB">PDF / JPG / PNG · حتى 25MB</div>
           <input type="file" id="exp-file-input" accept="application/pdf,image/png,image/jpeg,image/jpg,image/webp" onchange="onFileSelect(this.files)">
         </div>
       </div>
@@ -2376,6 +2390,20 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
 @media (max-width:680px){
   .match-row{grid-template-columns:1fr;}
 }
+
+/* AI receipt scan */
+.ai-scan-banner{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:12px 14px;margin-bottom:10px;border:1px solid var(--color-primary);border-radius:10px;background:var(--color-primary-soft);}
+.ai-scan-left{display:flex;align-items:center;gap:10px;min-width:0;}
+.ai-scan-left .gl-i{color:var(--color-primary);flex-shrink:0;}
+.ai-scan-title{font-size:13px;font-weight:800;color:var(--color-text-strong);}
+.ai-scan-sub{font-size:11.5px;color:var(--color-text-muted);line-height:1.5;}
+.ai-scan-running{display:flex;align-items:center;gap:9px;padding:11px 14px;margin-bottom:10px;border-radius:10px;background:var(--color-bg-subtle);font-size:12.5px;color:var(--color-text-default);}
+.ai-spin{width:15px;height:15px;border:2px solid var(--color-border);border-top-color:var(--color-primary);border-radius:50%;animation:aispin .7s linear infinite;flex-shrink:0;}
+@keyframes aispin{to{transform:rotate(360deg);}}
+.ai-conf-pill{display:inline-block;font-size:10.5px;font-weight:700;padding:2px 8px;border-radius:9px;margin-inline-start:6px;}
+.ai-conf-high{background:#dcfce7;color:#16a34a;}
+.ai-conf-medium{background:#fef9c3;color:#ca8a04;}
+.ai-conf-low{background:#fee2e2;color:#dc2626;}
 </style>
 
 
@@ -5949,8 +5977,8 @@ function recomputePayStatus(){
 function onFileSelect(files){
   if(!files || files.length === 0) return;
   const file = files[0];
-  if(file.size > 5 * 1024 * 1024){
-    notify(currentLang==='ar'?'الحد الأقصى 5 ميجابايت':'Max file size: 5MB','error');
+  if(file.size > 25 * 1024 * 1024){
+    notify(currentLang==='ar'?'الحد الأقصى 25 ميجابايت':'Max file size: 25MB','error');
     return;
   }
   const allowed = ['application/pdf','image/png','image/jpeg','image/jpg','image/webp'];
@@ -5986,7 +6014,7 @@ function resetReceiptArea(){
     <div class="file-drop" id="exp-file-drop" onclick="document.getElementById('exp-file-input').click()">
       <div class="file-drop-icon">📤</div>
       <div class="file-drop-text">${currentLang==='ar'?'اسحب الملف هنا أو انقر للاختيار':'Drag file here or click to choose'}</div>
-      <div class="file-drop-hint">${currentLang==='ar'?'PDF / JPG / PNG · حتى 5MB':'PDF / JPG / PNG · up to 5MB'}</div>
+      <div class="file-drop-hint">${currentLang==='ar'?'PDF / JPG / PNG · حتى 25MB':'PDF / JPG / PNG · up to 25MB'}</div>
       <input type="file" id="exp-file-input" accept="application/pdf,image/png,image/jpeg,image/jpg,image/webp" onchange="onFileSelect(this.files)">
     </div>`;
   document.getElementById('exp-receipt-warning').style.display = 'flex';
@@ -6313,8 +6341,8 @@ async function attachReceiptToExpense(expenseId, files){
     notify(ar?'نوع ملف غير مدعوم — استخدم PDF/JPG/PNG':'Unsupported file type — use PDF/JPG/PNG','error');
     return;
   }
-  if(file.size > 5 * 1024 * 1024){
-    notify(ar?'الملف أكبر من 5MB':'File larger than 5MB','error');
+  if(file.size > 25 * 1024 * 1024){
+    notify(ar?'الملف أكبر من 25 ميجابايت — صغّر الصورة وحاول مجدداً':'File larger than 25MB — compress and retry','error');
     return;
   }
 
@@ -6335,7 +6363,7 @@ async function attachReceiptToExpense(expenseId, files){
     if(drop) drop.innerHTML = `
       <div class="file-drop-icon">📎</div>
       <div class="file-drop-text">${ar?'انقر لإرفاق إيصال الآن':'Click to attach a receipt now'}</div>
-      <div class="file-drop-hint">${ar?'PDF / JPG / PNG · حتى 5MB':'PDF / JPG / PNG · up to 5MB'}</div>
+      <div class="file-drop-hint">${ar?'PDF / JPG / PNG · حتى 25MB':'PDF / JPG / PNG · up to 25MB'}</div>
       <input type="file" id="drawer-file-input-${expenseId}" accept="application/pdf,image/png,image/jpeg,image/jpg,image/webp" onchange="attachReceiptToExpense('${expenseId}', this.files)" style="display:none;">`;
     return;
   }
@@ -6454,7 +6482,7 @@ function renderExpenseDrawer(exp, vendor, auditEntries, receiptUrl){
       <div class="file-drop" id="drawer-file-drop-${exp.id}" onclick="document.getElementById('drawer-file-input-${exp.id}').click()">
         <div class="file-drop-icon">📎</div>
         <div class="file-drop-text">${ar?'انقر لإرفاق إيصال الآن':'Click to attach a receipt now'}</div>
-        <div class="file-drop-hint">${ar?'PDF / JPG / PNG · حتى 5MB':'PDF / JPG / PNG · up to 5MB'}</div>
+        <div class="file-drop-hint">${ar?'PDF / JPG / PNG · حتى 25MB':'PDF / JPG / PNG · up to 25MB'}</div>
         <input type="file" id="drawer-file-input-${exp.id}" accept="application/pdf,image/png,image/jpeg,image/jpg,image/webp" onchange="attachReceiptToExpense('${exp.id}', this.files)" style="display:none;">
       </div>`;
   }
@@ -8304,7 +8332,97 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.11-r52</div>
-<script>console.log('%c[GulfLedger build] v2026.06.11-r52 · Bank import: smart categorization + create-expenses-from-statement (P1 beachhead)', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.12-r54b</div>
+<script>console.log('%c[GulfLedger build] v2026.06.12-r54 · AI Bookkeeper: receipt scan → auto-filled expense (Claude vision)', 'color:#006C35;font-weight:bold;');
+/* ═══════════════════════════════════════════════════════
+   AI BOOKKEEPER — receipt scan → prefill expense form
+   Calls the ai-scan-receipt Edge Function (Claude vision).
+   The user always reviews and confirms; nothing auto-saves.
+═══════════════════════════════════════════════════════ */
+async function aiScanReceipt(files){
+  const ar = currentLang === 'ar';
+  if(!files || !files.length) return;
+  const file = files[0];
+  if(file.size > 25 * 1024 * 1024){
+    notify(ar?'الحد الأقصى 25 ميجابايت':'Max 25MB','error'); return;
+  }
+  const banner = document.getElementById('ai-scan-banner');
+  const status = document.getElementById('ai-scan-status');
+  banner.style.display = 'none';
+  status.style.display = '';
+  status.className = 'ai-scan-running';
+  status.innerHTML = '<span class="ai-spin"></span><span>' + (ar?'جارٍ قراءة الإيصال…':'Reading receipt…') + '</span>';
+
+  try{
+    const b64 = await new Promise((res, rej) => {
+      const r = new FileReader();
+      r.onload = () => res(String(r.result).split(',')[1]);
+      r.onerror = () => rej(new Error('read failed'));
+      r.readAsDataURL(file);
+    });
+    const { data, error } = await sb.functions.invoke('ai-scan-receipt', {
+      body: { business_id: currentBiz.id, image_base64: b64, media_type: file.type }
+    });
+    let body = data;
+    if(error && error.context){ try { body = await error.context.json(); } catch(_){} }
+    if(!body || !body.ok || !body.extracted){
+      throw new Error((body && (body.message_ar || body.error)) || 'scan failed');
+    }
+    const x = body.extracted;
+    // Also attach the scanned file as the receipt
+    pendingReceiptFile = file;
+    aiApplyExtraction(x);
+
+    const conf = x.confidence || 'medium';
+    const confLabel = ar ? ({high:'دقة عالية',medium:'دقة متوسطة',low:'دقة منخفضة'})[conf]
+                         : ({high:'high confidence',medium:'medium confidence',low:'low confidence'})[conf];
+    status.className = '';
+    status.style.display = '';
+    status.innerHTML = '<div class="warning-banner ' + (conf==='low'?'amber':'') + '" style="margin:0 0 10px;">'
+      + '✨ <span>' + (ar?'تم ملء الحقول من الإيصال':'Form filled from the receipt')
+      + '<span class="ai-conf-pill ai-conf-'+conf+'">'+confLabel+'</span>'
+      + (x.notes ? '<div style="margin-top:4px;font-size:11.5px;">'+(ar?'ملاحظة: ':'Note: ')+x.notes+'</div>' : '')
+      + '<div style="margin-top:4px;font-size:11.5px;color:var(--color-text-muted);">'
+      + (ar?'راجع الحقول وعدّل ما يلزم قبل الحفظ.':'Review the fields and edit before saving.')
+      + '</div></span></div>';
+  }catch(e){
+    status.className = '';
+    status.innerHTML = '<div class="warning-banner red" style="margin:0 0 10px;">⚠ '
+      + (ar?'تعذّر قراءة الإيصال — أدخل البيانات يدوياً.':'Could not read the receipt — enter the details manually.')
+      + '</div>';
+    banner.style.display = 'flex';
+    console.warn('ai-scan', e);
+  }
+}
+
+function aiApplyExtraction(x){
+  const setIf = (id, val) => { if(val != null && val !== '') setVal(id, val); };
+  setIf('exp-date', x.date);
+  setIf('exp-description', x.vendor_name ? (x.vendor_name + (x.invoice_number ? (' · ' + x.invoice_number) : '')) : '');
+  setIf('exp-vendor-invoice', x.invoice_number);
+  setIf('exp-vendor-invoice-date', x.date);
+  // Amount: prefer total (inclusive) and flip the inclusive toggle so VAT splits correctly
+  if(x.total != null){
+    setVal('exp-amount', x.total);
+    const inc = document.getElementById('exp-inclusive');
+    if(inc) inc.checked = true;
+  } else if(x.subtotal != null){
+    setVal('exp-amount', x.subtotal);
+  }
+  setIf('exp-vat-pct', (x.vat_amount != null && x.subtotal) ? '15' : '15');
+  // Category — set + fire change so the hint/recoverability rule applies
+  if(x.category){
+    const sel = document.getElementById('exp-category');
+    if(sel){ sel.value = x.category; if(typeof onCategoryChange === 'function') onCategoryChange(); }
+  }
+  // Vendor name into the combo (free-text; matching to a saved supplier stays manual)
+  if(x.vendor_name){
+    const combo = document.getElementById('exp-vendor-combo');
+    if(combo && !combo.value) combo.value = x.vendor_name;
+  }
+  if(typeof recomputeTotals === 'function') recomputeTotals();
+  showReceiptPreview(pendingReceiptFile);
+}
+</script>
 </body>
 </html>
