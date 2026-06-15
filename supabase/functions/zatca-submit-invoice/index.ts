@@ -167,7 +167,8 @@ Deno.serve(async (req) => {
   }).eq("id", inv.id);
 
   if (accepted) {
-    await db.from("zatca_devices").update({ last_invoice_hash: signed.invoiceHash, updated_at: new Date().toISOString() }).eq("id", device.id);
+    await db.from("zatca_devices").update({ last_invoice_hash: signed.invoiceHash,
+    _build: "c14n-hash-v2", updated_at: new Date().toISOString() }).eq("id", device.id);
   } else {
     // Rejected: roll the counter back so the chain has no gap
     await db.from("zatca_devices").update({ icv_counter: device.icv_counter }).eq("id", device.id).eq("icv_counter", nextIcv);
