@@ -417,6 +417,9 @@ SET_UBL_EXTENSIONS_STRING
             </cac:PartyLegalEntity>
         </cac:Party>
     </cac:AccountingCustomerParty>
+    <cac:Delivery>
+        <cbc:ActualDeliveryDate>${o.issueDate}</cbc:ActualDeliveryDate>
+    </cac:Delivery>
     <cac:PaymentMeans><cbc:PaymentMeansCode>10</cbc:PaymentMeansCode>${o.invoiceTypeCode !== "388" ? `<cbc:InstructionNote>${xesc(o.note ?? "Correction")}</cbc:InstructionNote>` : ""}</cac:PaymentMeans>
     <cac:TaxTotal>
         <cbc:TaxAmount currencyID="SAR">${money(totalVat)}</cbc:TaxAmount>
