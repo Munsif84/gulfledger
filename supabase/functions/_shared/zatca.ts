@@ -452,12 +452,28 @@ export const INITIAL_PIH = "NWZlY2ViNjZmZmM4NmYzOGQ5NTI3ODZjNmQ2OTZjNzljMmRiYzIz
 /** Pure invoice XML (the hashed form): no declaration, no UBLExtensions,
  *  no cac:Signature block, no QR document reference. */
 export function getPureInvoiceXml(xml: string): string {
-  let s = xml.replace(/<\?xml[^?]*\?>\n?/, "");
+  // Match ZATCA's hashing input exactly (per the proven zatca-xml-js impl):
+  // remove UBLExtensions, cac:Signature, and the QR AdditionalDocumentReference,
+  // then produce C14N-canonical output. Because we generate the XML ourselves in
+  // a known-clean shape, canonicalization here = remove the XML declaration,
+  // strip those 3 elements with their surrounding whitespace, and apply ZATCA's
+  // two documented whitespace fixups before ProfileID and AccountingSupplierParty.
+  let s = xml;
+  // 1. Remove XML declaration (C14N omits it)
+  s = s.replace(/<\?xml[^?]*\?>\s*/, "");
+  // 2. Remove the UBLExtensions placeholder/element (signing block lives here)
   s = s.replace("SET_UBL_EXTENSIONS_STRING\n", "");
-  s = s.replace(/[ \t]*<ext:UBLExtensions>[\s\S]*?<\/ext:UBLExtensions>\n?/, "");
+  s = s.replace(/\s*<ext:UBLExtensions>[\s\S]*?<\/ext:UBLExtensions>\s*/, "\n    ");
+  // 3. Remove the QR AdditionalDocumentReference (placeholder or rendered)
   s = s.replace("    SET_QR_CODE_DATA\n", "");
-  s = s.replace(/[ \t]*<cac:AdditionalDocumentReference>\s*<cbc:ID>QR<\/cbc:ID>[\s\S]*?<\/cac:AdditionalDocumentReference>\n?/, "");
-  s = s.replace(/[ \t]*<cac:Signature>[\s\S]*?<\/cac:Signature>\n/, "");
+  s = s.replace(/\s*<cac:AdditionalDocumentReference>\s*<cbc:ID>QR<\/cbc:ID>[\s\S]*?<\/cac:AdditionalDocumentReference>\s*/, "\n    ");
+  // 4. Remove the cac:Signature block
+  s = s.replace(/\s*<cac:Signature>[\s\S]*?<\/cac:Signature>\s*/, "\n    ");
+  // 5. Normalize line endings to LF and trim trailing spaces per line
+  s = s.replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "");
+  // 6. ZATCA's documented whitespace fixups (without these the hash is wrong)
+  s = s.replace("<cbc:ProfileID>", "\n    <cbc:ProfileID>");
+  s = s.replace("<cac:AccountingSupplierParty>", "\n    \n    <cac:AccountingSupplierParty>");
   return s;
 }
 export function computeInvoiceHash(xml: string): string {
