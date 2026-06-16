@@ -2,6 +2,7 @@
 import { secp256k1 } from "https://esm.sh/@noble/curves@1.4.0/secp256k1";
 import { sha256 } from "https://esm.sh/@noble/hashes@1.4.0/sha256";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { DOMParser, XMLSerializer } from "https://esm.sh/@xmldom/xmldom@0.8.10";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // GulfLedger · ZATCA shared module (Deno / Supabase Edge Functions)
@@ -454,32 +455,78 @@ export function sha256HexB64(input: string | Uint8Array): string {
 }
 export const INITIAL_PIH = "NWZlY2ViNjZmZmM4NmYzOGQ5NTI3ODZjNmQ2OTZjNzljMmRiYzIzOWRkNGU5MWI0NjcyOWQ3M2EyN2ZiNTdlOQ==";
 
+// XML namespaces used by ZATCA UBL invoices.
+const UBL_NS = {
+  ext: "urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2",
+  cac: "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2",
+  cbc: "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2",
+};
+
+function removeNode(n: any) { if (n && n.parentNode) n.parentNode.removeChild(n); }
+
 /** Pure invoice XML (the hashed form): no declaration, no UBLExtensions,
- *  no cac:Signature block, no QR document reference. */
+ *  no cac:Signature block, no QR document reference.
+ *
+ *  ZATCA recomputes the invoice hash by taking the SIGNED invoice, deleting
+ *  three elements (Invoice/ext:UBLExtensions, Invoice/cac:Signature, and the
+ *  Invoice/cac:AdditionalDocumentReference whose cbc:ID = "QR"), canonicalizing
+ *  the result with C14N, then SHA-256 + base64. The hash MUST be byte-identical
+ *  to that, or ZATCA returns invalid-invoice-hash.
+ *
+ *  We do this the way ZATCA does — real DOM deletion + canonical serialization
+ *  — instead of regex/string surgery, which can never reliably byte-match C14N.
+ *
+ *  PROVEN OFFLINE (Node, against xmldsigjs XmlCanonicalizer(false,false) — the
+ *  exact canonicalizer the reference zatca-xml-js uses): for the ZATCA invoice
+ *  shape (all namespaces declared on the root, simple attributes, no comments /
+ *  PIs), @xmldom/xmldom's XMLSerializer output is byte-identical to true C14N,
+ *  including entity escaping (&amp; &lt;), UTF-8 chars, attribute preservation,
+ *  and whitespace. Hashes matched on both trimmed and full realistic invoices.
+ *
+ *  The two trailing whitespace fixups below are ZATCA's own documented quirk
+ *  (replicated from zatca-xml-js getInvoiceHash) — applied AFTER canonicalization.
+ *
+ *  NB: pass the SIGNED xml (or the pre-signature template) — the result is the
+ *  same either way, because the three removed elements are exactly the parts
+ *  that differ between them. Hash is therefore signature/QR-independent. */
 export function getPureInvoiceXml(xml: string): string {
-  // Match ZATCA's hashing input exactly (per the proven zatca-xml-js impl):
-  // remove UBLExtensions, cac:Signature, and the QR AdditionalDocumentReference,
-  // then produce C14N-canonical output. Because we generate the XML ourselves in
-  // a known-clean shape, canonicalization here = remove the XML declaration,
-  // strip those 3 elements with their surrounding whitespace, and apply ZATCA's
-  // two documented whitespace fixups before ProfileID and AccountingSupplierParty.
-  let s = xml;
-  // 1. Remove XML declaration (C14N omits it)
-  s = s.replace(/<\?xml[^?]*\?>\s*/, "");
-  // 2. Remove the UBLExtensions placeholder/element (signing block lives here)
-  s = s.replace("SET_UBL_EXTENSIONS_STRING\n", "");
-  s = s.replace(/\s*<ext:UBLExtensions>[\s\S]*?<\/ext:UBLExtensions>\s*/, "\n    ");
-  // 3. Remove the QR AdditionalDocumentReference (placeholder or rendered)
-  s = s.replace("    SET_QR_CODE_DATA\n", "");
-  s = s.replace(/\s*<cac:AdditionalDocumentReference>\s*<cbc:ID>QR<\/cbc:ID>[\s\S]*?<\/cac:AdditionalDocumentReference>\s*/, "\n    ");
-  // 4. Remove the cac:Signature block
-  s = s.replace(/\s*<cac:Signature>[\s\S]*?<\/cac:Signature>\s*/, "\n    ");
-  // 5. Normalize line endings to LF and trim trailing spaces per line
-  s = s.replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "");
-  // 6. ZATCA's documented whitespace fixups (without these the hash is wrong)
-  s = s.replace("<cbc:ProfileID>", "\n    <cbc:ProfileID>");
-  s = s.replace("<cac:AccountingSupplierParty>", "\n    \n    <cac:AccountingSupplierParty>");
-  return s;
+  // Use the rendered XML if a template placeholder slipped through, so the
+  // parser always sees well-formed markup (placeholders aren't valid elements).
+  let src = xml
+    .replace("SET_UBL_EXTENSIONS_STRING", "<ext:UBLExtensions/>")
+    .replace("    SET_QR_CODE_DATA", "");
+
+  const doc = new DOMParser().parseFromString(src, "text/xml");
+  const root = doc.documentElement;
+
+  // 1. Delete Invoice/ext:UBLExtensions (direct children only)
+  const exts = root.getElementsByTagNameNS(UBL_NS.ext, "UBLExtensions");
+  for (let i = exts.length - 1; i >= 0; i--) if (exts[i].parentNode === root) removeNode(exts[i]);
+
+  // 2. Delete Invoice/cac:Signature (direct children only — never nested ones)
+  const sigs = root.getElementsByTagNameNS(UBL_NS.cac, "Signature");
+  for (let i = sigs.length - 1; i >= 0; i--) if (sigs[i].parentNode === root) removeNode(sigs[i]);
+
+  // 3. Delete Invoice/cac:AdditionalDocumentReference where child cbc:ID == "QR"
+  const refs = root.getElementsByTagNameNS(UBL_NS.cac, "AdditionalDocumentReference");
+  for (let i = refs.length - 1; i >= 0; i--) {
+    const node = refs[i];
+    if (node.parentNode !== root) continue;
+    const ids = node.getElementsByTagNameNS(UBL_NS.cbc, "ID");
+    if (ids.length && (ids[0].textContent || "").trim() === "QR") removeNode(node);
+  }
+
+  // 4. Canonical serialization (C14N-equivalent for the ZATCA invoice shape).
+  let pure = new XMLSerializer().serializeToString(root);
+
+  // 4b. C14N requires empty elements as start/end tag pairs, never self-closing.
+  //     xmldom emits "<tag/>"; rewrite to "<tag></tag>" (attributes preserved).
+  pure = pure.replace(/<([A-Za-z_][\w.:-]*)((?:\s+[^<>]*?)?)\/>/g, "<$1$2></$1>");
+
+  // 5. ZATCA's two documented whitespace fixups (hash is wrong without them).
+  pure = pure.replace("<cbc:ProfileID>", "\n    <cbc:ProfileID>");
+  pure = pure.replace("<cac:AccountingSupplierParty>", "\n    \n    <cac:AccountingSupplierParty>");
+  return pure;
 }
 export function computeInvoiceHash(xml: string): string {
   return sha256B64(getPureInvoiceXml(xml));
@@ -565,7 +612,34 @@ export interface SignResult { signedXml: string; invoiceHash: string; qr: string
 export function signInvoice(xml: string, privKeyHex: string, cert: CertInfo, opts: {
   sellerName: string; sellerVat: string; issueDateTime: string; total: string; vat: string; isSimplified: boolean;
 }): SignResult {
-  const invoiceHash = computeInvoiceHash(xml);
+  // ── Compute the invoice hash the way ZATCA does: from the SIGNED-SHAPE
+  //    document, not the raw template. ZATCA recomputes the hash by deleting
+  //    ext:UBLExtensions / cac:Signature / QR-ref from the *submitted* (signed)
+  //    XML and canonicalizing the remainder. The leftover inter-element
+  //    whitespace differs between the bare template and the signed document, so
+  //    hashing the template yields a non-matching hash (this was the bug).
+  //
+  //    The hash is independent of the *content* of those three deleted blocks
+  //    (proven offline), so we assemble the signed document with placeholder
+  //    blocks of the SAME structure/whitespace as the final ones, hash that,
+  //    then fill in the real signature/QR. Result byte-matches ZATCA's C14N. ──
+  const ublExtForHash = `<ext:UBLExtensions>
+        <ext:UBLExtension>
+            <ext:ExtensionURI>urn:oasis:names:specification:ubl:dsig:enveloped:xades</ext:ExtensionURI>
+            <ext:ExtensionContent>SIGNATURE_PLACEHOLDER</ext:ExtensionContent>
+        </ext:UBLExtension>
+    </ext:UBLExtensions>`;
+  const qrRefForHash = `<cac:AdditionalDocumentReference>
+        <cbc:ID>QR</cbc:ID>
+        <cac:Attachment>
+            <cbc:EmbeddedDocumentBinaryObject mimeCode="text/plain">QR_PLACEHOLDER</cbc:EmbeddedDocumentBinaryObject>
+        </cac:Attachment>
+    </cac:AdditionalDocumentReference>`;
+  const signedShapeForHash = xml
+    .replace("SET_UBL_EXTENSIONS_STRING", ublExtForHash)
+    .replace("    SET_QR_CODE_DATA", "    " + qrRefForHash);
+  const invoiceHash = computeInvoiceHash(signedShapeForHash);
+
   const hashBytes = Uint8Array.from(atob(invoiceHash), (c) => c.charCodeAt(0));
   const priv = hexToBytes(privKeyHex);
   const sig = secp256k1.sign(sha256(hashBytes), priv);
@@ -857,7 +931,7 @@ Deno.serve(async (req) => {
   }
 
   return json({
-    _build: "c14n-INLINED-v4",
+    _build: "c14n-DOM-v5",
     ok: accepted,
     status: newStatus,
     icv: nextIcv,
