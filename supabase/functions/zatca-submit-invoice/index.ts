@@ -892,7 +892,7 @@ Deno.serve(async (req) => {
     lines,
   });
 
-  // ── Sign ──
+  // ── Sign / hash ──
   // Pick the credential pair that matches the endpoint:
   // sandbox uses the compliance-invoice endpoint (compliance CSID+secret);
   // production clearance/reporting uses the production CSID+secret.
@@ -900,6 +900,14 @@ Deno.serve(async (req) => {
   const activeCsid = String(useProduction ? device.production_csid : (device.compliance_csid || device.production_csid));
   const activeSecret = String(useProduction ? (keys.production_secret || keys.csid_secret) : (keys.compliance_secret || keys.csid_secret));
   const cert = parseCsidCertificate(activeCsid);
+
+  // ZATCA treats the two invoice classes differently (confirmed by ZATCA support
+  // + reference SDKs): SIMPLIFIED (B2C) invoices must be cryptographically SIGNED
+  // by us — ZATCA verifies our signature. STANDARD (B2B) invoices must NOT carry
+  // our signature — ZATCA signs/clears them server-side; we only attach the
+  // invoice hash. Submitting a signed standard invoice yields invalid-invoice-hash
+  // even when the hash is perfectly computed (ZATCA recomputes against the
+  // server-cleared form, not our signed one).
   const signed = signInvoice(xml, String(keys.private_key_hex), cert, {
     sellerName: pick("name", "name_ar", "business_name") || "Business",
     sellerVat: pick("vat_number", "trn", "tax_number").replace(/\D/g, ""),
@@ -909,8 +917,19 @@ Deno.serve(async (req) => {
     isSimplified,
   });
 
+  // For STANDARD invoices, submit the UNSIGNED document: resolve the signature
+  // and QR placeholders to empty so neither the UBLExtensions signature block nor
+  // the QR reference is present. The invoice hash (computed identically) still
+  // goes in the API body. For SIMPLIFIED, submit the fully signed document.
+  const submissionXml = isSimplified
+    ? signed.signedXml
+    : xml.replace("SET_UBL_EXTENSIONS_STRING", "").replace("    SET_QR_CODE_DATA\n", "");
+
+  // 4. Submit
+  const submissionHash = signed.invoiceHash;
+
   // ── Submit ──
-  const apiPayload = { invoiceHash: signed.invoiceHash, uuid, invoice: btoa(unescape(encodeURIComponent(signed.signedXml))) };
+  const apiPayload = { invoiceHash: submissionHash, uuid, invoice: btoa(unescape(encodeURIComponent(submissionXml))) };
   
   
   const resp = env === "sandbox"
@@ -940,7 +959,7 @@ Deno.serve(async (req) => {
     zatca_submission_id: sub?.id ?? null,
     zatca_icv: nextIcv,
     zatca_hash: signed.invoiceHash,
-    zatca_xml: signed.signedXml,
+    zatca_xml: submissionXml,
     zatca_qr: signed.qr,
     zatca_cleared_at: accepted ? new Date().toISOString() : null,
   }).eq("id", inv.id);
@@ -953,7 +972,7 @@ Deno.serve(async (req) => {
   }
 
   return json({
-    _build: "c14n-RT-v6",
+    _build: "std-unsigned-v7",
     ok: accepted,
     status: newStatus,
     icv: nextIcv,
