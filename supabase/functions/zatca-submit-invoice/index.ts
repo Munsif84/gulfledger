@@ -3,6 +3,7 @@ import { secp256k1 } from "https://esm.sh/@noble/curves@1.4.0/secp256k1";
 import { sha256 } from "https://esm.sh/@noble/hashes@1.4.0/sha256";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 import { DOMParser, XMLSerializer } from "https://esm.sh/@xmldom/xmldom@0.8.10";
+import { XMLParser, XMLBuilder } from "https://esm.sh/fast-xml-parser@4.4.1";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // GulfLedger · ZATCA shared module (Deno / Supabase Edge Functions)
@@ -496,6 +497,17 @@ export function getPureInvoiceXml(xml: string): string {
     .replace("SET_UBL_EXTENSIONS_STRING", "<ext:UBLExtensions/>")
     .replace("    SET_QR_CODE_DATA", "");
 
+  // 0. Normalize formatting via a parse→rebuild round-trip, EXACTLY as the
+  //    reference zatca-xml-js does (fast-xml-parser, format:true, 4-space indent).
+  //    This is load-bearing: ZATCA reformats the document to one-element-per-line
+  //    before hashing, so inline blocks in our template (e.g. the seller CRN,
+  //    tax subtotals, invoice lines) must be expanded to match. Without this the
+  //    canonical bytes differ and ZATCA returns invalid-invoice-hash even though
+  //    our own hash is internally consistent.
+  const parserOpts = { ignoreAttributes: false, ignoreDeclaration: false, ignorePiTags: false, parseTagValue: false };
+  const obj = new XMLParser(parserOpts).parse(src);
+  src = new XMLBuilder({ ...parserOpts, format: true, indentBy: "    " }).build(obj).replace(/&apos;/g, "'");
+
   const doc = new DOMParser().parseFromString(src, "text/xml");
   const root = doc.documentElement;
 
@@ -516,16 +528,26 @@ export function getPureInvoiceXml(xml: string): string {
     if (ids.length && (ids[0].textContent || "").trim() === "QR") removeNode(node);
   }
 
-  // 4. Canonical serialization (C14N-equivalent for the ZATCA invoice shape).
-  let pure = new XMLSerializer().serializeToString(root);
+  // 4. Re-normalize via a second parse→rebuild round-trip. The reference
+  //    deletes nodes from the parsed object model and only THEN rebuilds, so
+  //    its output has no leftover whitespace text nodes from removed elements.
+  //    Re-running the round-trip on our post-deletion DOM reproduces that:
+  //    it drops the orphaned indentation the deletions left behind.
+  const obj2 = new XMLParser(parserOpts).parse(new XMLSerializer().serializeToString(root));
+  let pure = new XMLBuilder({ ...parserOpts, format: true, indentBy: "    " }).build(obj2).replace(/&apos;/g, "'");
 
-  // 4b. C14N requires empty elements as start/end tag pairs, never self-closing.
-  //     xmldom emits "<tag/>"; rewrite to "<tag></tag>" (attributes preserved).
+  // 4b. Strip the XML declaration the rebuild re-adds (C14N omits it).
+  pure = pure.replace(/^<\?xml[^>]*\?>\s*/, "");
+
+  // 4c. C14N requires empty elements as start/end tag pairs, never self-closing.
   pure = pure.replace(/<([A-Za-z_][\w.:-]*)((?:\s+[^<>]*?)?)\/>/g, "<$1$2></$1>");
 
   // 5. ZATCA's two documented whitespace fixups (hash is wrong without them).
   pure = pure.replace("<cbc:ProfileID>", "\n    <cbc:ProfileID>");
   pure = pure.replace("<cac:AccountingSupplierParty>", "\n    \n    <cac:AccountingSupplierParty>");
+
+  // 6. The rebuild appends a trailing newline; C14N output ends at </Invoice>.
+  pure = pure.replace(/\s+$/, "");
   return pure;
 }
 export function computeInvoiceHash(xml: string): string {
@@ -931,7 +953,7 @@ Deno.serve(async (req) => {
   }
 
   return json({
-    _build: "c14n-DOM-v5",
+    _build: "c14n-RT-v6",
     ok: accepted,
     status: newStatus,
     icv: nextIcv,
