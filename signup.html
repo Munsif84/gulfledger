@@ -1,0 +1,373 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<script>
+(function(){
+  var lang=localStorage.getItem('gl_lang')||'ar';
+  document.documentElement.setAttribute('lang',lang);
+  document.documentElement.setAttribute('dir',lang==='ar'?'rtl':'ltr');
+})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>GulfLedger — إنشاء حساب</title>
+<link rel="stylesheet" href="/gl-design-system.css">
+<link rel="stylesheet" href="/gl-design-system.v2.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+/* ── Auth-page-specific layout (not covered by the shared system) ────────── */
+body{display:flex;align-items:center;justify-content:center;padding:20px;background:var(--color-bg-page);}
+.auth-wrap{width:100%;max-width:420px;}
+
+.auth-logo{text-align:center;margin-bottom:22px;}
+.auth-logo-bars{display:flex;gap:4px;height:30px;align-items:stretch;justify-content:center;margin-bottom:10px;}
+.auth-logo-bar{width:5px;border-radius:3px;}
+.auth-logo-name{font-family:var(--font-sans);font-size:24px;font-weight:800;color:var(--color-text-strong);letter-spacing:.5px;}
+.auth-logo-sub{font-size:11px;letter-spacing:4px;color:var(--color-text-faint);margin-top:4px;}
+
+.auth-card{box-shadow:var(--shadow-lg);}
+
+.auth-title{font-size:var(--text-xl);font-weight:800;color:var(--color-text-strong);margin-bottom:4px;letter-spacing:-0.01em;}
+.auth-sub{font-size:var(--text-base);color:var(--color-text-muted);margin-bottom:22px;line-height:1.5;}
+
+/* password show/hide + strength (auth-specific) */
+.pass-wrap{position:relative;}
+[dir="rtl"] .pass-wrap input{padding-right:12px;padding-left:40px;}
+[dir="ltr"] .pass-wrap input{padding-left:12px;padding-right:40px;}
+.pass-toggle{position:absolute;top:50%;transform:translateY(-50%);cursor:pointer;color:var(--color-text-muted);font-size:15px;user-select:none;}
+[dir="rtl"] .pass-toggle{left:12px;}
+[dir="ltr"] .pass-toggle{right:12px;}
+.strength-bar{height:3px;border-radius:2px;margin-top:6px;background:var(--color-bg-muted);overflow:hidden;}
+.strength-fill{height:100%;border-radius:2px;transition:width var(--motion-base),background var(--motion-base);width:0;}
+.strength-label{font-size:11.5px;color:var(--color-text-muted);margin-top:4px;}
+
+.btn-full{width:100%;margin-top:4px;}
+
+/* referral toggle */
+.ref-toggle{font-size:var(--text-sm);color:var(--color-primary);cursor:pointer;margin-bottom:12px;display:inline-block;font-weight:600;}
+.ref-toggle:hover{text-decoration:underline;}
+#ref-field{display:none;}
+#ref-field.show{display:block;}
+.ref-applied{font-size:11.5px;color:var(--color-status-success);margin-top:5px;font-weight:600;display:none;}
+.ref-applied.show{display:block;}
+
+/* message banner (reuses status tokens) */
+.msg{padding:10px 13px;border-radius:var(--radius-md);font-size:var(--text-sm);margin-top:12px;display:none;line-height:1.5;}
+.msg.error{background:var(--color-status-danger-bg);border:1px solid var(--color-status-danger);color:var(--color-status-danger);display:block;}
+.msg.success{background:var(--color-status-success-bg);border:1px solid var(--color-status-success);color:var(--color-status-success);display:block;}
+
+.terms{font-size:11.5px;color:var(--color-text-muted);text-align:center;margin-top:14px;line-height:1.5;}
+.alt-link{display:block;text-align:center;font-size:var(--text-base);color:var(--color-text-muted);margin-top:18px;}
+.alt-link a{color:var(--color-primary);text-decoration:none;font-weight:600;cursor:pointer;}
+.alt-link a:hover{text-decoration:underline;}
+
+.screen{display:none;}
+.screen.active{display:block;}
+
+.confirm-icon{width:60px;height:60px;background:var(--color-primary-soft);border-radius:50%;display:flex;align-items:center;justify-content:center;margin:0 auto 16px;font-size:28px;}
+
+.auth-footer{text-align:center;margin-top:20px;}
+.auth-footer-note{font-size:12px;color:var(--color-text-faint);line-height:1.6;}
+.lang-row{display:flex;justify-content:center;gap:8px;margin-top:12px;}
+.lang-btn{background:var(--color-bg-surface);border:1px solid var(--color-border);color:var(--color-text-muted);font-size:var(--text-sm);padding:5px 14px;border-radius:20px;cursor:pointer;font-family:var(--font-sans);transition:all var(--motion-fast);}
+.lang-btn:hover,.lang-btn.on{background:var(--color-primary-soft);color:var(--color-primary);border-color:var(--color-primary);}
+</style>
+</head>
+<body>
+
+<div class="auth-wrap">
+
+  <div class="auth-logo">
+    <div class="auth-logo-bars">
+      <div class="auth-logo-bar" style="background:var(--color-primary);"></div>
+      <div class="auth-logo-bar" style="background:var(--color-primary-tint);"></div>
+    </div>
+    <div class="auth-logo-name">Gulf<span style="color:var(--color-primary);">Ledger</span></div>
+    <div class="auth-logo-sub" id="logo-sub">المحاسبة والامتثال</div>
+  </div>
+
+  <div class="gl-card auth-card">
+
+    <!-- ═══ SCREEN: SIGNUP ═══ -->
+    <div class="screen active" id="screen-signup">
+      <div class="auth-title" id="t-title">إنشاء حساب جديد</div>
+      <div class="auth-sub" id="t-sub">ابدأ تجربتك المجانية لمدة ٧ أيام — لا حاجة لبطاقة ائتمان</div>
+
+      <div class="gl-field">
+        <label class="gl-label" id="t-email-lbl">البريد الإلكتروني</label>
+        <input type="email" id="su-email" placeholder="you@company.com" autocomplete="email" dir="ltr">
+      </div>
+
+      <div class="gl-field">
+        <label class="gl-label" id="t-phone-lbl">رقم الجوال</label>
+        <input type="tel" id="su-phone" placeholder="05XXXXXXXX" autocomplete="tel" dir="ltr">
+        <div class="gl-hint" id="t-phone-hint">سنستخدمه للتواصل بخصوص حسابك فقط</div>
+      </div>
+
+      <div class="gl-field">
+        <label class="gl-label" id="t-pass-lbl">كلمة المرور</label>
+        <div class="pass-wrap">
+          <input type="password" id="su-password" placeholder="••••••••" autocomplete="new-password" oninput="checkStrength()">
+          <span class="pass-toggle" onclick="togglePass('su-password',this)">👁</span>
+        </div>
+        <div class="strength-bar"><div class="strength-fill" id="strength-fill"></div></div>
+        <div class="strength-label" id="strength-label"></div>
+      </div>
+
+      <span class="ref-toggle" id="t-ref-toggle" onclick="toggleRef()">لديك رمز إحالة؟</span>
+      <div class="gl-field" id="ref-field">
+        <label class="gl-label" id="t-ref-lbl">رمز الإحالة <span class="gl-req" id="t-ref-opt">(اختياري)</span></label>
+        <input type="text" id="su-ref" placeholder="GL-XXXX" dir="ltr" oninput="this.value=this.value.toUpperCase()">
+        <div class="ref-applied" id="ref-applied"></div>
+      </div>
+
+      <button class="gl-btn is-primary btn-full" onclick="handleSignup()" id="btn-signup">إنشاء الحساب المجاني</button>
+      <div class="msg" id="signup-msg"></div>
+
+      <div class="terms" id="t-terms">بإنشائك حساباً فإنك توافق على شروط الخدمة وسياسة الخصوصية</div>
+
+      <div class="alt-link">
+        <span id="t-have-account">لديك حساب بالفعل؟</span>
+        <a href="login.html" id="t-signin-link">تسجيل الدخول</a>
+      </div>
+    </div>
+
+    <!-- ═══ SCREEN: CHECK EMAIL ═══ -->
+    <div class="screen" id="screen-confirm">
+      <div class="confirm-icon">📧</div>
+      <div class="auth-title" style="text-align:center;" id="t-confirm-title">تحقّق من بريدك الإلكتروني</div>
+      <div class="auth-sub" style="text-align:center;" id="t-confirm-sub">أرسلنا رابط تأكيد إلى بريدك. انقر عليه لتفعيل حسابك والبدء.</div>
+      <div class="alt-link">
+        <a href="login.html" id="t-confirm-signin">→ الذهاب لتسجيل الدخول</a>
+      </div>
+    </div>
+
+  </div>
+
+  <div class="auth-footer">
+    <div class="auth-footer-note" id="t-footer">بياناتك مشفّرة ومحفوظة بأمان<br>متوافق مع زاتكا • للأعمال السعودية فقط</div>
+    <div class="lang-row">
+      <button class="lang-btn on" id="lb-ar" onclick="setLang('ar')">العربية</button>
+      <button class="lang-btn" id="lb-en" onclick="setLang('en')">English</button>
+    </div>
+  </div>
+
+</div>
+
+<script>
+const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
+const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+let L = localStorage.getItem('gl_lang') || 'ar';
+
+/* ── Already logged in? skip straight to app ── */
+sb.auth.getSession().then(({ data }) => {
+  if (data.session) window.location.href = 'dashboard.html';
+});
+
+/* ── Prefill referral code from ?ref=CODE and auto-open the field ── */
+(function(){
+  const params = new URLSearchParams(window.location.search);
+  const ref = params.get('ref');
+  if (ref) {
+    document.getElementById('su-ref').value = ref.toUpperCase();
+    document.getElementById('ref-field').classList.add('show');
+    const applied = document.getElementById('ref-applied');
+    applied.classList.add('show');
+    applied.textContent = (L === 'ar' ? '✓ تم تطبيق رمز الإحالة' : '✓ Referral code applied');
+  }
+})();
+
+/* ── SCREENS ── */
+function showScreen(name) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + name).classList.add('active');
+}
+
+/* ── REFERRAL FIELD TOGGLE ── */
+function toggleRef() {
+  document.getElementById('ref-field').classList.toggle('show');
+}
+
+/* ── SIGN UP ── */
+async function handleSignup() {
+  const email = document.getElementById('su-email').value.trim();
+  const phone = document.getElementById('su-phone').value.trim();
+  const password = document.getElementById('su-password').value;
+  const refCode = document.getElementById('su-ref').value.trim().toUpperCase();
+  const btn = document.getElementById('btn-signup');
+  const msg = document.getElementById('signup-msg');
+
+  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    showMsg(msg, L === 'ar' ? 'أدخل بريداً إلكترونياً صحيحاً' : 'Enter a valid email', 'error');
+    return;
+  }
+  if (!phone || phone.replace(/\D/g, '').length < 9) {
+    showMsg(msg, L === 'ar' ? 'أدخل رقم جوال صحيحاً' : 'Enter a valid phone number', 'error');
+    return;
+  }
+  if (password.length < 8) {
+    showMsg(msg, L === 'ar' ? 'كلمة المرور يجب أن تكون 8 أحرف على الأقل' : 'Password must be at least 8 characters', 'error');
+    return;
+  }
+
+  btn.disabled = true;
+  btn.textContent = L === 'ar' ? 'جارٍ الإنشاء...' : 'Creating account...';
+  msg.className = 'msg';
+
+  try {
+    const metadata = { phone };
+    if (refCode) metadata.ref_code = refCode;
+
+    const { data, error } = await sb.auth.signUp({
+      email,
+      password,
+      options: {
+        data: metadata,
+        emailRedirectTo: 'https://gulfledger.net/dashboard.html'
+      }
+    });
+
+    if (error) {
+      const already = /already|registered|exists/i.test(error.message);
+      showMsg(msg,
+        already
+          ? (L === 'ar' ? 'هذا البريد مسجّل بالفعل — سجّل الدخول بدلاً من ذلك' : 'This email is already registered — sign in instead')
+          : error.message,
+        'error');
+      btn.disabled = false;
+      btn.textContent = L === 'ar' ? 'إنشاء الحساب المجاني' : 'Create Free Account';
+      return;
+    }
+
+    /* session present → email confirmation OFF → straight into app
+       no session       → email confirmation ON  → show check-email state
+       Either way phone + ref_code are safely in user_metadata; the business +
+       owner row auto-create on first dashboard load. */
+    if (data.session) {
+      window.location.href = 'dashboard.html';
+    } else {
+      showScreen('confirm');
+    }
+  } catch (e) {
+    showMsg(msg, e.message || 'Error', 'error');
+    btn.disabled = false;
+    btn.textContent = L === 'ar' ? 'إنشاء الحساب المجاني' : 'Create Free Account';
+  }
+}
+
+/* ── PASSWORD STRENGTH ── */
+function checkStrength() {
+  const pass = document.getElementById('su-password').value;
+  const fill = document.getElementById('strength-fill');
+  const label = document.getElementById('strength-label');
+  let score = 0;
+  if (pass.length >= 8) score++;
+  if (/[0-9]/.test(pass)) score++;
+  if (/[A-Z]/.test(pass)) score++;
+  if (/[^A-Za-z0-9]/.test(pass)) score++;
+
+  const levels = [
+    { w: '25%',  bg: '#DC2626', ar: 'ضعيفة جداً', en: 'Too weak' },
+    { w: '50%',  bg: '#D97706', ar: 'ضعيفة',      en: 'Weak' },
+    { w: '75%',  bg: '#CA8A04', ar: 'مقبولة',     en: 'Fair' },
+    { w: '100%', bg: '#16A34A', ar: 'قوية ✓',     en: 'Strong ✓' }
+  ];
+  const lvl = levels[Math.max(0, score - 1)] || levels[0];
+  fill.style.width = pass.length ? lvl.w : '0';
+  fill.style.background = pass.length ? lvl.bg : '';
+  label.textContent = pass.length ? (L === 'ar' ? lvl.ar : lvl.en) : '';
+}
+
+/* ── TOGGLE PASSWORD VISIBILITY ── */
+function togglePass(inputId, btn) {
+  const input = document.getElementById(inputId);
+  const isText = input.type === 'text';
+  input.type = isText ? 'password' : 'text';
+  btn.textContent = isText ? '👁' : '🙈';
+}
+
+/* ── MESSAGES ── */
+function showMsg(el, text, type) {
+  el.textContent = text;
+  el.className = 'msg ' + type;
+}
+
+/* ── LANGUAGE ── */
+const T = {
+  ar: {
+    logoSub: 'المحاسبة والامتثال',
+    title: 'إنشاء حساب جديد',
+    sub: 'ابدأ تجربتك المجانية لمدة ٧ أيام — لا حاجة لبطاقة ائتمان',
+    emailLbl: 'البريد الإلكتروني',
+    phoneLbl: 'رقم الجوال',
+    phoneHint: 'سنستخدمه للتواصل بخصوص حسابك فقط',
+    passLbl: 'كلمة المرور',
+    refToggle: 'لديك رمز إحالة؟',
+    refLbl: 'رمز الإحالة',
+    refOpt: '(اختياري)',
+    signupBtn: 'إنشاء الحساب المجاني',
+    terms: 'بإنشائك حساباً فإنك توافق على شروط الخدمة وسياسة الخصوصية',
+    haveAccount: 'لديك حساب بالفعل؟',
+    signinLink: 'تسجيل الدخول',
+    confirmTitle: 'تحقّق من بريدك الإلكتروني',
+    confirmSub: 'أرسلنا رابط تأكيد إلى بريدك. انقر عليه لتفعيل حسابك والبدء.',
+    confirmSignin: '→ الذهاب لتسجيل الدخول',
+    footer: 'بياناتك مشفّرة ومحفوظة بأمان\nمتوافق مع زاتكا • للأعمال السعودية فقط',
+  },
+  en: {
+    logoSub: 'Accounting & Compliance',
+    title: 'Create Your Account',
+    sub: 'Start your 7-day free trial — no credit card needed',
+    emailLbl: 'Email Address',
+    phoneLbl: 'Mobile Number',
+    phoneHint: 'Only used to contact you about your account',
+    passLbl: 'Password',
+    refToggle: 'Have a referral code?',
+    refLbl: 'Referral Code',
+    refOpt: '(optional)',
+    signupBtn: 'Create Free Account',
+    terms: 'By creating an account you agree to the Terms of Service and Privacy Policy',
+    haveAccount: 'Already have an account?',
+    signinLink: 'Sign In',
+    confirmTitle: 'Check Your Email',
+    confirmSub: 'We sent a confirmation link to your inbox. Click it to activate your account and get started.',
+    confirmSignin: '→ Go to Sign In',
+    footer: 'Your data is encrypted and stored securely.\nZATCA-compliant • Saudi businesses only',
+  }
+};
+
+function setLang(lang) {
+  L = lang;
+  localStorage.setItem('gl_lang', lang);
+  document.documentElement.setAttribute('lang', lang);
+  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+  document.getElementById('lb-ar').classList.toggle('on', lang === 'ar');
+  document.getElementById('lb-en').classList.toggle('on', lang === 'en');
+  const t = T[lang];
+  document.getElementById('logo-sub').textContent       = t.logoSub;
+  document.getElementById('t-title').textContent        = t.title;
+  document.getElementById('t-sub').textContent          = t.sub;
+  document.getElementById('t-email-lbl').textContent    = t.emailLbl;
+  document.getElementById('t-phone-lbl').textContent    = t.phoneLbl;
+  document.getElementById('t-phone-hint').textContent   = t.phoneHint;
+  document.getElementById('t-pass-lbl').textContent     = t.passLbl;
+  document.getElementById('t-ref-toggle').textContent   = t.refToggle;
+  document.getElementById('t-ref-lbl').childNodes[0].nodeValue = t.refLbl + ' ';
+  document.getElementById('t-ref-opt').textContent      = t.refOpt;
+  document.getElementById('btn-signup').textContent     = t.signupBtn;
+  document.getElementById('t-terms').textContent        = t.terms;
+  document.getElementById('t-have-account').textContent = t.haveAccount;
+  document.getElementById('t-signin-link').textContent  = t.signinLink;
+  document.getElementById('t-confirm-title').textContent= t.confirmTitle;
+  document.getElementById('t-confirm-sub').textContent  = t.confirmSub;
+  document.getElementById('t-confirm-signin').textContent = t.confirmSignin;
+  document.getElementById('t-footer').innerHTML         = t.footer.replace('\n', '<br>');
+}
+
+setLang(L);
+</script>
+</body>
+</html>
