@@ -1003,10 +1003,9 @@ html.lang-switching *::after {
           <div class="field">
             <div class="field-label">
               <span data-ar="الرقم الضريبي · TRN" data-en="VAT Number (TRN)">الرقم الضريبي · TRN</span>
-              <span class="req">*</span>
             </div>
             <input type="text" id="biz-trn" class="mono" placeholder="300000000000003" maxlength="15" dir="ltr">
-            <div class="field-hint" data-ar="15 رقم — يبدأ بـ 3" data-en="15 digits — starts with 3">15 رقم — يبدأ بـ 3</div>
+            <div class="field-hint" data-ar="اختياري — لكنه مطلوب لإصدار فواتير زاتكا الرسمية. 15 رقم، يبدأ بـ 3." data-en="Optional — but required to issue official ZATCA invoices. 15 digits, starts with 3.">اختياري — لكنه مطلوب لإصدار فواتير زاتكا الرسمية.</div>
           </div>
           <div class="field">
             <div class="field-label">
@@ -2447,7 +2446,12 @@ async function saveBusiness(){
     notify(currentLang==='ar'?'الاسم بالعربي مطلوب':'Arabic name is required', 'error');
     return;
   }
-  if(!v('biz-trn') || v('biz-trn').length !== 15){
+  /* TRN is OPTIONAL — a non-VAT-registered or license-pending business may not
+     have one yet, and must still be able to save its profile. If a TRN IS
+     entered, validate the format (a malformed one is worse than blank). The
+     "missing TRN → not ZATCA-ready" state is surfaced by the dashboard
+     compliance banner, not by blocking this save. */
+  if(v('biz-trn') && v('biz-trn').replace(/\D/g,'').length !== 15){
     notify(currentLang==='ar'?'الرقم الضريبي يجب أن يكون 15 رقماً':'VAT number must be 15 digits', 'error');
     return;
   }
@@ -2456,7 +2460,7 @@ async function saveBusiness(){
     name: v('biz-name-ar'), /* legacy column kept in sync */
     name_ar: v('biz-name-ar'),
     name_en: v('biz-name-en') || null,
-    trn: v('biz-trn'),
+    trn: v('biz-trn') || null,
     cr_number: v('biz-cr') || null,
     phone: v('biz-phone') || null,
     email: v('biz-email') || null,
