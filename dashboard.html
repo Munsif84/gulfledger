@@ -846,6 +846,47 @@ body{background:var(--bg);color:var(--ink);}
         <div class="setup-field-hint" data-ar="مفيد للفواتير باللغة الإنجليزية." data-en="Useful for English-language invoices.">مفيد للفواتير باللغة الإنجليزية.</div>
       </div>
 
+      <!-- Email (mandatory, prefilled from login) -->
+      <div class="setup-field" id="setup-field-email">
+        <label class="setup-field-label" for="setup-email">
+          <span data-ar="البريد الإلكتروني" data-en="Email">البريد الإلكتروني</span>
+          <span class="req">*</span>
+        </label>
+        <input type="email" id="setup-email" class="setup-input" dir="ltr" placeholder="you@company.com">
+        <div class="setup-field-error" data-ar="البريد الإلكتروني مطلوب" data-en="Email is required">البريد الإلكتروني مطلوب</div>
+      </div>
+
+      <!-- Phone (mandatory, prefilled from signup) -->
+      <div class="setup-field" id="setup-field-phone">
+        <label class="setup-field-label" for="setup-phone">
+          <span data-ar="رقم الجوال" data-en="Mobile number">رقم الجوال</span>
+          <span class="req">*</span>
+        </label>
+        <input type="tel" id="setup-phone" class="setup-input" dir="ltr" placeholder="05XXXXXXXX">
+        <div class="setup-field-error" data-ar="رقم الجوال مطلوب" data-en="Mobile number is required">رقم الجوال مطلوب</div>
+      </div>
+
+      <!-- Street (mandatory, simple address) -->
+      <div class="setup-field" id="setup-field-street">
+        <label class="setup-field-label" for="setup-street">
+          <span data-ar="الشارع / العنوان" data-en="Street / Address">الشارع / العنوان</span>
+          <span class="req">*</span>
+        </label>
+        <input type="text" id="setup-street" class="setup-input" maxlength="120" placeholder="مثال: شارع الملك فهد · e.g. King Fahd Road">
+        <div class="setup-field-error" data-ar="عنوان الشارع مطلوب" data-en="Street address is required">عنوان الشارع مطلوب</div>
+      </div>
+
+      <!-- City (mandatory) -->
+      <div class="setup-field" id="setup-field-city">
+        <label class="setup-field-label" for="setup-city">
+          <span data-ar="المدينة" data-en="City">المدينة</span>
+          <span class="req">*</span>
+        </label>
+        <input type="text" id="setup-city" class="setup-input" maxlength="60" placeholder="مثال: الرياض · e.g. Riyadh">
+        <div class="setup-field-error" data-ar="المدينة مطلوبة" data-en="City is required">المدينة مطلوبة</div>
+        <div class="setup-field-hint" data-ar="يمكنك إضافة العنوان الوطني الكامل (المبنى، الحي، الرمز البريدي) لاحقاً عند إصدار أول فاتورة." data-en="You can add your full national address (building, district, postal code) later when issuing your first invoice.">يمكنك إضافة العنوان الوطني الكامل (المبنى، الحي، الرمز البريدي) لاحقاً عند إصدار أول فاتورة.</div>
+      </div>
+
       <!-- VAT registered yes/no -->
       <div class="setup-field" id="setup-field-vat-registered">
         <label class="setup-field-label">
@@ -867,10 +908,9 @@ body{background:var(--bg);color:var(--ink);}
       <div class="setup-field" id="setup-field-trn" style="display:none;">
         <label class="setup-field-label" for="setup-trn">
           <span data-ar="الرقم الضريبي (TRN)" data-en="Tax Registration Number (TRN)">الرقم الضريبي (TRN)</span>
-          <span class="req">*</span>
         </label>
         <input type="text" id="setup-trn" class="setup-input" maxlength="15" inputmode="numeric" placeholder="3xxxxxxxxxxxx03 · الرقم الضريبي">
-        <div class="setup-field-hint" data-ar="15 رقماً، يبدأ بـ 3 وينتهي بـ 03." data-en="15 digits, starts with 3 and ends with 03.">15 رقماً، يبدأ بـ 3 وينتهي بـ 03.</div>
+        <div class="setup-field-hint" data-ar="اختياري الآن — لكن لن تتمكن من إصدار فواتير زاتكا الرسمية حتى تضيفه. 15 رقماً، يبدأ بـ 3 وينتهي بـ 03." data-en="Optional for now — but you can't issue official ZATCA invoices until it's added. 15 digits, starts with 3, ends with 03.">اختياري الآن — لكن لن تتمكن من إصدار فواتير زاتكا الرسمية حتى تضيفه.</div>
         <div class="setup-field-error">—</div>
       </div>
 
@@ -2298,6 +2338,15 @@ async function init(){
     setVal('setup-fy', currentBiz.fiscal_year_start || '01-01');
     setVal('setup-vat-freq', currentBiz.vat_filing_frequency || 'quarterly');
 
+    /* Contact + simple address (mandatory). Prefill email from the logged-in
+       user, phone from signup metadata, both editable. Fall back to any value
+       already on the business row. */
+    const _authUser = (typeof window !== 'undefined' && window.currentUser) ? window.currentUser : null;
+    setVal('setup-email', currentBiz.email || _authUser?.email || '');
+    setVal('setup-phone', currentBiz.phone || _authUser?.user_metadata?.phone || '');
+    setVal('setup-street', currentBiz.street_name || currentBiz.address || '');
+    setVal('setup-city', currentBiz.city || '');
+
     /* VAT-registered toggle initial state:
        - true  → user has confirmed they're registered
        - false → user has confirmed they're NOT registered
@@ -2348,34 +2397,41 @@ async function init(){
   async function saveSetup(){
     const ar = L === 'ar';
     let hasError = false;
-    const fieldsToCheck = ['setup-field-name-ar','setup-field-vat-registered','setup-field-trn'];
-    fieldsToCheck.forEach(f => document.getElementById(f).classList.remove('error'));
+    const fieldsToCheck = ['setup-field-name-ar','setup-field-email','setup-field-phone','setup-field-street','setup-field-city','setup-field-vat-registered','setup-field-trn'];
+    fieldsToCheck.forEach(f => { const el = document.getElementById(f); if(el) el.classList.remove('error'); });
 
-    /* Required: name AR */
+    /* Helper: mark a field as errored */
+    const fail = (fieldId) => { const el = document.getElementById(fieldId); if(el) el.classList.add('error'); hasError = true; };
+
+    /* ── MANDATORY identity fields (who you are) ── */
+    /* Business name (Arabic) */
     const nameAr = document.getElementById('setup-name-ar').value.trim();
-    if(nameAr.length < 2){
-      document.getElementById('setup-field-name-ar').classList.add('error');
-      hasError = true;
-    }
+    if(nameAr.length < 2) fail('setup-field-name-ar');
 
-    /* Required: VAT registered yes/no */
-    if(window._setupVatRegistered === null){
-      const f = document.getElementById('setup-field-vat-registered');
-      f.classList.add('error');
-      const err = f.querySelector('.setup-field-error');
-      if(!err){
-        const e = document.createElement('div');
-        e.className = 'setup-field-error';
-        e.textContent = ar ? 'الرجاء اختيار حالة التسجيل' : 'Please select registration status';
-        f.appendChild(e);
-      }
-      hasError = true;
-    }
+    /* Email */
+    const email = document.getElementById('setup-email').value.trim();
+    if(!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) fail('setup-field-email');
 
-    /* Conditional required: TRN if VAT-registered */
+    /* Phone */
+    const phone = document.getElementById('setup-phone').value.trim();
+    if(!phone || phone.replace(/\D/g,'').length < 9) fail('setup-field-phone');
+
+    /* Street */
+    const street = document.getElementById('setup-street').value.trim();
+    if(street.length < 2) fail('setup-field-street');
+
+    /* City */
+    const city = document.getElementById('setup-city').value.trim();
+    if(city.length < 2) fail('setup-field-city');
+
+    /* ── OPTIONAL compliance fields ──
+       VAT-registered toggle is optional. TRN is optional, but if VAT-registered
+       is "yes" AND a TRN was typed, validate its format (a malformed TRN is worse
+       than a blank one). Blank TRN is always allowed — the missing-TRN state is
+       surfaced separately by the dashboard compliance banner + checklist. */
     let trnClean = null;
-    if(window._setupVatRegistered === true){
-      const trnRaw = document.getElementById('setup-trn').value.trim();
+    const trnRaw = document.getElementById('setup-trn').value.trim();
+    if(trnRaw){
       const check = setupValidateTRN(trnRaw);
       if(!check.valid){
         const f = document.getElementById('setup-field-trn');
@@ -2423,12 +2479,17 @@ async function init(){
       name_ar: nameAr,
       name: nameAr,                                      /* legacy fallback column */
       name_en: document.getElementById('setup-name-en').value.trim() || null,
-      vat_registered: window._setupVatRegistered,
-      trn: trnClean,                                     /* null if not registered */
+      email: email,
+      phone: phone,
+      street_name: street,
+      address: street,                                   /* legacy address column */
+      city: city,
+      vat_registered: window._setupVatRegistered === null ? false : window._setupVatRegistered,
+      trn: trnClean,                                     /* null if blank */
       cr_number: crClean,                                /* null if blank */
       fiscal_year_start: document.getElementById('setup-fy').value || '01-01',
       vat_filing_frequency: window._setupVatRegistered ? document.getElementById('setup-vat-freq').value : null,
-      setup_complete: true
+      setup_complete: true                               /* identity complete; compliance (TRN) tracked separately via banner */
     };
 
     const {error} = await sb.from('businesses').update(payload).eq('id', currentBiz.id);
@@ -2447,9 +2508,10 @@ async function init(){
     (document.getElementById('biz-name')||{}).textContent = newName;
     (document.getElementById('biz-name')||{}).title = newName;
     document.getElementById('dash-title').textContent = glGreeting(L) + newName;
-    /* Hide setup banner if it was visible */
-    const banner = document.getElementById('setup-banner');
-    if(banner) banner.style.display = 'none';
+    /* Re-evaluate the setup/compliance banner: identity is now complete, but if
+       TRN (or business activity) is still missing, the banner stays visible with
+       the compliance message. updateSetupBanner handles the priority + hide. */
+    if(typeof updateSetupBanner === 'function') updateSetupBanner(currentBiz);
 
     closeSetupModal();
   }
