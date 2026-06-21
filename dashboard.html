@@ -214,6 +214,32 @@ body{background:var(--bg);color:var(--ink);}
 
 /* SETUP BANNER */
 .setup-banner{display:none;background:linear-gradient(135deg,var(--blue),var(--navy));border-radius:12px;padding:16px 20px;margin-bottom:20px;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;}
+
+/* Trial status pill (Piece 3) */
+.trial-pill{display:inline-flex;align-items:center;gap:8px;background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:999px;padding:7px 14px;margin-bottom:16px;font-size:var(--text-sm);color:var(--color-text-default);box-shadow:var(--shadow-sm);}
+.trial-pill-dot{width:8px;height:8px;border-radius:50%;background:var(--color-status-success);flex:none;}
+.trial-pill.is-warning{border-color:var(--color-status-warning);background:var(--color-status-warning-bg);}
+.trial-pill.is-warning .trial-pill-dot{background:var(--color-status-warning);}
+.trial-pill.is-ended{border-color:var(--color-status-danger);background:var(--color-status-danger-bg);}
+.trial-pill.is-ended .trial-pill-dot{background:var(--color-status-danger);}
+.trial-pill-text{font-weight:600;}
+.trial-pill-cta{margin-inline-start:6px;color:var(--color-primary);font-weight:700;text-decoration:none;white-space:nowrap;}
+.trial-pill-cta:hover{text-decoration:underline;}
+
+/* Readiness checklist (Piece 3) */
+.readiness-card{background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:16px 18px;margin-bottom:20px;box-shadow:var(--shadow-sm);}
+.readiness-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;}
+.readiness-head h3{font-size:var(--text-base);font-weight:700;color:var(--color-text-strong);margin:0;}
+.readiness-count{font-size:var(--text-xs);color:var(--color-text-muted);background:var(--color-bg-subtle);border-radius:999px;padding:3px 10px;font-weight:600;}
+.readiness-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:8px;}
+.readiness-item{display:flex;align-items:center;gap:10px;font-size:var(--text-sm);}
+.readiness-check{width:20px;height:20px;border-radius:50%;flex:none;display:flex;align-items:center;justify-content:center;font-size:12px;font-weight:700;}
+.readiness-item.done .readiness-check{background:var(--color-status-success-bg);color:var(--color-status-success);}
+.readiness-item.todo .readiness-check{background:var(--color-bg-muted);color:var(--color-text-faint);border:1px dashed var(--color-border-strong);}
+.readiness-item.done .readiness-label{color:var(--color-text-muted);}
+.readiness-item.todo .readiness-label{color:var(--color-text-default);font-weight:600;}
+.readiness-item a.readiness-fix{margin-inline-start:auto;font-size:var(--text-xs);color:var(--color-primary);font-weight:700;text-decoration:none;white-space:nowrap;}
+.readiness-item a.readiness-fix:hover{text-decoration:underline;}
 .setup-text h3{font-size:15px;color:#fff;margin-bottom:4px;}
 .setup-text p{font-size:16px;color:var(--light);line-height:1.5;}
 .btn-setup{padding:9px 20px;background:#fff;color:var(--navy);border-radius:8px;text-decoration:none;font-size:15px;font-weight:700;white-space:nowrap;transition:transform .15s;}
@@ -643,6 +669,25 @@ body{background:var(--bg);color:var(--ink);}
       <p id="setup-banner-msg"></p>
     </div>
     <a id="setup-banner-link" href="settings.html" class="btn-setup"></a>
+  </div>
+
+  <!-- Trial status pill (Piece 3) — shows days left in the 7-day free trial.
+       Reads businesses.trial_ends_at. Hidden once the business is on a paid plan. -->
+  <div class="trial-pill" id="trial-pill" role="status" style="display:none;">
+    <span class="trial-pill-dot" id="trial-pill-dot"></span>
+    <span class="trial-pill-text" id="trial-pill-text"></span>
+    <a class="trial-pill-cta" id="trial-pill-cta" href="settings.html" style="display:none;"></a>
+  </div>
+
+  <!-- Readiness checklist (Piece 3) — the non-intrusive home for "what's left to
+       be compliance-ready." Pairs with the setup banner. Auto-hides when every
+       item is complete. -->
+  <div class="readiness-card" id="readiness-card" style="display:none;">
+    <div class="readiness-head">
+      <h3 id="readiness-title" data-ar="إكمال إعداد منشأتك" data-en="Finish setting up">إكمال إعداد منشأتك</h3>
+      <span class="readiness-count" id="readiness-count"></span>
+    </div>
+    <ul class="readiness-list" id="readiness-list"></ul>
   </div>
 
   <!-- Trust banner (Round B-2) — moved from accounting.html.
@@ -1653,6 +1698,123 @@ function updateSetupBanner(biz){
   banner.style.display = 'none';
 }
 
+/* ── TRIAL PILL (Piece 3) ──────────────────────────────────────────────────
+   Shows days left in the 7-day free trial from businesses.trial_ends_at.
+   Hidden entirely once the business is on an active paid plan. */
+function updateTrialPill(biz){
+  const pill = document.getElementById('trial-pill');
+  const dot  = document.getElementById('trial-pill-dot');
+  const txt  = document.getElementById('trial-pill-text');
+  const cta  = document.getElementById('trial-pill-cta');
+  if(!pill || !txt) return;
+
+  const L = (typeof currentLang !== 'undefined' && currentLang) ? currentLang : 'ar';
+
+  /* On a paid/active plan → no trial messaging at all. */
+  const planStatus = (biz?.plan_status || '').toLowerCase();
+  if(planStatus === 'active' || planStatus === 'paid' || planStatus === 'subscribed'){
+    pill.style.display = 'none';
+    return;
+  }
+
+  if(!biz?.trial_ends_at){ pill.style.display = 'none'; return; }
+
+  const ends = new Date(biz.trial_ends_at);
+  const now = new Date();
+  const msLeft = ends - now;
+  const daysLeft = Math.ceil(msLeft / (1000*60*60*24));
+
+  pill.classList.remove('is-warning','is-ended');
+  cta.style.display = 'none';
+
+  if(msLeft <= 0){
+    /* Trial ended */
+    pill.classList.add('is-ended');
+    txt.textContent = (L==='ar') ? 'انتهت الفترة التجريبية' : 'Your free trial has ended';
+    cta.textContent = (L==='ar') ? 'اشترك الآن ←' : 'Subscribe now →';
+    cta.style.display = '';
+  } else if(daysLeft <= 2){
+    /* Last 2 days — warn */
+    pill.classList.add('is-warning');
+    txt.textContent = (L==='ar')
+      ? `يتبقّى ${daysLeft} ${daysLeft===1?'يوم':'يومان'} في الفترة التجريبية`
+      : `${daysLeft} day${daysLeft===1?'':'s'} left in your free trial`;
+    cta.textContent = (L==='ar') ? 'اشترك ←' : 'Subscribe →';
+    cta.style.display = '';
+  } else {
+    /* Healthy trial */
+    txt.textContent = (L==='ar')
+      ? `الفترة التجريبية المجانية — يتبقّى ${daysLeft} أيام`
+      : `Free trial — ${daysLeft} days left`;
+  }
+  pill.style.display = 'inline-flex';
+}
+
+/* ── READINESS CHECKLIST (Piece 3) ─────────────────────────────────────────
+   The calm, non-intrusive home for "what's left to be compliance-ready."
+   Each item links to where it's fixed. Auto-hides when everything is done. */
+function updateReadinessChecklist(biz){
+  const card = document.getElementById('readiness-card');
+  const list = document.getElementById('readiness-list');
+  const countEl = document.getElementById('readiness-count');
+  if(!card || !list) return;
+
+  const L = (typeof currentLang !== 'undefined' && currentLang) ? currentLang : 'ar';
+  const has = (v) => !!(v && String(v).trim());
+
+  /* Items: label (ar/en), done?, where to fix. Address counts as done if either
+     a street or the legacy address field is present. */
+  const items = [
+    {
+      ar:'اسم المنشأة', en:'Business name',
+      done: has(biz?.name_ar) || has(biz?.name) || has(biz?.name_en),
+      fix:'settings.html'
+    },
+    {
+      ar:'العنوان', en:'Business address',
+      done: has(biz?.street_name) || has(biz?.address) || has(biz?.city),
+      fix:'settings.html'
+    },
+    {
+      ar:'البريد والجوال', en:'Email & phone',
+      done: has(biz?.email) && has(biz?.phone),
+      fix:'settings.html'
+    },
+    {
+      ar:'الرقم الضريبي (للفوترة الرسمية)', en:'VAT number (for official invoicing)',
+      done: has(biz?.trn),
+      fix:'settings.html'
+    }
+  ];
+
+  const doneCount = items.filter(i=>i.done).length;
+
+  /* Everything done → hide the card entirely. */
+  if(doneCount === items.length){ card.style.display = 'none'; return; }
+
+  countEl.textContent = (L==='ar')
+    ? `${doneCount} من ${items.length}`
+    : `${doneCount} of ${items.length}`;
+
+  list.innerHTML = items.map(it => {
+    const label = (L==='ar') ? it.ar : it.en;
+    if(it.done){
+      return `<li class="readiness-item done">
+        <span class="readiness-check">✓</span>
+        <span class="readiness-label">${label}</span>
+      </li>`;
+    }
+    const fixTxt = (L==='ar') ? 'إضافة ←' : 'Add →';
+    return `<li class="readiness-item todo">
+      <span class="readiness-check">○</span>
+      <span class="readiness-label">${label}</span>
+      <a class="readiness-fix" href="${it.fix}">${fixTxt}</a>
+    </li>`;
+  }).join('');
+
+  card.style.display = 'block';
+}
+
 async function init(){
     // Defensive: prevent double-execution if init() somehow gets called twice
     if(_initRan) return;
@@ -1690,6 +1852,8 @@ async function init(){
        Business Activity is checked FIRST — without it, accounting can't be
        100% compliant (drives chart of accounts + P&L format). */
     updateSetupBanner(biz);
+    updateTrialPill(biz);
+    updateReadinessChecklist(biz);
     applyPlanGating(biz.plan || 'starter');
 
     /* Reveal page now that biz is loaded — stats & insights load progressively below */
@@ -2512,6 +2676,8 @@ async function init(){
        TRN (or business activity) is still missing, the banner stays visible with
        the compliance message. updateSetupBanner handles the priority + hide. */
     if(typeof updateSetupBanner === 'function') updateSetupBanner(currentBiz);
+    if(typeof updateTrialPill === 'function') updateTrialPill(currentBiz);
+    if(typeof updateReadinessChecklist === 'function') updateReadinessChecklist(currentBiz);
 
     closeSetupModal();
   }
