@@ -425,4 +425,42 @@
   window.glRefreshTrialBanner = function(){ try { var b = (typeof currentBiz!=='undefined')?currentBiz:null; if(b) glRenderTrial(b); } catch(_e){} };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', glTrialBoot);
   else glTrialBoot();
+
+  /* ── Subscription entry in the profile dropdown ───────────────────
+     A permanent, always-available door to plans/billing — so users can
+     reach subscription options even after dismissing the trial banner.
+     Injected into every page's .profile-dropdown right after Settings,
+     mirroring the existing .profile-item markup. */
+  function glAddSubscriptionItem(){
+    var dd = document.getElementById('profile-dropdown') || document.querySelector('.profile-dropdown');
+    if(!dd) return false;
+    if(dd.querySelector('.profile-item-subscription')) return true; /* already added */
+
+    var ar = lang() === 'ar';
+    var a = document.createElement('a');
+    a.href = 'plans.html';
+    a.className = 'profile-item profile-item-subscription';
+    a.setAttribute('role','menuitem');
+    a.innerHTML =
+        '<span class="profile-icon" style="display:inline-flex;align-items:center;justify-content:center;font-size:15px;">💳</span>'
+      + '<span data-ar="الاشتراك والباقات" data-en="Subscription & Plans">' + (ar ? 'الاشتراك والباقات' : 'Subscription & Plans') + '</span>';
+
+    /* Insert right after the Settings link if present, else at the top. */
+    var settingsLink = dd.querySelector('a.profile-item[href="settings.html"]');
+    if(settingsLink && settingsLink.nextSibling){
+      dd.insertBefore(a, settingsLink.nextSibling);
+    } else if(settingsLink){
+      settingsLink.parentNode.appendChild(a);
+    } else {
+      dd.insertBefore(a, dd.firstChild);
+    }
+    return true;
+  }
+  function glSubItemBoot(){
+    if(glAddSubscriptionItem()) return;
+    /* dropdown may mount slightly late — retry a few times */
+    var n = 0, t = setInterval(function(){ n++; if(glAddSubscriptionItem() || n > 20) clearInterval(t); }, 250);
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', glSubItemBoot);
+  else glSubItemBoot();
 })();

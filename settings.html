@@ -963,6 +963,10 @@ html.lang-switching *::after {
         <span class="icon"><svg class="gl-i"><use href="/gl-icons.svg#i-lock"/></svg></span>
         <span data-ar="الحساب والتفضيلات" data-en="Account & Preferences">الحساب والتفضيلات</span>
       </button>
+      <button class="sidebar-link" onclick="showSection('subscription', this)">
+        <span class="icon" style="display:inline-flex;align-items:center;justify-content:center;font-size:16px;">💳</span>
+        <span data-ar="الاشتراك والفوترة" data-en="Subscription & Billing">الاشتراك والفوترة</span>
+      </button>
     </div>
   </aside>
 
@@ -2032,6 +2036,45 @@ html.lang-switching *::after {
             </div>
           </div>
         </div>
+      </div>
+    </div>
+
+    <!-- ═════════ SUBSCRIPTION & BILLING ═════════ -->
+    <div class="section-card" id="sec-subscription" style="display:none;">
+      <div class="section-header">
+        <div class="section-title-wrap">
+          <div class="section-title">
+            <span class="icon" style="display:inline-flex;align-items:center;justify-content:center;font-size:18px;">💳</span>
+            <span data-ar="الاشتراك والفوترة" data-en="Subscription & Billing">الاشتراك والفوترة</span>
+          </div>
+          <div class="section-sub" data-ar="باقتك الحالية وطريقة الدفع." data-en="Your current plan and payment method.">باقتك الحالية وطريقة الدفع.</div>
+        </div>
+      </div>
+      <div class="section-body">
+
+        <!-- Current plan status -->
+        <div class="field" style="margin-bottom:18px;">
+          <div class="field-label"><span data-ar="الباقة الحالية" data-en="Current plan">الباقة الحالية</span></div>
+          <div id="sub-current-plan" style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-size:15px;color:var(--ink);font-weight:600;">—</div>
+          <div class="field-hint" id="sub-trial-hint" style="margin-top:6px;"></div>
+        </div>
+
+        <!-- Plans CTA -->
+        <div style="background:var(--color-bg-subtle,#EDECE8);border-radius:10px;padding:16px 18px;margin-bottom:18px;">
+          <div style="font-weight:700;color:var(--ink);margin-bottom:4px;" data-ar="الباقات المتاحة" data-en="Available plans">الباقات المتاحة</div>
+          <div style="font-size:13px;color:var(--muted);margin-bottom:12px;" data-ar="استعرض باقتي الأساسية والاحترافية واختر ما يناسب أعمالك." data-en="Compare Starter and Professional and choose what fits your business.">استعرض الباقات واختر ما يناسبك.</div>
+          <a href="plans.html" class="gl-btn is-primary" style="display:inline-flex;text-decoration:none;" data-ar="عرض الباقات والأسعار" data-en="View plans & pricing">عرض الباقات والأسعار</a>
+        </div>
+
+        <!-- Payment method (coming soon) -->
+        <div class="field">
+          <div class="field-label"><span data-ar="طريقة الدفع" data-en="Payment method">طريقة الدفع</span></div>
+          <div style="display:flex;align-items:center;gap:10px;padding:12px 14px;border:1px dashed var(--border);border-radius:8px;color:var(--muted);font-size:14px;">
+            <span style="font-size:18px;">🔒</span>
+            <span data-ar="الدفع الإلكتروني قادم قريباً — سيمكنك إضافة بطاقتك عند الإطلاق." data-en="Online payments are launching soon — you'll be able to add your card at launch.">الدفع الإلكتروني قادم قريباً.</span>
+          </div>
+        </div>
+
       </div>
     </div>
 
@@ -4222,7 +4265,45 @@ showSection = function(name, btn){
     applyTeamGate();
     if(isOwner()) loadTeamList();
   }
+  if(name === 'subscription'){
+    populateSubscription();
+  }
 };
+
+/* Populate the Subscription & Billing section from currentBiz. Read-only for
+   now (no gateway): shows current plan, and trial days-left if trialing. */
+function populateSubscription(){
+  const b = currentBiz || {};
+  const ar = currentLang === 'ar';
+  const planEl = document.getElementById('sub-current-plan');
+  const hintEl = document.getElementById('sub-trial-hint');
+  if(!planEl) return;
+
+  const status = (b.plan_status || '').toLowerCase();
+  const planKey = (b.plan || 'starter').toLowerCase();
+  const planName = planKey === 'professional'
+    ? (ar ? 'الاحترافية' : 'Professional')
+    : (ar ? 'الأساسية' : 'Starter');
+
+  /* Plan name + a status pill */
+  let pill = '';
+  if(status === 'active' || status === 'paid' || status === 'subscribed'){
+    pill = `<span style="background:var(--color-status-success-bg,#DCFCE7);color:var(--color-status-success,#166534);font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;">${ar?'نشط':'Active'}</span>`;
+    hintEl.textContent = '';
+  } else {
+    pill = `<span style="background:var(--color-status-info-bg,#DBEAFE);color:var(--color-status-info,#1E40AF);font-size:12px;font-weight:700;padding:3px 10px;border-radius:999px;">${ar?'تجريبي':'Trial'}</span>`;
+    /* trial days left */
+    if(b.trial_ends_at){
+      const days = Math.ceil((new Date(b.trial_ends_at) - new Date()) / 86400000);
+      if(days > 0){
+        hintEl.textContent = ar ? `يتبقّى ${days} يوماً في فترتك التجريبية المجانية.` : `${days} day${days===1?'':'s'} left in your free trial.`;
+      } else {
+        hintEl.textContent = ar ? 'انتهت فترتك التجريبية — اشترك للمتابعة.' : 'Your free trial has ended — subscribe to continue.';
+      }
+    }
+  }
+  planEl.innerHTML = `<span>${planName}</span>${pill}`;
+}
 
 init();
 </script>
