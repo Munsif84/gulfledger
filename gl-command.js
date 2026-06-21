@@ -311,4 +311,118 @@
   function glListbarBoot(){ glListbar(); setTimeout(glListbar, 800); setTimeout(glListbar, 2500); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', glListbarBoot);
   else glListbarBoot();
+
+  /* ── Global trial banner ──────────────────────────────────────────
+     A slim, full-width strip pinned at the very top of every page that
+     reminds trialing users how long they have left and gives them a
+     one-click path to subscribe. Moderate tone: calm early, firmer in
+     the last 2 days, clear (but never blocking) once ended.
+
+     Reads the page global currentBiz (same pattern as glIdentityBoot).
+     Hides entirely for paid/active accounts. Dismissible per session so
+     it doesn't re-nag mid-task, but returns next session. Self-contained
+     styles using design-system tokens. */
+  function glTrialStage(biz){
+    if(!biz) return null;
+    var status = (biz.plan_status || '').toLowerCase();
+    /* On a real paid plan → no trial messaging at all. */
+    if(status === 'active' || status === 'paid' || status === 'subscribed') return null;
+    if(!biz.trial_ends_at) return null;
+    var ends = new Date(biz.trial_ends_at);
+    var ms = ends - new Date();
+    var days = Math.ceil(ms / 86400000);
+    if(ms <= 0) return { stage:'ended', days:0 };
+    if(days <= 2) return { stage:'late', days:days };
+    return { stage:'early', days:days };
+  }
+
+  function glTrialCopy(info, ar){
+    var d = info.days;
+    if(info.stage === 'ended'){
+      return {
+        text: ar ? 'انتهت فترتك التجريبية المجانية' : 'Your free trial has ended',
+        cta:  ar ? 'اشترك للمتابعة' : 'Subscribe to continue'
+      };
+    }
+    if(info.stage === 'late'){
+      var dayWordAr = (d === 1) ? 'يوم واحد' : 'يومان';
+      return {
+        text: ar ? ('يتبقّى ' + dayWordAr + ' في فترتك التجريبية') : (d + ' day' + (d===1?'':'s') + ' left in your trial'),
+        cta:  ar ? 'اشترك الآن' : 'Subscribe now'
+      };
+    }
+    /* early */
+    return {
+      text: ar ? ('فترة تجريبية مجانية · يتبقّى ' + d + ' أيام') : ('Free trial · ' + d + ' days left'),
+      cta:  ar ? 'عرض الباقات' : 'View plans'
+    };
+  }
+
+  function glInjectTrialStyles(){
+    if(document.getElementById('gl-trial-style')) return;
+    var s = document.createElement('style');
+    s.id = 'gl-trial-style';
+    s.textContent =
+      '.gl-trial-strip{position:sticky;top:0;z-index:1200;display:flex;align-items:center;justify-content:center;gap:14px;'
+      + 'padding:8px 16px;font-family:var(--font-sans);font-size:var(--text-sm);line-height:1.3;'
+      + 'background:var(--color-primary-soft);color:var(--color-text-strong);border-bottom:1px solid var(--color-border);}'
+      + '.gl-trial-strip .gl-trial-msg{font-weight:600;}'
+      + '.gl-trial-strip .gl-trial-cta{display:inline-flex;align-items:center;gap:6px;background:var(--color-primary);color:var(--color-text-on-primary);'
+      + 'text-decoration:none;font-weight:700;font-size:var(--text-sm);padding:5px 14px;border-radius:999px;white-space:nowrap;transition:background var(--motion-fast);}'
+      + '.gl-trial-strip .gl-trial-cta:hover{background:var(--color-primary-hover);}'
+      + '.gl-trial-strip .gl-trial-x{background:none;border:none;color:var(--color-text-muted);font-size:16px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:6px;}'
+      + '.gl-trial-strip .gl-trial-x:hover{background:rgba(0,0,0,0.06);color:var(--color-text-default);}'
+      + '.gl-trial-strip.is-late{background:var(--color-status-warning-bg);border-bottom-color:var(--color-status-warning);}'
+      + '.gl-trial-strip.is-ended{background:var(--color-status-danger-bg);border-bottom-color:var(--color-status-danger);}'
+      + '@media(max-width:520px){.gl-trial-strip{font-size:var(--text-xs);gap:10px;padding:7px 12px;}.gl-trial-strip .gl-trial-cta{padding:4px 11px;}}';
+    document.head.appendChild(s);
+  }
+
+  function glRenderTrial(biz){
+    var info = glTrialStage(biz);
+    var existing = document.getElementById('gl-trial-strip');
+    if(!info){ if(existing) existing.remove(); return; }
+
+    /* Per-session dismissal — but the "ended" state is important enough that we
+       still show it each session (it just won't re-appear within the session). */
+    var dismissKey = 'gl_trial_dismissed_' + info.stage;
+    try { if(sessionStorage.getItem(dismissKey)) { if(existing) existing.remove(); return; } } catch(_e){}
+
+    var ar = lang() === 'ar';
+    var copy = glTrialCopy(info, ar);
+    glInjectTrialStyles();
+
+    var strip = existing || document.createElement('div');
+    strip.id = 'gl-trial-strip';
+    strip.className = 'gl-trial-strip' + (info.stage === 'late' ? ' is-late' : info.stage === 'ended' ? ' is-ended' : '');
+    strip.setAttribute('role','status');
+    strip.innerHTML =
+        '<span class="gl-trial-msg">' + copy.text + '</span>'
+      + '<a class="gl-trial-cta" href="/plans.html">' + copy.cta + '</a>'
+      + '<button class="gl-trial-x" aria-label="' + (ar?'إغلاق':'Dismiss') + '">&times;</button>';
+
+    if(!existing){
+      /* Pin above everything — insert as the first element in <body>. */
+      if(document.body) document.body.insertBefore(strip, document.body.firstChild);
+    }
+    strip.querySelector('.gl-trial-x').onclick = function(){
+      try { sessionStorage.setItem(dismissKey, '1'); } catch(_e){}
+      strip.remove();
+    };
+  }
+
+  function glTrialBoot(){
+    var tries = 0;
+    var t = setInterval(function(){
+      tries++;
+      var biz = (typeof currentBiz !== 'undefined') ? currentBiz : null;
+      if(biz){
+        glRenderTrial(biz);
+        clearInterval(t);
+      } else if(tries > 40){ clearInterval(t); }
+    }, 250);
+  }
+  window.glRefreshTrialBanner = function(){ try { var b = (typeof currentBiz!=='undefined')?currentBiz:null; if(b) glRenderTrial(b); } catch(_e){} };
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', glTrialBoot);
+  else glTrialBoot();
 })();
