@@ -1621,7 +1621,9 @@ body{background:var(--bg);color:var(--ink);}
     /* 3. Brand new user — auto-create business (trigger will add owner membership) */
     const bizName = user.user_metadata?.business_name || 'My Business';
     const {data: newBiz} = await sb.from('businesses').insert({
-      user_id: user.id, name: bizName, plan: 'starter', plan_status: 'active'
+      user_id: user.id, name: bizName, plan: 'starter', plan_status: 'trial',
+      trial_started_at: new Date().toISOString(),
+      trial_ends_at: new Date(Date.now() + 7*24*60*60*1000).toISOString()
     }).select().single();
     if(!newBiz) return {biz: null, role: null, reason: 'create_failed'};
     /* The trg_businesses_ensure_owner_membership trigger creates the owner row.
@@ -1666,7 +1668,7 @@ function updateSetupBanner(biz){
     return;
   }
 
-  if(!biz.trn){
+  if(!biz.trn && biz.vat_registered !== false){
     titleEl.textContent = (L === 'ar') ? 'أكمل إعداد منشأتك' : 'Complete your business setup';
     msgEl.textContent = (L === 'ar')
       ? 'أضف الرقم الضريبي والسجل التجاري والعنوان لتفعيل الفواتير المتوافقة مع زاتكا.'
@@ -1713,7 +1715,7 @@ function updateReadinessChecklist(biz){
     },
     {
       ar:'الرقم الضريبي (للفوترة الرسمية)', en:'VAT number (for official invoicing)',
-      done: has(biz?.trn),
+      done: has(biz?.trn) || biz?.vat_registered === false,
       fix:'settings.html'
     }
   ];
