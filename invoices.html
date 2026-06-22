@@ -1610,6 +1610,13 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:inheri
           <span class="meta-label" data-ar="التاريخ · Issue Date" data-en="Issue Date · التاريخ">التاريخ · Issue Date</span>
           <input type="date" class="meta-input" id="f-date" lang="en" oninput="autoFillDueDate()">
         </div>
+        <!-- Branch picker (multi-branch) — defaults to the user's branch, hidden if only one branch -->
+        <div class="meta-cell" id="branch-cell" style="display:none;">
+          <span class="meta-label" data-ar="الفرع · Branch" data-en="Branch · الفرع">الفرع · Branch</span>
+          <select class="meta-input" id="f-branch">
+            <option value="">--</option>
+          </select>
+        </div>
         <!-- Round 4m: location picker — defaults to default warehouse, hidden if only one location -->
         <div class="meta-cell" id="loc-cell" style="display:none;">
           <span class="meta-label" data-ar="الموقع · Location" data-en="Location · الموقع">الموقع · Location</span>
@@ -4684,6 +4691,7 @@ async function openInvoiceModal(){
   /* Round 4m: populate location dropdown. Hidden when only 1 location exists
      (keeps simple users free of clutter). */
   await populateInvoiceLocationPicker();
+  await populateInvoiceBranchPicker();
 
   setInvType('quick');
   await fetchNextInvoiceNumber();
@@ -4727,6 +4735,62 @@ async function populateInvoiceLocationPicker(){
 }
 
 function escAttr(s){return String(s||'').replace(/"/g,'&quot;');}
+
+async function populateInvoiceBranchPicker(){
+  /* Lazy-load branches once per session */
+  if(!window._invBranches){
+    const {data} = await sb.from('branches')
+      .select('*')
+      .eq('business_id', currentBiz?.id || '')
+      .eq('is_active', true)
+      .order('is_main', {ascending: false})
+      .order('name');
+    window._invBranches = data || [];
+  }
+  const branches = window._invBranches;
+  const cell = document.getElementById('branch-cell');
+  const sel = document.getElementById('f-branch');
+  if(!sel) return;
+
+  /* Determine the user's assigned branch (from their membership), falling back
+     to the main branch. This is what the picker defaults to. */
+  let myBranchId = window._myBranchId;
+  if(myBranchId === undefined){
+    try{
+      const {data:{user}} = await sb.auth.getUser();
+      const {data: mem} = await sb.from('business_users')
+        .select('branch_id')
+        .eq('business_id', currentBiz?.id || '')
+        .eq('user_id', user?.id || '')
+        .eq('status','active')
+        .maybeSingle();
+      myBranchId = mem?.branch_id || null;
+    }catch(_e){ myBranchId = null; }
+    window._myBranchId = myBranchId;
+  }
+  /* Fallback: if no assignment, use main branch */
+  if(!myBranchId){
+    const main = branches.find(b => b.is_main);
+    myBranchId = main ? main.id : (branches[0] ? branches[0].id : null);
+  }
+
+  /* If only one (or zero) branches, hide the picker — the branch is still
+     passed silently on save. */
+  if(branches.length <= 1){
+    if(cell) cell.style.display = 'none';
+    sel.innerHTML = branches[0]
+      ? `<option value="${branches[0].id}" selected>${escAttr(branches[0].name_ar||branches[0].name)}</option>`
+      : '<option value="">--</option>';
+    return;
+  }
+
+  if(cell) cell.style.display = '';
+  sel.innerHTML = branches.map(b => {
+    const sel = (b.id === myBranchId) ? ' selected' : '';
+    const star = b.is_main ? ' ⭐' : '';
+    return `<option value="${b.id}"${sel}>${escAttr(b.name_ar||b.name)}${star}</option>`;
+  }).join('');
+}
 
 function closeInvoiceModal(){
   document.getElementById('invoice-modal').classList.remove('show');
@@ -5366,6 +5430,7 @@ async function saveDraft(){
     customer_id: selectedCustomer?.id || null,
     po_number: v('f-po-num') || null,
     location_id: v('f-location') || null,    /* Round 4m */
+    branch_id: v('f-branch') || null,        /* multi-branch */
     subtotal: totals.sub,
     discount_pct: totals.discPct,
     discount_amount: totals.discAmt,
@@ -5488,6 +5553,7 @@ async function previewInvoice(){
     customer_id: selectedCustomer?.id || null,
     po_number: v('f-po-num') || null,
     location_id: v('f-location') || null,    /* Round 4m */
+    branch_id: v('f-branch') || null,        /* multi-branch */
     subtotal: totals.sub,
     discount_pct: totals.discPct,
     discount_amount: totals.discAmt,
@@ -5656,6 +5722,7 @@ async function generateInvoice(){
     customer_id: selectedCustomer?.id || null,
     po_number: v('f-po-num') || null,
     location_id: v('f-location') || null,    /* Round 4m */
+    branch_id: v('f-branch') || null,        /* multi-branch */
     subtotal: totals.sub,
     discount_pct: totals.discPct,
     discount_amount: totals.discAmt,

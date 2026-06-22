@@ -993,6 +993,7 @@ const PUBLIC_URL_BASE = 'https://gulfledger.vercel.app';
 let currentMode = null;     /* 'seller' | 'public' | null (still loading) */
 let currentInvoice = null;
 let currentBiz = null;
+let currentBranch = null;   /* multi-branch: the branch that issued this invoice */
 let currentUser = null;
 let currentLang = localStorage.getItem('gl_lang') || 'ar';
 let currentFormat = 'a4_tax';  /* a4_tax | a4_quick | thermal_80 | thermal_58 */
@@ -1310,6 +1311,18 @@ async function init(){
     const items = itemsResp?.data || [];
     console.log('[GL invoice-view] Loaded', items.length, 'items, biz:', !!currentBiz);
 
+    /* Multi-branch: if this invoice was issued by a specific branch, load that
+       branch so its CR + national address appear as the seller details (ZATCA
+       requires each branch's own CR on its invoices). Falls back to the
+       business if no branch. Safe display-only — does NOT touch ZATCA XML. */
+    currentBranch = null;
+    if(invoice.branch_id){
+      try{
+        const {data: brData} = await sb.from('branches').select('*').eq('id', invoice.branch_id).maybeSingle();
+        currentBranch = brData || null;
+      }catch(brErr){ console.warn('[GL invoice-view] Could not load branch:', brErr); }
+    }
+
     /* If we have a customer_id, also load the customer (for structured buyer address) */
     let buyerCustomer = null;
     if(invoice.customer_id){
@@ -1506,7 +1519,24 @@ function renderStatusBar(){
 ═══════════════════════════════════════════════════════ */
 function renderInvoice(){
   const inv = currentInvoice;
-  const biz = currentBiz;
+  /* Effective seller = business, with the issuing branch's compliance details
+     overlaid when present. Per ZATCA, a branch's invoice must show THAT branch's
+     CR number and national address. The branch mirrors the business address
+     columns exactly, so we overlay field-by-field, keeping business values as
+     fallback. TRN/VAT stays the business's — one VAT number is shared across
+     branches. Display-only — the ZATCA XML path is unchanged (deferred). */
+  let biz = currentBiz;
+  if(currentBranch){
+    biz = Object.assign({}, currentBiz, {
+      cr_number:         currentBranch.cr_number        || currentBiz?.cr_number,
+      building_number:   currentBranch.building_number  || currentBiz?.building_number,
+      street_name:       currentBranch.street_name      || currentBiz?.street_name,
+      district:          currentBranch.district         || currentBiz?.district,
+      city:              currentBranch.city             || currentBiz?.city,
+      postal_code:       currentBranch.postal_code      || currentBiz?.postal_code,
+      additional_number: currentBranch.additional_number|| currentBiz?.additional_number
+    });
+  }
 
   /* Business name (bilingual) */
   const bizNameAr = getNameAr(biz) || 'GulfLedger';
