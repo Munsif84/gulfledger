@@ -398,20 +398,74 @@ async function prFinalizeRun(){
   }
 }
 
+/* ── REVERSE A POSTED RUN ──────────────────────────────────────
+   Audit-trail-safe: posts a MIRROR journal entry (debits<->credits
+   swapped), linked to the original run, and marks the run 'reversed'.
+   Never deletes. Mirrors the invoice-reversal pattern. Owner/accountant only. */
+async function prReverseRun(runId){
+  const ar = L==='ar';
+  if(!(currentBiz.role==='owner'||currentBiz.role==='accountant')){alert(t('المالك أو المحاسب فقط','Owner or accountant only'));return;}
+  if(!confirm(t('سيتم إنشاء قيد عكسي لإلغاء هذا التشغيل (مع الاحتفاظ بالسجل للتدقيق). متابعة؟','This will post a reversing entry to cancel this run (original kept for audit). Continue?')))return;
+  try{
+    /* Load the run + its original journal lines */
+    const {data:run,error:runErr}=await sb.from('payroll_runs').select('*').eq('id',runId).single();
+    if(runErr)throw runErr;
+    if(run.status!=='posted'){alert(t('لا يمكن العكس إلا لتشغيل مُرحّل','Only a posted run can be reversed'));return;}
+    if(!run.journal_entry_id){throw new Error(t('لا يوجد قيد مرتبط','No linked journal entry'));}
+
+    const {data:origLines,error:olErr}=await sb.from('journal_lines').select('*').eq('entry_id',run.journal_entry_id);
+    if(olErr)throw olErr;
+    if(!origLines||!origLines.length){throw new Error(t('لا توجد بنود للقيد الأصلي','Original entry has no lines'));}
+
+    const periodLabel=`${run.period_year}-${String(run.period_month).padStart(2,'0')}`;
+    const today=new Date().toISOString().slice(0,10);
+
+    /* Post the reversing entry: swap debit<->credit on each line. Linked to the
+       same run via source_id, clearly described as a reversal for the audit trail. */
+    const {data:revEntry,error:reErr}=await sb.from('journal_entries').insert({
+      user_id:currentUser.id, business_id:currentBiz.id, entry_date:today,
+      reference:'PAYROLL-REV-'+periodLabel,
+      description:t('عكس رواتب '+periodLabel,'Reversal of payroll '+periodLabel),
+      source:'payroll_reversal', source_id:run.id, status:'posted', is_balanced:true
+    }).select().single();
+    if(reErr)throw reErr;
+
+    const revLines=origLines.map(l=>({
+      entry_id:revEntry.id, user_id:currentUser.id,
+      account_code:l.account_code, account_name:l.account_name,
+      debit:Number(l.credit)||0, credit:Number(l.debit)||0,   /* swapped */
+      description:t('عكس: ','Reversal: ')+(l.description||'')
+    }));
+    const {error:rlErr}=await sb.from('journal_lines').insert(revLines);
+    if(rlErr)throw rlErr;
+
+    /* Mark the run reversed (keep the original entry intact for audit) */
+    await sb.from('payroll_runs').update({status:'reversed'}).eq('id',run.id);
+
+    alert(t('✅ تم عكس التشغيل وترحيل القيد العكسي','✅ Run reversed; reversing entry posted'));
+    await loadRunsHistory();
+  }catch(e){
+    alert((ar?'خطأ: ':'Error: ')+(e.message||e));
+  }
+}
+
 async function loadRunsHistory(){
   const {data}=await sb.from('payroll_runs').select('*').eq('business_id',currentBiz.id).order('period_year',{ascending:false}).order('period_month',{ascending:false}).limit(24);
   const el=document.getElementById('runs-history');
   if(!data||!data.length){el.innerHTML=`<div class="pr-empty">${t('لا توجد عمليات تشغيل بعد','No runs yet')}</div>`;return;}
   el.innerHTML=`<table class="pr-table"><thead><tr>
     <th>${t('الفترة','Period')}</th><th class="num">${t('الإجمالي','Gross')}</th>
-    <th class="num">${t('الصافي','Net')}</th><th class="num">${t('التأمينات','GOSI')}</th><th>${t('الحالة','Status')}</th>
+    <th class="num">${t('الصافي','Net')}</th><th class="num">${t('التأمينات','GOSI')}</th><th>${t('الحالة','Status')}</th><th></th>
   </tr></thead><tbody>${data.map(r=>{
     const statusLabel={draft:t('مسودة','Draft'),finalized:t('معتمد','Finalized'),posted:t('مُرحّل','Posted'),reversed:t('ملغى','Reversed')}[r.status]||r.status;
+    const canReverse = r.status==='posted' && (currentBiz.role==='owner'||currentBiz.role==='accountant');
+    const reverseBtn = canReverse ? `<button class="gl-btn is-ghost" style="padding:4px 10px;font-size:12px;color:var(--red,#B91C1C);" onclick="prReverseRun('${r.id}')">${t('↩ عكس القيد','↩ Reverse')}</button>` : '';
     return `<tr>
       <td>${r.period_year}-${String(r.period_month).padStart(2,'0')}</td>
       <td class="num">${fmt(r.total_gross)}</td><td class="num">${fmt(r.total_net)}</td>
       <td class="num">${fmt((Number(r.total_gosi_employee)||0)+(Number(r.total_gosi_employer)||0))}</td>
       <td><span class="pr-pill ${r.status}">${statusLabel}</span></td>
+      <td>${reverseBtn}</td>
     </tr>`;
   }).join('')}</tbody></table>`;
 }
