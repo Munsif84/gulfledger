@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="UTF-8">
+<script>
+(function(){var l=localStorage.getItem('gl_lang')||'ar';document.documentElement.setAttribute('lang',l);document.documentElement.setAttribute('dir',l==='ar'?'rtl':'ltr');})();
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GulfLedger — تقرير الفروع · Branch Report</title>
+<link rel="stylesheet" href="/gl-design-system.css">
+<link rel="stylesheet" href="/gl-design-system.v2.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="/gl-command.js" defer></script>
+<style>
+body{background:var(--color-bg-page);}
+.br-wrap{max-width:960px;margin:0 auto;padding:24px 16px 60px;}
+.br-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px;}
+.br-title h1{font-size:var(--text-2xl);font-weight:800;color:var(--color-text-strong);}
+.br-title p{font-size:var(--text-sm);color:var(--color-text-muted);margin-top:2px;}
+.br-controls{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;}
+.br-field{display:flex;flex-direction:column;gap:3px;}
+.br-field label{font-size:var(--text-xs);font-weight:700;color:var(--color-text-muted);}
+.br-field input,.br-field select{padding:7px 10px;border:1px solid var(--color-border);border-radius:var(--radius-md);font-family:var(--font-sans);font-size:var(--text-sm);background:var(--color-bg-surface);color:var(--color-text-strong);}
+.br-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;}
+@media(max-width:640px){.br-cards{grid-template-columns:1fr;}}
+.br-kpi{background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:16px 18px;box-shadow:var(--shadow-sm);}
+.br-kpi-label{font-size:var(--text-xs);color:var(--color-text-muted);font-weight:600;margin-bottom:6px;}
+.br-kpi-val{font-size:var(--text-xl);font-weight:800;color:var(--color-text-strong);font-variant-numeric:tabular-nums;}
+.br-table{width:100%;border-collapse:collapse;background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);overflow:hidden;}
+.br-table th{background:var(--color-bg-subtle);text-align:start;padding:11px 14px;font-size:var(--text-xs);font-weight:700;color:var(--color-text-muted);text-transform:uppercase;letter-spacing:.04em;}
+.br-table th.num,.br-table td.num{text-align:end;font-variant-numeric:tabular-nums;}
+.br-table td{padding:12px 14px;border-top:1px solid var(--color-border);font-size:var(--text-sm);color:var(--color-text-default);}
+.br-table tr.total-row td{border-top:2px solid var(--color-border-strong);font-weight:800;color:var(--color-text-strong);background:var(--color-bg-subtle);}
+.br-branch-name{font-weight:700;color:var(--color-text-strong);}
+.br-main-pill{font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--color-primary-soft);color:var(--color-primary);margin-inline-start:8px;}
+.br-loading,.br-empty{text-align:center;padding:40px;color:var(--color-text-muted);font-size:var(--text-sm);}
+.br-back{display:inline-block;margin-bottom:14px;color:var(--color-primary);text-decoration:none;font-weight:600;font-size:var(--text-sm);}
+.br-back:hover{text-decoration:underline;}
+.br-bar{height:6px;border-radius:3px;background:var(--color-primary);margin-top:6px;}
+.br-bar-track{height:6px;border-radius:3px;background:var(--color-bg-muted);overflow:hidden;}
+</style>
+</head>
+<body>
+<div class="br-wrap">
+  <a class="br-back" href="dashboard.html" data-ar="→ العودة للوحة التحكم" data-en="→ Back to dashboard">→ العودة للوحة التحكم</a>
+
+  <div class="br-head">
+    <div class="br-title">
+      <h1 data-ar="أداء الفروع" data-en="Branch Performance">أداء الفروع</h1>
+      <p data-ar="المبيعات والإيرادات وضريبة القيمة المضافة لكل فرع" data-en="Sales, revenue and VAT per branch">المبيعات والإيرادات لكل فرع</p>
+    </div>
+    <div class="br-controls">
+      <div class="br-field">
+        <label data-ar="من" data-en="From">من</label>
+        <input type="date" id="from-date">
+      </div>
+      <div class="br-field">
+        <label data-ar="إلى" data-en="To">إلى</label>
+        <input type="date" id="to-date">
+      </div>
+      <div class="br-field">
+        <label data-ar="فترة" data-en="Period">فترة</label>
+        <select id="quick-range" onchange="applyQuickRange()">
+          <option value="mtd" data-ar="هذا الشهر" data-en="This month">هذا الشهر</option>
+          <option value="qtd" data-ar="هذا الربع" data-en="This quarter">هذا الربع</option>
+          <option value="ytd" data-ar="هذا العام" data-en="This year">هذا العام</option>
+          <option value="all" data-ar="الكل" data-en="All time">الكل</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="br-cards">
+    <div class="br-kpi"><div class="br-kpi-label" data-ar="إجمالي الإيرادات" data-en="Total revenue">إجمالي الإيرادات</div><div class="br-kpi-val" id="kpi-revenue">—</div></div>
+    <div class="br-kpi"><div class="br-kpi-label" data-ar="عدد الفواتير" data-en="Invoices">عدد الفواتير</div><div class="br-kpi-val" id="kpi-count">—</div></div>
+    <div class="br-kpi"><div class="br-kpi-label" data-ar="ضريبة القيمة المضافة" data-en="VAT collected">ضريبة القيمة المضافة</div><div class="br-kpi-val" id="kpi-vat">—</div></div>
+  </div>
+
+  <div id="report-area">
+    <div class="br-loading" data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
+  </div>
+</div>
+
+<script>
+const SUPABASE_URL='https://ykzivnasjwtuhvjxfxzf.supabase.co';
+const SUPABASE_KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
+const sb=supabase.createClient(SUPABASE_URL,SUPABASE_KEY);
+let L=localStorage.getItem('gl_lang')||'ar';
+let currentBiz=null, branchMap={};
+
+function applyLang(){document.querySelectorAll('[data-ar]').forEach(el=>{el.textContent=(L==='ar')?el.getAttribute('data-ar'):el.getAttribute('data-en');});}
+function fmt(n){return (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+
+function fmtDate(d){return d.toISOString().slice(0,10);}
+function applyQuickRange(){
+  const r=document.getElementById('quick-range').value;
+  const now=new Date(); let from;
+  if(r==='mtd') from=new Date(now.getFullYear(),now.getMonth(),1);
+  else if(r==='qtd') from=new Date(now.getFullYear(),Math.floor(now.getMonth()/3)*3,1);
+  else if(r==='ytd') from=new Date(now.getFullYear(),0,1);
+  else from=new Date(2000,0,1);
+  document.getElementById('from-date').value=fmtDate(from);
+  document.getElementById('to-date').value=fmtDate(now);
+  loadReport();
+}
+
+async function init(){
+  applyLang();
+  const {data:{session}}=await sb.auth.getSession();
+  if(!session){window.location.href='login.html';return;}
+  /* resolve business via active membership */
+  const {data:mem}=await sb.from('business_users').select('business_id').eq('user_id',session.user.id).eq('status','active').limit(1).maybeSingle();
+  if(!mem){document.getElementById('report-area').innerHTML=`<div class="br-empty">${L==='ar'?'لا توجد منشأة':'No business found'}</div>`;return;}
+  currentBiz={id:mem.business_id};
+  window.currentBiz=currentBiz; /* for gl-command shared layer */
+  /* load branches */
+  const {data:branches}=await sb.from('branches').select('id,name,name_ar,is_main').eq('business_id',currentBiz.id);
+  (branches||[]).forEach(b=>{branchMap[b.id]=b;});
+  applyQuickRange(); /* sets default MTD range and loads */
+}
+
+async function loadReport(){
+  const area=document.getElementById('report-area');
+  area.innerHTML=`<div class="br-loading">${L==='ar'?'جارٍ التحميل...':'Loading...'}</div>`;
+  const from=document.getElementById('from-date').value;
+  const to=document.getElementById('to-date').value;
+
+  let q=sb.from('invoices')
+    .select('branch_id,total,vat_amount,status,issue_date')
+    .eq('business_id',currentBiz.id)
+    .neq('status','voided')
+    .neq('status','draft');
+  if(from) q=q.gte('issue_date',from);
+  if(to) q=q.lte('issue_date',to);
+  const {data:invoices,error}=await q;
+  if(error){area.innerHTML=`<div class="br-empty">${error.message}</div>`;return;}
+
+  /* Aggregate per branch */
+  const agg={};
+  let totRev=0,totVat=0,totCount=0;
+  (invoices||[]).forEach(inv=>{
+    const key=inv.branch_id||'__none__';
+    if(!agg[key]) agg[key]={count:0,revenue:0,vat:0};
+    const total=Number(inv.total)||0, vat=Number(inv.vat_amount)||0;
+    agg[key].count++; agg[key].revenue+=total; agg[key].vat+=vat;
+    totRev+=total; totVat+=vat; totCount++;
+  });
+
+  /* KPIs */
+  document.getElementById('kpi-revenue').textContent='SAR '+fmt(totRev);
+  document.getElementById('kpi-count').textContent=totCount;
+  document.getElementById('kpi-vat').textContent='SAR '+fmt(totVat);
+
+  const rows=Object.keys(agg).map(k=>({
+    branch_id:k,
+    name: k==='__none__' ? (L==='ar'?'بدون فرع':'No branch') : ((L==='ar'?(branchMap[k]?.name_ar||branchMap[k]?.name):branchMap[k]?.name)||(L==='ar'?'فرع محذوف':'Deleted branch')),
+    is_main: branchMap[k]?.is_main,
+    ...agg[k]
+  })).sort((a,b)=>b.revenue-a.revenue);
+
+  if(rows.length===0){
+    area.innerHTML=`<div class="br-empty">${L==='ar'?'لا توجد فواتير في هذه الفترة':'No invoices in this period'}</div>`;
+    return;
+  }
+
+  const maxRev=Math.max(...rows.map(r=>r.revenue),1);
+  const ar=L==='ar';
+  area.innerHTML=`
+    <table class="br-table">
+      <thead><tr>
+        <th>${ar?'الفرع':'Branch'}</th>
+        <th class="num">${ar?'الفواتير':'Invoices'}</th>
+        <th class="num">${ar?'الإيرادات (شامل الضريبة)':'Revenue (incl. VAT)'}</th>
+        <th class="num">${ar?'الصافي':'Net'}</th>
+        <th class="num">${ar?'ض.ق.م':'VAT'}</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r=>{
+          const net=r.revenue-r.vat;
+          const pct=Math.round((r.revenue/maxRev)*100);
+          const mainPill=r.is_main?`<span class="br-main-pill">${ar?'رئيسي':'Main'}</span>`:'';
+          return `<tr>
+            <td><span class="br-branch-name">${escAttr(r.name)}</span>${mainPill}
+              <div class="br-bar-track"><div class="br-bar" style="width:${pct}%;"></div></div>
+            </td>
+            <td class="num">${r.count}</td>
+            <td class="num">SAR ${fmt(r.revenue)}</td>
+            <td class="num">SAR ${fmt(net)}</td>
+            <td class="num">SAR ${fmt(r.vat)}</td>
+          </tr>`;
+        }).join('')}
+        <tr class="total-row">
+          <td>${ar?'الإجمالي':'Total'}</td>
+          <td class="num">${totCount}</td>
+          <td class="num">SAR ${fmt(totRev)}</td>
+          <td class="num">SAR ${fmt(totRev-totVat)}</td>
+          <td class="num">SAR ${fmt(totVat)}</td>
+        </tr>
+      </tbody>
+    </table>`;
+}
+
+function escAttr(s){return String(s||'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+
+document.getElementById('from-date').addEventListener('change',loadReport);
+document.getElementById('to-date').addEventListener('change',loadReport);
+init();
+</script>
+</body>
+</html>
