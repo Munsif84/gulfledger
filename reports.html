@@ -2582,6 +2582,16 @@ const DATA_SOURCES = {
         (custs || []).forEach(c => { customerMap[c.id] = c; });
       }
 
+      /* Branch map (multi-branch): branch_id -> name, so each sales row carries
+         its branch as a filterable/groupable dimension. */
+      const branchMap = {};
+      {
+        const {data: brs} = await sb.from('branches')
+          .select('id, name, name_ar')
+          .eq('business_id', currentBiz.id);
+        (brs || []).forEach(b => { branchMap[b.id] = b; });
+      }
+
       /* 3. Fetch all line items for these invoices.
          select('*') matches invoices.html convention and avoids breakage when
          optional columns (like discount_pct) are absent on older rows. */
@@ -2641,6 +2651,8 @@ const DATA_SOURCES = {
           customer_city: cust.city || '',
           customer_phone: cust.phone || '',
           customer_trn: inv.buyer_trn || '',
+          /* Branch dimension (multi-branch) */
+          branch_name: (() => { const b = branchMap[inv.branch_id]; return b ? (currentLang==='ar' ? (b.name_ar||b.name) : (b.name||b.name_ar)) : (currentLang==='ar'?'بدون فرع':'No branch'); })(),
           /* Product columns */
           product: item.name_ar || item.name || it.description_ar || it.description || '',
           product_sku: item.sku || '',
@@ -2664,6 +2676,7 @@ const DATA_SOURCES = {
       { key: 'customer_city',    type: 'text',     label_ar: 'المدينة',               label_en: 'City',                defaultShow: false },
       { key: 'customer_phone',   type: 'text',     label_ar: 'هاتف العميل',           label_en: 'Customer Phone',      defaultShow: false },
       { key: 'customer_trn',     type: 'text',     label_ar: 'الرقم الضريبي للعميل',  label_en: 'Customer TRN',        defaultShow: false },
+      { key: 'branch_name',      type: 'text',     label_ar: 'الفرع',                 label_en: 'Branch',              defaultShow: false },
       { key: 'product',          type: 'text',     label_ar: 'المنتج',                label_en: 'Product',             defaultShow: true },
       { key: 'product_sku',      type: 'text',     label_ar: 'SKU',                  label_en: 'SKU',                 defaultShow: false },
       { key: 'product_category', type: 'text',     label_ar: 'الفئة',                 label_en: 'Category',            defaultShow: true },
@@ -3318,18 +3331,19 @@ async function dbOpenSource(sourceName, btn){
   /* Clear summary */
   document.getElementById('db-summary').innerHTML = '';
 
-  /* Show prompt-to-generate empty state — do NOT fetch yet */
+  /* Auto-generate immediately so the report is never an empty page — the user
+     opens a source and sees populated data (e.g. this month's sales) right away.
+     They can then adjust columns/filters and re-generate. Previously this showed
+     a "configure then click Generate" prompt, which read as an empty page. */
   document.getElementById('report-data_builder-content').innerHTML = `
     <div class="db-empty-state">
       <div class="db-empty-state-icon">${src.icon}</div>
-      <div class="db-empty-state-msg">${ar
-        ? `اضبط الخانات والفلترة حسب حاجتك، ثم اضغط <strong>عرض</strong> لتوليد التقرير.`
-        : `Configure columns and filters, then click <strong>Generate</strong> to load the report.`}</div>
+      <div class="db-empty-state-msg">${ar ? 'جارٍ التحميل...' : 'Loading...'}</div>
     </div>`;
-
-  /* Disable export/refresh/print until first Generate */
   dbSetPostGenerateButtons(false);
   dbUpdateToolbarCounts();
+  /* Fire the fetch+render now. dbGenerate handles its own loading/empty/error UI. */
+  await dbGenerate();
 }
 
 /* ─────────────────────────────────────────
