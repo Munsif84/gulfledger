@@ -253,6 +253,19 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
    with the cell rule and produced visually-misaligned columns. */
 .r-table th.r-num{text-align:end;letter-spacing:0;}
 .r-table td.r-num{text-align:end;font-variant-numeric:tabular-nums;font-weight:600;}
+
+/* Grouped report rows */
+.r-group-head td{background:var(--tint,#E6F4EC);border-top:1px solid var(--border);}
+.r-group-head:hover td{background:#dcefe2;}
+.r-group-depth-0 td{background:var(--tint,#E6F4EC);}
+.r-group-depth-1 td{background:#f0f7f2;}
+.r-group-depth-2 td{background:#f6faf7;}
+.r-group-caret{display:inline-block;width:14px;color:var(--muted);font-size:10px;}
+.r-group-count{color:var(--muted);font-weight:500;font-size:11px;margin-inline-start:4px;}
+.r-group-pct{color:var(--blue,#006C35);font-size:11px;font-weight:700;margin-inline-start:6px;}
+.r-group-avg{color:var(--muted);font-size:10px;font-weight:500;}
+.r-group-subtotal td{background:#fbfdfb;border-top:1px dashed var(--border);color:var(--muted);font-size:12px;font-style:italic;}
+.r-group-detail td{background:#fff;}
 /* Smaller numeric variant — used for compact count columns (small numbers that
    benefit from a lighter visual weight than money totals).
    Same right-alignment as .r-num but smaller and lighter. Letter-spacing reset
@@ -893,6 +906,11 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
               <span data-ar="فلترة" data-en="Filter">فلترة</span>
               <span class="db-count-badge" id="db-filters-count"></span>
             </button>
+            <button class="btn btn-secondary btn-sm db-popover-trigger" id="db-btn-group" onclick="dbTogglePopover('group', this)">
+              <span style="font-size:13px;">🧩</span>
+              <span data-ar="تجميع" data-en="Group by">تجميع</span>
+              <span class="db-count-badge" id="db-group-count"></span>
+            </button>
             <input type="search" class="db-search" id="db-row-search" oninput="dbApplyRowSearch()"
               placeholder="🔍 Search rows..." data-ar-placeholder="🔍 ابحث في الصفوف..." data-en-placeholder="🔍 Search rows..." aria-label="Search rows">
           </div>
@@ -1197,6 +1215,8 @@ function setLang(lang){
     if(_dbState.popoverEl && _dbState.popoverType){
       _dbState.popoverEl.innerHTML = _dbState.popoverType === 'columns'
         ? dbBuildColumnsPopover()
+        : _dbState.popoverType === 'group'
+        ? dbBuildGroupPopover()
         : dbBuildFiltersPopover();
     }
   }
@@ -3238,6 +3258,9 @@ const _dbState = {
   visibleColumns: [],          /* array of column keys, in display order */
   filters: [],                 /* array of {column, op, value} */
   sort: null,                  /* {column, direction: 'asc'|'desc'} */
+  groupBy: [],                 /* array of column keys for nested grouping (0-3 levels) */
+  groupSort: 'total_desc',     /* how to order groups: 'total_desc'|'total_asc'|'label' */
+  collapsedGroups: {},         /* map of groupPath -> true when collapsed */
   rowSearch: '',               /* live text search across all string columns */
   rows: [],                    /* fetched rows from the data source */
   filteredRows: [],            /* rows after applying filters + search */
@@ -3278,6 +3301,8 @@ async function dbOpenSource(sourceName, btn){
   _dbState.visibleColumns = src.columns.filter(c => c.defaultShow).map(c => c.key);
   _dbState.filters = [];
   _dbState.sort = src.orderBy ? { column: src.orderBy.column, direction: src.orderBy.ascending ? 'asc' : 'desc' } : null;
+  _dbState.groupBy = [];
+  _dbState.collapsedGroups = {};
   _dbState.rowSearch = '';
   _dbState.rows = [];
   _dbState.filteredRows = [];
@@ -3551,6 +3576,12 @@ function dbRenderTable(){
     return;
   }
 
+  /* Grouped render path — when one or more group-by columns are active. */
+  if(_dbState.groupBy && _dbState.groupBy.length){
+    content.innerHTML = dbRenderGrouped(rows, cols, src, ar);
+    return;
+  }
+
   /* Build header. Number/money columns get the same .r-num class on both <th>
      and <td> so alignment and font match exactly (no inline-style hackery). */
   let html = '<div class="table-wrap"><table class="r-table"><thead><tr>';
@@ -3596,6 +3627,167 @@ function dbRenderTable(){
 
   html += '</tbody></table></div>';
   content.innerHTML = html;
+}
+
+/* ─────────────────────────────────────────
+   GROUPING ENGINE — nested groups with rich subtotals.
+   Builds a tree from _dbState.groupBy, computes per-group aggregates
+   (count, sum, avg, % of grand total) for each total-able column, sorts
+   groups by subtotal, and renders collapsible nested sections.
+   ───────────────────────────────────────── */
+function dbBuildGroupTree(rows, groupKeys){
+  /* Recursively partition rows by the group key list. Returns an array of
+     {key, label, rows, children, depth}. Leaf groups have rows + no children. */
+  function partition(rowsSubset, keys, depth){
+    if(keys.length === 0) return null;
+    const [head, ...rest] = keys;
+    const buckets = new Map();
+    rowsSubset.forEach(r => {
+      const raw = r[head];
+      const label = (raw == null || raw === '') ? '—' : String(raw);
+      if(!buckets.has(label)) buckets.set(label, []);
+      buckets.get(label).push(r);
+    });
+    return [...buckets.entries()].map(([label, groupRows]) => ({
+      groupColumn: head,
+      label,
+      rows: groupRows,
+      depth,
+      children: rest.length ? partition(groupRows, rest, depth + 1) : null
+    }));
+  }
+  return partition(rows, groupKeys, 0) || [];
+}
+
+function dbGroupAggregates(rows, cols, grandTotals){
+  /* For each total-able column compute sum + avg; plus count + % of grand total. */
+  const agg = { count: rows.length, sums: {}, avgs: {}, pct: {} };
+  cols.forEach(c => {
+    if(!c.total) return;
+    const sum = rows.reduce((s, r) => s + (parseFloat(r[c.key]) || 0), 0);
+    agg.sums[c.key] = sum;
+    agg.avgs[c.key] = rows.length ? sum / rows.length : 0;
+    const grand = grandTotals[c.key] || 0;
+    agg.pct[c.key] = grand ? (sum / grand) * 100 : 0;
+  });
+  return agg;
+}
+
+function dbSortGroups(groups, cols){
+  /* Sort sibling groups by the first total-able column's sum, per groupSort. */
+  const totalCol = cols.find(c => c.total);
+  const mode = _dbState.groupSort || 'total_desc';
+  groups.sort((a, b) => {
+    if(mode === 'label') return String(a.label).localeCompare(String(b.label));
+    if(!totalCol) return 0;
+    const sa = a.rows.reduce((s, r) => s + (parseFloat(r[totalCol.key]) || 0), 0);
+    const sb = b.rows.reduce((s, r) => s + (parseFloat(r[totalCol.key]) || 0), 0);
+    return mode === 'total_asc' ? sa - sb : sb - sa;
+  });
+  groups.forEach(g => { if(g.children) dbSortGroups(g.children, cols); });
+  return groups;
+}
+
+function dbRenderGrouped(rows, cols, src, ar){
+  /* Grand totals (denominator for % of total) */
+  const grandTotals = {};
+  cols.forEach(c => { if(c.total) grandTotals[c.key] = rows.reduce((s, r) => s + (parseFloat(r[c.key]) || 0), 0); });
+  const grandCount = rows.length;
+
+  let tree = dbBuildGroupTree(rows, _dbState.groupBy);
+  tree = dbSortGroups(tree, cols);
+
+  const colCount = cols.length || 1;
+  const groupColLabels = _dbState.groupBy.map(k => {
+    const c = src.columns.find(x => x.key === k);
+    return c ? (ar ? c.label_ar : c.label_en) : k;
+  });
+
+  let html = '<div class="table-wrap"><table class="r-table r-table-grouped"><thead><tr>';
+  cols.forEach(c => {
+    const isNum = (c.type === 'number' || c.type === 'money');
+    html += `<th class="${isNum ? 'r-num' : ''}">${escHTML(ar ? c.label_ar : c.label_en)}</th>`;
+  });
+  html += '</tr></thead><tbody>';
+
+  /* Recursive group render */
+  function renderGroup(group, pathPrefix){
+    const path = pathPrefix + '/' + group.label;
+    const collapsed = !!_dbState.collapsedGroups[path];
+    const agg = dbGroupAggregates(group.rows, cols, grandTotals);
+    const indent = group.depth * 18;
+    const caret = collapsed ? '▶' : '▼';
+    const firstTotalCol = cols.find(c => c.total);
+
+    /* Group header row (clickable to collapse) */
+    let h = `<tr class="r-group-head r-group-depth-${group.depth}" onclick="dbToggleGroup('${escAttr(path)}')" style="cursor:pointer;">`;
+    cols.forEach((c, idx) => {
+      const isNum = (c.type === 'number' || c.type === 'money');
+      if(idx === 0){
+        h += `<td style="padding-inline-start:${indent + 8}px;font-weight:700;">
+          <span class="r-group-caret">${caret}</span>
+          ${escHTML(group.label)}
+          <span class="r-group-count">(${agg.count})</span>
+        </td>`;
+      } else if(c.total){
+        const sum = agg.sums[c.key] || 0;
+        const pct = agg.pct[c.key] || 0;
+        h += `<td class="r-num" style="font-weight:700;">${fmtMoney(sum)}${(c === firstTotalCol) ? ` <span class="r-group-pct">${pct.toFixed(0)}%</span>` : ''}</td>`;
+      } else {
+        h += '<td></td>';
+      }
+    });
+    h += '</tr>';
+
+    if(collapsed) return h;
+
+    /* Children groups, or leaf detail rows */
+    if(group.children){
+      group.children.forEach(child => { h += renderGroup(child, path); });
+    } else {
+      group.rows.forEach(r => {
+        h += '<tr class="r-group-detail">';
+        cols.forEach((c, idx) => {
+          const isNum = (c.type === 'number' || c.type === 'money');
+          const pad = (idx === 0) ? ` style="padding-inline-start:${indent + 28}px;"` : '';
+          h += `<td${isNum ? ' class="r-num"' : ''}${pad}>${dbFormatCell(r[c.key], c, ar)}</td>`;
+        });
+        h += '</tr>';
+      });
+      /* Subtotal row for leaf group with avg */
+      if(firstTotalCol){
+        h += `<tr class="r-group-subtotal">`;
+        cols.forEach((c, idx) => {
+          if(idx === 0){
+            h += `<td style="padding-inline-start:${indent + 28}px;">${ar?'متوسط':'Avg'} · ${ar?'المجموع الفرعي':'Subtotal'}</td>`;
+          } else if(c.total){
+            h += `<td class="r-num">${fmtMoney(agg.sums[c.key]||0)}<span class="r-group-avg"> · ${ar?'م':'avg'} ${fmtMoney(agg.avgs[c.key]||0)}</span></td>`;
+          } else { h += '<td></td>'; }
+        });
+        h += '</tr>';
+      }
+    }
+    return h;
+  }
+
+  tree.forEach(g => { html += renderGroup(g, ''); });
+
+  /* Grand total row */
+  html += '<tr class="r-row-grandtotal">';
+  cols.forEach((c, idx) => {
+    if(idx === 0){ html += `<td>${ar ? 'الإجمالي الكلي' : 'Grand Total'} <span class="r-group-count">(${grandCount})</span></td>`; }
+    else if(c.total){ html += `<td class="r-num">${fmtMoney(grandTotals[c.key]||0)}</td>`; }
+    else { html += '<td></td>'; }
+  });
+  html += '</tr>';
+
+  html += '</tbody></table></div>';
+  return html;
+}
+
+function dbToggleGroup(path){
+  _dbState.collapsedGroups[path] = !_dbState.collapsedGroups[path];
+  dbRenderTable();
 }
 
 function dbFormatCell(value, col, ar){
@@ -3665,7 +3857,7 @@ function dbTogglePopover(type, anchorBtn){
   _dbState.popoverType = type;
   _dbState.popoverAnchor = anchorBtn;
   const pop = document.getElementById('db-popover');
-  pop.innerHTML = (type === 'columns') ? dbBuildColumnsPopover() : dbBuildFiltersPopover();
+  pop.innerHTML = (type === 'columns') ? dbBuildColumnsPopover() : (type === 'group') ? dbBuildGroupPopover() : dbBuildFiltersPopover();
   pop.style.display = '';
   _dbState.popoverEl = pop;
 
@@ -3718,6 +3910,84 @@ function dbOnDocumentClickForPopover(ev){
   /* Don't close when clicking the trigger again — that's handled by dbTogglePopover */
   if(ev.target.closest('.db-popover-trigger')) return;
   dbClosePopover();
+}
+
+/* ─────────────────────────────────────────
+   GROUP-BY POPOVER — choose up to 3 nested grouping dimensions.
+   ───────────────────────────────────────── */
+function escAttr(s){ return String(s == null ? '' : s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+
+function dbBuildGroupPopover(){
+  const ar = currentLang === 'ar';
+  const src = DATA_SOURCES[_dbState.source];
+  if(!src) return '';
+  /* Groupable = non-money/number columns (dimensions), plus enums/text/date.
+     Money/number are measures, not dimensions, so we exclude them as group keys. */
+  const groupable = src.columns.filter(c => c.type !== 'money' && c.type !== 'number');
+  const chosen = _dbState.groupBy || [];
+
+  const levelRows = [0,1,2].map(level => {
+    const current = chosen[level] || '';
+    const opts = `<option value="">${ar?'— لا شيء —':'— None —'}</option>` +
+      groupable.map(c => `<option value="${escAttr(c.key)}"${current===c.key?' selected':''}>${escAttr(ar?c.label_ar:c.label_en)}</option>`).join('');
+    const label = level === 0 ? (ar?'تجميع حسب':'Group by') : (ar?`ثم حسب`:`Then by`);
+    /* Disable a level if the previous level is empty */
+    const disabled = level > 0 && !chosen[level-1] ? 'disabled' : '';
+    return `<div class="db-group-level" style="margin-bottom:8px;">
+      <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:3px;">${label}</label>
+      <select onchange="dbSetGroupLevel(${level}, this.value)" ${disabled} style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;">${opts}</select>
+    </div>`;
+  }).join('');
+
+  const sortOpts = [
+    ['total_desc', ar?'الأكبر مبلغاً أولاً':'Largest total first'],
+    ['total_asc',  ar?'الأصغر مبلغاً أولاً':'Smallest total first'],
+    ['label',      ar?'أبجدياً':'Alphabetical']
+  ].map(([v,l]) => `<option value="${v}"${_dbState.groupSort===v?' selected':''}>${l}</option>`).join('');
+
+  return `
+    <div class="db-popover-header">
+      <div class="db-popover-title">${ar ? 'تجميع البيانات' : 'Group data'}</div>
+      <button class="db-modal-close" onclick="dbClosePopover()" aria-label="Close">×</button>
+    </div>
+    <div class="db-popover-body" style="padding:12px;">
+      ${levelRows}
+      <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+        <label style="font-size:11px;font-weight:700;color:var(--muted);display:block;margin-bottom:3px;">${ar?'ترتيب المجموعات':'Order groups by'}</label>
+        <select onchange="dbSetGroupSort(this.value)" style="width:100%;padding:6px 8px;border:1px solid var(--border);border-radius:6px;">${sortOpts}</select>
+      </div>
+      ${chosen.length ? `<button class="btn btn-ghost btn-sm" style="margin-top:10px;width:100%;" onclick="dbClearGrouping()">${ar?'إلغاء التجميع':'Clear grouping'}</button>` : ''}
+    </div>`;
+}
+
+function dbSetGroupLevel(level, value){
+  const g = [...(_dbState.groupBy || [])];
+  if(value){
+    g[level] = value;
+    g.length = level + 1;        /* truncate deeper levels when a higher one changes */
+  } else {
+    g.length = level;            /* clearing a level drops it and anything deeper */
+  }
+  /* de-dupe: a column can't be used at two levels */
+  _dbState.groupBy = g.filter((v, i) => v && g.indexOf(v) === i);
+  _dbState.collapsedGroups = {};
+  dbUpdateToolbarCounts();
+  /* re-render popover (to enable/disable next level) and table */
+  if(_dbState.popoverEl) _dbState.popoverEl.innerHTML = dbBuildGroupPopover();
+  dbRenderTable();
+}
+
+function dbSetGroupSort(value){
+  _dbState.groupSort = value;
+  dbRenderTable();
+}
+
+function dbClearGrouping(){
+  _dbState.groupBy = [];
+  _dbState.collapsedGroups = {};
+  dbUpdateToolbarCounts();
+  if(_dbState.popoverEl) _dbState.popoverEl.innerHTML = dbBuildGroupPopover();
+  dbRenderTable();
 }
 
 /* ─────────────────────────────────────────
@@ -3968,6 +4238,8 @@ function dbUpdateToolbarCounts(){
   const filterCount = _dbState.filters.length;
   document.getElementById('db-columns-count').textContent = (colCount && totalCols) ? `${colCount}/${totalCols}` : '';
   document.getElementById('db-filters-count').textContent = filterCount > 0 ? String(filterCount) : '';
+  const grpEl = document.getElementById('db-group-count');
+  if(grpEl) grpEl.textContent = (_dbState.groupBy && _dbState.groupBy.length) ? String(_dbState.groupBy.length) : '';
 }
 
 function dbUpdateModifiedIndicator(){
