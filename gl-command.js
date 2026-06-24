@@ -23,10 +23,10 @@
     { ar:'المبيعات والفواتير', en:'Sales & Invoices',     kw:'invoices sales فواتير مبيعات',     icon:'i-invoice',    href:'invoices.html',   group:'nav' },
     { ar:'المحاسبة',           en:'Accounting',           kw:'ledger journal gl محاسبة دفتر قيود', icon:'i-ledger',   href:'accounting.html', group:'nav' },
     { ar:'المالية والمصاريف',  en:'Finance & Expenses',   kw:'expenses bills مصاريف مالية',      icon:'i-cash',       href:'finance.html',    group:'nav' },
+    { ar:'الرواتب',            en:'Payroll',              kw:'payroll salaries wages gosi رواتب أجور تأمينات', icon:'i-cash', href:'payroll.html', group:'nav' },
     { ar:'المخزون',            en:'Inventory',            kw:'stock products مخزون منتجات',      icon:'i-package',    href:'inventory.html',  group:'nav' },
     { ar:'المشتريات',          en:'Purchasing',           kw:'suppliers po مشتريات موردين',      icon:'i-factory',    href:'purchasing.html', group:'nav' },
     { ar:'التقارير',           en:'Reports',              kw:'reports pl balance تقارير قوائم',   icon:'i-trend-up',   href:'reports.html',    group:'nav' },
-    { ar:'أداء الفروع',         en:'Branch Performance',   kw:'branch report sales فروع تقرير مبيعات', icon:'i-trend-up',  href:'branch-report.html', group:'nav' },
     { ar:'الإعدادات',          en:'Settings',             kw:'settings config إعدادات ضبط',      icon:'i-settings',   href:'settings.html',   group:'nav' },
     /* Create */
     { ar:'فاتورة جديدة',       en:'New Invoice',          kw:'create new invoice فاتورة جديدة',  icon:'i-plus',       href:'invoices.html?action=new_invoice',                    group:'new' },
