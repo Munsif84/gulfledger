@@ -91,7 +91,8 @@ const _REQUIRED_ROLES_FOR_FINANCE = [
   'sales_revenue',      /* CODE.SALES_STANDARD */
   'cogs_primary',       /* CODE.COGS */
   'cash_primary',       /* CODE.CASH (new in 20c) */
-  'bank_primary'        /* CODE.BANK (new in 20c) */
+  'bank_primary',       /* CODE.BANK (new in 20c) */
+  'salaries_expense'    /* CODE.SALARIES — quick salary entry */
 ];
 
 async function _initRoleCodes(){
@@ -273,7 +274,8 @@ const CODE = Object.freeze({
   get SALES_STANDARD() { return _coalesceCode('sales_revenue',     'SALES_STANDARD'); },
   get COGS()           { return _coalesceCode('cogs_primary',      'COGS'); },
   get CASH()           { return _coalesceCode('cash_primary',      'CASH'); },
-  get BANK()           { return _coalesceCode('bank_primary',      'BANK'); }
+  get BANK()           { return _coalesceCode('bank_primary',      'BANK'); },
+  get SALARIES()       { return _coalesceCode('salaries_expense',  'SALARIES'); }
 });
 
 /* ROUND B-VAT: Filings helper (inlined). Exports on window.gl.filings. */
@@ -1302,6 +1304,10 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
           <span data-ar="فواتير الموردين" data-en="Bills">فواتير الموردين</span>
           <span class="count-badge" id="count-bills">0</span>
         </button>
+        <button class="sidebar-link" id="tab-payroll" onclick="switchTab('payroll')">
+          <span class="icon"><svg class="gl-i"><use href="/gl-icons.svg#i-cash"/></svg></span>
+          <span data-ar="الرواتب" data-en="Salaries & Payroll">الرواتب</span>
+        </button>
         <button class="sidebar-link" id="tab-banks" onclick="switchTab('banks')">
           <span class="icon"><svg class="gl-i"><use href="/gl-icons.svg#i-bank"/></svg></span>
           <span data-ar="البنوك" data-en="Banks">البنوك</span>
@@ -1358,7 +1364,7 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
           <option value="this_month">الشهر · This month</option>
           <option value="last_month" data-ar="الشهر الماضي" data-en="Last Month">الشهر الماضي</option>
           <option value="this_year">العام · This year</option>
-          <option value="all">الكل · All</option>
+          <option value="all" selected>الكل · All</option>
         </select>
         <select class="filter-select" id="filter-category" onchange="renderExpenses()">
           <option value="" data-ar="كل الفئات" data-en="All Categories">الفئات</option>
@@ -1494,6 +1500,19 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
     </div>
 
     <div id="vendors-table-wrap"></div>
+  </div>
+
+  <!-- ════════════════════════════════════════════════
+       PANE: SALARIES & PAYROLL
+       Two paths: (1) Quick salary entry — single expense journal;
+       (2) Automated payroll — per-employee GOSI workspace (payroll.html).
+       Progressive disclosure: if the business has employees, the automated
+       summary leads; otherwise the simple fork is front and centre.
+  ════════════════════════════════════════════════ -->
+  <div id="pane-payroll" style="display:none;">
+    <div id="payroll-pane-content">
+      <div style="text-align:center;padding:40px;color:var(--muted);" data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
+    </div>
   </div>
 
   <!-- ════════════════════════════════════════════════
@@ -4931,12 +4950,18 @@ function closeReconDetail(){
 /* ─── tabs ─── */
 function switchTab(name){
   currentTab = name;
-  ['expenses','bills','banks','cashflow','reconciliation'].forEach(t => {
+  ['expenses','bills','payroll','banks','cashflow','reconciliation'].forEach(t => {
     document.getElementById('tab-'+t)?.classList.toggle('active', t === name);
     const pane = document.getElementById('pane-'+t);
     if(pane) pane.style.display = (t === name) ? '' : 'none';
   });
   history.replaceState(null, '', '?tab='+name);
+
+  /* Lazy-load Salaries & Payroll on first visit. */
+  if(name === 'payroll' && !window._payrollLoaded){
+    window._payrollLoaded = true;
+    initPayrollPane();
+  }
 
   /* Lazy-load Bills on first visit. */
   if(name === 'bills' && !window._billsLoaded){
@@ -5311,7 +5336,7 @@ function filterExpensesByVendor(vendorId){
 /* ─── filter clearing ─── */
 function clearExpenseFilters(){
   setVal('search-expenses', '');
-  setVal('filter-period', 'this_month');
+  setVal('filter-period', 'all');
   setVal('filter-category', '');
   setVal('filter-status', 'active');
   renderExpenses();
@@ -5325,7 +5350,7 @@ function updateClearButtonVisibility(){
   const clearExpBtn = document.getElementById('btn-clear-filters');
   if(clearExpBtn){
     const hasFilters = !!v('search-expenses') ||
-                       (v('filter-period') && v('filter-period') !== 'this_month') ||
+                       (v('filter-period') && v('filter-period') !== 'all') ||
                        !!v('filter-category') ||
                        (v('filter-status') && v('filter-status') !== 'active');
     clearExpBtn.style.display = hasFilters ? '' : 'none';
@@ -8293,6 +8318,123 @@ async function loadStatementImports(){
 
 /* Helper for escaping attribute values when interpolating into HTML strings */
 function escAttr(s){return String(s||'').replace(/"/g,'&quot;');}
+
+/* ════════════════════════════════════════════════════════════════════════
+   SALARIES & PAYROLL pane (Finance integration)
+   Two paths: Quick salary entry (single journal) and Automated payroll
+   (per-employee GOSI workspace at payroll.html). Progressive disclosure:
+   businesses with employees see the automated summary lead.
+   ════════════════════════════════════════════════════════════════════════ */
+async function initPayrollPane(){
+  const ar = currentLang === 'ar';
+  const el = document.getElementById('payroll-pane-content');
+  /* Does this business already use automated payroll (has employees)? */
+  let empCount = 0;
+  try {
+    const {count} = await sb.from('employees').select('id', {count:'exact', head:true}).eq('business_id', currentBiz.id).eq('is_active', true);
+    empCount = count || 0;
+  } catch(_e){ empCount = 0; }
+
+  const automatedCard = `
+    <div style="flex:1;min-width:240px;border:1px solid var(--border);border-radius:12px;padding:18px;background:var(--white);">
+      <div style="font-size:22px;margin-bottom:8px;">⚙️</div>
+      <div style="font-weight:800;color:var(--ink);margin-bottom:4px;">${ar?'الرواتب الآلية':'Automated payroll'}</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:14px;">${ar?'لكل موظف، مع احتساب التأمينات (GOSI) وترحيلها تلقائياً للقيود.':'Per-employee, with GOSI calculated and posted to the ledger automatically.'}</div>
+      <a class="btn btn-primary btn-sm" href="payroll.html">${empCount>0?(ar?'فتح الرواتب':'Open payroll'):(ar?'إعداد الرواتب':'Set up payroll')}</a>
+      ${empCount>0?`<div style="font-size:12px;color:var(--muted);margin-top:8px;">${ar?`${empCount} موظف`:`${empCount} employee(s)`}</div>`:''}
+    </div>`;
+
+  const quickCard = `
+    <div style="flex:1;min-width:240px;border:1px solid var(--border);border-radius:12px;padding:18px;background:var(--white);">
+      <div style="font-size:22px;margin-bottom:8px;">💵</div>
+      <div style="font-weight:800;color:var(--ink);margin-bottom:4px;">${ar?'قيد راتب سريع':'Quick salary entry'}</div>
+      <div style="font-size:13px;color:var(--muted);margin-bottom:14px;">${ar?'سجّل إجمالي الرواتب كمصروف واحد. سريع وبدون إعداد.':'Record total salaries as one expense. Fast, no setup.'}</div>
+      <button class="btn btn-secondary btn-sm" onclick="prQuickOpen()">${ar?'تسجيل مصروف رواتب':'Record salary expense'}</button>
+    </div>`;
+
+  el.innerHTML = `
+    <div style="margin-bottom:16px;">
+      <div style="font-size:18px;font-weight:800;color:var(--ink);">${ar?'الرواتب والأجور':'Salaries & Payroll'}</div>
+      <div style="font-size:13px;color:var(--muted);">${ar?'اختر طريقة تسجيل الرواتب — كلاهما يُرحّل لنفس حساب مصروف الرواتب.':'Choose how to record salaries — both post to the same salaries account.'}</div>
+    </div>
+    <div style="display:flex;gap:14px;flex-wrap:wrap;">
+      ${empCount>0 ? automatedCard + quickCard : quickCard + automatedCard}
+    </div>
+    <div id="pr-quick-form" style="display:none;margin-top:18px;border:1px solid var(--border);border-radius:12px;padding:18px;background:var(--tint);max-width:480px;">
+      <div style="font-weight:700;margin-bottom:12px;">${ar?'قيد راتب سريع':'Quick salary entry'}</div>
+      <div style="margin-bottom:10px;">
+        <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:3px;">${ar?'التاريخ':'Date'}</label>
+        <input type="date" id="pr-quick-date" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;">
+      </div>
+      <div style="margin-bottom:10px;">
+        <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:3px;">${ar?'إجمالي الرواتب':'Total salaries'}</label>
+        <input type="number" id="pr-quick-amount" step="0.01" placeholder="0.00" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;">
+      </div>
+      <div style="margin-bottom:10px;">
+        <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:3px;">${ar?'دفع من':'Paid from'}</label>
+        <select id="pr-quick-method" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;">
+          <option value="cash">${ar?'الصندوق':'Cash'}</option>
+          <option value="bank">${ar?'البنك':'Bank'}</option>
+        </select>
+      </div>
+      <div style="margin-bottom:14px;">
+        <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:3px;">${ar?'ملاحظة (اختياري)':'Note (optional)'}</label>
+        <input type="text" id="pr-quick-note" placeholder="${ar?'رواتب يونيو':'June salaries'}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;">
+      </div>
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button class="btn btn-ghost btn-sm" onclick="prQuickClose()">${ar?'إلغاء':'Cancel'}</button>
+        <button class="btn btn-primary btn-sm" id="pr-quick-save" onclick="prQuickSave()">${ar?'ترحيل':'Post'}</button>
+      </div>
+    </div>`;
+}
+
+function prQuickOpen(){
+  const f = document.getElementById('pr-quick-form');
+  if(f){ f.style.display = 'block'; const d=document.getElementById('pr-quick-date'); if(d && !d.value) d.value = localDateISO(new Date()); f.scrollIntoView({behavior:'smooth',block:'center'}); }
+}
+function prQuickClose(){ const f=document.getElementById('pr-quick-form'); if(f) f.style.display='none'; }
+
+async function prQuickSave(){
+  const ar = currentLang === 'ar';
+  const amount = parseFloat(document.getElementById('pr-quick-amount').value) || 0;
+  const date = document.getElementById('pr-quick-date').value;
+  const method = document.getElementById('pr-quick-method').value;
+  const note = (document.getElementById('pr-quick-note').value || '').trim();
+  if(amount <= 0){ notify(ar?'أدخل مبلغاً صحيحاً':'Enter a valid amount', 'error'); return; }
+  if(!date){ notify(ar?'اختر التاريخ':'Pick a date', 'error'); return; }
+
+  const btn = document.getElementById('pr-quick-save'); btn.disabled = true;
+  try {
+    /* Single balanced journal: DR salaries_expense, CR cash/bank (paid now) */
+    let salariesAcct, creditAcct, creditName;
+    try { salariesAcct = CODE.SALARIES; } catch(e){ notify(ar?'حساب الرواتب غير معرّف':'Salaries account not mapped', 'error'); btn.disabled=false; return; }
+    try { creditAcct = (method === 'bank') ? CODE.BANK : CODE.CASH; } catch(e){ notify(ar?'حساب النقد/البنك غير معرّف':'Cash/Bank account not mapped', 'error'); btn.disabled=false; return; }
+    creditName = (method === 'bank') ? (ar?'البنك':'Bank') : (ar?'الصندوق':'Cash');
+
+    const {data:entry, error:jeErr} = await sb.from('journal_entries').insert({
+      user_id: currentUser.id, business_id: currentBiz.id, entry_date: date,
+      reference: 'SAL-' + date,
+      description: ar ? ('رواتب' + (note?(' — '+note):'')) : ('Salaries' + (note?(' — '+note):'')),
+      source: 'payroll_quick', is_balanced: true, status: 'posted'
+    }).select().single();
+    if(jeErr) throw jeErr;
+
+    const {error:jlErr} = await sb.from('journal_lines').insert([
+      {entry_id:entry.id, user_id:currentUser.id, account_code:salariesAcct, account_name:ar?'مصروف الرواتب':'Salaries Expense', debit:amount, credit:0, description:ar?'رواتب':'Salaries'},
+      {entry_id:entry.id, user_id:currentUser.id, account_code:creditAcct, account_name:creditName, debit:0, credit:amount, description:ar?'سداد الرواتب':'Salary payment'}
+    ]);
+    if(jlErr) throw jlErr;
+
+    notify(ar?'✅ تم ترحيل قيد الرواتب':'✅ Salary entry posted', 'success');
+    prQuickClose();
+    document.getElementById('pr-quick-amount').value = '';
+    document.getElementById('pr-quick-note').value = '';
+  } catch(e){
+    notify((ar?'خطأ: ':'Error: ') + (e.message||e), 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
 
 init();
 </script>
