@@ -1143,7 +1143,7 @@ function setLang(lang){
       const iconEl = document.getElementById('active-report-icon');
       const labelEl = document.getElementById('active-report-label');
       const subEl = document.getElementById('active-report-sub');
-      if(iconEl) iconEl.textContent = src.icon;
+      if(iconEl) iconEl.innerHTML = src.icon;  /* icon may be an <svg> string */
       if(labelEl) labelEl.textContent = lang === 'ar' ? src.label_ar : src.label_en;
       if(subEl){
         const layout = _dbState.activeLayoutId
@@ -1470,7 +1470,9 @@ function showReport(name, btn, preset){
     const iconEl = document.getElementById('active-report-icon');
     const labelEl = document.getElementById('active-report-label');
     const subEl = document.getElementById('active-report-sub');
-    if(iconEl) iconEl.textContent = meta.icon || '';
+    /* icon may be an emoji OR an <svg> sprite string — use innerHTML so SVG
+       markup renders as an icon rather than showing as raw text. */
+    if(iconEl) iconEl.innerHTML = meta.icon || '';
     if(labelEl){
       labelEl.dataset.ar = meta.ar;
       labelEl.dataset.en = meta.en;
@@ -1526,6 +1528,22 @@ function showReport(name, btn, preset){
 
   /* Update URL hash */
   history.replaceState(null, '', '#' + name);
+
+  /* Auto-run reports that can populate immediately, so they're never a blank
+     screen by default (matches the Data Builder auto-generate behaviour).
+       • aging / ap_aging  → "as of today" — can run now
+       • stock_valuation   → snapshot — can run now
+     Customer/Supplier statements are NOT auto-run: they require the user to pick
+     an entity first, so their section shows its own "select…" prompt instead. */
+  if(name === 'aging' || name === 'ap_aging' || name === 'stock_valuation'){
+    if(typeof runCurrentReport === 'function') runCurrentReport();
+  }
+  /* Statements: auto-run too, so they immediately show their "select a customer/
+     supplier" prompt rather than a blank content area. Once the user picks an
+     entity (and a date range is defaulted), they re-run and see data. */
+  if(name === 'customer' || name === 'supplier_statement'){
+    if(typeof runCurrentReport === 'function') runCurrentReport();
+  }
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -3309,7 +3327,7 @@ async function dbOpenSource(sourceName, btn){
      Sync dataset.ar/en so setLang's data-attribute loop finds the right strings
      (otherwise toggling language would revert to the stale Customer-Statement
      default values that ship in markup). */
-  document.getElementById('active-report-icon').textContent = src.icon;
+  document.getElementById('active-report-icon').innerHTML = src.icon;  /* icon may be an <svg> string */
   const labelEl = document.getElementById('active-report-label');
   if(labelEl){
     labelEl.dataset.ar = src.label_ar;
