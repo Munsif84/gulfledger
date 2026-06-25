@@ -1510,8 +1510,38 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
        summary leads; otherwise the simple fork is front and centre.
   ════════════════════════════════════════════════ -->
   <div id="pane-payroll" style="display:none;">
-    <div id="payroll-pane-content">
-      <div style="text-align:center;padding:40px;color:var(--muted);" data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
+    <!-- Sub-tabs within the payroll pane -->
+    <div class="filter-group" style="margin-bottom:16px;">
+      <button class="filter-btn active" id="prsub-employees" onclick="prSubTab('employees')" data-ar="الموظفون" data-en="Employees">الموظفون</button>
+      <button class="filter-btn" id="prsub-runs" onclick="prSubTab('runs')" data-ar="تشغيل الرواتب" data-en="Payroll Runs">تشغيل الرواتب</button>
+    </div>
+
+    <!-- SUB-PANE: Employees -->
+    <div id="prpane-employees">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;gap:10px;flex-wrap:wrap;">
+        <div style="font-size:13px;color:var(--muted);" data-ar="الموظفون ومكونات رواتبهم" data-en="Employees and their salary components">الموظفون ومكونات رواتبهم</div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-secondary btn-sm" onclick="prExportEmployees()" data-ar="تصدير CSV" data-en="Export CSV">تصدير CSV</button>
+          <button class="btn btn-primary btn-sm" id="pr-emp-add" onclick="prOpenEmployee()" data-ar="+ موظف" data-en="+ Employee">+ موظف</button>
+        </div>
+      </div>
+      <div id="pr-employees-list"><div style="text-align:center;padding:30px;color:var(--muted);">—</div></div>
+    </div>
+
+    <!-- SUB-PANE: Payroll Runs -->
+    <div id="prpane-runs" style="display:none;">
+      <div class="info-banner" style="margin-bottom:14px;font-size:13px;" data-ar="عند الاعتماد يُسجّل القيد المحاسبي (مدين رواتب وتأمينات، دائن مستحقات) دون تحريك النقد. عند الدفع يُسجّل خروج النقد من الحساب." data-en="Finalizing records the accrual (expense + payables), no cash moves. Recording payment moves cash out of the chosen account.">عند الاعتماد يُسجّل القيد المحاسبي دون تحريك النقد؛ وعند الدفع يخرج النقد.</div>
+      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px;">
+        <div class="field"><label class="field-label" data-ar="الشهر" data-en="Month">الشهر</label><select class="filter-select" id="pr-run-month"></select></div>
+        <div class="field"><label class="field-label" data-ar="السنة" data-en="Year">السنة</label><select class="filter-select" id="pr-run-year"></select></div>
+        <button class="btn btn-primary btn-sm" onclick="prPrepareRun()" data-ar="تجهيز التشغيل" data-en="Prepare Run">تجهيز التشغيل</button>
+      </div>
+      <div id="pr-run-area"></div>
+      <div style="margin-top:24px;display:flex;justify-content:space-between;align-items:center;">
+        <h3 style="font-size:15px;font-weight:700;" data-ar="سجل الرواتب" data-en="Salary history">سجل الرواتب</h3>
+        <button class="btn btn-secondary btn-sm" onclick="prExportRuns()" data-ar="تصدير CSV" data-en="Export CSV">تصدير CSV</button>
+      </div>
+      <div id="pr-runs-history" style="margin-top:10px;"><div style="text-align:center;padding:20px;color:var(--muted);">—</div></div>
     </div>
   </div>
 
@@ -2035,6 +2065,86 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
     <div class="modal-foot">
       <button class="btn btn-ghost" onclick="closeExpenseModal()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
       <button class="btn btn-primary" id="btn-save-expense" onclick="saveExpense()" data-ar="حفظ ونشر" data-en="Save & Post">حفظ ونشر</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════
+     PAYROLL: EMPLOYEE MODAL
+════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="emp-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <span class="modal-title" id="emp-modal-title" data-ar="موظف جديد" data-en="New Employee">موظف جديد</span>
+      <button class="modal-close" onclick="prCloseEmployee()">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="emp-id">
+      <div class="field-row double">
+        <div class="field"><label class="field-label" data-ar="الاسم (عربي)" data-en="Name (Arabic)">الاسم (عربي)</label><input type="text" id="emp-name-ar"></div>
+        <div class="field"><label class="field-label" data-ar="الاسم (إنجليزي)" data-en="Name (English)">الاسم (إنجليزي)</label><input type="text" id="emp-name-en"></div>
+      </div>
+      <div class="field-row double">
+        <div class="field"><label class="field-label" data-ar="الجنسية" data-en="Nationality">الجنسية</label>
+          <select id="emp-is-saudi"><option value="true" data-ar="سعودي" data-en="Saudi">سعودي</option><option value="false" data-ar="غير سعودي" data-en="Non-Saudi">غير سعودي</option></select></div>
+        <div class="field"><label class="field-label" data-ar="تاريخ التعيين" data-en="Hire date">تاريخ التعيين</label><input type="date" id="emp-hire-date"></div>
+      </div>
+      <div class="field-row double">
+        <div class="field"><label class="field-label" data-ar="الهوية/الإقامة" data-en="ID/Iqama">الهوية/الإقامة</label><input type="text" id="emp-iqama" dir="ltr"></div>
+        <div class="field"><label class="field-label" data-ar="رقم التأمينات" data-en="GOSI number">رقم التأمينات</label><input type="text" id="emp-gosi-number" dir="ltr"></div>
+      </div>
+      <div class="field"><label class="field-label" data-ar="الآيبان" data-en="Bank IBAN">الآيبان</label><input type="text" id="emp-iban" dir="ltr" placeholder="SA.."></div>
+      <div style="border-top:1px solid var(--border);margin:12px 0;padding-top:12px;font-weight:700;font-size:13px;" data-ar="مكونات الراتب" data-en="Salary components">مكونات الراتب</div>
+      <div class="field-row double">
+        <div class="field"><label class="field-label" data-ar="الأساسي" data-en="Basic">الأساسي</label><input type="number" id="emp-basic" step="0.01" value="0"></div>
+        <div class="field"><label class="field-label" data-ar="بدل السكن" data-en="Housing">بدل السكن</label><input type="number" id="emp-housing" step="0.01" value="0"></div>
+      </div>
+      <div class="field-row double">
+        <div class="field"><label class="field-label" data-ar="بدل المواصلات" data-en="Transport">بدل المواصلات</label><input type="number" id="emp-transport" step="0.01" value="0"></div>
+        <div class="field"><label class="field-label" data-ar="بدلات أخرى" data-en="Other">بدلات أخرى</label><input type="number" id="emp-other" step="0.01" value="0"></div>
+      </div>
+      <div class="info-banner" style="font-size:12px;" data-ar="التأمينات تُحسب على (الأساسي + السكن) فقط، بحد أقصى 45,000." data-en="GOSI on (Basic + Housing) only, capped at 45,000.">التأمينات على الأساسي + السكن (بحد أقصى 45,000).</div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="prCloseEmployee()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+      <button class="btn btn-primary" id="emp-save-btn" onclick="prSaveEmployee()" data-ar="حفظ" data-en="Save">حفظ</button>
+    </div>
+  </div>
+</div>
+
+<!-- ════════════════════════════════════════════════
+     PAYROLL: RECORD PAYMENT MODAL (guided pay step)
+════════════════════════════════════════════════ -->
+<div class="modal-overlay" id="paypr-modal">
+  <div class="modal" style="max-width:460px;">
+    <div class="modal-head">
+      <span class="modal-title" data-ar="تسجيل دفع الرواتب" data-en="Record payroll payment">تسجيل دفع الرواتب</span>
+      <button class="modal-close" onclick="prClosePayModal()">×</button>
+    </div>
+    <div class="modal-body">
+      <input type="hidden" id="paypr-run-id">
+      <div class="field"><label class="field-label" data-ar="الدفع من" data-en="Paid from">الدفع من</label><select id="paypr-account"></select></div>
+      <div class="field"><label class="field-label" data-ar="التاريخ" data-en="Date">التاريخ</label><input type="date" id="paypr-date"></div>
+      <div style="border-top:1px solid var(--border);margin:12px 0;padding-top:12px;">
+        <label style="display:flex;align-items:center;gap:8px;margin-bottom:8px;cursor:pointer;">
+          <input type="checkbox" id="paypr-staff" checked onchange="prPayRecalc()">
+          <span data-ar="رواتب الموظفين" data-en="Salaries to staff">رواتب الموظفين</span>
+          <span style="margin-inline-start:auto;font-weight:700;" id="paypr-staff-amt">0.00</span>
+        </label>
+        <label style="display:flex;align-items:center;gap:8px;cursor:pointer;">
+          <input type="checkbox" id="paypr-gosi" checked onchange="prPayRecalc()">
+          <span data-ar="تأمينات (GOSI)" data-en="GOSI to government">تأمينات (GOSI)</span>
+          <span style="margin-inline-start:auto;font-weight:700;" id="paypr-gosi-amt">0.00</span>
+        </label>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-weight:800;font-size:15px;border-top:1px solid var(--border);padding-top:10px;">
+        <span data-ar="إجمالي الخارج" data-en="Total leaving account">إجمالي الخارج</span>
+        <span id="paypr-total">0.00</span>
+      </div>
+    </div>
+    <div class="modal-foot">
+      <button class="btn btn-ghost" onclick="prClosePayModal()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+      <button class="btn btn-primary" id="paypr-confirm" onclick="prConfirmPayment()" data-ar="تأكيد الدفع" data-en="Confirm payment">تأكيد الدفع</button>
     </div>
   </div>
 </div>
@@ -8325,116 +8435,299 @@ function escAttr(s){return String(s||'').replace(/"/g,'&quot;');}
    (per-employee GOSI workspace at payroll.html). Progressive disclosure:
    businesses with employees see the automated summary lead.
    ════════════════════════════════════════════════════════════════════════ */
+/* ════════════════════════════════════════════════════════════════════════
+   SALARIES & PAYROLL — embedded in Finance (Employees | Payroll Runs)
+   Accrue-then-pay model: Prepare→Finalize posts the accrual (no cash move);
+   Record payment moves cash out of a chosen bank/cash account; Reverse posts
+   an audit-safe mirror entry. GOSI computed from gosi_rates (data, not code).
+   ════════════════════════════════════════════════════════════════════════ */
+let prEmployees=[], prGosiRates=[], prPrepared=null, prPayCtx=null, _prLoaded=false;
+
 async function initPayrollPane(){
-  const ar = currentLang === 'ar';
-  const el = document.getElementById('payroll-pane-content');
-  /* Does this business already use automated payroll (has employees)? */
-  let empCount = 0;
-  try {
-    const {count} = await sb.from('employees').select('id', {count:'exact', head:true}).eq('business_id', currentBiz.id).eq('is_active', true);
-    empCount = count || 0;
-  } catch(_e){ empCount = 0; }
-
-  const automatedCard = `
-    <div style="flex:1;min-width:240px;border:1px solid var(--border);border-radius:12px;padding:18px;background:var(--white);">
-      <div style="font-size:22px;margin-bottom:8px;">⚙️</div>
-      <div style="font-weight:800;color:var(--ink);margin-bottom:4px;">${ar?'الرواتب الآلية':'Automated payroll'}</div>
-      <div style="font-size:13px;color:var(--muted);margin-bottom:14px;">${ar?'لكل موظف، مع احتساب التأمينات (GOSI) وترحيلها تلقائياً للقيود.':'Per-employee, with GOSI calculated and posted to the ledger automatically.'}</div>
-      <a class="btn btn-primary btn-sm" href="payroll.html">${empCount>0?(ar?'فتح الرواتب':'Open payroll'):(ar?'إعداد الرواتب':'Set up payroll')}</a>
-      ${empCount>0?`<div style="font-size:12px;color:var(--muted);margin-top:8px;">${ar?`${empCount} موظف`:`${empCount} employee(s)`}</div>`:''}
-    </div>`;
-
-  const quickCard = `
-    <div style="flex:1;min-width:240px;border:1px solid var(--border);border-radius:12px;padding:18px;background:var(--white);">
-      <div style="font-size:22px;margin-bottom:8px;">💵</div>
-      <div style="font-weight:800;color:var(--ink);margin-bottom:4px;">${ar?'قيد راتب سريع':'Quick salary entry'}</div>
-      <div style="font-size:13px;color:var(--muted);margin-bottom:14px;">${ar?'سجّل إجمالي الرواتب كمصروف واحد. سريع وبدون إعداد.':'Record total salaries as one expense. Fast, no setup.'}</div>
-      <button class="btn btn-secondary btn-sm" onclick="prQuickOpen()">${ar?'تسجيل مصروف رواتب':'Record salary expense'}</button>
-    </div>`;
-
-  el.innerHTML = `
-    <div style="margin-bottom:16px;">
-      <div style="font-size:18px;font-weight:800;color:var(--ink);">${ar?'الرواتب والأجور':'Salaries & Payroll'}</div>
-      <div style="font-size:13px;color:var(--muted);">${ar?'اختر طريقة تسجيل الرواتب — كلاهما يُرحّل لنفس حساب مصروف الرواتب.':'Choose how to record salaries — both post to the same salaries account.'}</div>
-    </div>
-    <div style="display:flex;gap:14px;flex-wrap:wrap;">
-      ${empCount>0 ? automatedCard + quickCard : quickCard + automatedCard}
-    </div>
-    <div id="pr-quick-form" style="display:none;margin-top:18px;border:1px solid var(--border);border-radius:12px;padding:18px;background:var(--tint);max-width:480px;">
-      <div style="font-weight:700;margin-bottom:12px;">${ar?'قيد راتب سريع':'Quick salary entry'}</div>
-      <div style="margin-bottom:10px;">
-        <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:3px;">${ar?'التاريخ':'Date'}</label>
-        <input type="date" id="pr-quick-date" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;">
-      </div>
-      <div style="margin-bottom:10px;">
-        <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:3px;">${ar?'إجمالي الرواتب':'Total salaries'}</label>
-        <input type="number" id="pr-quick-amount" step="0.01" placeholder="0.00" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;">
-      </div>
-      <div style="margin-bottom:10px;">
-        <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:3px;">${ar?'دفع من':'Paid from'}</label>
-        <select id="pr-quick-method" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;">
-          <option value="cash">${ar?'الصندوق':'Cash'}</option>
-          <option value="bank">${ar?'البنك':'Bank'}</option>
-        </select>
-      </div>
-      <div style="margin-bottom:14px;">
-        <label style="display:block;font-size:11px;font-weight:700;color:var(--muted);margin-bottom:3px;">${ar?'ملاحظة (اختياري)':'Note (optional)'}</label>
-        <input type="text" id="pr-quick-note" placeholder="${ar?'رواتب يونيو':'June salaries'}" style="width:100%;padding:8px;border:1px solid var(--border);border-radius:8px;">
-      </div>
-      <div style="display:flex;gap:8px;justify-content:flex-end;">
-        <button class="btn btn-ghost btn-sm" onclick="prQuickClose()">${ar?'إلغاء':'Cancel'}</button>
-        <button class="btn btn-primary btn-sm" id="pr-quick-save" onclick="prQuickSave()">${ar?'ترحيل':'Post'}</button>
-      </div>
-    </div>`;
+  /* Load GOSI rates + employees once */
+  try{ const {data:r}=await sb.from('gosi_rates').select('*'); prGosiRates=r||[]; }catch(_e){ prGosiRates=[]; }
+  prPopulatePeriod();
+  await prLoadEmployees();
+  await prLoadRuns();
 }
 
-function prQuickOpen(){
-  const f = document.getElementById('pr-quick-form');
-  if(f){ f.style.display = 'block'; const d=document.getElementById('pr-quick-date'); if(d && !d.value) d.value = localDateISO(new Date()); f.scrollIntoView({behavior:'smooth',block:'center'}); }
+function prSubTab(name){
+  document.getElementById('prpane-employees').style.display = name==='employees'?'':'none';
+  document.getElementById('prpane-runs').style.display = name==='runs'?'':'none';
+  document.getElementById('prsub-employees').classList.toggle('active',name==='employees');
+  document.getElementById('prsub-runs').classList.toggle('active',name==='runs');
 }
-function prQuickClose(){ const f=document.getElementById('pr-quick-form'); if(f) f.style.display='none'; }
 
-async function prQuickSave(){
-  const ar = currentLang === 'ar';
-  const amount = parseFloat(document.getElementById('pr-quick-amount').value) || 0;
-  const date = document.getElementById('pr-quick-date').value;
-  const method = document.getElementById('pr-quick-method').value;
-  const note = (document.getElementById('pr-quick-note').value || '').trim();
-  if(amount <= 0){ notify(ar?'أدخل مبلغاً صحيحاً':'Enter a valid amount', 'error'); return; }
-  if(!date){ notify(ar?'اختر التاريخ':'Pick a date', 'error'); return; }
+/* ── GOSI ENGINE ── */
+function prGosiCategory(emp){
+  if(!emp.is_saudi) return 'non_saudi';
+  const hire=emp.hire_date?new Date(emp.hire_date):null;
+  return (hire && hire>=new Date('2024-07-03')) ? 'saudi_post2024' : 'saudi_pre2024';
+}
+function prComputeGosi(emp){
+  const cat=prGosiCategory(emp);
+  const rate=prGosiRates.find(r=>r.category===cat);
+  const base0=(Number(emp.basic_salary)||0)+(Number(emp.housing_allowance)||0);
+  if(!rate) return {category:cat,base:base0,employee:0,employer:0,missing:true};
+  const cap=Number(rate.wage_cap)||45000, base=Math.min(base0,cap);
+  return {category:cat,base,employee:+(base*Number(rate.employee_rate)).toFixed(2),employer:+(base*Number(rate.employer_rate)).toFixed(2)};
+}
+function prGross(e){return (Number(e.basic_salary)||0)+(Number(e.housing_allowance)||0)+(Number(e.transport_allowance)||0)+(Number(e.other_allowance)||0);}
+function prCanManage(){return currentBiz && (currentBiz.role==='owner'||currentBiz.role==='accountant');}
 
-  const btn = document.getElementById('pr-quick-save'); btn.disabled = true;
-  try {
-    /* Single balanced journal: DR salaries_expense, CR cash/bank (paid now) */
-    let salariesAcct, creditAcct, creditName;
-    try { salariesAcct = CODE.SALARIES; } catch(e){ notify(ar?'حساب الرواتب غير معرّف':'Salaries account not mapped', 'error'); btn.disabled=false; return; }
-    try { creditAcct = (method === 'bank') ? CODE.BANK : CODE.CASH; } catch(e){ notify(ar?'حساب النقد/البنك غير معرّف':'Cash/Bank account not mapped', 'error'); btn.disabled=false; return; }
-    creditName = (method === 'bank') ? (ar?'البنك':'Bank') : (ar?'الصندوق':'Cash');
-
-    const {data:entry, error:jeErr} = await sb.from('journal_entries').insert({
-      user_id: currentUser.id, business_id: currentBiz.id, entry_date: date,
-      reference: 'SAL-' + date,
-      description: ar ? ('رواتب' + (note?(' — '+note):'')) : ('Salaries' + (note?(' — '+note):'')),
-      source: 'expense', is_balanced: true, status: 'posted'
-    }).select().single();
-    if(jeErr) throw jeErr;
-
-    const {error:jlErr} = await sb.from('journal_lines').insert([
-      {entry_id:entry.id, user_id:currentUser.id, account_code:salariesAcct, account_name:ar?'مصروف الرواتب':'Salaries Expense', debit:amount, credit:0, description:ar?'رواتب':'Salaries'},
-      {entry_id:entry.id, user_id:currentUser.id, account_code:creditAcct, account_name:creditName, debit:0, credit:amount, description:ar?'سداد الرواتب':'Salary payment'}
-    ]);
-    if(jlErr) throw jlErr;
-
-    notify(ar?'✅ تم ترحيل قيد الرواتب':'✅ Salary entry posted', 'success');
-    prQuickClose();
-    document.getElementById('pr-quick-amount').value = '';
-    document.getElementById('pr-quick-note').value = '';
-  } catch(e){
-    notify((ar?'خطأ: ':'Error: ') + (e.message||e), 'error');
-  } finally {
-    btn.disabled = false;
+/* ── EMPLOYEES ── */
+async function prLoadEmployees(){
+  const {data,error}=await sb.from('employees').select('*').eq('business_id',currentBiz.id).eq('is_active',true).order('created_at');
+  const el=document.getElementById('pr-employees-list');
+  if(error){el.innerHTML=`<div style="padding:20px;color:var(--muted);">${escAttr(error.message)}</div>`;return;}
+  prEmployees=data||[];
+  const ar=currentLang==='ar';
+  document.getElementById('pr-emp-add').style.display = prCanManage()?'':'none';
+  if(!prEmployees.length){el.innerHTML=`<div style="text-align:center;padding:30px;color:var(--muted);">${ar?'لا يوجد موظفون بعد':'No employees yet'}</div>`;return;}
+  el.innerHTML=`<table class="data-table"><thead><tr>
+    <th>${ar?'الاسم':'Name'}</th><th>${ar?'الجنسية':'Nationality'}</th>
+    <th style="text-align:end;">${ar?'الأساسي':'Basic'}</th><th style="text-align:end;">${ar?'الإجمالي':'Gross'}</th>
+    <th style="text-align:end;">${ar?'تأمين الموظف':'GOSI(emp)'}</th><th></th>
+  </tr></thead><tbody>${prEmployees.map(e=>{
+    const g=prComputeGosi(e), name=ar?(e.name_ar||e.name_en||'—'):(e.name_en||e.name_ar||'—');
+    return `<tr>
+      <td><strong>${escAttr(name)}</strong></td>
+      <td>${e.is_saudi?(ar?'سعودي':'Saudi'):(ar?'غير سعودي':'Non-Saudi')}</td>
+      <td style="text-align:end;font-variant-numeric:tabular-nums;">${fmt(e.basic_salary)}</td>
+      <td style="text-align:end;font-variant-numeric:tabular-nums;">${fmt(prGross(e))}</td>
+      <td style="text-align:end;font-variant-numeric:tabular-nums;">${fmt(g.employee)}</td>
+      <td style="text-align:end;">${prCanManage()?`<button class="btn btn-ghost btn-sm" onclick="prOpenEmployee('${e.id}')">${ar?'تعديل':'Edit'}</button>`:''}</td>
+    </tr>`;}).join('')}</tbody></table>`;
+}
+function prOpenEmployee(id){
+  if(!prCanManage()){notify(currentLang==='ar'?'المالك أو المحاسب فقط':'Owner/accountant only','error');return;}
+  const set=(f,v)=>{document.getElementById(f).value=v==null?'':v;};
+  if(id){
+    const e=prEmployees.find(x=>x.id===id); if(!e)return;
+    document.getElementById('emp-id').value=e.id;
+    set('emp-name-ar',e.name_ar);set('emp-name-en',e.name_en);
+    document.getElementById('emp-is-saudi').value=e.is_saudi?'true':'false';
+    set('emp-hire-date',e.hire_date);set('emp-iqama',e.iqama_or_id);set('emp-gosi-number',e.gosi_number);
+    set('emp-iban',e.bank_iban);set('emp-basic',e.basic_salary);set('emp-housing',e.housing_allowance);
+    set('emp-transport',e.transport_allowance);set('emp-other',e.other_allowance);
+    document.getElementById('emp-modal-title').textContent=currentLang==='ar'?'تعديل موظف':'Edit Employee';
+  }else{
+    ['emp-id','emp-name-ar','emp-name-en','emp-hire-date','emp-iqama','emp-gosi-number','emp-iban'].forEach(f=>set(f,''));
+    ['emp-basic','emp-housing','emp-transport','emp-other'].forEach(f=>set(f,'0'));
+    document.getElementById('emp-is-saudi').value='true';
+    document.getElementById('emp-modal-title').textContent=currentLang==='ar'?'موظف جديد':'New Employee';
   }
+  document.getElementById('emp-modal').classList.add('open');
+  document.getElementById('emp-modal').style.display='flex';
 }
+function prCloseEmployee(){const m=document.getElementById('emp-modal');m.classList.remove('open');m.style.display='none';}
+async function prSaveEmployee(){
+  const ar=currentLang==='ar', v=id=>document.getElementById(id).value;
+  const nameAr=v('emp-name-ar').trim(), nameEn=v('emp-name-en').trim();
+  if(!nameAr&&!nameEn){notify(ar?'الاسم مطلوب':'Name required','error');return;}
+  const payload={business_id:currentBiz.id,name_ar:nameAr||null,name_en:nameEn||null,
+    is_saudi:v('emp-is-saudi')==='true',nationality:v('emp-is-saudi')==='true'?'SA':null,
+    hire_date:v('emp-hire-date')||null,iqama_or_id:v('emp-iqama').trim()||null,
+    gosi_number:v('emp-gosi-number').trim()||null,bank_iban:v('emp-iban').trim()||null,
+    basic_salary:parseFloat(v('emp-basic'))||0,housing_allowance:parseFloat(v('emp-housing'))||0,
+    transport_allowance:parseFloat(v('emp-transport'))||0,other_allowance:parseFloat(v('emp-other'))||0,
+    updated_at:new Date().toISOString()};
+  const id=v('emp-id'), btn=document.getElementById('emp-save-btn'); btn.disabled=true;
+  let error;
+  if(id){({error}=await sb.from('employees').update(payload).eq('id',id));}
+  else{({error}=await sb.from('employees').insert(payload));}
+  btn.disabled=false;
+  if(error){notify(error.message,'error');return;}
+  notify(ar?'✅ تم الحفظ':'✅ Saved','success');
+  prCloseEmployee(); await prLoadEmployees();
+}
+function prExportEmployees(){
+  const ar=currentLang==='ar';
+  const lines=['Name,Nationality,HireDate,Basic,Housing,Transport,Other,Gross,GOSI_Employee,GOSI_Employer'];
+  const ce=s=>'"'+String(s||'').replace(/"/g,'""')+'"';
+  prEmployees.forEach(e=>{const g=prComputeGosi(e);lines.push([ce(e.name_en||e.name_ar),ce(e.is_saudi?'Saudi':'Non-Saudi'),ce(e.hire_date||''),(Number(e.basic_salary)||0).toFixed(2),(Number(e.housing_allowance)||0).toFixed(2),(Number(e.transport_allowance)||0).toFixed(2),(Number(e.other_allowance)||0).toFixed(2),prGross(e).toFixed(2),g.employee.toFixed(2),g.employer.toFixed(2)].join(','));});
+  prDownloadCSV(lines.join('\n'),'employees.csv');
+}
+
+/* ── RUNS ── */
+function prPopulatePeriod(){
+  const now=new Date(), ar=currentLang==='ar';
+  const months=ar?['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر']:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+  document.getElementById('pr-run-month').innerHTML=months.map((m,i)=>`<option value="${i+1}"${i===now.getMonth()?' selected':''}>${m}</option>`).join('');
+  let y='';for(let yr=now.getFullYear();yr>=now.getFullYear()-3;yr--)y+=`<option value="${yr}"${yr===now.getFullYear()?' selected':''}>${yr}</option>`;
+  document.getElementById('pr-run-year').innerHTML=y;
+}
+function prPrepareRun(){
+  const ar=currentLang==='ar';
+  if(!prCanManage()){notify(ar?'المالك أو المحاسب فقط':'Owner/accountant only','error');return;}
+  if(!prEmployees.length){notify(ar?'أضف موظفين أولاً':'Add employees first','error');return;}
+  const month=+document.getElementById('pr-run-month').value, year=+document.getElementById('pr-run-year').value;
+  const lines=prEmployees.map(e=>{const g=prComputeGosi(e),gross=prGross(e);return {employee:e,gross,gosi_base:g.base,gosi_employee:g.employee,gosi_employer:g.employer,gosi_category:g.category,net:+(gross-g.employee).toFixed(2)};});
+  prPrepared={month,year,lines};
+  const tot=lines.reduce((a,l)=>({gross:a.gross+l.gross,ge:a.ge+l.gosi_employee,gr:a.gr+l.gosi_employer,net:a.net+l.net}),{gross:0,ge:0,gr:0,net:0});
+  document.getElementById('pr-run-area').innerHTML=`
+    <div class="stats-row" style="margin-bottom:14px;">
+      <div class="stat-card"><div class="stat-label">${ar?'إجمالي الرواتب':'Total Gross'}</div><div class="stat-value">${fmt(tot.gross)}</div></div>
+      <div class="stat-card"><div class="stat-label">${ar?'تأمين الموظفين':'Employee GOSI'}</div><div class="stat-value">${fmt(tot.ge)}</div></div>
+      <div class="stat-card"><div class="stat-label">${ar?'تأمين الشركة':'Employer GOSI'}</div><div class="stat-value">${fmt(tot.gr)}</div></div>
+      <div class="stat-card"><div class="stat-label">${ar?'الصافي':'Total Net'}</div><div class="stat-value">${fmt(tot.net)}</div></div>
+    </div>
+    <table class="data-table"><thead><tr><th>${ar?'الموظف':'Employee'}</th><th style="text-align:end;">${ar?'الإجمالي':'Gross'}</th><th style="text-align:end;">${ar?'وعاء':'Base'}</th><th style="text-align:end;">${ar?'تأمين الموظف':'GOSI Emp'}</th><th style="text-align:end;">${ar?'تأمين الشركة':'GOSI Co'}</th><th style="text-align:end;">${ar?'الصافي':'Net'}</th></tr></thead>
+    <tbody>${lines.map(l=>{const name=ar?(l.employee.name_ar||l.employee.name_en):(l.employee.name_en||l.employee.name_ar);return `<tr><td>${escAttr(name)}</td><td style="text-align:end;">${fmt(l.gross)}</td><td style="text-align:end;">${fmt(l.gosi_base)}</td><td style="text-align:end;">${fmt(l.gosi_employee)}</td><td style="text-align:end;">${fmt(l.gosi_employer)}</td><td style="text-align:end;">${fmt(l.net)}</td></tr>`;}).join('')}</tbody></table>
+    <div style="margin-top:14px;display:flex;justify-content:flex-end;"><button class="btn btn-primary btn-sm" id="pr-finalize" onclick="prFinalizeRun()">${ar?'اعتماد وترحيل القيد':'Finalize & post accrual'}</button></div>`;
+}
+async function prFinalizeRun(){
+  const ar=currentLang==='ar';
+  if(!prPrepared)return;
+  const btn=document.getElementById('pr-finalize'); btn.disabled=true; btn.textContent=ar?'جارٍ...':'Posting...';
+  try{
+    const {month,year,lines}=prPrepared;
+    const tot=lines.reduce((a,l)=>({gross:a.gross+l.gross,ge:a.ge+l.gosi_employee,gr:a.gr+l.gosi_employer,net:a.net+l.net}),{gross:0,ge:0,gr:0,net:0});
+    const {data:roleData,error:roleErr}=await sb.rpc('resolve_roles_batch',{p_business_id:currentBiz.id,p_roles:['salaries_expense','salaries_payable','gosi_expense','gosi_payable']});
+    if(roleErr)throw roleErr;
+    const codes=Object.fromEntries((roleData||[]).map(r=>[r.role,r.resolved_code]));
+    const need=['salaries_expense','salaries_payable','gosi_expense','gosi_payable'].filter(r=>!codes[r]);
+    if(need.length)throw new Error((ar?'حسابات غير معرّفة: ':'Unmapped accounts: ')+need.join(', '));
+    const {data:run,error:runErr}=await sb.from('payroll_runs').insert({business_id:currentBiz.id,period_year:year,period_month:month,status:'finalized',total_gross:tot.gross,total_gosi_employee:tot.ge,total_gosi_employer:tot.gr,total_deductions:tot.ge,total_net:tot.net}).select().single();
+    if(runErr)throw runErr;
+    const lineRows=lines.map(l=>({run_id:run.id,employee_id:l.employee.id,basic_salary:l.employee.basic_salary,housing_allowance:l.employee.housing_allowance,transport_allowance:l.employee.transport_allowance,other_allowance:l.employee.other_allowance,gross:l.gross,gosi_category:l.gosi_category,gosi_base:l.gosi_base,gosi_employee:l.gosi_employee,gosi_employer:l.gosi_employer,other_deductions:0,net_pay:l.net}));
+    const {error:lErr}=await sb.from('payroll_run_lines').insert(lineRows); if(lErr)throw lErr;
+    const pl=`${year}-${String(month).padStart(2,'0')}`, gosiTotal=+(tot.ge+tot.gr).toFixed(2);
+    const {data:entry,error:eErr}=await sb.from('journal_entries').insert({user_id:currentUser.id,business_id:currentBiz.id,entry_date:`${pl}-28`,reference:'PAYROLL-'+pl,description:(ar?'رواتب ':'Payroll ')+pl,source:'payroll',source_id:run.id,status:'posted',is_balanced:true}).select().single();
+    if(eErr)throw eErr;
+    const jl=[
+      {entry_id:entry.id,user_id:currentUser.id,account_code:codes.salaries_expense,account_name:ar?'مصروف الرواتب':'Salaries Expense',debit:tot.gross,credit:0,description:(ar?'رواتب ':'Salaries ')+pl},
+      {entry_id:entry.id,user_id:currentUser.id,account_code:codes.gosi_expense,account_name:ar?'تأمينات صاحب العمل':'Employer GOSI',debit:tot.gr,credit:0,description:ar?'تأمينات صاحب العمل':'Employer GOSI'},
+      {entry_id:entry.id,user_id:currentUser.id,account_code:codes.salaries_payable,account_name:ar?'رواتب مستحقة':'Salaries Payable',debit:0,credit:tot.net,description:ar?'صافي الرواتب':'Net pay'},
+      {entry_id:entry.id,user_id:currentUser.id,account_code:codes.gosi_payable,account_name:ar?'تأمينات مستحقة':'GOSI Payable',debit:0,credit:gosiTotal,description:ar?'إجمالي التأمينات':'Total GOSI'}
+    ];
+    const {error:jlErr}=await sb.from('journal_lines').insert(jl); if(jlErr)throw jlErr;
+    await sb.from('payroll_runs').update({status:'posted',journal_entry_id:entry.id,posted_at:new Date().toISOString()}).eq('id',run.id);
+    notify(ar?'✅ تم اعتماد الرواتب وترحيل القيد':'✅ Payroll accrued and posted','success');
+    prPrepared=null; document.getElementById('pr-run-area').innerHTML=''; await prLoadRuns();
+  }catch(e){notify((ar?'خطأ: ':'Error: ')+(e.message||e),'error');}
+  finally{const b=document.getElementById('pr-finalize'); if(b){b.disabled=false;b.textContent=ar?'اعتماد وترحيل القيد':'Finalize & post accrual';}}
+}
+
+async function prLoadRuns(){
+  const {data}=await sb.from('payroll_runs').select('*').eq('business_id',currentBiz.id).order('period_year',{ascending:false}).order('period_month',{ascending:false}).limit(36);
+  const ar=currentLang==='ar', el=document.getElementById('pr-runs-history');
+  if(!data||!data.length){el.innerHTML=`<div style="text-align:center;padding:20px;color:var(--muted);">${ar?'لا توجد عمليات بعد':'No runs yet'}</div>`;return;}
+  window._prRuns=data;
+  const sLabel={draft:ar?'مسودة':'Draft',finalized:ar?'معتمد':'Finalized',posted:ar?'مُرحّل (غير مدفوع)':'Posted (unpaid)',paid:ar?'مدفوع':'Paid',reversed:ar?'ملغى':'Reversed'};
+  el.innerHTML=`<table class="data-table"><thead><tr><th>${ar?'الفترة':'Period'}</th><th style="text-align:end;">${ar?'الإجمالي':'Gross'}</th><th style="text-align:end;">${ar?'الصافي':'Net'}</th><th style="text-align:end;">${ar?'التأمينات':'GOSI'}</th><th>${ar?'الحالة':'Status'}</th><th></th></tr></thead>
+  <tbody>${data.map(r=>{
+    const gosi=(Number(r.total_gosi_employee)||0)+(Number(r.total_gosi_employer)||0);
+    let actions='';
+    if(r.status==='posted'&&prCanManage())actions=`<button class="btn btn-primary btn-sm" onclick="prOpenPayModal('${r.id}')">${ar?'تسجيل دفع':'Record payment'}</button> <button class="btn btn-ghost btn-sm" style="color:var(--danger,#B91C1C);" onclick="prReverseRun('${r.id}')">${ar?'عكس':'Reverse'}</button>`;
+    else if(r.status==='paid'&&prCanManage())actions=`<button class="btn btn-ghost btn-sm" style="color:var(--danger,#B91C1C);" onclick="prReverseRun('${r.id}')">${ar?'عكس':'Reverse'}</button>`;
+    return `<tr><td>${r.period_year}-${String(r.period_month).padStart(2,'0')}</td><td style="text-align:end;">${fmt(r.total_gross)}</td><td style="text-align:end;">${fmt(r.total_net)}</td><td style="text-align:end;">${fmt(gosi)}</td><td><span class="badge">${sLabel[r.status]||r.status}</span></td><td style="text-align:end;white-space:nowrap;">${actions}</td></tr>`;
+  }).join('')}</tbody></table>`;
+}
+
+/* ── PAY STEP (guided) ── */
+function prOpenPayModal(runId){
+  const ar=currentLang==='ar';
+  if(!prCanManage()){notify(ar?'المالك أو المحاسب فقط':'Owner/accountant only','error');return;}
+  const run=(window._prRuns||[]).find(r=>r.id===runId); if(!run)return;
+  prPayCtx={run, staff:Number(run.total_net)||0, gosi:(Number(run.total_gosi_employee)||0)+(Number(run.total_gosi_employer)||0)};
+  document.getElementById('paypr-run-id').value=runId;
+  /* Bank account dropdown (default pre-selected) */
+  const accts=(allBankAccounts||[]).filter(a=>a.is_active!==false);
+  const sel=document.getElementById('paypr-account');
+  sel.innerHTML=accts.map(a=>`<option value="${a.id}"${a.is_default?' selected':''}>${escAttr(ar?(a.account_name_ar||a.account_name):a.account_name)} · ${fmt(parseFloat(a.current_balance)||0)}</option>`).join('');
+  document.getElementById('paypr-date').value=(typeof todayISO==='function')?todayISO():new Date().toISOString().slice(0,10);
+  document.getElementById('paypr-staff').checked=true;
+  document.getElementById('paypr-gosi').checked=true;
+  prPayRecalc();
+  const m=document.getElementById('paypr-modal'); m.classList.add('open'); m.style.display='flex';
+}
+function prClosePayModal(){const m=document.getElementById('paypr-modal');m.classList.remove('open');m.style.display='none';prPayCtx=null;}
+function prPayRecalc(){
+  if(!prPayCtx)return;
+  const staffOn=document.getElementById('paypr-staff').checked, gosiOn=document.getElementById('paypr-gosi').checked;
+  document.getElementById('paypr-staff-amt').textContent=fmt(prPayCtx.staff);
+  document.getElementById('paypr-gosi-amt').textContent=fmt(prPayCtx.gosi);
+  document.getElementById('paypr-total').textContent=fmt((staffOn?prPayCtx.staff:0)+(gosiOn?prPayCtx.gosi:0));
+}
+async function prConfirmPayment(){
+  const ar=currentLang==='ar';
+  if(!prPayCtx)return;
+  const staffOn=document.getElementById('paypr-staff').checked, gosiOn=document.getElementById('paypr-gosi').checked;
+  if(!staffOn&&!gosiOn){notify(ar?'اختر بنداً واحداً على الأقل':'Select at least one item','error');return;}
+  const acctId=document.getElementById('paypr-account').value, date=document.getElementById('paypr-date').value;
+  const acct=(allBankAccounts||[]).find(a=>a.id===acctId);
+  if(!acct){notify(ar?'اختر حساباً':'Pick an account','error');return;}
+  if(!date){notify(ar?'اختر التاريخ':'Pick a date','error');return;}
+  const btn=document.getElementById('paypr-confirm'); btn.disabled=true;
+  try{
+    const run=prPayCtx.run, pl=`${run.period_year}-${String(run.period_month).padStart(2,'0')}`;
+    /* Resolve payable codes + the credit (cash/bank) code by account_type */
+    const {data:roleData,error:roleErr}=await sb.rpc('resolve_roles_batch',{p_business_id:currentBiz.id,p_roles:['salaries_payable','gosi_payable']});
+    if(roleErr)throw roleErr;
+    const codes=Object.fromEntries((roleData||[]).map(r=>[r.role,r.resolved_code]));
+    let creditCode; try{ creditCode=(acct.account_type==='bank')?CODE.BANK:CODE.CASH; }catch(e){ throw new Error(ar?'حساب النقد/البنك غير معرّف':'Cash/Bank account not mapped'); }
+    const total=(staffOn?prPayCtx.staff:0)+(gosiOn?prPayCtx.gosi:0);
+
+    /* Journal: DR payable(s) / CR cash-bank */
+    const {data:entry,error:eErr}=await sb.from('journal_entries').insert({user_id:currentUser.id,business_id:currentBiz.id,entry_date:date,reference:'PAYROLL-PAY-'+pl,description:(ar?'دفع رواتب ':'Payroll payment ')+pl,source:'payroll_payment',source_id:run.id,status:'posted',is_balanced:true}).select().single();
+    if(eErr)throw eErr;
+    const jl=[];
+    if(staffOn)jl.push({entry_id:entry.id,user_id:currentUser.id,account_code:codes.salaries_payable,account_name:ar?'رواتب مستحقة':'Salaries Payable',debit:prPayCtx.staff,credit:0,description:ar?'دفع صافي الرواتب':'Pay net salaries'});
+    if(gosiOn)jl.push({entry_id:entry.id,user_id:currentUser.id,account_code:codes.gosi_payable,account_name:ar?'تأمينات مستحقة':'GOSI Payable',debit:prPayCtx.gosi,credit:0,description:ar?'سداد التأمينات':'Remit GOSI'});
+    jl.push({entry_id:entry.id,user_id:currentUser.id,account_code:creditCode,account_name:(acct.account_type==='bank')?(ar?'البنك':'Bank'):(ar?'الصندوق':'Cash'),debit:0,credit:total,description:(ar?'دفع رواتب ':'Payroll payment ')+pl});
+    const {error:jlErr}=await sb.from('journal_lines').insert(jl); if(jlErr)throw jlErr;
+
+    /* Bank transaction + balance update (canonical finance pattern) */
+    const newBal=(parseFloat(acct.current_balance)||0)-total;
+    const {error:txErr}=await sb.from('bank_transactions').insert({business_id:currentBiz.id,user_id:currentUser.id,account_id:acctId,transaction_type:'withdrawal',transaction_date:date,amount:total,balance_after:newBal,description:(ar?'دفع رواتب ':'Payroll payment ')+pl,source_type:'manual'});
+    if(txErr)throw txErr;
+    await sb.from('bank_accounts').update({current_balance:newBal,updated_at:new Date().toISOString()}).eq('id',acctId);
+
+    /* Mark paid only when staff salaries are settled */
+    if(staffOn)await sb.from('payroll_runs').update({status:'paid',posted_at:new Date().toISOString()}).eq('id',run.id);
+
+    notify(ar?'✅ تم تسجيل الدفع':'✅ Payment recorded','success');
+    prClosePayModal();
+    await prLoadRuns();
+    if(typeof loadBankAccounts==='function'){await loadBankAccounts(); if(typeof renderBankAccounts==='function')renderBankAccounts();}
+  }catch(e){notify((ar?'خطأ: ':'Error: ')+(e.message||e),'error');}
+  finally{const b=document.getElementById('paypr-confirm'); if(b)b.disabled=false;}
+}
+
+async function prReverseRun(runId){
+  const ar=currentLang==='ar';
+  if(!prCanManage()){notify(ar?'المالك أو المحاسب فقط':'Owner/accountant only','error');return;}
+  if(!confirm(ar?'سيتم إنشاء قيد عكسي (مع الاحتفاظ بالأصل للتدقيق). متابعة؟':'A reversing entry will be posted (original kept for audit). Continue?'))return;
+  try{
+    const {data:run,error:rErr}=await sb.from('payroll_runs').select('*').eq('id',runId).single(); if(rErr)throw rErr;
+    if(!run.journal_entry_id)throw new Error(ar?'لا يوجد قيد مرتبط':'No linked entry');
+    const {data:orig,error:oErr}=await sb.from('journal_lines').select('*').eq('entry_id',run.journal_entry_id); if(oErr)throw oErr;
+    if(!orig||!orig.length)throw new Error(ar?'لا توجد بنود':'No lines');
+    const pl=`${run.period_year}-${String(run.period_month).padStart(2,'0')}`, today=new Date().toISOString().slice(0,10);
+    const {data:rev,error:reErr}=await sb.from('journal_entries').insert({user_id:currentUser.id,business_id:currentBiz.id,entry_date:today,reference:'PAYROLL-REV-'+pl,description:(ar?'عكس رواتب ':'Reversal of payroll ')+pl,source:'payroll_reversal',source_id:run.id,status:'posted',is_balanced:true}).select().single();
+    if(reErr)throw reErr;
+    const revLines=orig.map(l=>({entry_id:rev.id,user_id:currentUser.id,account_code:l.account_code,account_name:l.account_name,debit:Number(l.credit)||0,credit:Number(l.debit)||0,description:(ar?'عكس: ':'Reversal: ')+(l.description||'')}));
+    const {error:rlErr}=await sb.from('journal_lines').insert(revLines); if(rlErr)throw rlErr;
+    await sb.from('payroll_runs').update({status:'reversed'}).eq('id',run.id);
+    notify(ar?'✅ تم عكس التشغيل':'✅ Run reversed','success');
+    await prLoadRuns();
+  }catch(e){notify((ar?'خطأ: ':'Error: ')+(e.message||e),'error');}
+}
+
+function prExportRuns(){
+  const lines=['Period,Status,Gross,Net,GOSI_Employee,GOSI_Employer'];
+  const ce=s=>'"'+String(s||'').replace(/"/g,'""')+'"';
+  (window._prRuns||[]).forEach(r=>lines.push([ce(`${r.period_year}-${String(r.period_month).padStart(2,'0')}`),ce(r.status),(Number(r.total_gross)||0).toFixed(2),(Number(r.total_net)||0).toFixed(2),(Number(r.total_gosi_employee)||0).toFixed(2),(Number(r.total_gosi_employer)||0).toFixed(2)].join(',')));
+  prDownloadCSV(lines.join('\n'),'payroll_runs.csv');
+}
+function prDownloadCSV(csv,filename){
+  const blob=new Blob(['\uFEFF'+csv],{type:'text/csv;charset=utf-8;'});
+  const url=URL.createObjectURL(blob), a=document.createElement('a');
+  a.href=url; a.download=filename; a.click(); URL.revokeObjectURL(url);
+  notify(currentLang==='ar'?'📥 تم التصدير':'📥 Exported','success');
+}
+
 
 init();
 </script>
