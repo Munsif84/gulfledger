@@ -1521,6 +1521,7 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
     <div class="pr-subtabs">
       <button class="pr-subtab active" id="prsub-employees" onclick="prSubTab('employees')" data-ar="الموظفون" data-en="Employees">الموظفون</button>
       <button class="pr-subtab" id="prsub-runs" onclick="prSubTab('runs')" data-ar="تشغيل الرواتب" data-en="Payroll Runs">تشغيل الرواتب</button>
+      <button class="pr-subtab" id="prsub-settings" onclick="prSubTab('settings')" data-ar="الإعدادات" data-en="Settings">الإعدادات</button>
     </div>
 
     <!-- SUB-PANE: Employees -->
@@ -1599,6 +1600,27 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
         <button class="btn btn-ghost btn-sm" onclick="prExportRuns()">⬇ <span data-ar="تصدير" data-en="Export">تصدير</span></button>
       </div>
       <div id="pr-runs-history" class="table-wrap" style="margin-top:10px;"><div class="gl-empty" style="padding:30px;text-align:center;color:var(--muted);">—</div></div>
+    </div>
+
+    <!-- SUB-PANE: Settings -->
+    <div id="prpane-settings" style="display:none;">
+      <div class="pr-banner" data-ar="إعدادات الرواتب: نسب التأمينات (GOSI) النظامية وحساب صرف الرواتب." data-en="Payroll configuration: statutory GOSI rates and the salary payment account.">إعدادات الرواتب: نسب التأمينات النظامية وحساب الصرف.</div>
+
+      <div class="gl-card" style="margin-bottom:16px;">
+        <div class="gl-card-hdr"><span class="gl-card-title" data-ar="نسب التأمينات الاجتماعية (GOSI)" data-en="GOSI Contribution Rates">نسب التأمينات الاجتماعية</span></div>
+        <div style="padding:0 4px 4px;">
+          <p style="font-size:12px;color:var(--muted);margin-bottom:12px;" data-ar="هذه النسب نظامية (تحددها الجهات الرسمية) وتُطبّق على الأساسي + بدل السكن فقط، بحد أقصى 45,000 ريال. للعرض فقط." data-en="These rates are statutory (set by GOSI) and apply to Basic + Housing only, capped at SAR 45,000. Shown for verification.">نسب نظامية تُطبّق على الأساسي + السكن (بحد أقصى 45,000). للعرض فقط.</p>
+          <div class="table-wrap"><div id="pr-gosi-rates-table"></div></div>
+        </div>
+      </div>
+
+      <div class="gl-card">
+        <div class="gl-card-hdr"><span class="gl-card-title" data-ar="حساب صرف الرواتب" data-en="Salary Payment Account">حساب صرف الرواتب</span></div>
+        <div style="padding:8px 4px;">
+          <p style="font-size:13px;color:var(--color-text-default);margin-bottom:6px;" id="pr-default-acct">—</p>
+          <p style="font-size:12px;color:var(--muted);" data-ar="عند تسجيل دفع الرواتب، يُختار هذا الحساب تلقائياً. لتغيير الحساب الافتراضي، استخدم تبويب البنوك." data-en="When recording a salary payment, this account is pre-selected. To change the default, use the Banks tab.">يُختار هذا الحساب تلقائياً عند الدفع. لتغييره استخدم تبويب البنوك.</p>
+        </div>
+      </div>
     </div>
   </div>
 
@@ -8504,6 +8526,11 @@ async function initPayrollPane(){
   /* Load GOSI rates + component-type presets + employees */
   try{ const {data:r}=await sb.from('gosi_rates').select('*'); prGosiRates=r||[]; }catch(_e){ prGosiRates=[]; }
   try{ const {data:ct}=await sb.from('pay_component_types').select('*').eq('is_active',true).order('display_order'); prCompTypes=ct||[]; }catch(_e){ prCompTypes=[]; }
+  /* Ensure bank accounts are loaded (the pay modal + settings need them even if
+     the Banks tab hasn't been opened yet). */
+  if(typeof loadBankAccounts==='function' && (!allBankAccounts||!allBankAccounts.length)){
+    try{ await loadBankAccounts(); }catch(_e){}
+  }
   prPopulatePeriod();
   await prLoadEmployees();
   await prLoadRuns();
@@ -8512,8 +8539,43 @@ async function initPayrollPane(){
 function prSubTab(name){
   document.getElementById('prpane-employees').style.display = name==='employees'?'':'none';
   document.getElementById('prpane-runs').style.display = name==='runs'?'':'none';
+  document.getElementById('prpane-settings').style.display = name==='settings'?'':'none';
   document.getElementById('prsub-employees').classList.toggle('active',name==='employees');
   document.getElementById('prsub-runs').classList.toggle('active',name==='runs');
+  document.getElementById('prsub-settings').classList.toggle('active',name==='settings');
+  if(name==='settings') prLoadSettings();
+}
+
+function prLoadSettings(){
+  const ar=currentLang==='ar';
+  /* GOSI rates (read-only) */
+  const el=document.getElementById('pr-gosi-rates-table');
+  if(el){
+    if(!prGosiRates.length){ el.innerHTML=`<div class="gl-empty" style="padding:20px;text-align:center;color:var(--muted);">${ar?'لا توجد نسب':'No rates'}</div>`; }
+    else{
+      const catLabel={saudi_pre2024:ar?'سعودي (قبل يوليو 2024)':'Saudi (pre-Jul 2024)',saudi_post2024:ar?'سعودي (بعد يوليو 2024)':'Saudi (post-Jul 2024)',non_saudi:ar?'غير سعودي':'Non-Saudi'};
+      el.innerHTML=`<table class="tbl"><thead><tr>
+        <th>${ar?'الفئة':'Category'}</th><th class="num">${ar?'الشركة %':'Employer %'}</th><th class="num">${ar?'الموظف %':'Employee %'}</th><th class="num">${ar?'الحد الأقصى':'Cap'}</th><th>${ar?'سارٍ من':'Effective'}</th>
+      </tr></thead><tbody>${prGosiRates.map(r=>`<tr>
+        <td>${catLabel[r.category]||r.category}</td>
+        <td class="num">${(Number(r.employer_rate)*100).toFixed(2)}%</td>
+        <td class="num">${(Number(r.employee_rate)*100).toFixed(2)}%</td>
+        <td class="num">${fmt(r.wage_cap)}</td>
+        <td>${r.effective_from||'—'}</td>
+      </tr>`).join('')}</tbody></table>`;
+    }
+  }
+  /* Default salary payment account */
+  const acctEl=document.getElementById('pr-default-acct');
+  if(acctEl){
+    const def=(allBankAccounts||[]).find(a=>a.is_default)||(allBankAccounts||[])[0];
+    if(def){
+      const nm=ar?(def.account_name_ar||def.account_name):def.account_name;
+      acctEl.innerHTML=`<strong>${escAttr(nm||'—')}</strong> · ${fmt(parseFloat(def.current_balance)||0)} SAR`;
+    } else {
+      acctEl.textContent=ar?'لا يوجد حساب بنكي. أضف حساباً من تبويب البنوك.':'No bank account. Add one in the Banks tab.';
+    }
+  }
 }
 
 /* ── GOSI ENGINE ── */
@@ -8977,8 +9039,8 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.12-r56b</div>
-<script>console.log('%c[GulfLedger build] v2026.06.12-r56 · Tax Savings hub: deterministic gap detection + AI optimization advisor (legal-only)', 'color:#006C35;font-weight:bold;');
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r57</div>
+<script>console.log('%c[GulfLedger build] v2026.06.28-r57 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
 /* ═══════════════════════════════════════════════════════
    AI BOOKKEEPER — receipt scan → prefill expense form
    Calls the ai-scan-receipt Edge Function (Claude vision).
