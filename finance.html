@@ -1525,6 +1525,28 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
 
     <!-- SUB-PANE: Employees -->
     <div id="prpane-employees">
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="label" data-ar="عدد الموظفين" data-en="Employees">عدد الموظفين</div>
+          <div class="value" id="pr-kpi-headcount">0</div>
+          <div class="sub" data-ar="نشط" data-en="active">نشط</div>
+        </div>
+        <div class="stat-card green">
+          <div class="label" data-ar="إجمالي الرواتب الشهرية" data-en="Monthly Payroll">إجمالي الرواتب الشهرية</div>
+          <div class="value" id="pr-kpi-gross">SAR 0</div>
+          <div class="sub" data-ar="إجمالي" data-en="gross">إجمالي</div>
+        </div>
+        <div class="stat-card amber">
+          <div class="label" data-ar="تأمينات الموظفين (GOSI)" data-en="Employee GOSI">تأمينات الموظفين</div>
+          <div class="value" id="pr-kpi-gosi-emp">SAR 0</div>
+          <div class="sub" data-ar="استقطاع شهري" data-en="monthly">استقطاع شهري</div>
+        </div>
+        <div class="stat-card">
+          <div class="label" data-ar="تكلفة التأمينات على الشركة" data-en="Employer GOSI">تكلفة التأمينات على الشركة</div>
+          <div class="value" id="pr-kpi-gosi-co">SAR 0</div>
+          <div class="sub" data-ar="مساهمة الشركة" data-en="company cost">مساهمة الشركة</div>
+        </div>
+      </div>
       <div class="toolbar">
         <div class="toolbar-left">
           <span style="font-size:13px;color:var(--muted);" data-ar="إدارة الموظفين ومكونات رواتبهم" data-en="Manage employees and their salary components">إدارة الموظفين ومكونات رواتبهم</span>
@@ -1540,6 +1562,28 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
     <!-- SUB-PANE: Payroll Runs -->
     <div id="prpane-runs" style="display:none;">
       <div class="pr-banner" data-ar="عند الاعتماد يُسجّل القيد المحاسبي (مدين رواتب وتأمينات، دائن مستحقات) دون تحريك النقد. عند الدفع يُسجّل خروج النقد من الحساب." data-en="Finalizing records the accrual (expense + payables), no cash moves. Recording payment moves cash out of the chosen account.">عند الاعتماد يُسجّل القيد المحاسبي دون تحريك النقد؛ وعند الدفع يخرج النقد.</div>
+      <div class="stats-row">
+        <div class="stat-card">
+          <div class="label" data-ar="آخر فترة" data-en="Latest period">آخر فترة</div>
+          <div class="value" id="pr-kpi-last-period">—</div>
+          <div class="sub" id="pr-kpi-last-status">—</div>
+        </div>
+        <div class="stat-card amber">
+          <div class="label" data-ar="مستحقات غير مدفوعة" data-en="Unpaid liability">مستحقات غير مدفوعة</div>
+          <div class="value" id="pr-kpi-unpaid">SAR 0</div>
+          <div class="sub" data-ar="رواتب + تأمينات معتمدة وغير مدفوعة" data-en="accrued, not yet paid">معتمدة وغير مدفوعة</div>
+        </div>
+        <div class="stat-card green">
+          <div class="label" data-ar="مدفوع هذا العام" data-en="Paid this year">مدفوع هذا العام</div>
+          <div class="value" id="pr-kpi-paid-ytd">SAR 0</div>
+          <div class="sub" data-ar="صافي مدفوع" data-en="net paid">صافي مدفوع</div>
+        </div>
+        <div class="stat-card">
+          <div class="label" data-ar="عدد عمليات التشغيل" data-en="Total runs">عدد عمليات التشغيل</div>
+          <div class="value" id="pr-kpi-run-count">0</div>
+          <div class="sub" data-ar="منذ البداية" data-en="all time">منذ البداية</div>
+        </div>
+      </div>
       <div class="toolbar">
         <div class="toolbar-left">
           <select class="filter-select" id="pr-run-month"></select>
@@ -8497,7 +8541,15 @@ async function prLoadEmployees(){
   prEmployees=data||[];
   const ar=currentLang==='ar';
   document.getElementById('pr-emp-add').style.display = prCanManage()?'':'none';
-  if(!prEmployees.length){el.innerHTML=`<div style="text-align:center;padding:30px;color:var(--muted);">${ar?'لا يوجد موظفون بعد':'No employees yet'}</div>`;return;}
+  /* KPIs */
+  let totGross=0,totGe=0,totGr=0;
+  prEmployees.forEach(e=>{const g=prComputeGosi(e);totGross+=prGross(e);totGe+=g.employee;totGr+=g.employer;});
+  const setK=(id,v)=>{const el=document.getElementById(id);if(el)el.textContent=v;};
+  setK('pr-kpi-headcount',prEmployees.length);
+  setK('pr-kpi-gross','SAR '+fmt(totGross));
+  setK('pr-kpi-gosi-emp','SAR '+fmt(totGe));
+  setK('pr-kpi-gosi-co','SAR '+fmt(totGr));
+  if(!prEmployees.length){el.innerHTML=`<div class="gl-empty" style="text-align:center;padding:40px;color:var(--muted);">${ar?'لا يوجد موظفون بعد. أضف أول موظف.':'No employees yet. Add your first one.'}</div>`;return;}
   el.innerHTML=`<table class="tbl"><thead><tr>
     <th>${ar?'الاسم':'Name'}</th><th>${ar?'الجنسية':'Nationality'}</th>
     <th style="text-align:end;">${ar?'الأساسي':'Basic'}</th><th style="text-align:end;">${ar?'الإجمالي':'Gross'}</th>
@@ -8701,7 +8753,25 @@ async function prFinalizeRun(){
 async function prLoadRuns(){
   const {data}=await sb.from('payroll_runs').select('*').eq('business_id',currentBiz.id).order('period_year',{ascending:false}).order('period_month',{ascending:false}).limit(36);
   const ar=currentLang==='ar', el=document.getElementById('pr-runs-history');
-  if(!data||!data.length){el.innerHTML=`<div style="text-align:center;padding:20px;color:var(--muted);">${ar?'لا توجد عمليات بعد':'No runs yet'}</div>`;return;}
+  const setK=(id,v)=>{const x=document.getElementById(id);if(x)x.textContent=v;};
+  const runs=data||[];
+  /* KPIs */
+  const sLabelShort={draft:ar?'مسودة':'Draft',finalized:ar?'معتمد':'Finalized',posted:ar?'غير مدفوع':'Unpaid',paid:ar?'مدفوع':'Paid',reversed:ar?'ملغى':'Reversed'};
+  if(runs.length){
+    const latest=runs[0];
+    setK('pr-kpi-last-period',`${latest.period_year}-${String(latest.period_month).padStart(2,'0')}`);
+    setK('pr-kpi-last-status',sLabelShort[latest.status]||latest.status);
+    const unpaid=runs.filter(r=>r.status==='posted').reduce((s,r)=>s+(Number(r.total_net)||0)+(Number(r.total_gosi_employee)||0)+(Number(r.total_gosi_employer)||0),0);
+    setK('pr-kpi-unpaid','SAR '+fmt(unpaid));
+    const thisYear=new Date().getFullYear();
+    const paidYtd=runs.filter(r=>r.status==='paid'&&r.period_year===thisYear).reduce((s,r)=>s+(Number(r.total_net)||0),0);
+    setK('pr-kpi-paid-ytd','SAR '+fmt(paidYtd));
+    setK('pr-kpi-run-count',runs.length);
+  } else {
+    ['pr-kpi-last-period','pr-kpi-last-status'].forEach(id=>setK(id,'—'));
+    setK('pr-kpi-unpaid','SAR 0'); setK('pr-kpi-paid-ytd','SAR 0'); setK('pr-kpi-run-count','0');
+  }
+  if(!runs.length){el.innerHTML=`<div class="gl-empty" style="text-align:center;padding:30px;color:var(--muted);">${ar?'لا توجد عمليات تشغيل بعد':'No payroll runs yet'}</div>`;return;}
   window._prRuns=data;
   const sLabel={draft:ar?'مسودة':'Draft',finalized:ar?'معتمد':'Finalized',posted:ar?'مُرحّل (غير مدفوع)':'Posted (unpaid)',paid:ar?'مدفوع':'Paid',reversed:ar?'ملغى':'Reversed'};
   el.innerHTML=`<table class="tbl"><thead><tr><th>${ar?'الفترة':'Period'}</th><th style="text-align:end;">${ar?'الإجمالي':'Gross'}</th><th style="text-align:end;">${ar?'الصافي':'Net'}</th><th style="text-align:end;">${ar?'التأمينات':'GOSI'}</th><th>${ar?'الحالة':'Status'}</th><th></th></tr></thead>
