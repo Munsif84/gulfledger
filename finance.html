@@ -1525,30 +1525,36 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
 
     <!-- SUB-PANE: Employees -->
     <div id="prpane-employees">
-      <div class="pr-section-head">
-        <div style="font-size:13px;color:var(--muted);" data-ar="الموظفون ومكونات رواتبهم" data-en="Employees and their salary components">الموظفون ومكونات رواتبهم</div>
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <span style="font-size:13px;color:var(--muted);" data-ar="إدارة الموظفين ومكونات رواتبهم" data-en="Manage employees and their salary components">إدارة الموظفين ومكونات رواتبهم</span>
+        </div>
         <div style="display:flex;gap:8px;">
-          <button class="btn btn-secondary btn-sm" onclick="prExportEmployees()" data-ar="تصدير CSV" data-en="Export CSV">تصدير CSV</button>
-          <button class="btn btn-primary btn-sm" id="pr-emp-add" onclick="prOpenEmployee()" data-ar="+ موظف" data-en="+ Employee">+ موظف</button>
+          <button class="btn btn-ghost btn-sm" onclick="prExportEmployees()">⬇ <span data-ar="تصدير" data-en="Export">تصدير</span></button>
+          <button class="btn btn-primary" id="pr-emp-add" onclick="prOpenEmployee()">+ <span data-ar="موظف جديد" data-en="New Employee">موظف جديد</span></button>
         </div>
       </div>
-      <div id="pr-employees-list"><div style="text-align:center;padding:30px;color:var(--muted);">—</div></div>
+      <div id="pr-employees-list" class="table-wrap"><div class="gl-empty" style="padding:40px;text-align:center;color:var(--muted);">—</div></div>
     </div>
 
     <!-- SUB-PANE: Payroll Runs -->
     <div id="prpane-runs" style="display:none;">
       <div class="pr-banner" data-ar="عند الاعتماد يُسجّل القيد المحاسبي (مدين رواتب وتأمينات، دائن مستحقات) دون تحريك النقد. عند الدفع يُسجّل خروج النقد من الحساب." data-en="Finalizing records the accrual (expense + payables), no cash moves. Recording payment moves cash out of the chosen account.">عند الاعتماد يُسجّل القيد المحاسبي دون تحريك النقد؛ وعند الدفع يخرج النقد.</div>
-      <div style="display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:16px;">
-        <div class="field"><label class="field-label" data-ar="الشهر" data-en="Month">الشهر</label><select class="filter-select" id="pr-run-month"></select></div>
-        <div class="field"><label class="field-label" data-ar="السنة" data-en="Year">السنة</label><select class="filter-select" id="pr-run-year"></select></div>
-        <button class="btn btn-primary btn-sm" onclick="prPrepareRun()" data-ar="تجهيز التشغيل" data-en="Prepare Run">تجهيز التشغيل</button>
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <select class="filter-select" id="pr-run-month"></select>
+          <select class="filter-select" id="pr-run-year"></select>
+          <button class="btn btn-primary" onclick="prPrepareRun()" data-ar="تجهيز التشغيل" data-en="Prepare Run">تجهيز التشغيل</button>
+        </div>
       </div>
       <div id="pr-run-area"></div>
-      <div style="margin-top:24px;display:flex;justify-content:space-between;align-items:center;">
-        <h3 style="font-size:15px;font-weight:700;" data-ar="سجل الرواتب" data-en="Salary history">سجل الرواتب</h3>
-        <button class="btn btn-secondary btn-sm" onclick="prExportRuns()" data-ar="تصدير CSV" data-en="Export CSV">تصدير CSV</button>
+      <div class="toolbar" style="margin-top:24px;">
+        <div class="toolbar-left">
+          <h3 style="font-size:15px;font-weight:700;color:var(--ink);margin:0;" data-ar="سجل الرواتب" data-en="Salary history">سجل الرواتب</h3>
+        </div>
+        <button class="btn btn-ghost btn-sm" onclick="prExportRuns()">⬇ <span data-ar="تصدير" data-en="Export">تصدير</span></button>
       </div>
-      <div id="pr-runs-history" style="margin-top:10px;"><div style="text-align:center;padding:20px;color:var(--muted);">—</div></div>
+      <div id="pr-runs-history" class="table-wrap" style="margin-top:10px;"><div class="gl-empty" style="padding:30px;text-align:center;color:var(--muted);">—</div></div>
     </div>
   </div>
 
@@ -8481,7 +8487,7 @@ function prComputeGosi(emp){
   return {category:cat,base,employee:+(base*Number(rate.employee_rate)).toFixed(2),employer:+(base*Number(rate.employer_rate)).toFixed(2)};
 }
 function prGross(e){return (Number(e.basic_salary)||0)+(Number(e.housing_allowance)||0)+(Number(e.transport_allowance)||0)+(Number(e.other_allowance)||0);}
-function prCanManage(){return currentBiz && (currentBiz.role==='owner'||currentBiz.role==='accountant');}
+function prCanManage(){const r=currentBiz&&(currentBiz._myRole||currentBiz.role);return r==='owner'||r==='accountant';}
 
 /* ── EMPLOYEES ── */
 async function prLoadEmployees(){
@@ -8526,9 +8532,8 @@ function prOpenEmployee(id){
     document.getElementById('emp-modal-title').textContent=currentLang==='ar'?'موظف جديد':'New Employee';
   }
   document.getElementById('emp-modal').classList.add('open');
-  document.getElementById('emp-modal').style.display='flex';
 }
-function prCloseEmployee(){const m=document.getElementById('emp-modal');m.classList.remove('open');m.style.display='none';}
+function prCloseEmployee(){document.getElementById('emp-modal').classList.remove('open');}
 async function prSaveEmployee(){
   const ar=currentLang==='ar', v=id=>document.getElementById(id).value;
   const nameAr=v('emp-name-ar').trim(), nameEn=v('emp-name-en').trim();
@@ -8724,9 +8729,9 @@ function prOpenPayModal(runId){
   document.getElementById('paypr-staff').checked=true;
   document.getElementById('paypr-gosi').checked=true;
   prPayRecalc();
-  const m=document.getElementById('paypr-modal'); m.classList.add('open'); m.style.display='flex';
+  document.getElementById('paypr-modal').classList.add('open');
 }
-function prClosePayModal(){const m=document.getElementById('paypr-modal');m.classList.remove('open');m.style.display='none';prPayCtx=null;}
+function prClosePayModal(){document.getElementById('paypr-modal').classList.remove('open');prPayCtx=null;}
 function prPayRecalc(){
   if(!prPayCtx)return;
   const staffOn=document.getElementById('paypr-staff').checked, gosiOn=document.getElementById('paypr-gosi').checked;
