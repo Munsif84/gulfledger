@@ -1604,21 +1604,30 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
 
     <!-- SUB-PANE: Settings -->
     <div id="prpane-settings" style="display:none;">
-      <div class="pr-banner" data-ar="إعدادات الرواتب: نسب التأمينات (GOSI) النظامية وحساب صرف الرواتب." data-en="Payroll configuration: statutory GOSI rates and the salary payment account.">إعدادات الرواتب: نسب التأمينات النظامية وحساب الصرف.</div>
+      <div class="pr-banner" data-ar="إعدادات الرواتب: نسب التأمينات وتفضيلات الرواتب." data-en="Payroll configuration: GOSI rates and payroll preferences.">إعدادات الرواتب: نسب التأمينات وتفضيلات الرواتب.</div>
 
       <div class="gl-card" style="margin-bottom:16px;">
         <div class="gl-card-hdr"><span class="gl-card-title" data-ar="نسب التأمينات الاجتماعية (GOSI)" data-en="GOSI Contribution Rates">نسب التأمينات الاجتماعية</span></div>
         <div style="padding:0 4px 4px;">
-          <p style="font-size:12px;color:var(--muted);margin-bottom:12px;" data-ar="هذه النسب نظامية (تحددها الجهات الرسمية) وتُطبّق على الأساسي + بدل السكن فقط، بحد أقصى 45,000 ريال. للعرض فقط." data-en="These rates are statutory (set by GOSI) and apply to Basic + Housing only, capped at SAR 45,000. Shown for verification.">نسب نظامية تُطبّق على الأساسي + السكن (بحد أقصى 45,000). للعرض فقط.</p>
+          <p style="font-size:12px;color:var(--muted);margin-bottom:12px;" data-ar="النسب الافتراضية نظامية وتُطبّق على الأساسي + السكن (بحد أقصى 45,000). يمكنك تجاوزها لمنشأتك فقط على مسؤوليتك." data-en="Default rates are statutory, applied to Basic + Housing (capped 45,000). You may override them for your business only, at your own responsibility.">النسب الافتراضية نظامية. يمكن تجاوزها لمنشأتك على مسؤوليتك.</p>
           <div class="table-wrap"><div id="pr-gosi-rates-table"></div></div>
         </div>
       </div>
 
       <div class="gl-card">
-        <div class="gl-card-hdr"><span class="gl-card-title" data-ar="حساب صرف الرواتب" data-en="Salary Payment Account">حساب صرف الرواتب</span></div>
-        <div style="padding:8px 4px;">
-          <p style="font-size:13px;color:var(--color-text-default);margin-bottom:6px;" id="pr-default-acct">—</p>
-          <p style="font-size:12px;color:var(--muted);" data-ar="عند تسجيل دفع الرواتب، يُختار هذا الحساب تلقائياً. لتغيير الحساب الافتراضي، استخدم تبويب البنوك." data-en="When recording a salary payment, this account is pre-selected. To change the default, use the Banks tab.">يُختار هذا الحساب تلقائياً عند الدفع. لتغييره استخدم تبويب البنوك.</p>
+        <div class="gl-card-hdr"><span class="gl-card-title" data-ar="تفضيلات الرواتب" data-en="Payroll Preferences">تفضيلات الرواتب</span></div>
+        <div style="padding:10px 4px;">
+          <div class="field-row double">
+            <div class="field"><label class="field-label" data-ar="يوم صرف الراتب" data-en="Salary pay day">يوم صرف الراتب</label><input type="number" id="pr-set-payday" min="1" max="28" step="1"></div>
+            <div class="field"><label class="field-label" data-ar="نسبة بدل السكن الافتراضية %" data-en="Default housing %">نسبة بدل السكن %</label><input type="number" id="pr-set-housing" min="0" max="100" step="1"></div>
+          </div>
+          <div class="field-row double">
+            <div class="field"><label class="field-label" data-ar="معامل العمل الإضافي" data-en="Overtime multiplier">معامل العمل الإضافي</label><input type="number" id="pr-set-ot" min="1" max="3" step="0.05"></div>
+            <div class="field"><label class="field-label" data-ar="حساب صرف الرواتب" data-en="Salary payment account">حساب صرف الرواتب</label><select id="pr-set-bank"></select></div>
+          </div>
+          <div style="display:flex;justify-content:flex-end;margin-top:8px;">
+            <button class="btn btn-primary btn-sm" id="pr-set-save" onclick="prSaveSettings()" data-ar="حفظ التفضيلات" data-en="Save preferences">حفظ التفضيلات</button>
+          </div>
         </div>
       </div>
     </div>
@@ -8520,12 +8529,16 @@ function escAttr(s){return String(s||'').replace(/"/g,'&quot;');}
    Record payment moves cash out of a chosen bank/cash account; Reverse posts
    an audit-safe mirror entry. GOSI computed from gosi_rates (data, not code).
    ════════════════════════════════════════════════════════════════════════ */
-let prEmployees=[], prGosiRates=[], prPrepared=null, prPayCtx=null, _prLoaded=false, prCompTypes=[], prAdjust={};
+let prEmployees=[], prGosiRates=[], prPrepared=null, prPayCtx=null, _prLoaded=false, prCompTypes=[], prAdjust={}, prOverrides={}, prSettings=null;
 
 async function initPayrollPane(){
   /* Load GOSI rates + component-type presets + employees */
   try{ const {data:r}=await sb.from('gosi_rates').select('*'); prGosiRates=r||[]; }catch(_e){ prGosiRates=[]; }
   try{ const {data:ct}=await sb.from('pay_component_types').select('*').eq('is_active',true).order('display_order'); prCompTypes=ct||[]; }catch(_e){ prCompTypes=[]; }
+  /* Per-business GOSI overrides (category -> row) */
+  try{ const {data:ov}=await sb.from('business_gosi_overrides').select('*').eq('business_id',currentBiz.id); prOverrides={}; (ov||[]).forEach(o=>prOverrides[o.category]=o); }catch(_e){ prOverrides={}; }
+  /* Payroll preferences */
+  try{ const {data:ps}=await sb.from('payroll_settings').select('*').eq('business_id',currentBiz.id).maybeSingle(); prSettings=ps||null; }catch(_e){ prSettings=null; }
   /* Ensure bank accounts are loaded (the pay modal + settings need them even if
      the Banks tab hasn't been opened yet). */
   if(typeof loadBankAccounts==='function' && (!allBankAccounts||!allBankAccounts.length)){
@@ -8548,34 +8561,87 @@ function prSubTab(name){
 
 function prLoadSettings(){
   const ar=currentLang==='ar';
-  /* GOSI rates (read-only) */
   const el=document.getElementById('pr-gosi-rates-table');
   if(el){
     if(!prGosiRates.length){ el.innerHTML=`<div class="gl-empty" style="padding:20px;text-align:center;color:var(--muted);">${ar?'لا توجد نسب':'No rates'}</div>`; }
     else{
       const catLabel={saudi_pre2024:ar?'سعودي (قبل يوليو 2024)':'Saudi (pre-Jul 2024)',saudi_post2024:ar?'سعودي (بعد يوليو 2024)':'Saudi (post-Jul 2024)',non_saudi:ar?'غير سعودي':'Non-Saudi'};
+      const canEdit=prCanManage();
       el.innerHTML=`<table class="tbl"><thead><tr>
-        <th>${ar?'الفئة':'Category'}</th><th class="num">${ar?'الشركة %':'Employer %'}</th><th class="num">${ar?'الموظف %':'Employee %'}</th><th class="num">${ar?'الحد الأقصى':'Cap'}</th><th>${ar?'سارٍ من':'Effective'}</th>
-      </tr></thead><tbody>${prGosiRates.map(r=>`<tr>
-        <td>${catLabel[r.category]||r.category}</td>
-        <td class="num">${(Number(r.employer_rate)*100).toFixed(2)}%</td>
-        <td class="num">${(Number(r.employee_rate)*100).toFixed(2)}%</td>
-        <td class="num">${fmt(r.wage_cap)}</td>
-        <td>${r.effective_from||'—'}</td>
-      </tr>`).join('')}</tbody></table>`;
+        <th>${ar?'الفئة':'Category'}</th><th class="num">${ar?'الشركة %':'Employer %'}</th><th class="num">${ar?'الموظف %':'Employee %'}</th><th class="num">${ar?'الحد الأقصى':'Cap'}</th><th>${ar?'المصدر':'Source'}</th>${canEdit?'<th></th>':''}
+      </tr></thead><tbody>${prGosiRates.map(r=>{
+        const ov=prOverrides[r.category];
+        const eff=ov||r;
+        const isOv=!!ov;
+        return `<tr>
+          <td>${catLabel[r.category]||r.category}</td>
+          <td class="num">${(Number(eff.employer_rate)*100).toFixed(2)}%</td>
+          <td class="num">${(Number(eff.employee_rate)*100).toFixed(2)}%</td>
+          <td class="num">${fmt(eff.wage_cap)}</td>
+          <td>${isOv?`<span class="pill warn" style="background:var(--color-status-warning-bg);color:var(--color-status-warning);font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;">${ar?'مخصّص':'Custom'}</span>`:`<span style="font-size:11px;color:var(--muted);">${ar?'نظامي':'Statutory'}</span>`}</td>
+          ${canEdit?`<td class="num">${isOv?`<button class="btn btn-ghost btn-sm" onclick="prResetGosi('${r.category}')">${ar?'استعادة':'Reset'}</button>`:''}<button class="btn btn-ghost btn-sm" onclick="prOverrideGosi('${r.category}')">${ar?'تجاوز':'Override'}</button></td>`:''}
+        </tr>`;
+      }).join('')}</tbody></table>`;
     }
   }
-  /* Default salary payment account */
-  const acctEl=document.getElementById('pr-default-acct');
-  if(acctEl){
-    const def=(allBankAccounts||[]).find(a=>a.is_default)||(allBankAccounts||[])[0];
-    if(def){
-      const nm=ar?(def.account_name_ar||def.account_name):def.account_name;
-      acctEl.innerHTML=`<strong>${escAttr(nm||'—')}</strong> · ${fmt(parseFloat(def.current_balance)||0)} SAR`;
-    } else {
-      acctEl.textContent=ar?'لا يوجد حساب بنكي. أضف حساباً من تبويب البنوك.':'No bank account. Add one in the Banks tab.';
-    }
+  /* Preferences */
+  const s=prSettings||{};
+  const setV=(id,v)=>{const x=document.getElementById(id);if(x&&v!=null)x.value=v;};
+  setV('pr-set-payday', s.pay_day!=null?s.pay_day:28);
+  setV('pr-set-housing', s.default_housing_pct!=null?s.default_housing_pct:25);
+  setV('pr-set-ot', s.overtime_multiplier!=null?s.overtime_multiplier:1.5);
+  const bankSel=document.getElementById('pr-set-bank');
+  if(bankSel){
+    const accts=(allBankAccounts||[]).filter(a=>a.is_active!==false);
+    const chosen=s.default_bank_account_id||(accts.find(a=>a.is_default)||{}).id;
+    bankSel.innerHTML=accts.map(a=>`<option value="${a.id}"${a.id===chosen?' selected':''}>${escAttr(ar?(a.account_name_ar||a.account_name):a.account_name)}</option>`).join('');
   }
+  const saveBtn=document.getElementById('pr-set-save'); if(saveBtn) saveBtn.style.display=prCanManage()?'':'none';
+}
+
+async function prOverrideGosi(category){
+  const ar=currentLang==='ar';
+  if(!prCanManage())return;
+  const base=prOverrides[category]||prGosiRates.find(r=>r.category===category)||{employer_rate:0,employee_rate:0,wage_cap:45000};
+  const erp=prompt(ar?'نسبة الشركة % (مثال 12.75):':'Employer % (e.g. 12.75):',(Number(base.employer_rate)*100).toFixed(2));
+  if(erp===null)return;
+  const eep=prompt(ar?'نسبة الموظف % (مثال 9.75):':'Employee % (e.g. 9.75):',(Number(base.employee_rate)*100).toFixed(2));
+  if(eep===null)return;
+  if(!confirm(ar?'⚠️ بتجاوز النسب النظامية تتحمل منشأتك مسؤولية صحتها أمام التأمينات. متابعة؟':'⚠️ Overriding statutory rates makes your business responsible for GOSI accuracy. Continue?'))return;
+  const payload={business_id:currentBiz.id,category,employer_rate:(parseFloat(erp)||0)/100,employee_rate:(parseFloat(eep)||0)/100,wage_cap:Number(base.wage_cap)||45000,updated_at:new Date().toISOString()};
+  const {error}=await sb.from('business_gosi_overrides').upsert(payload,{onConflict:'business_id,category'});
+  if(error){notify(error.message,'error');return;}
+  prOverrides[category]=payload;
+  notify(ar?'✅ تم حفظ التجاوز':'✅ Override saved','success');
+  prLoadSettings(); prLoadEmployees();
+}
+async function prResetGosi(category){
+  const ar=currentLang==='ar';
+  if(!prCanManage())return;
+  if(!confirm(ar?'استعادة النسبة النظامية لهذه الفئة؟':'Reset to the statutory rate for this category?'))return;
+  const {error}=await sb.from('business_gosi_overrides').delete().eq('business_id',currentBiz.id).eq('category',category);
+  if(error){notify(error.message,'error');return;}
+  delete prOverrides[category];
+  notify(ar?'✅ تمت الاستعادة':'✅ Reset to statutory','success');
+  prLoadSettings(); prLoadEmployees();
+}
+async function prSaveSettings(){
+  const ar=currentLang==='ar';
+  if(!prCanManage()){notify(ar?'المالك أو المحاسب فقط':'Owner/accountant only','error');return;}
+  const payload={
+    business_id:currentBiz.id,
+    pay_day:Math.min(28,Math.max(1,parseInt(document.getElementById('pr-set-payday').value)||28)),
+    default_housing_pct:parseFloat(document.getElementById('pr-set-housing').value)||0,
+    overtime_multiplier:parseFloat(document.getElementById('pr-set-ot').value)||1.5,
+    default_bank_account_id:document.getElementById('pr-set-bank').value||null,
+    updated_at:new Date().toISOString()
+  };
+  const btn=document.getElementById('pr-set-save'); btn.disabled=true;
+  const {error}=await sb.from('payroll_settings').upsert(payload,{onConflict:'business_id'});
+  btn.disabled=false;
+  if(error){notify(error.message,'error');return;}
+  prSettings=payload;
+  notify(ar?'✅ تم حفظ التفضيلات':'✅ Preferences saved','success');
 }
 
 /* ── GOSI ENGINE ── */
@@ -8586,7 +8652,7 @@ function prGosiCategory(emp){
 }
 function prComputeGosi(emp){
   const cat=prGosiCategory(emp);
-  const rate=prGosiRates.find(r=>r.category===cat);
+  const rate=prOverrides[cat] || prGosiRates.find(r=>r.category===cat);
   const base0=(Number(emp.basic_salary)||0)+(Number(emp.housing_allowance)||0);
   if(!rate) return {category:cat,base:base0,employee:0,employer:0,missing:true};
   const cap=Number(rate.wage_cap)||45000, base=Math.min(base0,cap);
@@ -9039,8 +9105,8 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r57</div>
-<script>console.log('%c[GulfLedger build] v2026.06.28-r57 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r58</div>
+<script>console.log('%c[GulfLedger build] v2026.06.28-r58 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
 /* ═══════════════════════════════════════════════════════
    AI BOOKKEEPER — receipt scan → prefill expense form
    Calls the ai-scan-receipt Edge Function (Claude vision).
