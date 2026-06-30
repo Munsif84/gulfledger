@@ -2915,17 +2915,19 @@ async function loadAll(){
 async function gatePayrollTab(){
   const tab = document.getElementById('tab-payroll');
   if(!tab) return;
-  let enabled = false;
+  /* FAIL OPEN: payroll shows by default. We hide it ONLY when the business has
+     a payroll_settings row that EXPLICITLY sets payroll_enabled = false. If the
+     settings table/column doesn't exist yet, there's no row, or the query errors,
+     we leave the tab visible — payroll must never silently disappear. */
+  let explicitlyDisabled = false;
   try {
-    const {data} = await sb.from('payroll_settings').select('payroll_enabled').eq('business_id', currentBiz.id).maybeSingle();
-    enabled = !!(data && data.payroll_enabled);
-  } catch(_e){ enabled = false; }
-  /* Plan gate: payroll is a Professional feature */
-  const planKey = (currentBiz.plan || 'starter').toLowerCase();
-  const planOk = planKey === 'professional' || planKey === 'pro';
-  tab.style.display = (enabled && planOk) ? '' : 'none';
-  /* If currently on the payroll tab but it's now disabled, fall back to expenses */
-  if((!enabled || !planOk) && currentTab === 'payroll'){ switchTab('expenses'); }
+    const {data, error} = await sb.from('payroll_settings').select('payroll_enabled').eq('business_id', currentBiz.id).maybeSingle();
+    /* Only treat as disabled if we got a real row whose flag is exactly false. */
+    if(!error && data && data.payroll_enabled === false) explicitlyDisabled = true;
+  } catch(_e){ explicitlyDisabled = false; }
+  tab.style.display = explicitlyDisabled ? 'none' : '';
+  /* If they turned it off while sitting on the tab, fall back to expenses. */
+  if(explicitlyDisabled && currentTab === 'payroll'){ switchTab('expenses'); }
 }
 
 async function loadExpenses(){
@@ -9252,8 +9254,8 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r59</div>
-<script>console.log('%c[GulfLedger build] v2026.06.28-r59 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r60</div>
+<script>console.log('%c[GulfLedger build] v2026.06.28-r60 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
 /* ═══════════════════════════════════════════════════════
    AI BOOKKEEPER — receipt scan → prefill expense form
    Calls the ai-scan-receipt Edge Function (Claude vision).
