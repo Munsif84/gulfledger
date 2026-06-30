@@ -22,7 +22,7 @@
     { ar:'لوحة التحكم',        en:'Dashboard',            kw:'home dash لوحة الرئيسية',          icon:'i-chart',      href:'dashboard.html',  group:'nav' },
     { ar:'المبيعات والفواتير', en:'Sales & Invoices',     kw:'invoices sales فواتير مبيعات',     icon:'i-invoice',    href:'invoices.html',   group:'nav' },
     { ar:'المحاسبة',           en:'Accounting',           kw:'ledger journal gl محاسبة دفتر قيود', icon:'i-ledger',   href:'accounting.html', group:'nav' },
-    { ar:'المالية والمصاريف',  en:'Finance & Expenses',   kw:'expenses bills مصاريف مالية payroll salaries رواتب',      icon:'i-cash',       href:'finance.html',    group:'nav' },
+    { ar:'المالية والمصاريف',  en:'Finance & Expenses',   kw:'expenses bills مصاريف مالية',      icon:'i-cash',       href:'finance.html',    group:'nav' },
     { ar:'المخزون',            en:'Inventory',            kw:'stock products مخزون منتجات',      icon:'i-package',    href:'inventory.html',  group:'nav' },
     { ar:'المشتريات',          en:'Purchasing',           kw:'suppliers po مشتريات موردين',      icon:'i-factory',    href:'purchasing.html', group:'nav' },
     { ar:'التقارير',           en:'Reports',              kw:'reports pl balance تقارير قوائم',   icon:'i-trend-up',   href:'reports.html',    group:'nav' },
@@ -248,18 +248,59 @@
   else glIdentityBoot();
 
   /* ── Listbar progressive filters ──────────────────────────────────
-     For every .toolbar: keep search + the FIRST .filter-select inline;
-     move remaining .filter-select elements and any [data-lb="more"]
-     items into a "فلاتر" popover. [data-lb="link"] items become popover
-     footer links. Badge shows count of active (non-empty) filters. */
+     For every .toolbar:
+       1. Each select.filter-select gets an active-state highlight + an
+          inline ✕ clear mark whenever it holds a non-default value. Clicking
+          ✕ resets that ONE filter to its first option and re-renders.
+       2. Search + the FIRST filter stay inline; remaining filters collapse
+          into a "Filters" popover with a count badge (space-saving on dense
+          toolbars). The ✕ clear marks work inline AND inside the popover.
+       3. [data-lb="link"] items become popover footer links. */
+
+  /* Wrap a select so we can overlay a ✕ clear button when it's active.
+     "Active" = the select's value is not its first <option> (the default). */
+  function glDecorateFilter(sel){
+    if(sel.dataset.glClearWired) return;
+    sel.dataset.glClearWired = '1';
+    var defaultVal = sel.options.length ? sel.options[0].value : '';
+    sel.dataset.glDefault = defaultVal;
+    /* Wrap select in a relative container so the ✕ can sit inside it */
+    var holder = document.createElement('span');
+    holder.className = 'gl-filter-holder';
+    sel.parentNode.insertBefore(holder, sel);
+    holder.appendChild(sel);
+    var clr = document.createElement('button');
+    clr.type = 'button';
+    clr.className = 'gl-filter-clear';
+    clr.setAttribute('aria-label', lang()==='ar' ? 'مسح الفلتر' : 'Clear filter');
+    clr.innerHTML = '✕';
+    holder.appendChild(clr);
+    function sync(){
+      var active = sel.value !== sel.dataset.glDefault;
+      sel.classList.toggle('is-active', active);
+      clr.style.display = active ? '' : 'none';
+    }
+    clr.addEventListener('click', function(e){
+      e.stopPropagation();
+      sel.value = sel.dataset.glDefault;
+      sel.dispatchEvent(new Event('change', {bubbles:true}));
+      sync();
+    });
+    sel.addEventListener('change', sync);
+    sync();
+  }
+
   function glListbar(){
     var ar = lang() === 'ar';
     document.querySelectorAll('.toolbar').forEach(function(tb){
+      /* Decorate every filter-select with a clear ✕ (idempotent) */
+      Array.prototype.slice.call(tb.querySelectorAll('select.filter-select')).forEach(glDecorateFilter);
       if(tb.dataset.lbDone) return;
       var sels = Array.prototype.slice.call(tb.querySelectorAll('select.filter-select'));
       var extras = Array.prototype.slice.call(tb.querySelectorAll('[data-lb="more"]'));
       var links = Array.prototype.slice.call(tb.querySelectorAll('[data-lb="link"]'));
-      var movers = sels.slice(1).concat(extras);
+      /* Move the HOLDERS (select + its ✕), not the bare selects */
+      var movers = sels.slice(1).map(function(s){ return s.closest('.gl-filter-holder') || s; }).concat(extras);
       if(!movers.length && !links.length) return;
       tb.dataset.lbDone = '1';
 
@@ -283,14 +324,15 @@
       }
       wrap.appendChild(btn); wrap.appendChild(pop);
 
-      var anchor = sels.length ? sels[0] : tb.querySelector('.search-wrap');
+      var anchor = sels.length ? (sels[0].closest('.gl-filter-holder') || sels[0]) : tb.querySelector('.search-wrap');
       if(anchor && anchor.parentNode === tb) tb.insertBefore(wrap, anchor.nextSibling);
       else tb.insertBefore(wrap, tb.children[1] || null);
 
       function badge(){
         var n = 0;
         movers.forEach(function(el){
-          if(el.tagName === 'SELECT' && el.value) n++;
+          var s = el.tagName === 'SELECT' ? el : el.querySelector && el.querySelector('select');
+          if(s && s.value && s.value !== (s.dataset.glDefault||'')) n++;
         });
         var b = btn.querySelector('.lb-badge');
         b.textContent = n;
@@ -311,156 +353,4 @@
   function glListbarBoot(){ glListbar(); setTimeout(glListbar, 800); setTimeout(glListbar, 2500); }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', glListbarBoot);
   else glListbarBoot();
-
-  /* ── Global trial banner ──────────────────────────────────────────
-     A slim, full-width strip pinned at the very top of every page that
-     reminds trialing users how long they have left and gives them a
-     one-click path to subscribe. Moderate tone: calm early, firmer in
-     the last 2 days, clear (but never blocking) once ended.
-
-     Reads the page global currentBiz (same pattern as glIdentityBoot).
-     Hides entirely for paid/active accounts. Dismissible per session so
-     it doesn't re-nag mid-task, but returns next session. Self-contained
-     styles using design-system tokens. */
-  function glTrialStage(biz){
-    if(!biz) return null;
-    var status = (biz.plan_status || '').toLowerCase();
-    /* On a real paid plan → no trial messaging at all. */
-    if(status === 'active' || status === 'paid' || status === 'subscribed') return null;
-    if(!biz.trial_ends_at) return null;
-    var ends = new Date(biz.trial_ends_at);
-    var ms = ends - new Date();
-    var days = Math.ceil(ms / 86400000);
-    if(ms <= 0) return { stage:'ended', days:0 };
-    if(days <= 2) return { stage:'late', days:days };
-    return { stage:'early', days:days };
-  }
-
-  function glTrialCopy(info, ar){
-    var d = info.days;
-    if(info.stage === 'ended'){
-      return {
-        text: ar ? 'انتهت فترتك التجريبية المجانية' : 'Your free trial has ended',
-        cta:  ar ? 'اشترك للمتابعة' : 'Subscribe to continue'
-      };
-    }
-    if(info.stage === 'late'){
-      var dayWordAr = (d === 1) ? 'يوم واحد' : 'يومان';
-      return {
-        text: ar ? ('يتبقّى ' + dayWordAr + ' في فترتك التجريبية') : (d + ' day' + (d===1?'':'s') + ' left in your trial'),
-        cta:  ar ? 'اشترك الآن' : 'Subscribe now'
-      };
-    }
-    /* early */
-    return {
-      text: ar ? ('فترة تجريبية مجانية · يتبقّى ' + d + ' أيام') : ('Free trial · ' + d + ' days left'),
-      cta:  ar ? 'عرض الباقات' : 'View plans'
-    };
-  }
-
-  function glInjectTrialStyles(){
-    if(document.getElementById('gl-trial-style')) return;
-    var s = document.createElement('style');
-    s.id = 'gl-trial-style';
-    s.textContent =
-      '.gl-trial-strip{position:sticky;top:0;z-index:1200;display:flex;align-items:center;justify-content:center;gap:14px;'
-      + 'padding:8px 16px;font-family:var(--font-sans);font-size:var(--text-sm);line-height:1.3;'
-      + 'background:var(--color-primary-soft);color:var(--color-text-strong);border-bottom:1px solid var(--color-border);}'
-      + '.gl-trial-strip .gl-trial-msg{font-weight:600;}'
-      + '.gl-trial-strip .gl-trial-cta{display:inline-flex;align-items:center;gap:6px;background:var(--color-primary);color:var(--color-text-on-primary);'
-      + 'text-decoration:none;font-weight:700;font-size:var(--text-sm);padding:5px 14px;border-radius:999px;white-space:nowrap;transition:background var(--motion-fast);}'
-      + '.gl-trial-strip .gl-trial-cta:hover{background:var(--color-primary-hover);}'
-      + '.gl-trial-strip .gl-trial-x{background:none;border:none;color:var(--color-text-muted);font-size:16px;line-height:1;cursor:pointer;padding:2px 6px;border-radius:6px;}'
-      + '.gl-trial-strip .gl-trial-x:hover{background:rgba(0,0,0,0.06);color:var(--color-text-default);}'
-      + '.gl-trial-strip.is-late{background:var(--color-status-warning-bg);border-bottom-color:var(--color-status-warning);}'
-      + '.gl-trial-strip.is-ended{background:var(--color-status-danger-bg);border-bottom-color:var(--color-status-danger);}'
-      + '@media(max-width:520px){.gl-trial-strip{font-size:var(--text-xs);gap:10px;padding:7px 12px;}.gl-trial-strip .gl-trial-cta{padding:4px 11px;}}';
-    document.head.appendChild(s);
-  }
-
-  function glRenderTrial(biz){
-    var info = glTrialStage(biz);
-    var existing = document.getElementById('gl-trial-strip');
-    if(!info){ if(existing) existing.remove(); return; }
-
-    /* Per-session dismissal — but the "ended" state is important enough that we
-       still show it each session (it just won't re-appear within the session). */
-    var dismissKey = 'gl_trial_dismissed_' + info.stage;
-    try { if(sessionStorage.getItem(dismissKey)) { if(existing) existing.remove(); return; } } catch(_e){}
-
-    var ar = lang() === 'ar';
-    var copy = glTrialCopy(info, ar);
-    glInjectTrialStyles();
-
-    var strip = existing || document.createElement('div');
-    strip.id = 'gl-trial-strip';
-    strip.className = 'gl-trial-strip' + (info.stage === 'late' ? ' is-late' : info.stage === 'ended' ? ' is-ended' : '');
-    strip.setAttribute('role','status');
-    strip.innerHTML =
-        '<span class="gl-trial-msg">' + copy.text + '</span>'
-      + '<a class="gl-trial-cta" href="/plans.html">' + copy.cta + '</a>'
-      + '<button class="gl-trial-x" aria-label="' + (ar?'إغلاق':'Dismiss') + '">&times;</button>';
-
-    if(!existing){
-      /* Pin above everything — insert as the first element in <body>. */
-      if(document.body) document.body.insertBefore(strip, document.body.firstChild);
-    }
-    strip.querySelector('.gl-trial-x').onclick = function(){
-      try { sessionStorage.setItem(dismissKey, '1'); } catch(_e){}
-      strip.remove();
-    };
-  }
-
-  function glTrialBoot(){
-    var tries = 0;
-    var t = setInterval(function(){
-      tries++;
-      var biz = (typeof currentBiz !== 'undefined') ? currentBiz : null;
-      if(biz){
-        glRenderTrial(biz);
-        clearInterval(t);
-      } else if(tries > 40){ clearInterval(t); }
-    }, 250);
-  }
-  window.glRefreshTrialBanner = function(){ try { var b = (typeof currentBiz!=='undefined')?currentBiz:null; if(b) glRenderTrial(b); } catch(_e){} };
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', glTrialBoot);
-  else glTrialBoot();
-
-  /* ── Subscription entry in the profile dropdown ───────────────────
-     A permanent, always-available door to plans/billing — so users can
-     reach subscription options even after dismissing the trial banner.
-     Injected into every page's .profile-dropdown right after Settings,
-     mirroring the existing .profile-item markup. */
-  function glAddSubscriptionItem(){
-    var dd = document.getElementById('profile-dropdown') || document.querySelector('.profile-dropdown');
-    if(!dd) return false;
-    if(dd.querySelector('.profile-item-subscription')) return true; /* already added */
-
-    var ar = lang() === 'ar';
-    var a = document.createElement('a');
-    a.href = 'plans.html';
-    a.className = 'profile-item profile-item-subscription';
-    a.setAttribute('role','menuitem');
-    a.innerHTML =
-        '<span class="profile-icon" style="display:inline-flex;align-items:center;justify-content:center;font-size:15px;">💳</span>'
-      + '<span data-ar="الاشتراك والباقات" data-en="Subscription & Plans">' + (ar ? 'الاشتراك والباقات' : 'Subscription & Plans') + '</span>';
-
-    /* Insert right after the Settings link if present, else at the top. */
-    var settingsLink = dd.querySelector('a.profile-item[href="settings.html"]');
-    if(settingsLink && settingsLink.nextSibling){
-      dd.insertBefore(a, settingsLink.nextSibling);
-    } else if(settingsLink){
-      settingsLink.parentNode.appendChild(a);
-    } else {
-      dd.insertBefore(a, dd.firstChild);
-    }
-    return true;
-  }
-  function glSubItemBoot(){
-    if(glAddSubscriptionItem()) return;
-    /* dropdown may mount slightly late — retry a few times */
-    var n = 0, t = setInterval(function(){ n++; if(glAddSubscriptionItem() || n > 20) clearInterval(t); }, 250);
-  }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', glSubItemBoot);
-  else glSubItemBoot();
 })();
