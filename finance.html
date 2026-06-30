@@ -1521,7 +1521,7 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
     <div class="pr-subtabs">
       <button class="pr-subtab active" id="prsub-employees" onclick="prSubTab('employees')" data-ar="الموظفون" data-en="Employees">الموظفون</button>
       <button class="pr-subtab" id="prsub-runs" onclick="prSubTab('runs')" data-ar="تشغيل الرواتب" data-en="Payroll Runs">تشغيل الرواتب</button>
-      <button class="pr-subtab" id="prsub-settings" onclick="prSubTab('settings')" data-ar="الإعدادات" data-en="Settings">الإعدادات</button>
+      <button class="pr-subtab" id="prsub-eosb" onclick="prSubTab('eosb')" data-ar="نهاية الخدمة" data-en="End of Service">نهاية الخدمة</button>
     </div>
 
     <!-- SUB-PANE: Employees -->
@@ -1602,32 +1602,43 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
       <div id="pr-runs-history" class="table-wrap" style="margin-top:10px;"><div class="gl-empty" style="padding:30px;text-align:center;color:var(--muted);">—</div></div>
     </div>
 
-    <!-- SUB-PANE: Settings -->
-    <div id="prpane-settings" style="display:none;">
-      <div class="pr-banner" data-ar="إعدادات الرواتب: نسب التأمينات وتفضيلات الرواتب." data-en="Payroll configuration: GOSI rates and payroll preferences.">إعدادات الرواتب: نسب التأمينات وتفضيلات الرواتب.</div>
+    <!-- SUB-PANE: End of Service (EOSB) -->
+    <div id="prpane-eosb" style="display:none;">
+      <div class="pr-banner" id="eosb-banner" data-ar="مكافأة نهاية الخدمة: تكوين مخصّص شهري + حاسبة التسوية النهائية. فعّل الاحتساب من الإعدادات." data-en="End-of-service: monthly provision accrual + final settlement calculator. Enable accrual in Settings.">مكافأة نهاية الخدمة: مخصّص شهري + حاسبة التسوية. فعّل من الإعدادات.</div>
 
-      <div class="gl-card" style="margin-bottom:16px;">
-        <div class="gl-card-hdr"><span class="gl-card-title" data-ar="نسب التأمينات الاجتماعية (GOSI)" data-en="GOSI Contribution Rates">نسب التأمينات الاجتماعية</span></div>
-        <div style="padding:0 4px 4px;">
-          <p style="font-size:12px;color:var(--muted);margin-bottom:12px;" data-ar="النسب الافتراضية نظامية وتُطبّق على الأساسي + السكن (بحد أقصى 45,000). يمكنك تجاوزها لمنشأتك فقط على مسؤوليتك." data-en="Default rates are statutory, applied to Basic + Housing (capped 45,000). You may override them for your business only, at your own responsibility.">النسب الافتراضية نظامية. يمكن تجاوزها لمنشأتك على مسؤوليتك.</p>
-          <div class="table-wrap"><div id="pr-gosi-rates-table"></div></div>
-        </div>
+      <!-- Monthly accrual -->
+      <div class="stats-row" style="margin-bottom:14px;">
+        <div class="stat-card"><div class="label" data-ar="إجمالي المخصص الحالي" data-en="Current provision">إجمالي المخصص الحالي</div><div class="value" id="eosb-kpi-provision">SAR 0</div><div class="sub" data-ar="رصيد الالتزام" data-en="liability balance">رصيد الالتزام</div></div>
+        <div class="stat-card"><div class="label" data-ar="مخصص هذا الشهر" data-en="This month accrual">مخصص هذا الشهر</div><div class="value" id="eosb-kpi-month">SAR 0</div><div class="sub" data-ar="تقديري" data-en="estimated">تقديري</div></div>
+        <div class="stat-card"><div class="label" data-ar="عدد الموظفين" data-en="Employees">عدد الموظفين</div><div class="value" id="eosb-kpi-count">0</div><div class="sub" data-ar="مشمولون" data-en="covered">مشمولون</div></div>
+        <div class="stat-card"><div class="label" data-ar="آخر احتساب" data-en="Last accrual">آخر احتساب</div><div class="value" id="eosb-kpi-last" style="font-size:15px;">—</div><div class="sub" data-ar="فترة" data-en="period">فترة</div></div>
       </div>
 
-      <div class="gl-card">
-        <div class="gl-card-hdr"><span class="gl-card-title" data-ar="تفضيلات الرواتب" data-en="Payroll Preferences">تفضيلات الرواتب</span></div>
+      <div class="toolbar">
+        <div class="toolbar-left"><span style="font-size:13px;color:var(--muted);" data-ar="احتساب مخصص نهاية الخدمة للفترة الحالية" data-en="Accrue the end-of-service provision for the current period">احتساب مخصص نهاية الخدمة للفترة الحالية</span></div>
+        <button class="btn btn-primary" id="eosb-accrue-btn" onclick="eosbPrepareAccrual()" data-ar="احتساب المخصص" data-en="Accrue provision">احتساب المخصص</button>
+      </div>
+      <div id="eosb-accrual-area"></div>
+
+      <!-- Settlement calculator -->
+      <div class="gl-card" style="margin-top:22px;">
+        <div class="gl-card-hdr"><span class="gl-card-title" data-ar="حاسبة التسوية النهائية" data-en="Final Settlement Calculator">حاسبة التسوية النهائية</span></div>
         <div style="padding:10px 4px;">
           <div class="field-row double">
-            <div class="field"><label class="field-label" data-ar="يوم صرف الراتب" data-en="Salary pay day">يوم صرف الراتب</label><input type="number" id="pr-set-payday" min="1" max="28" step="1"></div>
-            <div class="field"><label class="field-label" data-ar="نسبة بدل السكن الافتراضية %" data-en="Default housing %">نسبة بدل السكن %</label><input type="number" id="pr-set-housing" min="0" max="100" step="1"></div>
+            <div class="field"><label class="field-label" data-ar="الموظف" data-en="Employee">الموظف</label><select id="eosb-emp" onchange="eosbCalcSettlement()"></select></div>
+            <div class="field"><label class="field-label" data-ar="سبب انتهاء العلاقة" data-en="Reason for leaving">سبب انتهاء العلاقة</label>
+              <select id="eosb-reason" onchange="eosbCalcSettlement()">
+                <option value="termination" data-ar="إنهاء من صاحب العمل" data-en="Employer termination">إنهاء من صاحب العمل</option>
+                <option value="resignation" data-ar="استقالة" data-en="Resignation">استقالة</option>
+                <option value="end_contract" data-ar="انتهاء العقد" data-en="Contract end">انتهاء العقد</option>
+              </select>
+            </div>
           </div>
           <div class="field-row double">
-            <div class="field"><label class="field-label" data-ar="معامل العمل الإضافي" data-en="Overtime multiplier">معامل العمل الإضافي</label><input type="number" id="pr-set-ot" min="1" max="3" step="0.05"></div>
-            <div class="field"><label class="field-label" data-ar="حساب صرف الرواتب" data-en="Salary payment account">حساب صرف الرواتب</label><select id="pr-set-bank"></select></div>
+            <div class="field"><label class="field-label" data-ar="تاريخ انتهاء الخدمة" data-en="Last working day">تاريخ انتهاء الخدمة</label><input type="date" id="eosb-end-date" onchange="eosbCalcSettlement()"></div>
+            <div class="field"></div>
           </div>
-          <div style="display:flex;justify-content:flex-end;margin-top:8px;">
-            <button class="btn btn-primary btn-sm" id="pr-set-save" onclick="prSaveSettings()" data-ar="حفظ التفضيلات" data-en="Save preferences">حفظ التفضيلات</button>
-          </div>
+          <div id="eosb-settlement-result" style="margin-top:8px;"></div>
         </div>
       </div>
     </div>
@@ -2896,6 +2907,25 @@ async function loadAll(){
   computeStats();
   renderExpenses();
   renderVendors();
+  gatePayrollTab();
+}
+
+/* Show the Salaries & Payroll tab only if the business enabled the module in
+   Settings (and is on a plan that allows it). Otherwise hide the tab entirely. */
+async function gatePayrollTab(){
+  const tab = document.getElementById('tab-payroll');
+  if(!tab) return;
+  let enabled = false;
+  try {
+    const {data} = await sb.from('payroll_settings').select('payroll_enabled').eq('business_id', currentBiz.id).maybeSingle();
+    enabled = !!(data && data.payroll_enabled);
+  } catch(_e){ enabled = false; }
+  /* Plan gate: payroll is a Professional feature */
+  const planKey = (currentBiz.plan || 'starter').toLowerCase();
+  const planOk = planKey === 'professional' || planKey === 'pro';
+  tab.style.display = (enabled && planOk) ? '' : 'none';
+  /* If currently on the payroll tab but it's now disabled, fall back to expenses */
+  if((!enabled || !planOk) && currentTab === 'payroll'){ switchTab('expenses'); }
 }
 
 async function loadExpenses(){
@@ -8552,96 +8582,213 @@ async function initPayrollPane(){
 function prSubTab(name){
   document.getElementById('prpane-employees').style.display = name==='employees'?'':'none';
   document.getElementById('prpane-runs').style.display = name==='runs'?'':'none';
-  document.getElementById('prpane-settings').style.display = name==='settings'?'':'none';
+  document.getElementById('prpane-eosb').style.display = name==='eosb'?'':'none';
   document.getElementById('prsub-employees').classList.toggle('active',name==='employees');
   document.getElementById('prsub-runs').classList.toggle('active',name==='runs');
-  document.getElementById('prsub-settings').classList.toggle('active',name==='settings');
-  if(name==='settings') prLoadSettings();
+  document.getElementById('prsub-eosb').classList.toggle('active',name==='eosb');
+  if(name==='eosb') eosbLoad();
 }
 
-function prLoadSettings(){
-  const ar=currentLang==='ar';
-  const el=document.getElementById('pr-gosi-rates-table');
-  if(el){
-    if(!prGosiRates.length){ el.innerHTML=`<div class="gl-empty" style="padding:20px;text-align:center;color:var(--muted);">${ar?'لا توجد نسب':'No rates'}</div>`; }
-    else{
-      const catLabel={saudi_pre2024:ar?'سعودي (قبل يوليو 2024)':'Saudi (pre-Jul 2024)',saudi_post2024:ar?'سعودي (بعد يوليو 2024)':'Saudi (post-Jul 2024)',non_saudi:ar?'غير سعودي':'Non-Saudi'};
-      const canEdit=prCanManage();
-      el.innerHTML=`<table class="tbl"><thead><tr>
-        <th>${ar?'الفئة':'Category'}</th><th class="num">${ar?'الشركة %':'Employer %'}</th><th class="num">${ar?'الموظف %':'Employee %'}</th><th class="num">${ar?'الحد الأقصى':'Cap'}</th><th>${ar?'المصدر':'Source'}</th>${canEdit?'<th></th>':''}
-      </tr></thead><tbody>${prGosiRates.map(r=>{
-        const ov=prOverrides[r.category];
-        const eff=ov||r;
-        const isOv=!!ov;
-        return `<tr>
-          <td>${catLabel[r.category]||r.category}</td>
-          <td class="num">${(Number(eff.employer_rate)*100).toFixed(2)}%</td>
-          <td class="num">${(Number(eff.employee_rate)*100).toFixed(2)}%</td>
-          <td class="num">${fmt(eff.wage_cap)}</td>
-          <td>${isOv?`<span class="pill warn" style="background:var(--color-status-warning-bg);color:var(--color-status-warning);font-size:11px;font-weight:700;padding:2px 8px;border-radius:999px;">${ar?'مخصّص':'Custom'}</span>`:`<span style="font-size:11px;color:var(--muted);">${ar?'نظامي':'Statutory'}</span>`}</td>
-          ${canEdit?`<td class="num">${isOv?`<button class="btn btn-ghost btn-sm" onclick="prResetGosi('${r.category}')">${ar?'استعادة':'Reset'}</button>`:''}<button class="btn btn-ghost btn-sm" onclick="prOverrideGosi('${r.category}')">${ar?'تجاوز':'Override'}</button></td>`:''}
-        </tr>`;
-      }).join('')}</tbody></table>`;
-    }
-  }
-  /* Preferences */
-  const s=prSettings||{};
-  const setV=(id,v)=>{const x=document.getElementById(id);if(x&&v!=null)x.value=v;};
-  setV('pr-set-payday', s.pay_day!=null?s.pay_day:28);
-  setV('pr-set-housing', s.default_housing_pct!=null?s.default_housing_pct:25);
-  setV('pr-set-ot', s.overtime_multiplier!=null?s.overtime_multiplier:1.5);
-  const bankSel=document.getElementById('pr-set-bank');
-  if(bankSel){
-    const accts=(allBankAccounts||[]).filter(a=>a.is_active!==false);
-    const chosen=s.default_bank_account_id||(accts.find(a=>a.is_default)||{}).id;
-    bankSel.innerHTML=accts.map(a=>`<option value="${a.id}"${a.id===chosen?' selected':''}>${escAttr(ar?(a.account_name_ar||a.account_name):a.account_name)}</option>`).join('');
-  }
-  const saveBtn=document.getElementById('pr-set-save'); if(saveBtn) saveBtn.style.display=prCanManage()?'':'none';
+/* ═══════════════════════════════════════════════════════
+   EOSB ENGINE (End-of-Service Benefits, Saudi Labor Law Art. 84/85)
+   ─────────────────────────────────────────────────────────
+   - Wage base: basic + fixed allowances (per eosb_base setting), or basic only
+   - Accrual: monthly provision = (annual EOSB entitlement at current tenure) / 12,
+     computed marginally so the rate steps from ½-month to full-month at year 5.
+   - Settlement: full Art.84 entitlement × Art.85 resignation tier.
+═══════════════════════════════════════════════════════ */
+let _eosbAccruals = [];
+
+/* Wage base for EOSB. basic + fixed allowances (housing/transport/other recurring),
+   or basic only, per the eosb_base setting saved in payroll_settings. */
+function eosbBaseWage(emp){
+  const base = Number(emp.basic_salary)||0;
+  const mode = (prSettings && prSettings.eosb_base) || 'basic_plus_fixed';
+  if(mode === 'basic_only') return base;
+  const housing = Number(emp.housing_allowance)||0;
+  const transport = Number(emp.transport_allowance)||0;
+  const other = Number(emp.other_allowance)||0;  /* treated as fixed */
+  return base + housing + transport + other;
 }
 
-async function prOverrideGosi(category){
-  const ar=currentLang==='ar';
-  if(!prCanManage())return;
-  const base=prOverrides[category]||prGosiRates.find(r=>r.category===category)||{employer_rate:0,employee_rate:0,wage_cap:45000};
-  const erp=prompt(ar?'نسبة الشركة % (مثال 12.75):':'Employer % (e.g. 12.75):',(Number(base.employer_rate)*100).toFixed(2));
-  if(erp===null)return;
-  const eep=prompt(ar?'نسبة الموظف % (مثال 9.75):':'Employee % (e.g. 9.75):',(Number(base.employee_rate)*100).toFixed(2));
-  if(eep===null)return;
-  if(!confirm(ar?'⚠️ بتجاوز النسب النظامية تتحمل منشأتك مسؤولية صحتها أمام التأمينات. متابعة؟':'⚠️ Overriding statutory rates makes your business responsible for GOSI accuracy. Continue?'))return;
-  const payload={business_id:currentBiz.id,category,employer_rate:(parseFloat(erp)||0)/100,employee_rate:(parseFloat(eep)||0)/100,wage_cap:Number(base.wage_cap)||45000,updated_at:new Date().toISOString()};
-  const {error}=await sb.from('business_gosi_overrides').upsert(payload,{onConflict:'business_id,category'});
-  if(error){notify(error.message,'error');return;}
-  prOverrides[category]=payload;
-  notify(ar?'✅ تم حفظ التجاوز':'✅ Override saved','success');
-  prLoadSettings(); prLoadEmployees();
+/* Years of continuous service (decimal) from hire date to a given end date. */
+function eosbYears(emp, endDate){
+  if(!emp.hire_date) return 0;
+  const h = new Date(emp.hire_date), e = endDate? new Date(endDate) : new Date();
+  if(isNaN(h) || e < h) return 0;
+  return (e - h) / (365.25*24*3600*1000);
 }
-async function prResetGosi(category){
-  const ar=currentLang==='ar';
-  if(!prCanManage())return;
-  if(!confirm(ar?'استعادة النسبة النظامية لهذه الفئة؟':'Reset to the statutory rate for this category?'))return;
-  const {error}=await sb.from('business_gosi_overrides').delete().eq('business_id',currentBiz.id).eq('category',category);
-  if(error){notify(error.message,'error');return;}
-  delete prOverrides[category];
-  notify(ar?'✅ تمت الاستعادة':'✅ Reset to statutory','success');
-  prLoadSettings(); prLoadEmployees();
+
+/* Full Article-84 entitlement (in SAR) for a given tenure & wage, BEFORE the
+   Article-85 resignation reduction. ½-month per year for first 5, 1 month after. */
+function eosbFullEntitlement(wage, years){
+  const half = Math.min(years, 5) * 0.5;
+  const full = Math.max(years - 5, 0) * 1.0;
+  return wage * (half + full);   /* months × monthly wage */
 }
-async function prSaveSettings(){
+
+/* Article-85 resignation multiplier by tenure. Termination/contract-end = full. */
+function eosbReasonFactor(reason, years){
+  if(reason === 'resignation'){
+    if(years < 2) return 0;
+    if(years < 5) return 1/3;
+    if(years < 10) return 2/3;
+    return 1;
+  }
+  return 1; /* termination, end_contract → full */
+}
+
+/* The marginal monthly accrual for an employee at their CURRENT tenure:
+   the provision should grow by (this year's entitlement)/12 each month. At <5y
+   that's ½-month/12; at ≥5y it's 1-month/12. Uses full Art.84 (no Art.85 — the
+   provision is built assuming full liability; resignation reductions apply only
+   at actual settlement). */
+function eosbMonthlyAccrual(emp){
+  const wage = eosbBaseWage(emp);
+  const years = eosbYears(emp, null);
+  const monthlyRate = years >= 5 ? (wage*1.0/12) : (wage*0.5/12);
+  return { wage, years, amount: +monthlyRate.toFixed(2) };
+}
+
+async function eosbLoad(){
+  const ar = currentLang==='ar';
+  /* Gate on the eosb_enabled setting */
+  const enabled = !!(prSettings && prSettings.eosb_enabled);
+  const banner = document.getElementById('eosb-banner');
+  const accrueBtn = document.getElementById('eosb-accrue-btn');
+  if(accrueBtn) accrueBtn.style.display = (enabled && prCanManage()) ? '' : 'none';
+  if(banner && !enabled){
+    banner.textContent = ar ? 'احتساب نهاية الخدمة غير مُفعّل. فعّله من الإعدادات ← الرواتب.' : 'EOSB accrual is disabled. Enable it in Settings → Payroll.';
+  }
+  /* Load prior accruals */
+  try{ const {data}=await sb.from('eosb_accruals').select('*').eq('business_id',currentBiz.id).order('period_year',{ascending:false}).order('period_month',{ascending:false}); _eosbAccruals=data||[]; }catch(_e){ _eosbAccruals=[]; }
+  /* KPIs */
+  const provision = _eosbAccruals.filter(a=>a.status==='posted').reduce((s,a)=>s+(Number(a.total_amount)||0),0);
+  let monthEst=0, covered=0;
+  (prEmployees||[]).forEach(e=>{ if(e.hire_date){ covered++; monthEst += eosbMonthlyAccrual(e).amount; } });
+  const setK=(id,val)=>{const x=document.getElementById(id);if(x)x.textContent=val;};
+  setK('eosb-kpi-provision','SAR '+fmt(provision));
+  setK('eosb-kpi-month','SAR '+fmt(monthEst));
+  setK('eosb-kpi-count',covered);
+  const last=_eosbAccruals[0];
+  setK('eosb-kpi-last', last?`${last.period_year}-${String(last.period_month).padStart(2,'0')}`:'—');
+  /* Settlement employee dropdown */
+  const sel=document.getElementById('eosb-emp');
+  if(sel){
+    sel.innerHTML = `<option value="">${ar?'— اختر موظفاً —':'— Select employee —'}</option>` +
+      (prEmployees||[]).map(e=>`<option value="${e.id}">${escAttr(e.full_name||e.name||'—')}</option>`).join('');
+  }
+  document.getElementById('eosb-accrual-area').innerHTML='';
+  document.getElementById('eosb-settlement-result').innerHTML='';
+  /* Default settlement end date = today */
+  const ed=document.getElementById('eosb-end-date'); if(ed && !ed.value) ed.value=new Date().toISOString().slice(0,10);
+}
+
+/* Preview + post the monthly EOSB accrual for the current period. */
+async function eosbPrepareAccrual(){
+  const ar = currentLang==='ar';
+  if(!prCanManage()){ notify(ar?'المالك أو المحاسب فقط':'Owner/accountant only','error'); return; }
+  if(!(prSettings && prSettings.eosb_enabled)){ notify(ar?'فعّل احتساب نهاية الخدمة من الإعدادات':'Enable EOSB in Settings','error'); return; }
+  const now=new Date(), py=now.getFullYear(), pm=now.getMonth()+1;
+  if(_eosbAccruals.some(a=>a.period_year===py&&a.period_month===pm&&a.status==='posted')){
+    notify(ar?'تم احتساب هذه الفترة مسبقاً':'This period is already accrued','error'); return;
+  }
+  const lines=(prEmployees||[]).filter(e=>e.hire_date).map(e=>{ const m=eosbMonthlyAccrual(e); return {emp:e, ...m}; }).filter(l=>l.amount>0);
+  if(!lines.length){ notify(ar?'لا يوجد موظفون مؤهلون':'No eligible employees','error'); return; }
+  const total=lines.reduce((s,l)=>s+l.amount,0);
+  /* Preview table */
+  const area=document.getElementById('eosb-accrual-area');
+  area.innerHTML=`<div class="table-wrap" style="margin-top:12px;"><table class="tbl"><thead><tr>
+    <th>${ar?'الموظف':'Employee'}</th><th class="num">${ar?'وعاء الأجر':'Wage base'}</th><th class="num">${ar?'سنوات الخدمة':'Years'}</th><th class="num">${ar?'مخصص الشهر':'Monthly accrual'}</th>
+  </tr></thead><tbody>${lines.map(l=>`<tr>
+    <td>${escAttr(l.emp.full_name||l.emp.name||'—')}</td>
+    <td class="num">${fmt(l.wage)}</td>
+    <td class="num">${l.years.toFixed(2)}</td>
+    <td class="num">${fmt(l.amount)}</td>
+  </tr>`).join('')}<tr style="font-weight:700;border-top:2px solid var(--border);">
+    <td colspan="3">${ar?'الإجمالي':'Total'}</td><td class="num">${fmt(total)}</td>
+  </tr></tbody></table></div>
+  <div style="display:flex;justify-content:flex-end;margin-top:12px;">
+    <button class="btn btn-primary" onclick="eosbPostAccrual()" data-ar="اعتماد وترحيل المخصص" data-en="Confirm & post provision">اعتماد وترحيل المخصص</button>
+  </div>`;
+  window._eosbPending={py,pm,lines,total};
+}
+
+/* Post the previewed accrual: ledger entry (DR EOSB expense / CR EOSB payable)
+   + eosb_accruals + lines. Audit-safe (never edited; reversible like payroll). */
+async function eosbPostAccrual(){
+  const ar=currentLang==='ar'; const p=window._eosbPending;
+  if(!p){ return; }
+  /* Resolve EOSB roles */
+  let expCode, payCode;
+  try{
+    const {data}=await sb.rpc('resolve_roles_batch',{p_business_id:currentBiz.id,p_roles:['eosb_expense','eosb_payable']});
+    (data||[]).forEach(r=>{ if(r.role==='eosb_expense')expCode=r.resolved_code; if(r.role==='eosb_payable')payCode=r.resolved_code; });
+  }catch(_e){}
+  expCode=expCode||'5420'; payCode=payCode||'2320';
+  const entryDate=new Date(p.py, p.pm-1, Math.min(28,(prSettings&&prSettings.pay_day)||28)).toISOString().slice(0,10);
+  /* Journal entry */
+  const {data:je,error:jeErr}=await sb.from('journal_entries').insert({
+    business_id:currentBiz.id, user_id:currentUser.id, entry_date:entryDate,
+    reference:`EOSB-${p.py}-${String(p.pm).padStart(2,'0')}`,
+    description:ar?`مخصص نهاية الخدمة ${p.py}-${String(p.pm).padStart(2,'0')}`:`EOSB provision ${p.py}-${String(p.pm).padStart(2,'0')}`,
+    is_balanced:true, source:'eosb_accrual', status:'posted'
+  }).select().single();
+  if(jeErr){ notify(jeErr.message,'error'); return; }
+  const lines=[
+    {entry_id:je.id, account_code:expCode, account_name:'EOSB Expense', debit:p.total, credit:0, user_id:currentUser.id, narration:'EOSB monthly provision'},
+    {entry_id:je.id, account_code:payCode, account_name:'EOSB Provision', debit:0, credit:p.total, user_id:currentUser.id, narration:'EOSB monthly provision'}
+  ];
+  const {error:jlErr}=await sb.from('journal_lines').insert(lines);
+  if(jlErr){ notify(jlErr.message,'error'); return; }
+  /* Accrual record + lines */
+  const {data:acc,error:accErr}=await sb.from('eosb_accruals').insert({
+    business_id:currentBiz.id, period_year:p.py, period_month:p.pm, status:'posted',
+    total_amount:p.total, journal_entry_id:je.id
+  }).select().single();
+  if(accErr){ notify(accErr.message,'error'); return; }
+  const accLines=p.lines.map(l=>({accrual_id:acc.id, employee_id:l.emp.id, eosb_base_wage:l.wage, months_accrued:1, amount:l.amount}));
+  await sb.from('eosb_accrual_lines').insert(accLines);
+  notify(ar?'✅ تم ترحيل مخصص نهاية الخدمة':'✅ EOSB provision posted','success');
+  window._eosbPending=null;
+  await eosbLoad();
+}
+
+/* Settlement calculator — display only (computes final entitlement). */
+function eosbCalcSettlement(){
   const ar=currentLang==='ar';
-  if(!prCanManage()){notify(ar?'المالك أو المحاسب فقط':'Owner/accountant only','error');return;}
-  const payload={
-    business_id:currentBiz.id,
-    pay_day:Math.min(28,Math.max(1,parseInt(document.getElementById('pr-set-payday').value)||28)),
-    default_housing_pct:parseFloat(document.getElementById('pr-set-housing').value)||0,
-    overtime_multiplier:parseFloat(document.getElementById('pr-set-ot').value)||1.5,
-    default_bank_account_id:document.getElementById('pr-set-bank').value||null,
-    updated_at:new Date().toISOString()
-  };
-  const btn=document.getElementById('pr-set-save'); btn.disabled=true;
-  const {error}=await sb.from('payroll_settings').upsert(payload,{onConflict:'business_id'});
-  btn.disabled=false;
-  if(error){notify(error.message,'error');return;}
-  prSettings=payload;
-  notify(ar?'✅ تم حفظ التفضيلات':'✅ Preferences saved','success');
+  const empId=document.getElementById('eosb-emp').value;
+  const reason=document.getElementById('eosb-reason').value;
+  const endDate=document.getElementById('eosb-end-date').value;
+  const out=document.getElementById('eosb-settlement-result');
+  if(!empId){ out.innerHTML=''; return; }
+  const emp=(prEmployees||[]).find(e=>e.id===empId);
+  if(!emp){ out.innerHTML=''; return; }
+  const wage=eosbBaseWage(emp);
+  const years=eosbYears(emp, endDate);
+  const full=eosbFullEntitlement(wage, years);
+  const factor=eosbReasonFactor(reason, years);
+  const payable=+(full*factor).toFixed(2);
+  const reasonLabel={termination:ar?'إنهاء من صاحب العمل':'Employer termination',resignation:ar?'استقالة':'Resignation',end_contract:ar?'انتهاء العقد':'Contract end'}[reason];
+  let factorNote='';
+  if(reason==='resignation'){
+    if(years<2) factorNote=ar?'أقل من سنتين: لا تستحق مكافأة':'< 2 years: no entitlement';
+    else if(years<5) factorNote=ar?'2–5 سنوات: ثلث المكافأة':'2–5 years: one-third';
+    else if(years<10) factorNote=ar?'5–10 سنوات: ثلثا المكافأة':'5–10 years: two-thirds';
+    else factorNote=ar?'10 سنوات فأكثر: المكافأة كاملة':'10+ years: full';
+  } else {
+    factorNote=ar?'المكافأة كاملة':'Full entitlement';
+  }
+  out.innerHTML=`<div class="gl-card" style="background:var(--color-bg-subtle);border:none;">
+    <div style="padding:12px 14px;">
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);"><span style="color:var(--muted);font-size:12px;">${ar?'وعاء الأجر (شهري)':'Wage base (monthly)'}</span><strong>${fmt(wage)} SAR</strong></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);"><span style="color:var(--muted);font-size:12px;">${ar?'سنوات الخدمة':'Years of service'}</span><strong>${years.toFixed(2)}</strong></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);"><span style="color:var(--muted);font-size:12px;">${ar?'الاستحقاق الكامل (مادة 84)':'Full entitlement (Art. 84)'}</span><strong>${fmt(full)} SAR</strong></div>
+      <div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);"><span style="color:var(--muted);font-size:12px;">${reasonLabel} (${ar?'مادة 85':'Art. 85'})</span><strong>${factorNote}</strong></div>
+      <div style="display:flex;justify-content:space-between;padding:9px 0 2px;font-size:16px;"><span style="font-weight:700;">${ar?'المبلغ المستحق':'Settlement payable'}</span><strong style="color:var(--color-primary);">${fmt(payable)} SAR</strong></div>
+    </div>
+  </div>
+  <p style="font-size:11px;color:var(--muted);margin-top:8px;">${ar?'تقدير استرشادي. التسوية النهائية قد تشمل رصيد الإجازات ومستحقات أخرى. يُخصم المبلغ من المخصص المُكوّن عند الدفع الفعلي.':'Indicative estimate. Final settlement may include leave balance and other dues. The amount draws down the accrued provision when actually paid.'}</p>`;
 }
 
 /* ── GOSI ENGINE ── */
@@ -9105,8 +9252,8 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r58</div>
-<script>console.log('%c[GulfLedger build] v2026.06.28-r58 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r59</div>
+<script>console.log('%c[GulfLedger build] v2026.06.28-r59 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
 /* ═══════════════════════════════════════════════════════
    AI BOOKKEEPER — receipt scan → prefill expense form
    Calls the ai-scan-receipt Edge Function (Claude vision).
