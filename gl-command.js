@@ -290,11 +290,46 @@
     sync();
   }
 
+  /* Pill groups (.filter-group > .filter-btn[data-filter]): treat the FIRST
+     pill (usually data-filter="all") as the default. When a non-default pill is
+     active, show a ✕ on the group that returns to the default pill. */
+  function glDecoratePills(grp){
+    if(grp.dataset.glClearWired) return;
+    var pills = Array.prototype.slice.call(grp.querySelectorAll('.filter-btn'));
+    if(pills.length < 2) return;
+    grp.dataset.glClearWired = '1';
+    var def = pills[0];
+    var clr = document.createElement('button');
+    clr.type = 'button';
+    clr.className = 'gl-filter-clear gl-pills-clear';
+    clr.setAttribute('aria-label', lang()==='ar' ? 'مسح الفلتر' : 'Clear filter');
+    clr.innerHTML = '✕';
+    grp.style.position = 'relative';
+    grp.appendChild(clr);
+    function sync(){
+      var active = grp.querySelector('.filter-btn.active');
+      var isDefault = !active || active === def;
+      grp.classList.toggle('has-active', !isDefault);
+      clr.style.display = isDefault ? 'none' : '';
+    }
+    clr.addEventListener('click', function(e){
+      e.stopPropagation();
+      def.click();   /* re-run the page's own handler for the default pill */
+      setTimeout(sync, 0);
+    });
+    pills.forEach(function(p){ p.addEventListener('click', function(){ setTimeout(sync, 0); }); });
+    sync();
+  }
+
   function glListbar(){
     var ar = lang() === 'ar';
-    document.querySelectorAll('.toolbar').forEach(function(tb){
-      /* Decorate every filter-select with a clear ✕ (idempotent) */
+    /* Scan the standard .toolbar AND report-specific toolbars so the one filter
+       design reaches every page (reports uses .db-toolbar / .report-toolbar). */
+    document.querySelectorAll('.toolbar, .db-toolbar, .report-toolbar').forEach(function(tb){
+      /* Decorate dropdown filters with a clear ✕ (idempotent) */
       Array.prototype.slice.call(tb.querySelectorAll('select.filter-select')).forEach(glDecorateFilter);
+      /* Decorate pill groups with a group-level clear ✕ */
+      Array.prototype.slice.call(tb.querySelectorAll('.filter-group')).forEach(glDecoratePills);
       if(tb.dataset.lbDone) return;
       var sels = Array.prototype.slice.call(tb.querySelectorAll('select.filter-select'));
       var extras = Array.prototype.slice.call(tb.querySelectorAll('[data-lb="more"]'));
