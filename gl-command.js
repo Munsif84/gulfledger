@@ -260,6 +260,10 @@
   /* Wrap a select so we can overlay a ✕ clear button when it's active.
      "Active" = the select's value is not its first <option> (the default). */
   function glDecorateFilter(sel){
+    /* Opt-out for selects that use the filter-select class for styling but are
+       INPUTS, not filters (e.g. payroll period pickers, report parameters).
+       Tag them with data-glnoclear and they keep their look, no ✕. */
+    if(sel.hasAttribute('data-glnoclear')) return;
     if(sel.dataset.glClearWired) return;
     sel.dataset.glClearWired = '1';
     var defaultVal = sel.options.length ? sel.options[0].value : '';
@@ -385,7 +389,19 @@
     });
   }
   window.glListbar = glListbar;
-  function glListbarBoot(){ glListbar(); setTimeout(glListbar, 800); setTimeout(glListbar, 2500); }
+  function glListbarBoot(){
+    glListbar(); setTimeout(glListbar, 800); setTimeout(glListbar, 2500);
+    /* Debounced observer: pages render toolbars after auth/data loads, which
+       can be later than the fixed retries on slow connections. Watch for new
+       nodes and re-run the (idempotent) decorator. */
+    if (typeof MutationObserver !== 'undefined' && document.body) {
+      var t = null;
+      new MutationObserver(function(){
+        if (t) clearTimeout(t);
+        t = setTimeout(glListbar, 250);
+      }).observe(document.body, { childList: true, subtree: true });
+    }
+  }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', glListbarBoot);
   else glListbarBoot();
 })();
