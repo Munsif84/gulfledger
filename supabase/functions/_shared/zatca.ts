@@ -323,7 +323,11 @@ export interface UblInvoiceOpts {
 }
 
 function xesc(s: string): string {
-  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  // C14N text escaping: only & < > are escaped in character data. Escaping
+  // quotes here would make our bytes diverge from ZATCA's re-canonicalization
+  // (they re-emit a raw ") for any value containing quotes. \r is stripped
+  // because C14N would re-encode it as &#xD;.
+  return String(s ?? "").replace(/\r/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 function money(n: number): string { return (Math.round(n * 100) / 100).toFixed(2); }
 
@@ -407,12 +411,12 @@ SET_UBL_EXTENSIONS_STRING
     </cac:AccountingSupplierParty>
     <cac:AccountingCustomerParty>
         <cac:Party>
-            <cac:PostalAddress>
+            ${(o.buyer.street || o.buyer.city) ? `<cac:PostalAddress>
                 <cbc:StreetName>${xesc(o.buyer.street ?? "")}</cbc:StreetName>
                 <cbc:CityName>${xesc(o.buyer.city ?? "")}</cbc:CityName>
                 <cac:Country><cbc:IdentificationCode>SA</cbc:IdentificationCode></cac:Country>
             </cac:PostalAddress>
-            ${buyerVatXml}<cac:PartyLegalEntity>
+            ` : ""}${buyerVatXml}<cac:PartyLegalEntity>
                 <cbc:RegistrationName>${xesc(o.buyer.name)}</cbc:RegistrationName>
             </cac:PartyLegalEntity>
         </cac:Party>
@@ -452,28 +456,27 @@ export const INITIAL_PIH = "NWZlY2ViNjZmZmM4NmYzOGQ5NTI3ODZjNmQ2OTZjNzljMmRiYzIz
 /** Pure invoice XML (the hashed form): no declaration, no UBLExtensions,
  *  no cac:Signature block, no QR document reference. */
 export function getPureInvoiceXml(xml: string): string {
-  // Match ZATCA's hashing input exactly (per the proven zatca-xml-js impl):
-  // remove UBLExtensions, cac:Signature, and the QR AdditionalDocumentReference,
-  // then produce C14N-canonical output. Because we generate the XML ourselves in
-  // a known-clean shape, canonicalization here = remove the XML declaration,
-  // strip those 3 elements with their surrounding whitespace, and apply ZATCA's
-  // two documented whitespace fixups before ProfileID and AccountingSupplierParty.
+  // Byte-exact equivalent of ZATCA's reference pipeline (XPath-exclude the three
+  // blocks, then C14N11) for OUR self-generated template. The key insight that
+  // fixes the hash: the XPath exclusion removes ONLY the element nodes — the
+  // whitespace TEXT NODES around them remain and appear in the canonical bytes.
+  // So we remove exactly the elements (no surrounding-whitespace eating, no
+  // "fixups") and the residue is automatically what ZATCA computes.
+  // Preconditions guaranteed by buildInvoiceXml: no self-closing tags, no
+  // multi-attribute elements, root namespaces already in C14N prefix order,
+  // LF line endings, text escaped as & < > only.
   let s = xml;
-  // 1. Remove XML declaration (C14N omits it)
-  s = s.replace(/<\?xml[^?]*\?>\s*/, "");
-  // 2. Remove the UBLExtensions placeholder/element (signing block lives here)
-  s = s.replace("SET_UBL_EXTENSIONS_STRING\n", "");
-  s = s.replace(/\s*<ext:UBLExtensions>[\s\S]*?<\/ext:UBLExtensions>\s*/, "\n    ");
-  // 3. Remove the QR AdditionalDocumentReference (placeholder or rendered)
-  s = s.replace("    SET_QR_CODE_DATA\n", "");
-  s = s.replace(/\s*<cac:AdditionalDocumentReference>\s*<cbc:ID>QR<\/cbc:ID>[\s\S]*?<\/cac:AdditionalDocumentReference>\s*/, "\n    ");
-  // 4. Remove the cac:Signature block
-  s = s.replace(/\s*<cac:Signature>[\s\S]*?<\/cac:Signature>\s*/, "\n    ");
-  // 5. Normalize line endings to LF and trim trailing spaces per line
-  s = s.replace(/\r\n/g, "\n").replace(/[ \t]+$/gm, "");
-  // 6. ZATCA's documented whitespace fixups (without these the hash is wrong)
-  s = s.replace("<cbc:ProfileID>", "\n    <cbc:ProfileID>");
-  s = s.replace("<cac:AccountingSupplierParty>", "\n    \n    <cac:AccountingSupplierParty>");
+  // C14N drops the XML declaration (and its newline — outside the root element)
+  s = s.replace(/<\?xml[^?]*\?>\n?/, "");
+  // Placeholders (hash may be computed pre-injection): removing just the token
+  // leaves the same bytes as element-only removal of the injected block.
+  s = s.replace("SET_UBL_EXTENSIONS_STRING", "");
+  s = s.replace("SET_QR_CODE_DATA", "");
+  // Element-only removals — regexes deliberately do NOT consume the whitespace
+  // text nodes before/after the elements.
+  s = s.replace(/<ext:UBLExtensions>[\s\S]*?<\/ext:UBLExtensions>/, "");
+  s = s.replace(/<cac:AdditionalDocumentReference>\s*<cbc:ID>QR<\/cbc:ID>[\s\S]*?<\/cac:AdditionalDocumentReference>/, "");
+  s = s.replace(/<cac:Signature>[\s\S]*?<\/cac:Signature>/, "");
   return s;
 }
 export function computeInvoiceHash(xml: string): string {
@@ -523,15 +526,47 @@ export function parseCsidCertificate(binarySecurityToken: string): CertInfo {
   // issuer Name
   const issOff = p; const issTl = readTL(der, p);
   const issuerDer = der.slice(issOff, issOff + issTl.hl + issTl.len);
-  // Extract CN (2.5.4.3) UTF8/Printable value(s), build "CN=x" (sandbox issuer is CN=eInvoicing)
+  // Build the FULL issuer DN, RFC2253 style (RDNs reversed, joined ", ").
+  // Sandbox certs are just CN=eInvoicing, but simulation/production issuers are
+  // multi-RDN (CN=..., DC=..., ...) — the XAdES X509IssuerName must match what
+  // ZATCA derives or the signed-properties check fails outside sandbox.
   let issuer = "CN=eInvoicing";
-  for (let i = 0; i + 5 < issuerDer.length; i++) {
-    if (issuerDer[i] === 0x06 && issuerDer[i + 1] === 0x03 && issuerDer[i + 2] === 0x55 && issuerDer[i + 3] === 0x04 && issuerDer[i + 4] === 0x03) {
-      const st = i + 5; const tl = readTL(issuerDer, st);
-      issuer = "CN=" + new TextDecoder().decode(issuerDer.slice(st + tl.hl, st + tl.hl + tl.len));
-      break;
+  try {
+    const OIDS: Record<string, string> = {
+      "2.5.4.3": "CN", "2.5.4.10": "O", "2.5.4.11": "OU", "2.5.4.6": "C",
+      "2.5.4.7": "L", "2.5.4.8": "ST", "0.9.2342.19200300.100.1.25": "DC",
+    };
+    const oidStr = (b: Uint8Array): string => {
+      if (!b.length) return "";
+      const out: number[] = [Math.floor(b[0] / 40), b[0] % 40];
+      let v = 0;
+      for (let i = 1; i < b.length; i++) { v = (v << 7) | (b[i] & 0x7f); if (!(b[i] & 0x80)) { out.push(v); v = 0; } }
+      return out.join(".");
+    };
+    const nameTl = readTL(issuerDer, 0);           // Name ::= SEQUENCE OF RDN
+    const rdns: string[] = [];
+    let q = nameTl.hl;
+    while (q < nameTl.hl + nameTl.len) {
+      const setTl = readTL(issuerDer, q);          // RDN ::= SET OF ATVA
+      let r = q + setTl.hl;
+      const parts: string[] = [];
+      while (r < q + setTl.hl + setTl.len) {
+        const seqTl = readTL(issuerDer, r);        // ATVA ::= SEQUENCE { OID, value }
+        let a = r + seqTl.hl;
+        const oidTl = readTL(issuerDer, a);
+        const oid = oidStr(issuerDer.slice(a + oidTl.hl, a + oidTl.hl + oidTl.len));
+        a += oidTl.hl + oidTl.len;
+        const valTl = readTL(issuerDer, a);
+        const val = new TextDecoder().decode(issuerDer.slice(a + valTl.hl, a + valTl.hl + valTl.len));
+        const key = OIDS[oid];
+        if (key) parts.push(key + "=" + val);
+        r += seqTl.hl + seqTl.len;
+      }
+      if (parts.length) rdns.push(parts.join("+"));
+      q += setTl.hl + setTl.len;
     }
-  }
+    if (rdns.length) issuer = rdns.reverse().join(", ");
+  } catch (_e) { /* keep fallback */ }
   return { certB64, derBytes: der, hash: sha256HexB64(certB64), issuer, serialDecimal: serialDecimal.toString() };
 }
 
@@ -568,9 +603,7 @@ export function signInvoice(xml: string, privKeyHex: string, cert: CertInfo, opt
 
   const signingTime = new Date().toISOString().slice(0, 19);
   const props = SIGNED_PROPS_TEMPLATE(signingTime, cert.hash, cert.issuer, cert.serialDecimal);
-  const propsForHash = props.replace(/^<xades:SignedProperties/, `<xades:SignedProperties xmlns:xades="http://uri.etsi.org/01903/v1.3.2#"`)
-    === props ? props : props; // template already carries xmlns
-  const signedPropsHash = sha256HexB64(propsForHash);
+  const signedPropsHash = sha256HexB64(props);
 
   // QR TLV
   const pubKeyDer = (() => {
