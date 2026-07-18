@@ -330,7 +330,11 @@ export interface UblInvoiceOpts {
 }
 
 function xesc(s: string): string {
-  return String(s ?? "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  // C14N text escaping: only & < > are escaped in character data. Escaping
+  // quotes here would make our bytes diverge from ZATCA's re-canonicalization
+  // (they re-emit a raw ") for any value containing quotes. \r is stripped
+  // because C14N would re-encode it as &#xD;.
+  return String(s ?? "").replace(/\r/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
 }
 function money(n: number): string { return (Math.round(n * 100) / 100).toFixed(2); }
 
@@ -414,12 +418,12 @@ SET_UBL_EXTENSIONS_STRING
     </cac:AccountingSupplierParty>
     <cac:AccountingCustomerParty>
         <cac:Party>
-            <cac:PostalAddress>
+            ${(o.buyer.street || o.buyer.city) ? `<cac:PostalAddress>
                 <cbc:StreetName>${xesc(o.buyer.street ?? "")}</cbc:StreetName>
                 <cbc:CityName>${xesc(o.buyer.city ?? "")}</cbc:CityName>
                 <cac:Country><cbc:IdentificationCode>SA</cbc:IdentificationCode></cac:Country>
             </cac:PostalAddress>
-            ${buyerVatXml}<cac:PartyLegalEntity>
+            ` : ""}${buyerVatXml}<cac:PartyLegalEntity>
                 <cbc:RegistrationName>${xesc(o.buyer.name)}</cbc:RegistrationName>
             </cac:PartyLegalEntity>
         </cac:Party>
@@ -491,64 +495,28 @@ function removeNode(n: any) { if (n && n.parentNode) n.parentNode.removeChild(n)
  *  same either way, because the three removed elements are exactly the parts
  *  that differ between them. Hash is therefore signature/QR-independent. */
 export function getPureInvoiceXml(xml: string): string {
-  // Use the rendered XML if a template placeholder slipped through, so the
-  // parser always sees well-formed markup (placeholders aren't valid elements).
-  let src = xml
-    .replace("SET_UBL_EXTENSIONS_STRING", "<ext:UBLExtensions/>")
-    .replace("    SET_QR_CODE_DATA", "");
-
-  // 0. Normalize formatting via a parse→rebuild round-trip, EXACTLY as the
-  //    reference zatca-xml-js does (fast-xml-parser, format:true, 4-space indent).
-  //    This is load-bearing: ZATCA reformats the document to one-element-per-line
-  //    before hashing, so inline blocks in our template (e.g. the seller CRN,
-  //    tax subtotals, invoice lines) must be expanded to match. Without this the
-  //    canonical bytes differ and ZATCA returns invalid-invoice-hash even though
-  //    our own hash is internally consistent.
-  const parserOpts = { ignoreAttributes: false, ignoreDeclaration: false, ignorePiTags: false, parseTagValue: false };
-  const obj = new XMLParser(parserOpts).parse(src);
-  src = new XMLBuilder({ ...parserOpts, format: true, indentBy: "    " }).build(obj).replace(/&apos;/g, "'");
-
-  const doc = new DOMParser().parseFromString(src, "text/xml");
-  const root = doc.documentElement;
-
-  // 1. Delete Invoice/ext:UBLExtensions (direct children only)
-  const exts = root.getElementsByTagNameNS(UBL_NS.ext, "UBLExtensions");
-  for (let i = exts.length - 1; i >= 0; i--) if (exts[i].parentNode === root) removeNode(exts[i]);
-
-  // 2. Delete Invoice/cac:Signature (direct children only — never nested ones)
-  const sigs = root.getElementsByTagNameNS(UBL_NS.cac, "Signature");
-  for (let i = sigs.length - 1; i >= 0; i--) if (sigs[i].parentNode === root) removeNode(sigs[i]);
-
-  // 3. Delete Invoice/cac:AdditionalDocumentReference where child cbc:ID == "QR"
-  const refs = root.getElementsByTagNameNS(UBL_NS.cac, "AdditionalDocumentReference");
-  for (let i = refs.length - 1; i >= 0; i--) {
-    const node = refs[i];
-    if (node.parentNode !== root) continue;
-    const ids = node.getElementsByTagNameNS(UBL_NS.cbc, "ID");
-    if (ids.length && (ids[0].textContent || "").trim() === "QR") removeNode(node);
-  }
-
-  // 4. Re-normalize via a second parse→rebuild round-trip. The reference
-  //    deletes nodes from the parsed object model and only THEN rebuilds, so
-  //    its output has no leftover whitespace text nodes from removed elements.
-  //    Re-running the round-trip on our post-deletion DOM reproduces that:
-  //    it drops the orphaned indentation the deletions left behind.
-  const obj2 = new XMLParser(parserOpts).parse(new XMLSerializer().serializeToString(root));
-  let pure = new XMLBuilder({ ...parserOpts, format: true, indentBy: "    " }).build(obj2).replace(/&apos;/g, "'");
-
-  // 4b. Strip the XML declaration the rebuild re-adds (C14N omits it).
-  pure = pure.replace(/^<\?xml[^>]*\?>\s*/, "");
-
-  // 4c. C14N requires empty elements as start/end tag pairs, never self-closing.
-  pure = pure.replace(/<([A-Za-z_][\w.:-]*)((?:\s+[^<>]*?)?)\/>/g, "<$1$2></$1>");
-
-  // 5. ZATCA's two documented whitespace fixups (hash is wrong without them).
-  pure = pure.replace("<cbc:ProfileID>", "\n    <cbc:ProfileID>");
-  pure = pure.replace("<cac:AccountingSupplierParty>", "\n    \n    <cac:AccountingSupplierParty>");
-
-  // 6. The rebuild appends a trailing newline; C14N output ends at </Invoice>.
-  pure = pure.replace(/\s+$/, "");
-  return pure;
+  // Byte-exact equivalent of ZATCA's reference pipeline (XPath-exclude the three
+  // blocks, then C14N11) for OUR self-generated template. The key insight that
+  // fixes the hash: the XPath exclusion removes ONLY the element nodes — the
+  // whitespace TEXT NODES around them remain and appear in the canonical bytes.
+  // So we remove exactly the elements (no surrounding-whitespace eating, no
+  // "fixups") and the residue is automatically what ZATCA computes.
+  // Preconditions guaranteed by buildInvoiceXml: no self-closing tags, no
+  // multi-attribute elements, root namespaces already in C14N prefix order,
+  // LF line endings, text escaped as & < > only.
+  let s = xml;
+  // C14N drops the XML declaration (and its newline — outside the root element)
+  s = s.replace(/<\?xml[^?]*\?>\n?/, "");
+  // Placeholders (hash may be computed pre-injection): removing just the token
+  // leaves the same bytes as element-only removal of the injected block.
+  s = s.replace("SET_UBL_EXTENSIONS_STRING", "");
+  s = s.replace("SET_QR_CODE_DATA", "");
+  // Element-only removals — regexes deliberately do NOT consume the whitespace
+  // text nodes before/after the elements.
+  s = s.replace(/<ext:UBLExtensions>[\s\S]*?<\/ext:UBLExtensions>/, "");
+  s = s.replace(/<cac:AdditionalDocumentReference>\s*<cbc:ID>QR<\/cbc:ID>[\s\S]*?<\/cac:AdditionalDocumentReference>/, "");
+  s = s.replace(/<cac:Signature>[\s\S]*?<\/cac:Signature>/, "");
+  return s;
 }
 export function computeInvoiceHash(xml: string): string {
   return sha256B64(getPureInvoiceXml(xml));
@@ -597,15 +565,47 @@ export function parseCsidCertificate(binarySecurityToken: string): CertInfo {
   // issuer Name
   const issOff = p; const issTl = readTL(der, p);
   const issuerDer = der.slice(issOff, issOff + issTl.hl + issTl.len);
-  // Extract CN (2.5.4.3) UTF8/Printable value(s), build "CN=x" (sandbox issuer is CN=eInvoicing)
+  // Build the FULL issuer DN, RFC2253 style (RDNs reversed, joined ", ").
+  // Sandbox certs are just CN=eInvoicing, but simulation/production issuers are
+  // multi-RDN (CN=..., DC=..., ...) — the XAdES X509IssuerName must match what
+  // ZATCA derives or the signed-properties check fails outside sandbox.
   let issuer = "CN=eInvoicing";
-  for (let i = 0; i + 5 < issuerDer.length; i++) {
-    if (issuerDer[i] === 0x06 && issuerDer[i + 1] === 0x03 && issuerDer[i + 2] === 0x55 && issuerDer[i + 3] === 0x04 && issuerDer[i + 4] === 0x03) {
-      const st = i + 5; const tl = readTL(issuerDer, st);
-      issuer = "CN=" + new TextDecoder().decode(issuerDer.slice(st + tl.hl, st + tl.hl + tl.len));
-      break;
+  try {
+    const OIDS: Record<string, string> = {
+      "2.5.4.3": "CN", "2.5.4.10": "O", "2.5.4.11": "OU", "2.5.4.6": "C",
+      "2.5.4.7": "L", "2.5.4.8": "ST", "0.9.2342.19200300.100.1.25": "DC",
+    };
+    const oidStr = (b: Uint8Array): string => {
+      if (!b.length) return "";
+      const out: number[] = [Math.floor(b[0] / 40), b[0] % 40];
+      let v = 0;
+      for (let i = 1; i < b.length; i++) { v = (v << 7) | (b[i] & 0x7f); if (!(b[i] & 0x80)) { out.push(v); v = 0; } }
+      return out.join(".");
+    };
+    const nameTl = readTL(issuerDer, 0);           // Name ::= SEQUENCE OF RDN
+    const rdns: string[] = [];
+    let q = nameTl.hl;
+    while (q < nameTl.hl + nameTl.len) {
+      const setTl = readTL(issuerDer, q);          // RDN ::= SET OF ATVA
+      let r = q + setTl.hl;
+      const parts: string[] = [];
+      while (r < q + setTl.hl + setTl.len) {
+        const seqTl = readTL(issuerDer, r);        // ATVA ::= SEQUENCE { OID, value }
+        let a = r + seqTl.hl;
+        const oidTl = readTL(issuerDer, a);
+        const oid = oidStr(issuerDer.slice(a + oidTl.hl, a + oidTl.hl + oidTl.len));
+        a += oidTl.hl + oidTl.len;
+        const valTl = readTL(issuerDer, a);
+        const val = new TextDecoder().decode(issuerDer.slice(a + valTl.hl, a + valTl.hl + valTl.len));
+        const key = OIDS[oid];
+        if (key) parts.push(key + "=" + val);
+        r += seqTl.hl + seqTl.len;
+      }
+      if (parts.length) rdns.push(parts.join("+"));
+      q += setTl.hl + setTl.len;
     }
-  }
+    if (rdns.length) issuer = rdns.reverse().join(", ");
+  } catch (_e) { /* keep fallback */ }
   return { certB64, derBytes: der, hash: sha256HexB64(certB64), issuer, serialDecimal: serialDecimal.toString() };
 }
 
@@ -669,9 +669,7 @@ export function signInvoice(xml: string, privKeyHex: string, cert: CertInfo, opt
 
   const signingTime = new Date().toISOString().slice(0, 19);
   const props = SIGNED_PROPS_TEMPLATE(signingTime, cert.hash, cert.issuer, cert.serialDecimal);
-  const propsForHash = props.replace(/^<xades:SignedProperties/, `<xades:SignedProperties xmlns:xades="http://uri.etsi.org/01903/v1.3.2#"`)
-    === props ? props : props; // template already carries xmlns
-  const signedPropsHash = sha256HexB64(propsForHash);
+  const signedPropsHash = sha256HexB64(props);
 
   // QR TLV
   const pubKeyDer = (() => {
@@ -926,7 +924,13 @@ Deno.serve(async (req) => {
     : xml.replace("SET_UBL_EXTENSIONS_STRING", "").replace("    SET_QR_CODE_DATA\n", "");
 
   // 4. Submit
-  const submissionHash = signed.invoiceHash;
+  // CRITICAL (the historical "invalid hash" root cause on the standard path):
+  // the hash MUST be computed over the exact document we submit. Simplified
+  // submits the signed XML (hash from the signed shape). Standard submits an
+  // UNSIGNED shape (no UBLExtensions, no QR ref, but cac:Signature stays) —
+  // its canonical residue differs from the signed shape, so it needs its own
+  // hash computed from submissionXml itself.
+  const submissionHash = isSimplified ? signed.invoiceHash : computeInvoiceHash(submissionXml);
 
   // ── Submit ──
   const apiPayload = { invoiceHash: submissionHash, uuid, invoice: btoa(unescape(encodeURIComponent(submissionXml))) };
@@ -958,25 +962,25 @@ Deno.serve(async (req) => {
     zatca_status: newStatus,
     zatca_submission_id: sub?.id ?? null,
     zatca_icv: nextIcv,
-    zatca_hash: signed.invoiceHash,
+    zatca_hash: submissionHash,
     zatca_xml: submissionXml,
     zatca_qr: signed.qr,
     zatca_cleared_at: accepted ? new Date().toISOString() : null,
   }).eq("id", inv.id);
 
   if (accepted) {
-    await db.from("zatca_devices").update({ last_invoice_hash: signed.invoiceHash, updated_at: new Date().toISOString() }).eq("id", device.id);
+    await db.from("zatca_devices").update({ last_invoice_hash: submissionHash, updated_at: new Date().toISOString() }).eq("id", device.id);
   } else {
     // Rejected: roll the counter back so the chain has no gap
     await db.from("zatca_devices").update({ icv_counter: device.icv_counter }).eq("id", device.id).eq("icv_counter", nextIcv);
   }
 
   return json({
-    _build: "std-unsigned-v7",
+    _build: "c14n-exact-v8",
     ok: accepted,
     status: newStatus,
     icv: nextIcv,
-    invoice_hash: signed.invoiceHash,
+    invoice_hash: submissionHash,
     zatca_http: resp.status,
     zatca: resp.body,
     zatca_raw: accepted ? undefined : resp.raw,
