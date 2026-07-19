@@ -957,16 +957,20 @@ Deno.serve(async (req) => {
     response_body: typeof resp.body === "object" ? resp.body : { raw: resp.raw },
   }).select("id").maybeSingle();
 
-  await db.from("invoices").update({
+  // Column names match the invoices migration (zatca_invoice_hash / zatca_qr_tlv
+  // are what invoice-view renders). zatca_columns_migration.sql adds the rest.
+  const { error: archErr } = await db.from("invoices").update({
     zatca_uuid: uuid,
     zatca_status: newStatus,
+    zatca_submitted: accepted,
     zatca_submission_id: sub?.id ?? null,
     zatca_icv: nextIcv,
-    zatca_hash: submissionHash,
+    zatca_invoice_hash: submissionHash,
     zatca_xml: submissionXml,
-    zatca_qr: signed.qr,
+    zatca_qr_tlv: isSimplified ? signed.qr : null,
     zatca_cleared_at: accepted ? new Date().toISOString() : null,
   }).eq("id", inv.id);
+  if (archErr) console.error("[zatca-submit] invoice archive update failed:", archErr.message);
 
   if (accepted) {
     await db.from("zatca_devices").update({ last_invoice_hash: submissionHash, updated_at: new Date().toISOString() }).eq("id", device.id);
