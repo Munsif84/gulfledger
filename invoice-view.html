@@ -1386,6 +1386,7 @@ async function init(){
     hide('loading-state');
     show('inv-content');
     console.log('[GL invoice-view] ✓ Render complete');
+    autoSubmitZatca();
   } catch(err) {
     console.error('[GL invoice-view] FATAL error in init:', err);
     showError(
@@ -1495,8 +1496,8 @@ function renderStatusBar(){
 
   /* ZATCA pill */
   const zs = inv.zatca_status;
-  if(zs === 'cleared'){
-    pills.push(`<span class="status-pill pill-zatca-cleared">✅ ${currentLang==='ar'?'زاتكا معتمدة':'ZATCA Cleared'}</span>`);
+  if(zs === 'cleared' || zs === 'compliance_ok' || zs === 'reported'){
+    pills.push(`<span class="status-pill pill-zatca-cleared">✅ ${zs==='compliance_ok' ? (currentLang==='ar'?'زاتكا: اجتازت الفحص (تجريبي)':'ZATCA Compliance OK (Sandbox)') : zs==='reported' ? (currentLang==='ar'?'زاتكا: تم الإبلاغ':'ZATCA Reported') : (currentLang==='ar'?'زاتكا معتمدة':'ZATCA Cleared')}</span>`);
   } else if(zs === 'pending' || zs === 'submitted'){
     pills.push(`<span class="status-pill pill-zatca-pending">🟡 ${currentLang==='ar'?'زاتكا معلق':'ZATCA Pending'}</span>`);
   } else if(zs === 'rejected'){
@@ -1517,6 +1518,39 @@ function renderStatusBar(){
 /* ═══════════════════════════════════════════════════════
    RENDER INVOICE — fill in all fields
 ═══════════════════════════════════════════════════════ */
+
+/* ═══ ZATCA auto-submission ═══════════════════════════════════════════
+   The app's design: invoices go to Fatoora automatically when ZATCA is
+   activated. The generation page navigates here right after saving, so
+   THIS is the reliable trigger point: if the invoice is still pending
+   (or was rejected — retry after fixes), invoke the edge function, then
+   re-fetch and re-render so the pill/QR reflect the verdict.
+   If ZATCA isn't activated (no active device), the function answers
+   no_active_device and we simply leave the invoice as-is. */
+let _zatcaSubmitting = false;
+async function autoSubmitZatca(){
+  try{
+    if(_zatcaSubmitting) return;
+    if(currentMode !== 'seller') return;                    // buyers/public links never submit
+    const zs = currentInvoice && currentInvoice.zatca_status;
+    if(!(zs === 'pending' || zs === 'rejected')) return;     // only unsubmitted/retry states
+    if(currentInvoice.status === 'draft') return;                       // never submit drafts
+    _zatcaSubmitting = true;
+    console.log('[GL zatca] auto-submitting invoice', currentInvoice.id);
+    const { data, error } = await sb.functions.invoke('zatca-submit-invoice', { body: { invoice_id: currentInvoice.id } });
+    if(error){ console.warn('[GL zatca] invoke error:', error); return; }
+    console.log('[GL zatca] result:', data && data._build, 'ok:', data && data.ok, data);
+    if(data && data.error === 'no_active_device'){ console.log('[GL zatca] ZATCA not activated — skipped'); return; }
+    /* Re-fetch the invoice so pills + QR pick up the stored verdict */
+    const { data: fresh } = await sb.from('invoices').select('*').eq('id', currentInvoice.id).single();
+    if(fresh){ currentInvoice = fresh; renderInvoice(); }
+    if(data && data.ok === false && data.zatca){
+      console.warn('[GL zatca] validation details:', JSON.stringify(data.zatca));
+    }
+  }catch(e){ console.warn('[GL zatca] auto-submit failed:', e); }
+  finally{ _zatcaSubmitting = false; }
+}
+
 function renderInvoice(){
   const inv = currentInvoice;
   /* Effective seller = business, with the issuing branch's compliance details
@@ -2005,7 +2039,7 @@ document.addEventListener('keydown', e => {
 
 init();
 </script>
-<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.06.06-doc1</div>
-<script>console.log('%c[GulfLedger build] v2026.06.06-doc1 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.07.18-zat1</div>
+<script>console.log('%c[GulfLedger build] v2026.07.18-zat1 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
