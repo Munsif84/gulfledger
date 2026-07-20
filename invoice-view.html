@@ -1533,8 +1533,13 @@ async function autoSubmitZatca(){
     if(_zatcaSubmitting) return;
     if(currentMode !== 'seller') return;                    // buyers/public links never submit
     const zs = currentInvoice && currentInvoice.zatca_status;
-    if(!(zs === 'pending' || zs === 'rejected')) return;     // only unsubmitted/retry states
-    if(currentInvoice.status === 'draft') return;                       // never submit drafts
+    /* Submit anything not already accepted/processed. 'not_required' is just the
+       column default (nothing in the app sets it deliberately) — the edge
+       function's active-device check is the real gate, so legacy invoices are
+       fair game too. */
+    const done = ['cleared','compliance_ok','reported','submitted'];
+    if(zs && done.includes(zs)){ console.log('[GL zatca] already processed:', zs); return; }
+    if(currentInvoice.status === 'draft'){ console.log('[GL zatca] draft — not submitting'); return; }
     _zatcaSubmitting = true;
     console.log('[GL zatca] auto-submitting invoice', currentInvoice.id);
     const { data, error } = await sb.functions.invoke('zatca-submit-invoice', { body: { invoice_id: currentInvoice.id } });
@@ -2039,7 +2044,7 @@ document.addEventListener('keydown', e => {
 
 init();
 </script>
-<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.07.18-zat1</div>
-<script>console.log('%c[GulfLedger build] v2026.07.18-zat1 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.07.18-zat2</div>
+<script>console.log('%c[GulfLedger build] v2026.07.18-zat2 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
