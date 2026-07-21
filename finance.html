@@ -1367,7 +1367,7 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
           <input type="text" class="search-input" id="search-expenses" oninput="renderExpenses()"
                  placeholder="بحث في المصاريف · Search expenses..." data-ph-ar="بحث في المصاريف..." data-ph-en="Search expenses...">
         </div>
-        <select class="filter-select" id="filter-period" onchange="renderExpenses()">
+        <select class="filter-select" id="filter-period" data-gl-period onchange="renderExpenses()">
           <option value="this_month">الشهر · This month</option>
           <option value="last_month" data-ar="الشهر الماضي" data-en="Last Month">الشهر الماضي</option>
           <option value="this_year">العام · This year</option>
@@ -1441,11 +1441,11 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
       </select>
       <!-- R-2 audit fix (Major #2): explicit date range filter so users aren't
            silently capped to current year. Selection persists in localStorage. -->
-      <select class="filter-select" id="filter-bills-range" onchange="onBillsRangeChange()" title="نطاق التاريخ · Date range">
+      <select class="filter-select" id="filter-bills-range" data-gl-period onchange="onBillsRangeChange()" title="نطاق التاريخ · Date range">
+        <option value="all">كل التواريخ · All time</option>
         <option value="ytd">السنة الحالية · This year (YTD)</option>
         <option value="last_year">السنة السابقة · Last year</option>
         <option value="last_12m">12 شهر · Last 12 months</option>
-        <option value="all">التواريخ · All time</option>
       </select>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-secondary" onclick="loadBills()" data-ar="↻ تحديث" data-en="↻ Refresh">↻ تحديث</button>
@@ -1762,7 +1762,7 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
     <!-- Period selector + view toggle -->
     <div class="toolbar">
       <div class="toolbar-left" style="gap:8px;flex-wrap:wrap;">
-        <select id="cf-period" onchange="renderCashFlow()" class="filter-select">
+        <select id="cf-period" data-gl-period onchange="renderCashFlow()" class="filter-select">
           <option value="this_month">الشهر · This month</option>
           <option value="last_3_months" selected data-ar="آخر 3 أشهر" data-en="Last 3 Months">3 أشهر</option>
           <option value="last_6_months" data-ar="آخر 6 أشهر" data-en="Last 6 Months">6 أشهر</option>
@@ -2988,6 +2988,11 @@ function getBillsDateRange(){
     }
     case 'all':
       return { start: null, end: null };
+    case '__custom': {
+      const s = document.getElementById('filter-bills-range');
+      if(s?.dataset.glFrom && s?.dataset.glTo) return { start: s.dataset.glFrom, end: s.dataset.glTo };
+      return { start: null, end: null };
+    }
     default:
       return { start: `${thisYear}-01-01`, end: null };
   }
@@ -2995,7 +3000,7 @@ function getBillsDateRange(){
 
 function onBillsRangeChange(){
   const sel = document.getElementById('filter-bills-range');
-  if(sel) localStorage.setItem(BILLS_RANGE_STORAGE_KEY, sel.value);
+  if(sel && sel.value !== '__custom') localStorage.setItem(BILLS_RANGE_STORAGE_KEY, sel.value);
   loadBills();
 }
 
@@ -4226,6 +4231,10 @@ function setCashflowView(view){
 }
 
 function cashflowPeriodRange(period){
+  if(period === '__custom'){
+    const s = document.getElementById('cf-period');
+    if(s?.dataset.glFrom && s?.dataset.glTo) return [s.dataset.glFrom, s.dataset.glTo];
+  }
   const now = new Date();
   let from, to;
   if(period === 'this_month'){
@@ -5319,7 +5328,12 @@ function renderExpenses(){
   const cat = v('filter-category');
   const status = v('filter-status') || 'active';
 
-  if(period && period !== 'all'){
+  if(period === '__custom'){
+    const s = document.getElementById('filter-period');
+    if(s?.dataset.glFrom && s?.dataset.glTo){
+      list = list.filter(e => e.expense_date >= s.dataset.glFrom && e.expense_date <= s.dataset.glTo);
+    }
+  } else if(period && period !== 'all'){
     const now = new Date();
     let from, to;
     if(period === 'this_month'){
@@ -9267,8 +9281,8 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r63</div>
-<script>console.log('%c[GulfLedger build] v2026.06.28-r63 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r64</div>
+<script>console.log('%c[GulfLedger build] v2026.06.28-r64 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
 /* ═══════════════════════════════════════════════════════
    AI BOOKKEEPER — receipt scan → prefill expense form
    Calls the ai-scan-receipt Edge Function (Claude vision).

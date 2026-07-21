@@ -325,6 +325,53 @@
     sync();
   }
 
+
+  /* ── Custom date range on period dropdowns ──────────────────────────
+     Any select.filter-select[data-gl-period] gains a "Custom range…"
+     option. Choosing it reveals inline from→to date pickers; once both
+     are set, the range is stored on the select (dataset.glFrom/glTo),
+     the option relabels to the compact range, and a change event fires
+     so the page's existing render logic runs. Pages read the dataset in
+     their '__custom' branch. The standard ✕ (glDecorateFilter) clears
+     back to the default option, which also removes the pickers. */
+  function glPeriodCustom(sel){
+    if(sel.dataset.glRangeWired) return;
+    sel.dataset.glRangeWired = '1';
+    var ar = lang() === 'ar';
+    var baseLabel = ar ? 'نطاق مخصص…' : 'Custom range…';
+    var opt = document.createElement('option');
+    opt.value = '__custom'; opt.textContent = baseLabel;
+    sel.appendChild(opt);
+    var wrap = null;
+    function cleanup(){
+      if(wrap){ wrap.remove(); wrap = null; }
+      delete sel.dataset.glFrom; delete sel.dataset.glTo;
+      opt.textContent = baseLabel;
+    }
+    sel.addEventListener('change', function(){
+      if(sel.value !== '__custom'){ cleanup(); return; }
+      if(wrap) return;                       // re-entry from our own dispatch
+      wrap = document.createElement('span');
+      wrap.className = 'gl-range-wrap';
+      wrap.innerHTML = '<input type="date" class="gl-range-in" lang="en">'
+        + '<span class="gl-range-sep">→</span>'
+        + '<input type="date" class="gl-range-in" lang="en">';
+      var holder = sel.closest('.gl-filter-holder') || sel;
+      holder.parentNode.insertBefore(wrap, holder.nextSibling);
+      var ins = wrap.querySelectorAll('input');
+      function apply(){
+        if(!ins[0].value || !ins[1].value) return;
+        sel.dataset.glFrom = ins[0].value;
+        sel.dataset.glTo = ins[1].value;
+        opt.textContent = ins[0].value.slice(2) + ' → ' + ins[1].value.slice(2);
+        sel.dispatchEvent(new Event('change', { bubbles: true }));
+      }
+      ins[0].addEventListener('change', apply);
+      ins[1].addEventListener('change', apply);
+      ins[0].focus();
+    });
+  }
+
   function glListbar(){
     var ar = lang() === 'ar';
     /* Scan the standard .toolbar AND report-specific toolbars so the one filter
@@ -332,6 +379,7 @@
     document.querySelectorAll('.toolbar, .db-toolbar, .report-toolbar').forEach(function(tb){
       /* Decorate dropdown filters with a clear ✕ (idempotent) */
       Array.prototype.slice.call(tb.querySelectorAll('select.filter-select')).forEach(glDecorateFilter);
+      Array.prototype.slice.call(tb.querySelectorAll('select.filter-select[data-gl-period]')).forEach(glPeriodCustom);
       /* Decorate pill groups with a group-level clear ✕ */
       Array.prototype.slice.call(tb.querySelectorAll('.filter-group')).forEach(glDecoratePills);
       if(tb.dataset.lbDone) return;
