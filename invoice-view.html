@@ -1527,16 +1527,50 @@ function renderStatusBar(){
    re-fetch and re-render so the pill/QR reflect the verdict.
    If ZATCA isn't activated (no active device), the function answers
    no_active_device and we simply leave the invoice as-is. */
+
+/* Red panel on rejected invoices: ZATCA's own reasons + a Resubmit button. */
+async function showZatcaRejectionPanel(){
+  try{
+    if(document.getElementById('zatca-reject-panel')) return;
+    const ar = currentLang === 'ar';
+    let errs = [], warns = [];
+    try{
+      const { data } = await sb.from('zatca_submissions').select('errors, warnings, submitted_at')
+        .eq('invoice_id', currentInvoice.id).order('submitted_at', {ascending:false}).limit(1);
+      if(data && data[0]){ errs = data[0].errors || []; warns = data[0].warnings || []; }
+    }catch(_e){}
+    const host = document.querySelector('.invoice-actions') || document.querySelector('#status-pills')?.parentElement || document.body;
+    const panel = document.createElement('div');
+    panel.id = 'zatca-reject-panel';
+    panel.style.cssText = 'margin:14px 0;padding:14px 16px;background:#FEF2F2;border:1px solid #FECACA;border-radius:10px;font-size:13px;';
+    panel.innerHTML = `
+      <div style="font-weight:700;color:#991B1B;margin-bottom:6px;">🔴 ${ar?'رفضت زاتكا هذه الفاتورة':'ZATCA rejected this invoice'}</div>
+      ${errs.length ? `<ul style="margin:0 0 8px;padding-inline-start:18px;color:#7F1D1D;">${errs.map(e=>`<li>${String(e).replace(/</g,'&lt;')}</li>`).join('')}</ul>` : `<div style="color:#7F1D1D;margin-bottom:8px;">${ar?'راجع سجل الإرسال للتفاصيل.':'See the submission log for details.'}</div>`}
+      ${warns.length ? `<div style="color:#92400E;font-size:12px;margin-bottom:8px;">⚠ ${warns.map(w=>String(w).replace(/</g,'&lt;')).join(' · ')}</div>` : ''}
+      <div style="font-size:12px;color:#7F1D1D;margin-bottom:10px;">${ar?'صحّح البيانات المذكورة ثم أعد الإرسال.':'Fix the named data, then resubmit.'}</div>
+      <button class="btn" style="background:#991B1B;color:#fff;border:none;border-radius:8px;padding:8px 16px;font-weight:700;cursor:pointer;" onclick="zatcaResubmit(this)">${ar?'↻ إعادة الإرسال إلى زاتكا':'↻ Resubmit to ZATCA'}</button>`;
+    host.prepend(panel);
+  }catch(e){ console.warn('[GL zatca] panel failed:', e); }
+}
+async function zatcaResubmit(btn){
+  btn.disabled = true; btn.textContent = currentLang==='ar' ? 'جارٍ الإرسال…' : 'Submitting…';
+  window._zatcaForce = true;
+  document.getElementById('zatca-reject-panel')?.remove();
+  await autoSubmitZatca();
+}
+
 let _zatcaSubmitting = false;
 async function autoSubmitZatca(){
   try{
     if(_zatcaSubmitting) return;
     if(currentMode !== 'seller') return;                    // buyers/public links never submit
     const zs = currentInvoice && currentInvoice.zatca_status;
-    /* Only 'pending' (issued after ZATCA activation) and 'rejected' (user may
-       have fixed the data) are submittable. 'not_required' = issued before
-       activation or ZATCA off — legally out of scope, never retro-submitted. */
-    if(!(zs === 'pending' || zs === 'rejected')){ console.log('[GL zatca] not submittable:', zs || 'not_required'); return; }
+    /* AUTO-submit only 'pending'. 'rejected' means ZATCA named a data problem —
+       auto-retrying identical data burns quota; the user fixes it and clicks
+       Resubmit (the red panel). 'not_required' = pre-activation, out of scope. */
+    if(zs === 'rejected' && !window._zatcaForce){ console.log('[GL zatca] rejected — waiting for manual resubmit'); showZatcaRejectionPanel(); return; }
+    if(!(zs === 'pending' || (zs === 'rejected' && window._zatcaForce))){ console.log('[GL zatca] not submittable:', zs || 'not_required'); return; }
+    window._zatcaForce = false;
     if(currentInvoice.status === 'draft'){ console.log('[GL zatca] draft — not submitting'); return; }
     _zatcaSubmitting = true;
     console.log('[GL zatca] auto-submitting invoice', currentInvoice.id);
@@ -2047,7 +2081,7 @@ document.addEventListener('keydown', e => {
 
 init();
 </script>
-<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.07.18-zat5</div>
-<script>console.log('%c[GulfLedger build] v2026.07.18-zat5 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.07.18-zat6</div>
+<script>console.log('%c[GulfLedger build] v2026.07.18-zat6 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>

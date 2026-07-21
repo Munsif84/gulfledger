@@ -1617,6 +1617,12 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:inheri
             <option value="">--</option>
           </select>
         </div>
+        <!-- Multi-branch: issuing branch — its CR + address go into the ZATCA XML.
+             Hidden when the business has fewer than 2 branches. -->
+        <div class="meta-cell" id="branch-cell" style="display:none;">
+          <span class="meta-label" data-ar="الفرع المُصدر" data-en="Issuing Branch">الفرع المُصدر</span>
+          <select class="meta-input" id="f-branch"></select>
+        </div>
         <div class="meta-cell" id="duedate-cell" style="display:none;">
           <span class="meta-label" data-ar="تاريخ الاستحقاق · Due Date" data-en="Due Date · تاريخ الاستحقاق">تاريخ الاستحقاق · Due Date</span>
           <input type="date" class="meta-input" id="f-duedate" lang="en">
@@ -2993,6 +2999,24 @@ function custDisplayName(c){
 /* Device-aware flag for the default badge label (Pre-ZATCA vs Coming Soon).
    Fire-and-forget; badges re-render on the next list paint after it loads. */
 window._zatcaActive = false;
+let _invBranches = [];
+async function loadInvBranches(){
+  try{
+    if(!currentBiz?.id) return;
+    const { data } = await sb.from('branches').select('id, name, name_ar, name_en, is_main, cr_number')
+      .eq('business_id', currentBiz.id).order('is_main', {ascending:false}).order('created_at');
+    _invBranches = data || [];
+    const cell = document.getElementById('branch-cell'), sel = document.getElementById('f-branch');
+    if(!cell || !sel) return;
+    if(_invBranches.length < 2){ cell.style.display = 'none'; return; }
+    const ar = currentLang === 'ar';
+    sel.innerHTML = _invBranches.map(b => {
+      const nm = ar ? (b.name_ar || b.name || b.name_en) : (b.name_en || b.name || b.name_ar);
+      return `<option value="${b.id}"${b.is_main ? ' selected' : ''}>${(nm||'—').replace(/</g,'&lt;')}${b.is_main ? (ar?' (رئيسي)':' (Main)') : ''}</option>`;
+    }).join('');
+    cell.style.display = '';
+  }catch(_e){}
+}
 async function loadZatcaActiveFlag(){
   try{
     if(!currentBiz?.id) return;
@@ -3139,6 +3163,7 @@ async function init(){
 
   /* Load lists */
   loadZatcaActiveFlag().then(()=>{ try{ renderInvoices(); }catch(_e){} });
+  loadInvBranches();
   loadInvoices();
   loadCustomers();
 
@@ -5391,6 +5416,7 @@ async function saveDraft(){
     customer_id: selectedCustomer?.id || null,
     po_number: v('f-po-num') || null,
     location_id: v('f-location') || null,    /* Round 4m */
+    branch_id: v('f-branch') || null,       /* multi-branch: ZATCA seller CR/address */
     subtotal: totals.sub,
     discount_pct: totals.discPct,
     discount_amount: totals.discAmt,
@@ -5513,6 +5539,7 @@ async function previewInvoice(){
     customer_id: selectedCustomer?.id || null,
     po_number: v('f-po-num') || null,
     location_id: v('f-location') || null,    /* Round 4m */
+    branch_id: v('f-branch') || null,       /* multi-branch: ZATCA seller CR/address */
     subtotal: totals.sub,
     discount_pct: totals.discPct,
     discount_amount: totals.discAmt,
@@ -5681,6 +5708,7 @@ async function generateInvoice(){
     customer_id: selectedCustomer?.id || null,
     po_number: v('f-po-num') || null,
     location_id: v('f-location') || null,    /* Round 4m */
+    branch_id: v('f-branch') || null,       /* multi-branch: ZATCA seller CR/address */
     subtotal: totals.sub,
     discount_pct: totals.discPct,
     discount_amount: totals.discAmt,
