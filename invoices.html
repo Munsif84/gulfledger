@@ -2990,6 +2990,16 @@ function custDisplayName(c){
 /* ── ZATCA status badge helper ──
    Returns HTML for a status badge based on invoice's zatca_status field.
    Status values: not_required (default) | pending | submitted | cleared | rejected | failed */
+/* Device-aware flag for the default badge label (Pre-ZATCA vs Coming Soon).
+   Fire-and-forget; badges re-render on the next list paint after it loads. */
+window._zatcaActive = false;
+async function loadZatcaActiveFlag(){
+  try{
+    if(!currentBiz?.id) return;
+    const { data } = await sb.from('zatca_devices').select('id').eq('business_id', currentBiz.id).eq('status','active').limit(1);
+    window._zatcaActive = !!(data && data.length);
+  }catch(_e){}
+}
 function zatcaBadge(status){
   const ar = currentLang === 'ar';
   switch(status){
@@ -3011,7 +3021,12 @@ function zatcaBadge(status){
       return `<span class="badge badge-zatca-failed">⚠️ ${ar?'فشل':'Failed'}</span>`;
     case 'not_required':
     default:
-      /* Phase 2 not yet integrated — set expectations clearly */
+      /* Two truths share this default: ZATCA not yet activated ("coming soon"),
+         or the invoice predates activation (legally out of Phase-2 scope —
+         labeled honestly, never submitted). */
+      if (window._zatcaActive) {
+        return `<span class="badge badge-zatca-soon" title="${ar?'صدرت قبل تفعيل الربط مع زاتكا — خارج نطاق الإلزام':'Issued before ZATCA activation — outside the reporting obligation'}">🗂 ${ar?'قبل الربط':'Pre-ZATCA'}</span>`;
+      }
       return `<span class="badge badge-zatca-soon" title="${ar?'سيتم تفعيل الربط مع زاتكا قريباً':'ZATCA integration coming soon'}">🔜 ${ar?'قريباً':'Coming Soon'}</span>`;
   }
 }
@@ -3123,6 +3138,7 @@ async function init(){
   if(pg) pg.style.display = '';
 
   /* Load lists */
+  loadZatcaActiveFlag().then(()=>{ try{ renderInvoices(); }catch(_e){} });
   loadInvoices();
   loadCustomers();
 
