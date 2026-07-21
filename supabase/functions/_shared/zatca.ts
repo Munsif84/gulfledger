@@ -618,7 +618,10 @@ export function signInvoice(xml: string, privKeyHex: string, cert: CertInfo, opt
   tlv(4, te.encode(opts.total));
   tlv(5, te.encode(opts.vat));
   tlv(6, te.encode(invoiceHash));
-  tlv(7, Uint8Array.from(atob(signatureB64), (c) => c.charCodeAt(0)));
+  // Tag 7 must be the base64 signature STRING characters — ZATCA compares it
+  // verbatim against ds:SignatureValue (raw DER bytes here = guaranteed
+  // INVOICE_SIGNATURE_VALUE_QRCODE_INVALID).
+  tlv(7, te.encode(signatureB64));
   tlv(8, pubKeyDer);
   if (opts.isSimplified) {
     // tag 9: the CA's signature over the cert (last BIT STRING of the certificate)
