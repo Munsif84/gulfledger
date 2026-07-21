@@ -627,11 +627,13 @@ export function signInvoice(xml: string, privKeyHex: string, cert: CertInfo, opt
     // tag 9: the CA's signature over the cert (last BIT STRING of the certificate)
     const der = cert.derBytes;
     let lastBitstr: Uint8Array | null = null;
-    for (let i = der.length - 80; i < der.length - 2 && i >= 0; i++) {
-      if (der[i] === 0x03) {
-        const len = der[i + 1];
-        if (!(len & 0x80) && i + 2 + len === der.length) { lastBitstr = der.slice(i + 3, i + 2 + len); break; }
-      }
+    // The cert's trailing BIT STRING (CA signature). Handles both short-form
+    // and 0x81 long-form DER lengths; anchored to "reaches end of cert".
+    for (let i = Math.max(0, der.length - 120); i < der.length - 2; i++) {
+      if (der[i] !== 0x03) continue;
+      const l1 = der[i + 1];
+      if (!(l1 & 0x80) && i + 2 + l1 === der.length) { lastBitstr = der.slice(i + 3, i + 2 + l1); break; }
+      if (l1 === 0x81 && i + 3 + der[i + 2] === der.length) { lastBitstr = der.slice(i + 4, i + 3 + der[i + 2]); break; }
     }
     if (lastBitstr) tlv(9, lastBitstr);
   }
