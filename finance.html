@@ -9084,8 +9084,90 @@ async function prLoadRuns(){
     let actions='';
     if(r.status==='posted'&&prCanManage())actions=`<button class="btn btn-primary btn-sm" onclick="prOpenPayModal('${r.id}')">${ar?'تسجيل دفع':'Record payment'}</button> <button class="btn btn-ghost btn-sm" style="color:var(--danger,#B91C1C);" onclick="prReverseRun('${r.id}')">${ar?'عكس':'Reverse'}</button>`;
     else if(r.status==='paid'&&prCanManage())actions=`<button class="btn btn-ghost btn-sm" style="color:var(--danger,#B91C1C);" onclick="prReverseRun('${r.id}')">${ar?'عكس':'Reverse'}</button>`;
+    if(['finalized','posted','paid'].includes(r.status))actions=`<button class="btn btn-secondary btn-sm" onclick="prOpenPayslips('${r.id}')">🧾 ${ar?'قسائم':'Payslips'}</button> `+actions;
     return `<tr><td>${r.period_year}-${String(r.period_month).padStart(2,'0')}</td><td style="text-align:end;">${fmt(r.total_gross)}</td><td style="text-align:end;">${fmt(r.total_net)}</td><td style="text-align:end;">${fmt(gosi)}</td><td><span class="badge">${sLabel[r.status]||r.status}</span></td><td style="text-align:end;white-space:nowrap;">${actions}</td></tr>`;
   }).join('')}</tbody></table>`;
+}
+
+
+/* ═══ PAYSLIPS ═══════════════════════════════════════════════════════
+   Bilingual, print-ready payslips for a run — one page per employee.
+   Earnings: the four fixed components + a derived "other additions"
+   line (gross − fixed) covering variable pay. Deductions: employee
+   GOSI + other deductions. Employer GOSI shown as an info footer
+   (it's a company cost, not an employee deduction). */
+async function prOpenPayslips(runId){
+  const ar=currentLang==='ar';
+  const run=(window._prRuns||[]).find(r=>r.id===runId); if(!run)return;
+  const {data:lines,error}=await sb.from('payroll_run_lines').select('*').eq('run_id',runId);
+  if(error||!lines?.length){notify(ar?'تعذر تحميل بنود التشغيل':'Could not load run lines','error');return;}
+  const empIds=[...new Set(lines.map(l=>l.employee_id))];
+  const {data:emps}=await sb.from('employees').select('*').in('id',empIds);
+  const empMap={}; (emps||[]).forEach(e=>empMap[e.id]=e);
+  const period=`${run.period_year}-${String(run.period_month).padStart(2,'0')}`;
+  const bizName=(currentBiz.name_ar||currentBiz.name||'')+(currentBiz.name_en?` · ${currentBiz.name_en}`:'');
+  const vat=currentBiz.vat_number||currentBiz.trn||'';
+  const money=n=>Number(n||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});
+  const eh=s=>String(s??'').replace(/[&<>]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;'}[c]));
+
+  const slips=lines.map(l=>{
+    const e=empMap[l.employee_id]||{};
+    const nameAr=e.name_ar||e.name_en||'—', nameEn=e.name_en||e.name_ar||'';
+    const fixed=(Number(l.basic_salary)||0)+(Number(l.housing_allowance)||0)+(Number(l.transport_allowance)||0)+(Number(l.other_allowance)||0);
+    const extra=Math.max(0,(Number(l.gross)||0)-fixed);
+    const row=(lar,len,amt,neg)=>`<tr><td>${lar}<span class="en">${len}</span></td><td class="num${neg?' neg':''}">${neg?'−':''}${money(amt)}</td></tr>`;
+    return `<div class="slip">
+      <div class="slip-head">
+        <div><div class="biz">${eh(bizName)}</div>${vat?`<div class="sub">${ar?'الرقم الضريبي':'VAT'}: ${eh(vat)}</div>`:''}</div>
+        <div class="ttl">قسيمة راتب<span class="en">Payslip</span></div>
+      </div>
+      <div class="slip-meta">
+        <div><b>${eh(nameAr)}</b>${nameEn&&nameEn!==nameAr?`<div class="sub">${eh(nameEn)}</div>`:''}</div>
+        <div class="sub">${ar?'الفترة':'Period'}: <b>${period}</b>${e.iqama_or_id?` · ${ar?'الهوية':'ID'}: ${eh(e.iqama_or_id)}`:''}${e.bank_iban?`<br>IBAN: <span dir="ltr">${eh(e.bank_iban)}</span>`:''}</div>
+      </div>
+      <table class="slip-tbl">
+        <tr class="sec"><td colspan="2">الاستحقاقات<span class="en">Earnings</span></td></tr>
+        ${row('الراتب الأساسي','Basic salary',l.basic_salary)}
+        ${Number(l.housing_allowance)?row('بدل السكن','Housing allowance',l.housing_allowance):''}
+        ${Number(l.transport_allowance)?row('بدل النقل','Transport allowance',l.transport_allowance):''}
+        ${Number(l.other_allowance)?row('بدلات أخرى','Other allowances',l.other_allowance):''}
+        ${extra>0.004?row('إضافات متغيرة','Variable additions',extra):''}
+        <tr class="tot"><td>إجمالي الاستحقاق<span class="en">Gross pay</span></td><td class="num">${money(l.gross)}</td></tr>
+        <tr class="sec"><td colspan="2">الاستقطاعات<span class="en">Deductions</span></td></tr>
+        ${row('التأمينات الاجتماعية (الموظف)','GOSI (employee)',l.gosi_employee,true)}
+        ${Number(l.other_deductions)?row('استقطاعات أخرى','Other deductions',l.other_deductions,true):''}
+        <tr class="net"><td>صافي الراتب<span class="en">Net pay</span></td><td class="num">SAR ${money(l.net_pay)}</td></tr>
+      </table>
+      <div class="slip-foot">${ar?'':''}مساهمة صاحب العمل في التأمينات (لا تُخصم من الموظف)<span class="en">Employer GOSI contribution (not deducted)</span>: SAR ${money(l.gosi_employer)}</div>
+    </div>`;
+  }).join('');
+
+  const w=window.open('','_blank');
+  if(!w){notify(ar?'اسمح بالنوافذ المنبثقة':'Allow pop-ups','error');return;}
+  w.document.write(`<!DOCTYPE html><html dir="rtl" lang="ar"><head><meta charset="utf-8"><title>Payslips ${period}</title><style>
+    *{box-sizing:border-box;margin:0;} body{font-family:'IBM Plex Sans Arabic','Segoe UI',sans-serif;background:#f5f4f0;padding:20px;color:#2C2C2A;}
+    .bar{max-width:720px;margin:0 auto 16px;display:flex;justify-content:flex-end;}
+    .bar button{background:#006C35;color:#fff;border:none;border-radius:8px;padding:10px 22px;font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;}
+    .slip{max-width:720px;margin:0 auto 24px;background:#fff;border:1px solid #e3e1da;border-radius:12px;padding:26px 30px;page-break-after:always;}
+    .slip-head{display:flex;justify-content:space-between;align-items:flex-start;border-bottom:2px solid #006C35;padding-bottom:12px;margin-bottom:12px;}
+    .biz{font-size:16px;font-weight:800;} .ttl{font-size:18px;font-weight:800;color:#006C35;text-align:left;}
+    .sub{font-size:11.5px;color:#888780;margin-top:2px;line-height:1.6;}
+    .en{display:block;font-size:10px;color:#b4b2a9;font-weight:500;}
+    .slip-meta{display:flex;justify-content:space-between;gap:14px;margin-bottom:14px;font-size:13.5px;}
+    .slip-tbl{width:100%;border-collapse:collapse;font-size:13.5px;}
+    .slip-tbl td{padding:7px 10px;border-bottom:1px solid #f0efe9;}
+    .slip-tbl .num{text-align:left;direction:ltr;font-variant-numeric:tabular-nums;white-space:nowrap;}
+    .slip-tbl .neg{color:#B91C1C;}
+    .slip-tbl .sec td{background:#F5F4F0;font-weight:800;font-size:12px;border-bottom:1px solid #e3e1da;}
+    .slip-tbl .tot td{font-weight:700;border-top:1.5px solid #e3e1da;}
+    .slip-tbl .net td{font-weight:800;font-size:15px;background:#E8F5EE;color:#0d5f31;border-top:2px solid #006C35;}
+    .slip-foot{margin-top:12px;font-size:11.5px;color:#888780;}
+    @media print{body{background:#fff;padding:0;} .bar{display:none;} .slip{border:none;border-radius:0;max-width:none;margin:0;}}
+  </style></head><body>
+    <div class="bar"><button onclick="window.print()">🖨 طباعة · Print</button></div>
+    ${slips}
+  </body></html>`);
+  w.document.close();
 }
 
 /* ── PAY STEP (guided) ── */
@@ -9281,8 +9363,8 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r64</div>
-<script>console.log('%c[GulfLedger build] v2026.06.28-r64 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r65</div>
+<script>console.log('%c[GulfLedger build] v2026.06.28-r65 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
 /* ═══════════════════════════════════════════════════════
    AI BOOKKEEPER — receipt scan → prefill expense form
    Calls the ai-scan-receipt Edge Function (Claude vision).
