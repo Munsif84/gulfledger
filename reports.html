@@ -720,6 +720,10 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
         <span class="icon">⏳</span>
         <span data-ar="أعمار الذمم الدائنة" data-en="AP Aging">أعمار الذمم الدائنة</span>
       </button>
+      <button class="sidebar-link" onclick="showReport('pnl', this)">
+        <span class="icon">⚖️</span>
+        <span data-ar="قائمة الدخل (مقارنة)" data-en="P&L (Comparison)">قائمة الدخل (مقارنة)</span>
+      </button>
     </div>
 
     <!-- ── INVENTORY ── -->
@@ -1036,6 +1040,18 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
         </div>
       </section>
 
+      <section class="report-section" id="report-pnl" style="display:none;">
+        <div class="toolbar" id="pnl-toolbar" style="display:none;margin-bottom:10px;">
+          <select class="filter-select" id="pnl-branch" onchange="runReportPnL()">
+            <option value="">كل الفروع · All branches</option>
+          </select>
+        </div>
+        <div class="report-period" id="report-pnl-period" style="font-size:12px;color:var(--muted);margin-bottom:14px;font-weight:600;">—</div>
+        <div class="report-content" id="report-pnl-content">
+          <div class="report-empty" data-ar="اضغط «عرض» لتوليد التقرير" data-en="Click 'Run' to generate the report">اضغط «عرض» لتوليد التقرير</div>
+        </div>
+      </section>
+
       <!-- Stock Valuation — moved from inventory.html. Fixed-template Built-in report.
            4 KPI stat cards + 6 filter pills + 4 breakdown cards + detailed per-item table.
            Uses real FIFO costing via inventory_batches. Slow-moving/dead thresholds come
@@ -1335,6 +1351,7 @@ const REPORT_TITLES = {
   supplier_statement:{icon: '<svg class="gl-i"><use href="/gl-icons.svg#i-invoice"/></svg>', ar: 'كشف حساب مورد',                     en: 'Supplier Statement', sub_ar: 'حركة الفواتير والرصيد لمورد محدد خلال الفترة',                       sub_en: 'Bill activity and balance for a specific supplier over the period'},
   aging:             {icon: '⏳', ar: 'أعمار الذمم المدينة',                en: 'AR Aging',           sub_ar: 'الفواتير غير المسددة مجمّعة بحسب عمر التأخر',                       sub_en: 'Unpaid invoices grouped by how overdue they are'},
   ap_aging:          {icon: '⏳', ar: 'أعمار الذمم الدائنة',                en: 'AP Aging',           sub_ar: 'فواتير الموردين غير المسددة مجمّعة بحسب عمر التأخر',                  sub_en: 'Unpaid supplier bills grouped by how overdue they are'},
+  pnl:               {icon: '⚖️', ar: 'قائمة الدخل — مقارنة الفترات',        en: 'P&L — Period Comparison', sub_ar: 'الإيرادات والمصروفات من دفتر القيود، الفترة الحالية مقابل الفترة السابقة المماثلة', sub_en: 'Revenue and expenses from the journal — current period vs the preceding equal period'},
   stock_valuation:   {icon: '💎', ar: 'تقييم المخزون',                       en: 'Stock Valuation',    sub_ar: 'القيمة الحالية للمخزون مع تحليل الأصناف الراكدة والمتحركة ببطء',     sub_en: 'Current inventory value with slow-moving and dead-stock analysis'}
 };
 
@@ -1631,6 +1648,189 @@ function accountType(code, accountsMap){
   if(c === '4') return 'revenue';
   if(c === '5') return 'expense';
   return 'other';
+}
+
+
+/* ═══════════════════════════════════════════════════════
+   REPORT: P&L — PERIOD COMPARISON
+   ─────────────────────────────────────────────────────
+   Income statement straight from journal_lines (the single source of
+   truth every module posts to — invoices, expenses, payroll, EOSB).
+   Current period vs the immediately preceding period of EQUAL length,
+   per account, with Δ and Δ%. Reversals net out naturally because
+   mirror entries cancel inside the sums.
+═══════════════════════════════════════════════════════ */
+/* ── Branch dimension for the P&L ─────────────────────────────────────
+   Journal entries don't carry branch_id, but invoice-sourced entries
+   reference their document number — and invoices/credit notes DO carry
+   branch_id. So branch is derived at report time by mapping each line's
+   entry reference onto the invoices table. Works retroactively on all
+   history, no schema or posting-path changes. Lines that map to no
+   document (expenses, payroll, EOSB, manual entries) are UNALLOCATED
+   overhead — standard branch-P&L treatment: shown when "All", excluded
+   (with an honest note) when a single branch is selected. */
+let _pnlBranches = null;
+async function pnlEnsureBranches(){
+  if(_pnlBranches !== null) return;
+  try{
+    const { data } = await sb.from('branches').select('id, name, name_ar, name_en, is_main')
+      .eq('business_id', currentBiz.id).order('is_main', {ascending:false}).order('created_at');
+    _pnlBranches = data || [];
+  }catch(_e){ _pnlBranches = []; }
+  const tb = document.getElementById('pnl-toolbar'), sel = document.getElementById('pnl-branch');
+  if(tb && sel && _pnlBranches.length >= 2){
+    const ar = currentLang === 'ar';
+    sel.innerHTML = `<option value="">${ar?'كل الفروع':'All branches'}</option>`
+      + _pnlBranches.map(b => {
+          const nm = ar ? (b.name_ar || b.name || b.name_en) : (b.name_en || b.name || b.name_ar);
+          return `<option value="${b.id}">${escHTML(nm || '—')}${b.is_main ? (ar?' (رئيسي)':' (Main)') : ''}</option>`;
+        }).join('')
+      + `<option value="__none">${ar?'غير موزّع فقط':'Unallocated only'}</option>`;
+    tb.style.display = '';
+  }
+}
+async function pnlInvoiceBranchMap(){
+  const map = new Map();
+  try{
+    const { data } = await sb.from('invoices').select('invoice_number, branch_id')
+      .eq('business_id', currentBiz.id).not('branch_id', 'is', null);
+    (data || []).forEach(r => map.set(String(r.invoice_number), r.branch_id));
+  }catch(_e){}
+  return map;
+}
+function pnlLineBranch(line, invMap){
+  const ref = String(line.journal_entries?.reference ?? '');
+  if(invMap.has(ref)) return invMap.get(ref);
+  if(ref.startsWith('AUTO-PMT-')){
+    const base = ref.slice(9);
+    if(invMap.has(base)) return invMap.get(base);
+  }
+  return null;   // unallocated: expenses, payroll, EOSB, manual entries
+}
+
+async function runReportPnL(){
+  const ar = currentLang === 'ar';
+  const from = document.getElementById('rt-from').value;
+  const to = document.getElementById('rt-to').value;
+  const content = document.getElementById('report-pnl-content');
+  const periodEl = document.getElementById('report-pnl-period');
+  if(!from || !to){ content.innerHTML = `<div class="report-empty">${ar?'حدد الفترة أولاً':'Pick the period first'}</div>`; return; }
+
+  /* Preceding period of equal length, ending the day before `from` */
+  const dayMs = 86400000;
+  const fromD = new Date(from + 'T00:00:00'), toD = new Date(to + 'T00:00:00');
+  const lenDays = Math.round((toD - fromD) / dayMs) + 1;
+  const prevToD = new Date(fromD.getTime() - dayMs);
+  const prevFromD = new Date(prevToD.getTime() - (lenDays - 1) * dayMs);
+  const iso = d => `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+  const prevFrom = iso(prevFromD), prevTo = iso(prevToD);
+
+  content.innerHTML = `<div class="report-empty">${ar?'جارٍ التحميل…':'Loading…'}</div>`;
+  const accountsMap = await fetchAccountsMap();
+  await pnlEnsureBranches();
+  const branchSel = document.getElementById('pnl-branch');
+  const branchFilter = (branchSel && branchSel.value) || '';
+  const [cur, prev] = await Promise.all([
+    fetchJournalLinesInRange(from, to),
+    fetchJournalLinesInRange(prevFrom, prevTo)
+  ]);
+  if(cur.error || prev.error){
+    content.innerHTML = `<div class="report-empty">${(cur.error||prev.error).message}</div>`;
+    return;
+  }
+  let branchNote = '';
+  if(branchFilter){
+    const invMap = await pnlInvoiceBranchMap();
+    const keep = (rows) => (rows || []).filter(l => {
+      const b = pnlLineBranch(l, invMap);
+      return branchFilter === '__none' ? b === null : b === branchFilter;
+    });
+    const beforeCur = (cur.data || []).length;
+    cur.data = keep(cur.data);
+    prev.data = keep(prev.data);
+    if(branchFilter === '__none'){
+      branchNote = ar
+        ? 'البنود غير الموزّعة فقط — مصروفات عامة، رواتب، وقيود يدوية لا ترتبط بفاتورة فرع.'
+        : 'Unallocated lines only — overhead, payroll, and manual entries not tied to a branch invoice.';
+    } else {
+      const nm = (_pnlBranches.find(b => b.id === branchFilter) || {});
+      const bn = ar ? (nm.name_ar || nm.name || '') : (nm.name_en || nm.name || '');
+      branchNote = ar
+        ? `فرع ${escHTML(bn)} فقط — البنود غير الموزّعة (مصروفات عامة/رواتب/قيود يدوية) مستثناة من هذا العرض.`
+        : `${escHTML(bn)} branch only — unallocated lines (overhead/payroll/manual entries) are excluded from this view.`;
+    }
+    void beforeCur;
+  }
+
+  /* Net per account. Revenue: credit−debit. Expense: debit−credit. */
+  function tally(rows){
+    const acc = {};
+    (rows || []).forEach(r => {
+      const t = accountType(r.account_code, accountsMap);
+      if(t !== 'revenue' && t !== 'expense') return;
+      const code = String(r.account_code);
+      if(!acc[code]) acc[code] = { type: t, cur: 0 };
+      const d = parseFloat(r.debit) || 0, c = parseFloat(r.credit) || 0;
+      acc[code].cur += (t === 'revenue') ? (c - d) : (d - c);
+    });
+    return acc;
+  }
+  const curAcc = tally(cur.data), prevAcc = tally(prev.data);
+
+  /* Union of accounts across both periods, per section */
+  const codes = [...new Set([...Object.keys(curAcc), ...Object.keys(prevAcc)])];
+  const rows = codes.map(code => ({
+    code,
+    type: (curAcc[code] || prevAcc[code]).type,
+    name: accountName(code, accountsMap),
+    cur: curAcc[code]?.cur || 0,
+    prev: prevAcc[code]?.cur || 0,
+  })).filter(r => Math.abs(r.cur) >= 0.005 || Math.abs(r.prev) >= 0.005);
+  rows.sort((a, b) => a.code.localeCompare(b.code));
+
+  const money = n => (n < 0 ? '−' : '') + fmtMoney(Math.abs(n));
+  const delta = (c, p) => {
+    const d = c - p;
+    const pct = Math.abs(p) >= 0.005 ? (d / Math.abs(p)) * 100 : null;
+    const cls = d > 0.005 ? 'color:var(--green,#1E7A45);' : d < -0.005 ? 'color:var(--danger,#B91C1C);' : 'color:var(--muted);';
+    return `<td class="num" style="${cls}">${d >= 0 ? '+' : '−'}${fmtMoney(Math.abs(d))}</td>
+            <td class="num" style="${cls}">${pct === null ? '—' : (pct >= 0 ? '+' : '−') + Math.abs(pct).toFixed(1) + '%'}</td>`;
+  };
+  const sectionRows = (type) => rows.filter(r => r.type === type).map(r => `
+    <tr><td>${r.code} · ${escHTML(r.name)}</td>
+        <td class="num">${money(r.cur)}</td><td class="num">${money(r.prev)}</td>${delta(r.cur, r.prev)}</tr>`).join('');
+  const sum = (type, which) => rows.filter(r => r.type === type).reduce((s, r) => s + r[which], 0);
+  const revC = sum('revenue','cur'), revP = sum('revenue','prev');
+  const expC = sum('expense','cur'), expP = sum('expense','prev');
+  const netC = revC - expC, netP = revP - expP;
+
+  const head = `<tr>
+    <th>${ar?'الحساب':'Account'}</th>
+    <th class="num">${ar?'الفترة الحالية':'Current'}</th>
+    <th class="num">${ar?'الفترة السابقة':'Previous'}</th>
+    <th class="num">Δ</th><th class="num">Δ%</th></tr>`;
+  const totalRow = (label, c, p, strong) => `
+    <tr style="font-weight:700;${strong?'border-top:2px solid var(--border);':''}background:var(--color-bg-subtle,#F5F4F0);">
+      <td>${label}</td><td class="num">${money(c)}</td><td class="num">${money(p)}</td>${delta(c, p)}</tr>`;
+
+  content.innerHTML = `
+    ${branchNote ? `<div class="gl-hint-compliance" style="font-size:12px;margin-bottom:10px;">${branchNote}</div>` : ''}
+    <table class="r-table">
+      <thead>${head}</thead>
+      <tbody>
+        <tr><td colspan="5" style="font-weight:700;color:var(--color-primary,#006C35);padding-top:14px;">${ar?'الإيرادات':'Revenue'}</td></tr>
+        ${sectionRows('revenue') || `<tr><td colspan="5" style="color:var(--muted);">${ar?'لا إيرادات في الفترة':'No revenue in period'}</td></tr>`}
+        ${totalRow(ar?'إجمالي الإيرادات':'Total Revenue', revC, revP)}
+        <tr><td colspan="5" style="font-weight:700;color:var(--color-primary,#006C35);padding-top:14px;">${ar?'المصروفات':'Expenses'}</td></tr>
+        ${sectionRows('expense') || `<tr><td colspan="5" style="color:var(--muted);">${ar?'لا مصروفات في الفترة':'No expenses in period'}</td></tr>`}
+        ${totalRow(ar?'إجمالي المصروفات':'Total Expenses', expC, expP)}
+        ${totalRow(ar?'صافي الربح':'Net Profit', netC, netP, true)}
+      </tbody>
+    </table>`;
+
+  periodEl.textContent = (ar
+    ? `الفترة: ${from} → ${to} · مقارنة بـ: ${prevFrom} → ${prevTo} (${lenDays} يوم)`
+    : `Period: ${from} → ${to} · vs: ${prevFrom} → ${prevTo} (${lenDays} days)`);
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -4848,6 +5048,7 @@ async function runCurrentReport(){
   if(currentReport === 'customer') await runReportCustomer();
   else if(currentReport === 'supplier_statement') await runReportSupplierStatement();
   else if(currentReport === 'aging') await runReportAging();
+  else if(currentReport === 'pnl') await runReportPnL();
   else if(currentReport === 'ap_aging') await runReportAPAging();
   else if(currentReport === 'stock_valuation') await runReportStockValuation();
 
@@ -5083,7 +5284,7 @@ document.addEventListener('keydown', function(e){
 });
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.30-r52</div>
-<script>console.log('%c[GulfLedger build] v2026.06.30-r52 · Listbar progressive filters, profile identity header, brand decluttered', 'color:#006C35;font-weight:bold;');</script>
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.30-r54</div>
+<script>console.log('%c[GulfLedger build] v2026.06.30-r54 · Listbar progressive filters, profile identity header, brand decluttered', 'color:#006C35;font-weight:bold;');</script>
 </body>
 </html>
