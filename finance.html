@@ -9084,7 +9084,7 @@ async function prLoadRuns(){
     let actions='';
     if(r.status==='posted'&&prCanManage())actions=`<button class="btn btn-primary btn-sm" onclick="prOpenPayModal('${r.id}')">${ar?'تسجيل دفع':'Record payment'}</button> <button class="btn btn-ghost btn-sm" style="color:var(--danger,#B91C1C);" onclick="prReverseRun('${r.id}')">${ar?'عكس':'Reverse'}</button>`;
     else if(r.status==='paid'&&prCanManage())actions=`<button class="btn btn-ghost btn-sm" style="color:var(--danger,#B91C1C);" onclick="prReverseRun('${r.id}')">${ar?'عكس':'Reverse'}</button>`;
-    if(['finalized','posted','paid'].includes(r.status))actions=`<button class="btn btn-secondary btn-sm" onclick="prOpenPayslips('${r.id}')">🧾 ${ar?'قسائم':'Payslips'}</button> `+actions;
+    if(['finalized','posted','paid'].includes(r.status))actions=`<button class="btn btn-secondary btn-sm" onclick="prOpenPayslips('${r.id}')">🧾 ${ar?'قسائم':'Payslips'}</button> <button class="btn btn-ghost btn-sm" onclick="prExportBankFile('${r.id}')">🏦 ${ar?'ملف البنك':'Bank file'}</button> `+actions;
     return `<tr><td>${r.period_year}-${String(r.period_month).padStart(2,'0')}</td><td style="text-align:end;">${fmt(r.total_gross)}</td><td style="text-align:end;">${fmt(r.total_net)}</td><td style="text-align:end;">${fmt(gosi)}</td><td><span class="badge">${sLabel[r.status]||r.status}</span></td><td style="text-align:end;white-space:nowrap;">${actions}</td></tr>`;
   }).join('')}</tbody></table>`;
 }
@@ -9168,6 +9168,45 @@ async function prOpenPayslips(runId){
     ${slips}
   </body></html>`);
   w.document.close();
+}
+
+
+/* ═══ SALARY TRANSFER FILE (bank / Mudad upload) ═════════════════════
+   Generic transfer sheet — the columns every KSA bank portal and the
+   Mudad upload wizard accept: employee, national ID/Iqama, IBAN, net
+   amount, reference. Deliberately NOT claiming any bank's certified
+   template (they differ); this is the universal starting sheet. UTF-8
+   BOM so Arabic opens correctly in Excel. */
+async function prExportBankFile(runId){
+  const ar=currentLang==='ar';
+  const run=(window._prRuns||[]).find(r=>r.id===runId); if(!run)return;
+  const {data:lines,error}=await sb.from('payroll_run_lines').select('*').eq('run_id',runId);
+  if(error||!lines?.length){notify(ar?'تعذر تحميل بنود التشغيل':'Could not load run lines','error');return;}
+  const empIds=[...new Set(lines.map(l=>l.employee_id))];
+  const {data:emps}=await sb.from('employees').select('*').in('id',empIds);
+  const empMap={}; (emps||[]).forEach(e=>empMap[e.id]=e);
+  const period=`${run.period_year}-${String(run.period_month).padStart(2,'0')}`;
+  const missingIban=[];
+  const rows=lines.map((l,i)=>{
+    const e=empMap[l.employee_id]||{};
+    const nm=e.name_ar||e.name_en||'—';
+    if(!e.bank_iban) missingIban.push(nm);
+    return [i+1, nm, e.name_en||'', e.iqama_or_id||'', (e.bank_iban||'').replace(/\s+/g,''), Number(l.net_pay||0).toFixed(2), 'SAR', `SAL-${period}`];
+  });
+  const head=['#',ar?'الاسم':'Name','Name (EN)','ID/Iqama','IBAN',ar?'الصافي':'Net Amount','Currency','Reference'];
+  const esc=v=>{v=String(v??'');return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v;};
+  const csv='\ufeff'+[head,...rows].map(r=>r.map(esc).join(',')).join('\r\n');
+  const total=lines.reduce((s,l)=>s+(Number(l.net_pay)||0),0);
+  const blob=new Blob([csv],{type:'text/csv;charset=utf-8'});
+  const a=document.createElement('a');
+  a.href=URL.createObjectURL(blob);
+  a.download=`salary-transfer-${period}.csv`;
+  a.click(); URL.revokeObjectURL(a.href);
+  if(missingIban.length){
+    notify((ar?'⚠ بدون IBAN: ':'⚠ Missing IBAN: ')+missingIban.join('، '),'error');
+  } else {
+    notify((ar?`✅ تم تصدير ملف التحويل — الإجمالي SAR `:'✅ Transfer file exported — total SAR ')+fmt(total),'success');
+  }
 }
 
 /* ── PAY STEP (guided) ── */
@@ -9363,8 +9402,8 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r65</div>
-<script>console.log('%c[GulfLedger build] v2026.06.28-r65 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r66</div>
+<script>console.log('%c[GulfLedger build] v2026.06.28-r66 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
 /* ═══════════════════════════════════════════════════════
    AI BOOKKEEPER — receipt scan → prefill expense form
    Calls the ai-scan-receipt Edge Function (Claude vision).
