@@ -9023,6 +9023,9 @@ async function prFinalizeRun(){
     const codes=Object.fromEntries((roleData||[]).map(r=>[r.role,r.resolved_code]));
     const need=['salaries_expense','salaries_payable','gosi_expense','gosi_payable'].filter(r=>!codes[r]);
     if(need.length)throw new Error((ar?'حسابات غير معرّفة: ':'Unmapped accounts: ')+need.join(', '));
+    /* GUARD: one live run per period — reversed runs don't count. */
+    const {data:dupe}=await sb.from('payroll_runs').select('id').eq('business_id',currentBiz.id).eq('period_year',year).eq('period_month',month).neq('status','reversed').limit(1);
+    if(dupe&&dupe.length){notify(ar?`رواتب ${year}-${String(month).padStart(2,'0')} مسجلة مسبقاً — اعكس التشغيل السابق أولاً`:`Payroll ${year}-${String(month).padStart(2,'0')} already exists — reverse the previous run first`,'error');return;}
     const {data:run,error:runErr}=await sb.from('payroll_runs').insert({business_id:currentBiz.id,period_year:year,period_month:month,status:'finalized',total_gross:tot.gross,total_gosi_employee:tot.ge,total_gosi_employer:tot.gr,total_deductions:tot.ded,total_net:tot.net}).select().single();
     if(runErr)throw runErr;
     /* Insert run lines, capturing each line's id so we can attach its components */
@@ -9046,7 +9049,7 @@ async function prFinalizeRun(){
       {entry_id:entry.id,user_id:currentUser.id,account_code:codes.salaries_payable,account_name:ar?'رواتب مستحقة':'Salaries Payable',debit:0,credit:tot.net,description:ar?'صافي الرواتب':'Net pay'},
       {entry_id:entry.id,user_id:currentUser.id,account_code:codes.gosi_payable,account_name:ar?'تأمينات مستحقة':'GOSI Payable',debit:0,credit:gosiTotal,description:ar?'إجمالي التأمينات':'Total GOSI'}
     ];
-    const {error:jlErr}=await sb.from('journal_lines').insert(jl); if(jlErr)throw jlErr;
+    const {error:jlErr}=await sb.from('journal_lines').insert(jl); if(jlErr){ await sb.from('journal_entries').delete().eq('id',entry.id); throw jlErr; }
     await sb.from('payroll_runs').update({status:'posted',journal_entry_id:entry.id,posted_at:new Date().toISOString()}).eq('id',run.id);
     notify(ar?'✅ تم اعتماد الرواتب وترحيل القيد':'✅ Payroll accrued and posted','success');
     prPrepared=null; prAdjust={}; document.getElementById('pr-run-area').innerHTML=''; await prLoadRuns();
@@ -9260,7 +9263,7 @@ async function prConfirmPayment(){
     if(staffOn)jl.push({entry_id:entry.id,user_id:currentUser.id,account_code:codes.salaries_payable,account_name:ar?'رواتب مستحقة':'Salaries Payable',debit:prPayCtx.staff,credit:0,description:ar?'دفع صافي الرواتب':'Pay net salaries'});
     if(gosiOn)jl.push({entry_id:entry.id,user_id:currentUser.id,account_code:codes.gosi_payable,account_name:ar?'تأمينات مستحقة':'GOSI Payable',debit:prPayCtx.gosi,credit:0,description:ar?'سداد التأمينات':'Remit GOSI'});
     jl.push({entry_id:entry.id,user_id:currentUser.id,account_code:creditCode,account_name:(acct.account_type==='bank')?(ar?'البنك':'Bank'):(ar?'الصندوق':'Cash'),debit:0,credit:total,description:(ar?'دفع رواتب ':'Payroll payment ')+pl});
-    const {error:jlErr}=await sb.from('journal_lines').insert(jl); if(jlErr)throw jlErr;
+    const {error:jlErr}=await sb.from('journal_lines').insert(jl); if(jlErr){ await sb.from('journal_entries').delete().eq('id',entry.id); throw jlErr; }
 
     /* Bank transaction + balance update (canonical finance pattern) */
     const newBal=(parseFloat(acct.current_balance)||0)-total;
@@ -9292,7 +9295,7 @@ async function prReverseRun(runId){
     const {data:rev,error:reErr}=await sb.from('journal_entries').insert({user_id:currentUser.id,business_id:currentBiz.id,entry_date:today,reference:'PAYROLL-REV-'+pl,description:(ar?'عكس رواتب ':'Reversal of payroll ')+pl,source:'payroll_reversal',source_id:run.id,status:'posted',is_balanced:true}).select().single();
     if(reErr)throw reErr;
     const revLines=orig.map(l=>({entry_id:rev.id,user_id:currentUser.id,account_code:l.account_code,account_name:l.account_name,debit:Number(l.credit)||0,credit:Number(l.debit)||0,description:(ar?'عكس: ':'Reversal: ')+(l.description||'')}));
-    const {error:rlErr}=await sb.from('journal_lines').insert(revLines); if(rlErr)throw rlErr;
+    const {error:rlErr}=await sb.from('journal_lines').insert(revLines); if(rlErr){ await sb.from('journal_entries').delete().eq('id',rev.id); throw rlErr; }
     await sb.from('payroll_runs').update({status:'reversed'}).eq('id',run.id);
     notify(ar?'✅ تم عكس التشغيل':'✅ Run reversed','success');
     await prLoadRuns();
@@ -9402,8 +9405,8 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r66</div>
-<script>console.log('%c[GulfLedger build] v2026.06.28-r66 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r67</div>
+<script>console.log('%c[GulfLedger build] v2026.06.28-r67 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
 /* ═══════════════════════════════════════════════════════
    AI BOOKKEEPER — receipt scan → prefill expense form
    Calls the ai-scan-receipt Edge Function (Claude vision).
