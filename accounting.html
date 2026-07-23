@@ -1014,7 +1014,8 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
 .je-voided-banner{background:#fef2f2;color:var(--red);padding:6px 14px;font-size:12px;font-weight:700;border-bottom:1px solid #fca5a5;display:flex;align-items:center;gap:8px;}
 
 /* Reversal entry visual: purple banner + linked-pair indicator */
-.je-card.reversal{border-color:#d8b4fe;}
+.je-card.reversal{border-color:#d8b4fe;background:#fdfcff;}
+.je-card.reversal .je-ref::before{content:'↩ ';color:#7e22ce;font-weight:700;}
 .je-card.reversal .je-head{background:linear-gradient(90deg,#faf5ff,#fafbfa);}
 .je-reversal-banner{background:#faf5ff;color:#6b21a8;padding:6px 14px;font-size:12px;font-weight:700;border-bottom:1px solid #d8b4fe;display:flex;align-items:center;gap:8px;}
 .je-reversed-banner{background:#fafbfa;color:var(--muted);padding:5px 14px;font-size:11px;font-weight:600;border-bottom:1px dashed var(--border);display:flex;align-items:center;gap:6px;font-style:italic;}
@@ -4409,7 +4410,7 @@ function renderJournalEntryCard(entry, lines){
   const balanced = Math.abs(totalDR - totalCR) < 0.01;
 
   const source = entry.source || 'manual';
-  const sourceClass = source === 'reversal' ? 'reversal' :
+  const sourceClass = /(_|^)reversal$|_void$|^credit_note$/.test(source) ? 'reversal' :
                       source.includes('void') ? 'void' :
                       source.includes('expense') ? (source.includes('payment') ? 'payment' : 'expense') :
                       source.includes('invoice') ? 'invoice' :
@@ -4483,7 +4484,8 @@ function renderJournalEntryCard(entry, lines){
   const reversalClassSources = [
     'reversal', 'invoice_reversal', 'credit_note',
     'expense_reversal', 'expense_void',
-    'receipt_reversal', 'stock_receipt_void'
+    'receipt_reversal', 'stock_receipt_void',
+    'payroll_reversal'
   ];
   const isReversalClass = reversalClassSources.includes(entry.source);
   const manualClassSources = ['manual', 'opening_balance', '', null, undefined];
@@ -4499,7 +4501,10 @@ function renderJournalEntryCard(entry, lines){
     expense_payment:   { ar: 'المصروفات',   en: 'Expenses',   href: 'finance.html?tab=expenses' },
     stock_receipt:     { ar: 'المخزون',     en: 'Inventory',  href: 'inventory.html' },
     stock_adjustment:  { ar: 'المخزون',     en: 'Inventory',  href: 'inventory.html' },
-    receipt_payment:   { ar: 'المخزون',     en: 'Inventory',  href: 'inventory.html' }
+    receipt_payment:   { ar: 'المخزون',     en: 'Inventory',  href: 'inventory.html' },
+    payroll:           { ar: 'الرواتب',     en: 'Payroll',    href: 'finance.html?tab=payroll' },
+    payroll_payment:   { ar: 'الرواتب',     en: 'Payroll',    href: 'finance.html?tab=payroll' },
+    eosb_accrual:      { ar: 'الرواتب',     en: 'Payroll',    href: 'finance.html?tab=payroll' }
   })[entry.source];
 
   let reverseBtn = '';
@@ -5452,6 +5457,64 @@ function updateMeBalanceRow(){
   if(saveBtn){ saveBtn.disabled = !balanced; saveBtn.style.opacity = balanced ? '' : '0.5'; saveBtn.style.cursor = balanced ? 'pointer' : 'not-allowed'; }
 }
 
+
+/* ═══ MODULE-OWNED ACCOUNT GUARD ═══════════════════════════════════════
+   Manual journal entries against accounts that a MODULE manages adjust
+   the GL without the module knowing: invoice/AR aging, stock quantities,
+   payroll run states, and VAT figures silently drift from the books.
+   (Cash/bank are deliberately NOT here — the DB sync trigger keeps bank
+   records + balances correct for ANY journal line, manual included.)
+   Policy: warn with the specific accounts + owning modules, let the
+   accountant decide — legitimate adjustments exist; ignorant ones don't. */
+const GL_MANAGED_ROLES = {
+  ar_primary:        { ar:'الفواتير (ذمم العملاء)',   en:'Invoices (AR)' },
+  ap_primary:        { ar:'المشتريات (ذمم الموردين)', en:'Purchasing (AP)' },
+  inventory_primary: { ar:'المخزون',                  en:'Inventory' },
+  vat_input:         { ar:'إقرار الضريبة',            en:'VAT filing' },
+  vat_output:        { ar:'إقرار الضريبة',            en:'VAT filing' },
+  vat_payable_net:   { ar:'إقرار الضريبة',            en:'VAT filing' },
+  salaries_payable:  { ar:'الرواتب',                  en:'Payroll' },
+  gosi_payable:      { ar:'الرواتب',                  en:'Payroll' },
+  eosb_payable:      { ar:'الرواتب (نهاية الخدمة)',   en:'Payroll (EOSB)' }
+};
+let _managedCodeMap = null;   /* code → module label, resolved once */
+async function glManagedCodes(){
+  if(_managedCodeMap) return _managedCodeMap;
+  _managedCodeMap = {};
+  try{
+    const roles = Object.keys(GL_MANAGED_ROLES);
+    const {data} = await sb.rpc('resolve_roles_batch', { p_business_id: currentBiz.id, p_roles: roles });
+    (data||[]).forEach(r => { if(r.resolved_code) _managedCodeMap[r.resolved_code] = GL_MANAGED_ROLES[r.role]; });
+  }catch(_e){ /* guard is best-effort; never blocks saving on infra failure */ }
+  return _managedCodeMap;
+}
+async function warnIfManagedAccounts(lines){
+  const ar = currentLang === 'ar';
+  const map = await glManagedCodes();
+  const hits = [];
+  for(const l of lines){
+    const m = map[l.account_code];
+    if(m) hits.push(`${l.account_code} → ${ar ? m.ar : m.en}`);
+  }
+  if(!hits.length) return true;
+  const uniq = [...new Set(hits)];
+  return confirm(ar
+    ? `⚠ هذا القيد يلمس حسابات تديرها وحدات النظام:
+
+${uniq.join('\n')}
+
+القيد اليدوي سيعدّل الدفتر العام دون تحديث سجلات الوحدة (حالة الفواتير، كميات المخزون، حالة الرواتب، أرقام الإقرار الضريبي) — وقد تختلف التقارير عن الواقع.
+
+الأفضل تنفيذ العملية من الوحدة نفسها. متابعة القيد اليدوي؟`
+    : `⚠ This entry touches accounts managed by system modules:
+
+${uniq.join('\n')}
+
+A manual entry adjusts the general ledger WITHOUT updating the module records (invoice statuses, stock quantities, payroll states, VAT figures) — reports may drift from reality.
+
+Prefer doing this from the module itself. Continue with the manual entry?`);
+}
+
 async function saveManualEntry(){
   const ar = currentLang === 'ar';
   /* Validate */
@@ -5464,6 +5527,7 @@ async function saveManualEntry(){
   const totalDR = lines.reduce((s,l) => s + (parseFloat(l.debit) || 0), 0);
   const totalCR = lines.reduce((s,l) => s + (parseFloat(l.credit) || 0), 0);
   if(Math.abs(totalDR - totalCR) > 0.01){ notify(ar?'القيد غير متوازن':'Unbalanced','error'); return; }
+  if(!(await warnIfManagedAccounts(lines))) return;
 
   /* Round B-VAT: Period close enforcement.
      Reject entries dated inside any filed period. The user must explicitly
@@ -5549,7 +5613,8 @@ async function reverseEntry(entryId){
   const reversalClassSources = [
     'reversal', 'invoice_reversal', 'credit_note',
     'expense_reversal', 'expense_void',
-    'receipt_reversal', 'stock_receipt_void'
+    'receipt_reversal', 'stock_receipt_void',
+    'payroll_reversal'
   ];
   const manualClassSources = ['manual', 'opening_balance', '', null, undefined];
   if(orig.source && !manualClassSources.includes(orig.source) && !reversalClassSources.includes(orig.source)){
@@ -13853,8 +13918,8 @@ document.addEventListener('keydown', function(e){
 
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.12-r56</div>
-<script>console.log('%c[GulfLedger build] v2026.06.12-r56 · AI Compliance Explainer on VAT return (grounded in computed report)', 'color:#006C35;font-weight:bold;');
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.12-r58</div>
+<script>console.log('%c[GulfLedger build] v2026.06.12-r58 · AI Compliance Explainer on VAT return (grounded in computed report)', 'color:#006C35;font-weight:bold;');
 /* ═══════════════════════════════════════════════════════
    AI VAT EXPLAINER — "why is this number?"
    Sends the COMPUTED report (st.data) to ai-explain-vat;
