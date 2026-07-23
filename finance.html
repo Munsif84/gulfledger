@@ -7205,42 +7205,12 @@ async function confirmPayment(){
   /* 3. Post payment journal entry: DR Accounts Payable / CR Cash or Bank */
   await postPaymentJournal(exp, newPayAmount, payMethod, payDate, payNote);
 
-  /* Round 4h.2: auto-create bank withdrawal if user picked an account.
-     Tied to expense via source_type='expense', source_id=expense.id (idempotent
-     for backfill: backfill checks for existing source_type+source_id). */
-  const bankAccountId = document.getElementById('pay-bank-account-exp')?.value;
-  if(bankAccountId){
-    try {
-      const {data: acc} = await sb.from('bank_accounts').select('current_balance, currency').eq('id', bankAccountId).single();
-      if(acc){
-        const newBalance = (parseFloat(acc.current_balance)||0) - newPayAmount;
-        const {error: txErr} = await sb.from('bank_transactions').insert({
-          business_id: currentBiz.id,
-          user_id: currentUser.id,
-          account_id: bankAccountId,
-          transaction_type: 'withdrawal',
-          transaction_date: payDate,
-          amount: newPayAmount,
-          balance_after: newBalance,
-          description: (currentLang==='ar' ? 'دفع مصروف ' : 'Expense payment ') + (exp.expense_number || ''),
-          counterparty: exp.vendor_name_snapshot || null,
-          notes: payNote || null,
-          source_type: 'expense',
-          source_id: currentPayExpenseId
-        });
-        if(!txErr){
-          await sb.from('bank_accounts').update({
-            current_balance: newBalance,
-            updated_at: new Date().toISOString()
-          }).eq('id', bankAccountId);
-        } else {
-          console.warn('[GL] auto-withdrawal failed (payment still recorded):', txErr);
-        }
-      }
-    } catch(e){
-      console.warn('[GL] bank withdrawal skipped:', e.message);
-    }
-  }
+  /* Bank side: OWNED BY THE DATABASE (same surgery as payroll r69).
+     postPaymentJournal() credits the cash/bank GL account; the
+     sync_bank_transactions trigger mirrors that line into
+     bank_transactions and refreshes current_balance from the ledger.
+     The explicit insert that lived here double-counted every expense
+     payment against a bank-linked account. */
 
   /* 4. Audit log */
   await writeAuditLog({
@@ -9440,8 +9410,8 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r70</div>
-<script>console.log('%c[GulfLedger build] v2026.06.28-r70 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r71</div>
+<script>console.log('%c[GulfLedger build] v2026.06.28-r71 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
 /* ═══════════════════════════════════════════════════════
    AI BOOKKEEPER — receipt scan → prefill expense form
    Calls the ai-scan-receipt Edge Function (Claude vision).
