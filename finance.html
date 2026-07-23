@@ -9275,11 +9275,10 @@ async function prConfirmPayment(){
       throw new Error((jlErr.message||'insert failed')+(jlErr.details?' — '+jlErr.details:'')+(jlErr.hint?' ('+jlErr.hint+')':''));
     }
 
-    /* Bank transaction + balance update (canonical finance pattern) */
-    const newBal=(parseFloat(acct.current_balance)||0)-crTotal;
-    const {error:txErr}=await sb.from('bank_transactions').insert({business_id:currentBiz.id,user_id:currentUser.id,account_id:acctId,transaction_type:'withdrawal',transaction_date:date,amount:crTotal,balance_after:newBal,description:(ar?'دفع رواتب ':'Payroll payment ')+pl,source_type:'manual'});
-    if(txErr)throw txErr;
-    await sb.from('bank_accounts').update({current_balance:newBal,updated_at:new Date().toISOString()}).eq('id',acctId);
+    /* Bank side: OWNED BY THE DATABASE. The sync_bank_transactions trigger
+       mirrors any journal line hitting a bank-linked GL account into
+       bank_transactions AND refreshes current_balance from the ledger.
+       An explicit insert here double-counts (proven live) — so: nothing. */
 
     /* Mark paid only when staff salaries are settled */
     if(staffOn)await sb.from('payroll_runs').update({status:'paid',posted_at:new Date().toISOString()}).eq('id',run.id);
@@ -9310,6 +9309,23 @@ async function prReverseRun(runId){
       console.error('[GL payroll] reversal lines rejected. Payload:', JSON.stringify(revLines), 'Server:', JSON.stringify(rlErr));
       await sb.from('journal_entries').delete().eq('id',rev.id);
       throw new Error((rlErr.message||'insert failed')+(rlErr.details?' — '+rlErr.details:''));
+    }
+    /* A PAID run also has payment journal(s): DR payables / CR bank.
+       Reverse those too — the bank trigger then auto-creates the restoring
+       deposit and refreshes the balance. Guarded against double-reversal. */
+    const {data:payEntries}=await sb.from('journal_entries').select('id,reference')
+      .eq('business_id',currentBiz.id).eq('source','payroll_payment').eq('source_id',run.id).eq('status','posted');
+    for(const pe of (payEntries||[])){
+      const revRef='PAYROLL-PAYREV-'+pl;
+      const {data:already}=await sb.from('journal_entries').select('id').eq('business_id',currentBiz.id).eq('reference',revRef).eq('source_id',pe.id).limit(1);
+      if(already&&already.length) continue;
+      const {data:pLines}=await sb.from('journal_lines').select('*').eq('entry_id',pe.id);
+      if(!pLines?.length) continue;
+      const {data:prev,error:prErr}=await sb.from('journal_entries').insert({user_id:currentUser.id,business_id:currentBiz.id,entry_date:today,reference:revRef,description:(ar?'عكس دفع رواتب ':'Reversal of payroll payment ')+pl,source:'payroll_reversal',source_id:pe.id,status:'posted',is_balanced:true}).select().single();
+      if(prErr)throw prErr;
+      const pRev=pLines.map(l=>({entry_id:prev.id,user_id:currentUser.id,account_code:l.account_code,account_name:l.account_name,debit:Number(l.credit)||0,credit:Number(l.debit)||0,description:(ar?'عكس: ':'Reversal: ')+(l.description||'')}));
+      const {error:pRevErr}=await sb.from('journal_lines').insert(pRev);
+      if(pRevErr){ await sb.from('journal_entries').delete().eq('id',prev.id); throw pRevErr; }
     }
     const {error:stErr}=await sb.from('payroll_runs').update({status:'reversed'}).eq('id',run.id);
     if(stErr){ notify((ar?'⚠ القيد العكسي مُرحّل لكن تعذر تحديث حالة التشغيل: ':'⚠ Reversal posted but run status update failed: ')+stErr.message,'error'); }
@@ -9421,8 +9437,8 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r68</div>
-<script>console.log('%c[GulfLedger build] v2026.06.28-r68 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r69</div>
+<script>console.log('%c[GulfLedger build] v2026.06.28-r69 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
 /* ═══════════════════════════════════════════════════════
    AI BOOKKEEPER — receipt scan → prefill expense form
    Calls the ai-scan-receipt Edge Function (Claude vision).
