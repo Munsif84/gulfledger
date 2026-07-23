@@ -9301,6 +9301,9 @@ async function prReverseRun(runId){
     const {data:orig,error:oErr}=await sb.from('journal_lines').select('*').eq('entry_id',run.journal_entry_id); if(oErr)throw oErr;
     if(!orig||!orig.length)throw new Error(ar?'لا توجد بنود':'No lines');
     const pl=`${run.period_year}-${String(run.period_month).padStart(2,'0')}`, today=new Date().toISOString().slice(0,10);
+    /* Re-entry guard: one accrual reversal per run, ever. */
+    const {data:revDupe}=await sb.from('journal_entries').select('id').eq('business_id',currentBiz.id).eq('source','payroll_reversal').eq('source_id',run.id).eq('reference','PAYROLL-REV-'+pl).limit(1);
+    if(revDupe&&revDupe.length){notify(ar?'هذا التشغيل معكوس مسبقاً':'This run is already reversed','error');return;}
     const {data:rev,error:reErr}=await sb.from('journal_entries').insert({user_id:currentUser.id,business_id:currentBiz.id,entry_date:today,reference:'PAYROLL-REV-'+pl,description:(ar?'عكس رواتب ':'Reversal of payroll ')+pl,source:'payroll_reversal',source_id:run.id,status:'posted',is_balanced:true}).select().single();
     if(reErr)throw reErr;
     const revLines=orig.map(l=>({entry_id:rev.id,user_id:currentUser.id,account_code:l.account_code,account_name:l.account_name,debit:Number(l.credit)||0,credit:Number(l.debit)||0,description:(ar?'عكس: ':'Reversal: ')+(l.description||'')}));
@@ -9437,8 +9440,8 @@ document.querySelectorAll('#gl-mobile-menu a').forEach(function(a){
 })();
 </script>
 
-<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r69</div>
-<script>console.log('%c[GulfLedger build] v2026.06.28-r69 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
+<div class="gl-build-badge" title="رقم البناء · Build version (Ctrl+Shift+R to refresh)">v2026.06.28-r70</div>
+<script>console.log('%c[GulfLedger build] v2026.06.28-r70 · Payroll module: embedded employees + GOSI engine + variable pay + accrue-then-pay + reversal, in Finance', 'color:#006C35;font-weight:bold;');
 /* ═══════════════════════════════════════════════════════
    AI BOOKKEEPER — receipt scan → prefill expense form
    Calls the ai-scan-receipt Edge Function (Claude vision).
