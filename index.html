@@ -1,510 +1,1097 @@
-/* ═══════════════════════════════════════════════════════════════════════════
-   GULFLEDGER COMMAND PALETTE · gl-command.js
-   ──────────────────────────────────────────────────────────────────────────
-   Ctrl+K / Cmd+K from anywhere → search-driven navigation + quick actions.
-   The "power user" layer that separates best-in-class SaaS from basic tools.
+<!DOCTYPE html>
+<!--
+  GulfLedger — index.html
+  Last UX/UI pass: All fixes are additive and preserve existing IDs, classes, JS handlers,
+  and the data-en / data-ar translation system.
 
-   Self-contained: injects its own styles (design-system tokens) and DOM.
-   Add to a page with: <script src="/gl-command.js" defer></script>
-   Bilingual matching: every command carries AR + EN + keyword strings; the
-   query matches any of them, so "فاتورة", "invoice" or "inv" all work.
-   ═══════════════════════════════════════════════════════════════════════ */
+  TODO BEFORE LAUNCH:
+  1. All "Get Started" CTAs now point to signup.html (self-serve 7-day free trial). WhatsApp removed.
+  2. Verify gulfledger.net domain is registered, or update footer to .vercel.app
+  3. Consider renaming CSS vars (--blue is actually green) in a dedicated cleanup pass across ALL html files together
+-->
+<html lang="ar" dir="rtl">
+<head>
+<script>
+/* Lang text pre-paint swap — eliminates Arabic→English wipe on page nav.
+   Runs at DOMContentLoaded (before page-init applyLang) so visible text
+   appears in the correct language from first paint. */
 (function(){
-  'use strict';
-  if (window.__glCmdLoaded) return; window.__glCmdLoaded = true;
-
-  var ICONS = '/gl-icons.svg';
-  function I(name){ return '<svg class="glc-i"><use href="' + ICONS + '#' + name + '"/></svg>'; }
-
-  /* ── Command registry ─────────────────────────────────────────────── */
-  var COMMANDS = [
-    /* Navigate */
-    { ar:'لوحة التحكم',        en:'Dashboard',            kw:'home dash لوحة الرئيسية',          icon:'i-chart',      href:'dashboard.html',  group:'nav' },
-    { ar:'المبيعات والفواتير', en:'Sales & Invoices',     kw:'invoices sales فواتير مبيعات',     icon:'i-invoice',    href:'invoices.html',   group:'nav' },
-    { ar:'المحاسبة',           en:'Accounting',           kw:'ledger journal gl محاسبة دفتر قيود', icon:'i-ledger',   href:'accounting.html', group:'nav' },
-    { ar:'المالية والمصاريف',  en:'Finance & Expenses',   kw:'expenses bills مصاريف مالية',      icon:'i-cash',       href:'finance.html',    group:'nav' },
-    { ar:'المخزون',            en:'Inventory',            kw:'stock products مخزون منتجات',      icon:'i-package',    href:'inventory.html',  group:'nav' },
-    { ar:'المشتريات',          en:'Purchasing',           kw:'suppliers po مشتريات موردين',      icon:'i-factory',    href:'purchasing.html', group:'nav' },
-    { ar:'التقارير',           en:'Reports',              kw:'reports pl balance تقارير قوائم',   icon:'i-trend-up',   href:'reports.html',    group:'nav' },
-    { ar:'الإعدادات',          en:'Settings',             kw:'settings config إعدادات ضبط',      icon:'i-settings',   href:'settings.html',   group:'nav' },
-    /* Create */
-    { ar:'فاتورة جديدة',       en:'New Invoice',          kw:'create new invoice فاتورة جديدة',  icon:'i-plus',       href:'invoices.html?action=new_invoice',                    group:'new' },
-    { ar:'عميل جديد',          en:'New Customer',         kw:'create customer عميل جديد',        icon:'i-user',       href:'invoices.html?action=new_customer',                   group:'new' },
-    { ar:'مصروف جديد',         en:'New Expense',          kw:'create expense مصروف جديد',        icon:'i-cash-out',   href:'finance.html?tab=expenses&action=new_expense',        group:'new' },
-    { ar:'قيد محاسبي جديد',    en:'New Journal Entry',    kw:'create journal entry قيد جديد',    icon:'i-ledger',     href:'accounting.html?sub=ledger&action=new_journal',       group:'new' },
-    { ar:'مورد جديد',          en:'New Supplier',         kw:'create supplier مورد جديد',        icon:'i-factory',    href:'purchasing.html?tab=suppliers&action=new_supplier',   group:'new' },
-    { ar:'استلام بضاعة',       en:'Receive Stock',        kw:'receive stock grn استلام بضاعة',   icon:'i-receipt-in', href:'inventory.html?tab=receive&action=new_receipt',       group:'new' },
-    /* Reports (deep links) */
-    { ar:'قائمة الدخل',        en:'Profit & Loss',        kw:'pl income statement قائمة الدخل أرباح', icon:'i-chart', href:'accounting.html?sub=report-pl',  group:'report' },
-    { ar:'الميزانية العمومية', en:'Balance Sheet',        kw:'bs balance ميزانية مركز مالي',     icon:'i-scale',      href:'accounting.html?sub=report-bs',  group:'report' },
-    { ar:'إقرار ضريبة القيمة المضافة', en:'VAT Return',  kw:'vat zatca ضريبة إقرار',            icon:'i-document',   href:'accounting.html?sub=report-vat', group:'report' },
-    /* System */
-    { ar:'التبديل إلى English', en:'Switch to العربية',   kw:'language لغة english عربي switch', icon:'i-globe',      action:'lang',          group:'sys' },
-  ];
-
-  var GROUPS = {
-    nav:    { ar:'الانتقال إلى',   en:'Go to' },
-    'new':  { ar:'إنشاء جديد',     en:'Create new' },
-    report: { ar:'التقارير',       en:'Reports' },
-    sys:    { ar:'النظام',         en:'System' },
-  };
-
-  /* ── Styles (design-system tokens only) ──────────────────────────── */
-  var css = ''
-  + '.glc-backdrop{position:fixed;inset:0;background:rgba(13,20,16,0.40);z-index:99990;display:none;align-items:flex-start;justify-content:center;padding:12vh 16px 16px;backdrop-filter:blur(2px);}'
-  + '.glc-backdrop.open{display:flex;animation:glcFade .12s ease-out;}'
-  + '@keyframes glcFade{from{opacity:0}to{opacity:1}}'
-  + '.glc{width:100%;max-width:560px;background:var(--color-bg-surface,#fff);border-radius:12px;box-shadow:0 24px 64px rgba(0,0,0,0.28);overflow:hidden;display:flex;flex-direction:column;max-height:62vh;animation:glcPop .14s cubic-bezier(0.16,1,0.3,1);}'
-  + '@keyframes glcPop{from{opacity:0;transform:translateY(-6px) scale(0.99)}to{opacity:1;transform:none}}'
-  + '.glc-head{display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid var(--color-border,#E5E7EB);}'
-  + '.glc-head .glc-i{width:18px;height:18px;color:var(--color-text-muted,#737373);flex-shrink:0;}'
-  + '.glc-input{flex:1;border:none;outline:none;font-family:var(--font-sans,sans-serif);font-size:15px;color:var(--color-text-strong,#171717);background:transparent;min-width:0;}'
-  + '.glc-input::placeholder{color:var(--color-text-faint,#A3A3A3);}'
-  + '.glc-esc{font-size:10px;font-weight:700;color:var(--color-text-faint,#A3A3A3);border:1px solid var(--color-border,#E5E7EB);border-radius:4px;padding:2px 6px;flex-shrink:0;}'
-  + '.glc-list{overflow-y:auto;padding:6px;}'
-  + '.glc-group{font-size:10.5px;font-weight:700;color:var(--color-text-faint,#A3A3A3);text-transform:uppercase;letter-spacing:.06em;padding:10px 12px 4px;}'
-  + '.glc-item{display:flex;align-items:center;gap:11px;padding:9px 12px;border-radius:8px;cursor:pointer;font-size:13.5px;color:var(--color-text-default,#404040);}'
-  + '.glc-item .glc-i{width:17px;height:17px;color:var(--color-text-muted,#737373);flex-shrink:0;}'
-  + '.glc-item.sel{background:var(--color-primary-soft,rgba(0,108,53,.08));color:var(--color-primary,#006C35);}'
-  + '.glc-item.sel .glc-i{color:var(--color-primary,#006C35);}'
-  + '.glc-item .glc-sub{margin-inline-start:auto;font-size:11px;color:var(--color-text-faint,#A3A3A3);}'
-  + '.glc-empty{text-align:center;padding:28px 16px;color:var(--color-text-muted,#737373);font-size:13px;}'
-  + '.glc-hint{display:flex;gap:14px;padding:8px 16px;border-top:1px solid var(--color-border,#E5E7EB);font-size:10.5px;color:var(--color-text-faint,#A3A3A3);}'
-  + '.glc-hint b{font-weight:700;color:var(--color-text-muted,#737373);}'
-  + '@media (max-width:560px){.glc-backdrop{padding:8vh 8px 8px;}.glc{max-height:74vh;}}'
-  /* Topnav trigger button (self-injected before .gl-qa-btn) */
-  + '.glc-trigger{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid rgba(255,255,255,0.28);border-radius:8px;background:rgba(255,255,255,0.10);color:#fff;font-family:var(--font-sans,sans-serif);font-size:12.5px;cursor:pointer;transition:background .12s,border-color .12s;margin-inline-end:8px;}'
-  + '.glc-trigger:hover{background:rgba(255,255,255,0.18);border-color:rgba(255,255,255,0.45);}'
-  + '.glc-trigger .glc-i{width:15px;height:15px;}'
-  + '.glc-trigger kbd{font-family:var(--font-sans,sans-serif);font-size:10px;font-weight:700;border:1px solid rgba(255,255,255,0.35);border-radius:4px;padding:1px 5px;opacity:0.85;}'
-  + '@media (max-width:719px){.glc-trigger .glc-tr-label,.glc-trigger kbd{display:none;}.glc-trigger{padding:7px 9px;margin-inline-end:6px;}}';
-
-  var styleEl = document.createElement('style');
-  styleEl.textContent = css;
-  document.head.appendChild(styleEl);
-
-  /* ── DOM ──────────────────────────────────────────────────────────── */
-  var lang = function(){ return (typeof currentLang !== 'undefined' && currentLang) ? currentLang : (document.documentElement.lang || 'ar'); };
-  var backdrop = document.createElement('div');
-  backdrop.className = 'glc-backdrop';
-  backdrop.innerHTML =
-      '<div class="glc" role="dialog" aria-modal="true" aria-label="Command palette">'
-    +   '<div class="glc-head">' + I('i-search')
-    +     '<input class="glc-input" id="glc-input" autocomplete="off" spellcheck="false">'
-    +     '<span class="glc-esc">ESC</span>'
-    +   '</div>'
-    +   '<div class="glc-list" id="glc-list"></div>'
-    +   '<div class="glc-hint"><span><b>↑↓</b> تنقّل · navigate</span><span><b>↵</b> فتح · open</span></div>'
-    + '</div>';
-  function mount(){
-    if(document.body && !backdrop.isConnected) document.body.appendChild(backdrop);
-    /* Discoverability: inject a search trigger before the Quick-Add button
-       in the topnav (present on every page). Zero per-page edits needed. */
-    if(!document.querySelector('.glc-trigger')){
-      var navRight = document.querySelector('.nav-right');
-      var qa = navRight ? navRight.firstElementChild : document.querySelector('.gl-qa-btn');
-      if(qa && qa.parentNode){
-        var ar = lang() === 'ar';
-        var btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'glc-trigger';
-        btn.setAttribute('aria-label', ar ? 'بحث سريع' : 'Quick search');
-        btn.innerHTML = I('i-search')
-          + '<span class="glc-tr-label">' + (ar ? 'بحث' : 'Search') + '</span>'
-          + '<kbd>Ctrl K</kbd>';
-        btn.addEventListener('click', openPal);
-        qa.parentNode.insertBefore(btn, qa);
+  var lang = localStorage.getItem('gl_lang') || 'ar';
+  function swap(){
+    try {
+      var els = document.querySelectorAll('[data-ar][data-en]');
+      var attr = 'data-' + lang;
+      for(var i = 0; i < els.length; i++){
+        var v = els[i].getAttribute(attr);
+        if(v == null) continue;
+        /* If the data-* value contains HTML markup (e.g. <br> or <span> for
+           typography purposes on landing pages), use innerHTML so it renders.
+           Values come from the page's HTML source (trusted), not user input.
+           For plain text (the overwhelming majority), use textContent for speed. */
+        if(v.indexOf('<') !== -1) els[i].innerHTML = v;
+        else els[i].textContent = v;
       }
-    }
-  }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', mount);
-  else mount();
-
-  var input, list, results = [], sel = 0, open = false;
-
-  function norm(s){ return (s || '').toLowerCase().replace(/[أإآ]/g,'ا').replace(/ة/g,'ه').replace(/ى/g,'ي'); }
-
-  function filter(q){
-    q = norm(q.trim());
-    if(!q) return COMMANDS.slice();
-    return COMMANDS.filter(function(cmd){
-      return norm(cmd.ar + ' ' + cmd.en + ' ' + cmd.kw).indexOf(q) !== -1;
-    });
-  }
-
-  function render(){
-    var L = lang(), ar = L === 'ar';
-    if(!results.length){
-      list.innerHTML = '<div class="glc-empty">' + (ar ? 'لا توجد نتائج' : 'No results') + '</div>';
-      return;
-    }
-    var html = '', lastGroup = null;
-    results.forEach(function(cmd, i){
-      if(cmd.group !== lastGroup){
-        lastGroup = cmd.group;
-        var g = GROUPS[cmd.group];
-        html += '<div class="glc-group">' + (ar ? g.ar : g.en) + '</div>';
-      }
-      html += '<div class="glc-item' + (i === sel ? ' sel' : '') + '" data-i="' + i + '">'
-            + I(cmd.icon)
-            + '<span>' + (ar ? cmd.ar : cmd.en) + '</span>'
-            + '<span class="glc-sub">' + (ar ? cmd.en : cmd.ar) + '</span>'
-            + '</div>';
-    });
-    list.innerHTML = html;
-    var selEl = list.querySelector('.glc-item.sel');
-    if(selEl) selEl.scrollIntoView({block:'nearest'});
-  }
-
-  function exec(cmd){
-    if(!cmd) return;
-    close();
-    if(cmd.action === 'lang'){
-      var next = lang() === 'ar' ? 'en' : 'ar';
-      if(typeof setLang === 'function') setLang(next);
-      return;
-    }
-    if(cmd.href) window.location.href = cmd.href;
-  }
-
-  function openPal(){
-    mount();
-    input = document.getElementById('glc-input');
-    list = document.getElementById('glc-list');
-    var ar = lang() === 'ar';
-    input.placeholder = ar ? 'ابحث أو اكتب أمراً…' : 'Search or type a command…';
-    input.value = '';
-    results = filter(''); sel = 0; render();
-    backdrop.classList.add('open');
-    document.body.style.overflow = 'hidden';
-    open = true;
-    setTimeout(function(){ input.focus(); }, 30);
-  }
-  function close(){
-    backdrop.classList.remove('open');
-    document.body.style.overflow = '';
-    open = false;
-  }
-  window.glOpenCommandPalette = openPal;
-
-  /* ── Events ───────────────────────────────────────────────────────── */
-  document.addEventListener('keydown', function(e){
-    if((e.ctrlKey || e.metaKey) && (e.key === 'k' || e.key === 'K')){
-      e.preventDefault();
-      open ? close() : openPal();
-      return;
-    }
-    if(!open) return;
-    if(e.key === 'Escape'){ e.preventDefault(); close(); }
-    else if(e.key === 'ArrowDown'){ e.preventDefault(); sel = Math.min(sel + 1, results.length - 1); render(); }
-    else if(e.key === 'ArrowUp'){ e.preventDefault(); sel = Math.max(sel - 1, 0); render(); }
-    else if(e.key === 'Enter'){ e.preventDefault(); exec(results[sel]); }
-  });
-  backdrop.addEventListener('click', function(e){ if(e.target === backdrop) close(); });
-  backdrop.addEventListener('input', function(e){
-    if(e.target.id !== 'glc-input') return;
-    results = filter(e.target.value); sel = 0; render();
-  });
-  backdrop.addEventListener('click', function(e){
-    var item = e.target.closest('.glc-item');
-    if(item) exec(results[parseInt(item.dataset.i, 10)]);
-  });
-
-  /* ── Profile identity header ─────────────────────────────────────
-     Business name + user email at the top of the avatar dropdown
-     (GitHub/QuickBooks pattern). Reads page globals currentBiz /
-     currentUser; caches name for instant paint. */
-  function glFillIdentity(bizName, email){
-    var dd = document.querySelector('.profile-dropdown');
-    if(!dd) return;
-    var id = dd.querySelector('.profile-id');
-    if(!id){
-      id = document.createElement('div');
-      id.className = 'profile-id';
-      id.innerHTML = '<div class="profile-id-biz"></div><div class="profile-id-user"></div>';
-      var div = document.createElement('div');
-      div.className = 'profile-divider';
-      dd.insertBefore(div, dd.firstChild);
-      dd.insertBefore(id, dd.firstChild);
-    }
-    if(bizName) id.querySelector('.profile-id-biz').textContent = bizName;
-    if(email) id.querySelector('.profile-id-user').textContent = email;
-  }
-  function glIdentityBoot(){
-    try { var n = localStorage.getItem('gl_biz_name'); if(n) glFillIdentity(n, ''); } catch(_e){}
-    var tries = 0;
-    var t = setInterval(function(){
-      tries++;
-      var biz = (typeof currentBiz !== 'undefined') ? currentBiz : null;
-      var usr = (typeof currentUser !== 'undefined') ? currentUser : null;
-      if(biz && biz.name){
-        glFillIdentity(biz.name, (usr && usr.email) || '');
-        try { localStorage.setItem('gl_biz_name', biz.name); } catch(_e){}
-        clearInterval(t);
-      } else if(tries > 40){ clearInterval(t); }
-    }, 250);
-  }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', glIdentityBoot);
-  else glIdentityBoot();
-
-  /* ── Listbar progressive filters ──────────────────────────────────
-     For every .toolbar:
-       1. Each select.filter-select gets an active-state highlight + an
-          inline ✕ clear mark whenever it holds a non-default value. Clicking
-          ✕ resets that ONE filter to its first option and re-renders.
-       2. Search + the FIRST filter stay inline; remaining filters collapse
-          into a "Filters" popover with a count badge (space-saving on dense
-          toolbars). The ✕ clear marks work inline AND inside the popover.
-       3. [data-lb="link"] items become popover footer links. */
-
-  /* Wrap a select so we can overlay a ✕ clear button when it's active.
-     "Active" = the select's value is not its first <option> (the default). */
-  function glDecorateFilter(sel){
-    /* Opt-out for selects that use the filter-select class for styling but are
-       INPUTS, not filters (e.g. payroll period pickers, report parameters).
-       Tag them with data-glnoclear and they keep their look, no ✕. */
-    if(sel.hasAttribute('data-glnoclear')) return;
-    if(sel.dataset.glClearWired) return;
-    sel.dataset.glClearWired = '1';
-    var defaultVal = sel.options.length ? sel.options[0].value : '';
-    sel.dataset.glDefault = defaultVal;
-    /* Wrap select in a relative container so the ✕ can sit inside it */
-    var holder = document.createElement('span');
-    holder.className = 'gl-filter-holder';
-    sel.parentNode.insertBefore(holder, sel);
-    holder.appendChild(sel);
-    var clr = document.createElement('button');
-    clr.type = 'button';
-    clr.className = 'gl-filter-clear';
-    clr.setAttribute('aria-label', lang()==='ar' ? 'مسح الفلتر' : 'Clear filter');
-    clr.innerHTML = '✕';
-    holder.appendChild(clr);
-    function sync(){
-      var active = sel.value !== sel.dataset.glDefault;
-      sel.classList.toggle('is-active', active);
-      clr.style.display = active ? '' : 'none';
-    }
-    clr.addEventListener('click', function(e){
-      e.stopPropagation();
-      sel.value = sel.dataset.glDefault;
-      sel.dispatchEvent(new Event('change', {bubbles:true}));
-      sync();
-    });
-    sel.addEventListener('change', sync);
-    sync();
-  }
-
-  /* Pill groups (.filter-group > .filter-btn[data-filter]): treat the FIRST
-     pill (usually data-filter="all") as the default. When a non-default pill is
-     active, show a ✕ on the group that returns to the default pill. */
-  function glDecoratePills(grp){
-    if(grp.dataset.glClearWired) return;
-    var pills = Array.prototype.slice.call(grp.querySelectorAll('.filter-btn'));
-    if(pills.length < 2) return;
-    grp.dataset.glClearWired = '1';
-    var def = pills[0];
-    var clr = document.createElement('button');
-    clr.type = 'button';
-    clr.className = 'gl-filter-clear gl-pills-clear';
-    clr.setAttribute('aria-label', lang()==='ar' ? 'مسح الفلتر' : 'Clear filter');
-    clr.innerHTML = '✕';
-    grp.style.position = 'relative';
-    grp.appendChild(clr);
-    function sync(){
-      var active = grp.querySelector('.filter-btn.active');
-      var isDefault = !active || active === def;
-      grp.classList.toggle('has-active', !isDefault);
-      clr.style.display = isDefault ? 'none' : '';
-    }
-    clr.addEventListener('click', function(e){
-      e.stopPropagation();
-      def.click();   /* re-run the page's own handler for the default pill */
-      setTimeout(sync, 0);
-    });
-    pills.forEach(function(p){ p.addEventListener('click', function(){ setTimeout(sync, 0); }); });
-    sync();
-  }
-
-
-  /* ── Custom date range on period dropdowns ──────────────────────────
-     Any select.filter-select[data-gl-period] gains a "Custom range…"
-     option. Choosing it reveals inline from→to date pickers; once both
-     are set, the range is stored on the select (dataset.glFrom/glTo),
-     the option relabels to the compact range, and a change event fires
-     so the page's existing render logic runs. Pages read the dataset in
-     their '__custom' branch. The standard ✕ (glDecorateFilter) clears
-     back to the default option, which also removes the pickers. */
-  function glPeriodCustom(sel){
-    if(sel.dataset.glRangeWired) return;
-    sel.dataset.glRangeWired = '1';
-    var ar = lang() === 'ar';
-    var baseLabel = ar ? 'نطاق مخصص…' : 'Custom range…';
-    var opt = document.createElement('option');
-    opt.value = '__custom'; opt.textContent = baseLabel;
-    sel.appendChild(opt);
-    var wrap = null;
-    function cleanup(){
-      if(wrap){ wrap.remove(); wrap = null; }
-      delete sel.dataset.glFrom; delete sel.dataset.glTo;
-      opt.textContent = baseLabel;
-    }
-    sel.addEventListener('change', function(){
-      if(sel.value !== '__custom'){ cleanup(); return; }
-      if(wrap) return;                       // re-entry from our own dispatch
-      wrap = document.createElement('span');
-      wrap.className = 'gl-range-wrap';
-      wrap.innerHTML = '<input type="date" class="gl-range-in" lang="en">'
-        + '<span class="gl-range-sep">→</span>'
-        + '<input type="date" class="gl-range-in" lang="en">';
-      var holder = sel.closest('.gl-filter-holder') || sel;
-      holder.parentNode.insertBefore(wrap, holder.nextSibling);
-      var ins = wrap.querySelectorAll('input');
-      function apply(){
-        if(!ins[0].value || !ins[1].value) return;
-        sel.dataset.glFrom = ins[0].value;
-        sel.dataset.glTo = ins[1].value;
-        opt.textContent = ins[0].value.slice(2) + ' → ' + ins[1].value.slice(2);
-        sel.dispatchEvent(new Event('change', { bubbles: true }));
-      }
-      ins[0].addEventListener('change', apply);
-      ins[1].addEventListener('change', apply);
-      ins[0].focus();
-    });
-  }
-
-
-  /* ── LANGUAGE-AWARE ENTITY NAMES (site convention) ──────────────────────
-     THE RULE: whatever the record holds, display follows the SITE language
-     with graceful fallback. Arabic site (95% of clients) → Arabic name
-     first; English site → English name if one was entered at creation,
-     otherwise the Arabic original (never blank, never wrong-language when
-     the right one exists).
-       glName(entity)    → name_ar/name_en/name family
-       glCompany(entity) → company_name(_en) family, falls through to names
-     Every list, dropdown, table cell, and report should render entity
-     names through these — not raw .name / .name_ar. */
-  function glName(e){
-    if(!e) return '';
-    var ar = lang() === 'ar';
-    return (ar ? (e.name_ar || e.name || e.name_en)
-               : (e.name_en || e.name || e.name_ar)) || '';
-  }
-  function glCompany(e){
-    if(!e) return '';
-    var ar = lang() === 'ar';
-    return (ar ? (e.company_name || e.company_name_ar || e.company_name_en)
-               : (e.company_name_en || e.company_name || e.company_name_ar))
-           || glName(e);
-  }
-  window.glName = glName;
-  window.glCompany = glCompany;
-
-
-  /* ── STATIC LANGUAGE APPLIER (one convention, applied centrally) ────────
-     Language changes reload the page, so a single pass at load is enough.
-     Handles the three static surfaces pages have: element text via
-     data-ar/data-en, placeholders via data-ph-ar/data-ph-en, titles via
-     data-title-ar/data-title-en. <option> elements included. Runs after
-     DOM ready on every page that loads gl-command.js — pages need zero
-     applier code of their own. */
-  function glApplyStaticLang(){
-    var L = lang();
-    document.querySelectorAll('[data-ar][data-en]').forEach(function(el){
-      if(el.children.length > 0 && el.tagName !== 'OPTION') return;
-      var t = el.getAttribute('data-' + L);
-      if(t != null) el.textContent = t;
-    });
-    document.querySelectorAll('[data-ph-ar][data-ph-en]').forEach(function(el){
-      var t = el.getAttribute(L === 'ar' ? 'data-ph-ar' : 'data-ph-en');
-      if(t != null) el.setAttribute('placeholder', t);
-    });
-    document.querySelectorAll('[data-title-ar][data-title-en]').forEach(function(el){
-      var t = el.getAttribute(L === 'ar' ? 'data-title-ar' : 'data-title-en');
-      if(t != null) el.setAttribute('title', t);
-    });
+    } catch(e){}
   }
   if(document.readyState === 'loading'){
-    document.addEventListener('DOMContentLoaded', glApplyStaticLang);
-  } else { glApplyStaticLang(); }
-
-  function glListbar(){
-    var ar = lang() === 'ar';
-    /* Scan the standard .toolbar AND report-specific toolbars so the one filter
-       design reaches every page (reports uses .db-toolbar / .report-toolbar). */
-    document.querySelectorAll('.toolbar, .db-toolbar, .report-toolbar').forEach(function(tb){
-      /* Decorate dropdown filters with a clear ✕ (idempotent) */
-      Array.prototype.slice.call(tb.querySelectorAll('select.filter-select')).forEach(glDecorateFilter);
-      Array.prototype.slice.call(tb.querySelectorAll('select.filter-select[data-gl-period]')).forEach(glPeriodCustom);
-      /* Decorate pill groups with a group-level clear ✕ */
-      Array.prototype.slice.call(tb.querySelectorAll('.filter-group')).forEach(glDecoratePills);
-      if(tb.dataset.lbDone) return;
-      var sels = Array.prototype.slice.call(tb.querySelectorAll('select.filter-select'));
-      var extras = Array.prototype.slice.call(tb.querySelectorAll('[data-lb="more"]'));
-      var links = Array.prototype.slice.call(tb.querySelectorAll('[data-lb="link"]'));
-      /* Move the HOLDERS (select + its ✕), not the bare selects */
-      var movers = sels.slice(1).map(function(s){ return s.closest('.gl-filter-holder') || s; }).concat(extras);
-      if(!movers.length && !links.length) return;
-      tb.dataset.lbDone = '1';
-
-      var wrap = document.createElement('div');
-      wrap.className = 'lb-wrap';
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'lb-btn';
-      btn.innerHTML = '<svg class="gl-i"><use href="/gl-icons.svg#i-filter"/></svg>'
-        + '<span>' + (ar ? 'فلاتر' : 'Filters') + '</span>'
-        + '<span class="lb-badge" style="display:none;">0</span>';
-      var pop = document.createElement('div');
-      pop.className = 'lb-pop';
-      pop.innerHTML = '<div class="lb-pop-label">' + (ar ? 'تصفية النتائج' : 'Filter results') + '</div>';
-      movers.forEach(function(el){ el.style.display = ''; pop.appendChild(el); });
-      if(links.length){
-        var foot = document.createElement('div');
-        foot.className = 'lb-pop-foot';
-        links.forEach(function(a){ foot.appendChild(a); });
-        pop.appendChild(foot);
-      }
-      wrap.appendChild(btn); wrap.appendChild(pop);
-
-      var anchor = sels.length ? (sels[0].closest('.gl-filter-holder') || sels[0]) : tb.querySelector('.search-wrap');
-      if(anchor && anchor.parentNode === tb) tb.insertBefore(wrap, anchor.nextSibling);
-      else tb.insertBefore(wrap, tb.children[1] || null);
-
-      function badge(){
-        var n = 0;
-        movers.forEach(function(el){
-          var s = el.tagName === 'SELECT' ? el : el.querySelector && el.querySelector('select');
-          if(s && s.value && s.value !== (s.dataset.glDefault||'')) n++;
-        });
-        var b = btn.querySelector('.lb-badge');
-        b.textContent = n;
-        b.style.display = n ? '' : 'none';
-      }
-      pop.addEventListener('change', badge);
-      badge();
-      btn.addEventListener('click', function(e){
-        e.stopPropagation();
-        pop.classList.toggle('open');
-      });
-      document.addEventListener('click', function(e){
-        if(!wrap.contains(e.target)) pop.classList.remove('open');
-      });
-    });
+    document.addEventListener('DOMContentLoaded', swap, {once:true});
+  } else {
+    swap();
   }
-  window.glListbar = glListbar;
-  function glListbarBoot(){
-    glListbar(); setTimeout(glListbar, 800); setTimeout(glListbar, 2500);
-    /* Debounced observer: pages render toolbars after auth/data loads, which
-       can be later than the fixed retries on slow connections. Watch for new
-       nodes and re-run the (idempotent) decorator. */
-    if (typeof MutationObserver !== 'undefined' && document.body) {
-      var t = null;
-      new MutationObserver(function(){
-        if (t) clearTimeout(t);
-        t = setTimeout(glListbar, 250);
-      }).observe(document.body, { childList: true, subtree: true });
+})();
+</script>
+
+<meta charset="UTF-8">
+<script>
+/* Apply language before render to prevent flash */
+(function(){
+  var lang = localStorage.getItem('gl_lang') || 'ar';
+  document.documentElement.setAttribute('lang', lang);
+  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+})();
+
+/* Suppress visual jank when language/direction flips:
+   - watch <html dir>/<html lang> for changes
+   - add lang-switching class → CSS disables all transitions/animations
+   - remove class on next frame so the page renders in the new direction instantly */
+(function(){
+  var lockTimer = null;
+  function flash(){
+    document.documentElement.classList.add('lang-switching');
+    if(lockTimer) clearTimeout(lockTimer);
+    lockTimer = setTimeout(function(){
+      document.documentElement.classList.remove('lang-switching');
+    }, 220);
+  }
+  if(typeof MutationObserver !== 'undefined'){
+    var obs = new MutationObserver(function(muts){
+      for(var i=0;i<muts.length;i++){
+        var m = muts[i];
+        if(m.type==='attributes' && (m.attributeName==='dir' || m.attributeName==='lang')){
+          flash(); break;
+        }
+      }
+    });
+    obs.observe(document.documentElement, {attributes:true, attributeFilter:['dir','lang']});
+  }
+})();
+
+</script>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<!-- SEO + Social sharing (added — was missing) -->
+<meta name="description" content="GulfLedger — منصة محاسبة وامتثال خليجية. فواتير زاتكا متوافقة، VAT تلقائي، قوائم مالية جاهزة لقوائم. ZATCA Phase 2 compliant invoicing for Saudi businesses.">
+<meta name="theme-color" content="#1A3C2A">
+<meta property="og:title" content="GulfLedger — Saudi Accounting & Compliance Platform">
+<meta property="og:description" content="Send a ZATCA-compliant invoice in 10 seconds. VAT, accounting, and financial statements happen automatically — no accountant needed.">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ar_SA">
+<meta property="og:locale:alternate" content="en_US">
+<meta name="twitter:card" content="summary_large_image">
+
+<title>GulfLedger — Gulf Accounting & Compliance Platform</title>
+
+<!-- Fonts: added Tajawal for proper Arabic rendering. DM Sans + Playfair preserved for English. -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@300;400;500&family=Tajawal:wght@300;400;500;700;800&display=swap" rel="stylesheet">
+
+<style>
+/* ─── Build version badge (Round NN of YYYY-MM-DD)
+       Tiny corner badge so we can verify cached vs fresh file.
+       Hidden on print. Use Ctrl+Shift+R to refresh if stale. */
+.gl-build-badge{position:fixed;bottom:6px;left:6px;font-size:9px;color:#9aa8a0;font-family:'DM Mono',monospace,sans-serif;background:rgba(255,255,255,0.85);padding:2px 6px;border-radius:4px;z-index:2147483647;pointer-events:none;user-select:none;opacity:0.55;}
+@media print { .gl-build-badge{display:none!important;} }
+
+
+/* Suppress transitions during language/direction switch — eliminates fold/wipe jank */
+html.lang-switching,
+html.lang-switching *,
+html.lang-switching *::before,
+html.lang-switching *::after {
+  transition: none !important;
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+}
+:root {
+  /* Original variable names preserved to avoid breaking other html files. */
+  /* Note: --blue and --sky are actually green hex values (Saudi flag green palette). */
+  --navy:#1A3C2A;
+  --blue:#006C35;
+  --sky:#3DAA65;
+  --light:#A8D9BC;
+  --tint:#E6F4EC;
+  --green: #1D9E75;
+  --ink:#0D2618;
+  --muted:#4A7A5E;
+  --white: #ffffff;
+  --offwhite: #f7fafd;
+
+  /* Newly added — were referenced in CSS but never defined, causing fallbacks */
+  --border: #E5E7EB;
+  --amber: #F59E0B;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html { scroll-behavior: smooth; }
+
+body {
+  font-family: 'DM Sans', 'Tajawal', sans-serif;
+  background: var(--white);
+  color: var(--ink);
+  overflow-x: hidden;
+}
+
+/* Arabic uses Tajawal as primary font for clean Arabic glyphs */
+[dir="rtl"] body,
+body.ar {
+  font-family: 'Tajawal', 'DM Sans', sans-serif;
+}
+
+/* Arabic headlines — Tajawal Bold renders Arabic far better than Playfair (which has no Arabic glyphs) */
+[dir="rtl"] h1, [dir="rtl"] h2, [dir="rtl"] .section-title, [dir="rtl"] .logo-gulf, [dir="rtl"] .plan-price, [dir="rtl"] .price-big,
+body.ar h1, body.ar h2, body.ar .section-title, body.ar .logo-gulf, body.ar .plan-price, body.ar .price-big {
+  font-family: 'Tajawal', sans-serif;
+  font-weight: 800;
+}
+
+/* ─── NAVBAR ─── */
+nav {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 90;
+  display: flex; align-items: center; justify-content: space-between;
+  padding: 12px 40px;
+  background: var(--navy);
+  transition: box-shadow 0.3s;
+}
+nav.scrolled { box-shadow: 0 2px 20px rgba(0,0,0,0.2); }
+.nav-logo { display: flex; align-items: center; gap: 10px; text-decoration: none; }
+.nav-logo-icon { display: flex; gap: 3px; align-items: stretch; height: 28px; }
+.bar1 { width: 4px; background: var(--white); border-radius: 2px; }
+.bar2 { width: 4px; background: rgba(255,255,255,0.45); border-radius: 2px; }
+.nav-logo-text { display: flex; flex-direction: column; line-height: 1; }
+.logo-gulf { font-family: 'Playfair Display', serif; font-size: 18px; color: var(--white); }
+.logo-ledger { font-size: 10px; letter-spacing: 3px; color: var(--light); font-weight: 400; margin-top: 2px; }
+.nav-right { display: flex; align-items: center; gap: 16px; }
+.nav-links { display: flex; gap: 24px; align-items: center; }
+.nav-links a { text-decoration: none; font-size: 14px; color: rgba(255,255,255,0.75); font-weight: 400; transition: color 0.2s; }
+.nav-links a:hover { color: var(--white); }
+.nav-cta {
+  padding: 8px 18px; background: var(--sky); color: var(--white);
+  border-radius: 8px; font-size: 13px; font-weight: 500; text-decoration: none;
+  transition: background 0.2s; white-space: nowrap;
+}
+.nav-cta:hover { background: var(--blue); color: var(--white); }
+
+/* ─── LANGUAGE TOGGLE — inside nav ─── */
+.lang-toggle {
+  display: flex; gap: 0;
+  border: 1px solid rgba(255,255,255,0.25); border-radius: 6px; overflow: hidden;
+}
+.lang-btn {
+  padding: 5px 12px; font-size: 12px; font-weight: 500; cursor: pointer;
+  border: none; background: transparent; color: rgba(255,255,255,0.6);
+  transition: background 0.2s, color 0.2s;
+}
+.lang-btn.active { background: var(--sky); color: var(--white); }
+
+/* ─── MOBILE MENU TOGGLE (newly added — fixes broken mobile nav) ─── */
+.mobile-menu-btn {
+  display: none;
+  background: transparent; border: 1px solid rgba(255,255,255,0.25);
+  color: var(--white); padding: 8px 10px; border-radius: 6px;
+  cursor: pointer; font-size: 18px; line-height: 1;
+}
+.mobile-menu-btn:hover { background: rgba(255,255,255,0.1); }
+
+/* ─── HERO ─── */
+.hero {
+  min-height: 100vh;
+  background: linear-gradient(160deg, var(--offwhite) 0%, var(--white) 50%, var(--tint) 100%);
+  display: flex; align-items: center;
+  padding: 120px 40px 80px;
+  position: relative; overflow: hidden;
+}
+.hero-bg-lines {
+  position: absolute; inset: 0; pointer-events: none; opacity: 0.04;
+}
+.hero-inner {
+  max-width: 1100px; margin: 0 auto; width: 100%;
+  display: grid; grid-template-columns: 1fr 1fr; gap: 80px; align-items: center;
+}
+.hero-badge {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: var(--tint); border: 1px solid var(--light);
+  padding: 5px 14px; border-radius: 20px;
+  font-size: 12px; color: var(--blue); font-weight: 500;
+  margin-bottom: 24px;
+}
+.badge-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+.hero h1 {
+  font-family: 'Playfair Display', serif;
+  font-size: clamp(36px, 5vw, 58px);
+  line-height: 1.1;
+  color: var(--navy);
+  margin-bottom: 20px;
+}
+.hero h1 span { color: var(--sky); }
+.hero-sub {
+  font-size: 17px; color: var(--muted); line-height: 1.7;
+  font-weight: 300; margin-bottom: 36px; max-width: 480px;
+}
+.hero-actions { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.btn-primary {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 14px 28px; background: var(--blue); color: var(--white);
+  border-radius: 10px; font-size: 15px; font-weight: 500; text-decoration: none;
+  transition: background 0.2s, transform 0.15s;
+}
+.btn-primary:hover { background: var(--navy); transform: translateY(-1px); }
+.btn-secondary {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 14px 28px; border: 1.5px solid var(--light); color: var(--blue);
+  border-radius: 10px; font-size: 15px; font-weight: 500; text-decoration: none;
+  transition: border-color 0.2s, background 0.2s;
+}
+.btn-secondary:hover { border-color: var(--blue); background: var(--tint); }
+.hero-trust { display: flex; gap: 20px; margin-top: 36px; flex-wrap: wrap; }
+.trust-item { display: flex; align-items: center; gap: 6px; font-size: 12px; color: var(--muted); }
+.trust-icon { color: var(--green); font-size: 14px; }
+
+/* Hero govt-recovery callout — was light text on light bg, now properly themed */
+.hero-govt-callout {
+  margin-top: 18px;
+  display: inline-flex;
+  align-items: flex-start;
+  gap: 10px;
+  background: var(--tint);
+  border: 1px solid var(--light);
+  border-radius: 10px;
+  padding: 12px 16px;
+  max-width: 520px;
+}
+.hero-govt-callout-icon { font-size: 18px; line-height: 1.4; flex-shrink: 0; }
+.hero-govt-callout-text { font-size: 13px; color: var(--ink); line-height: 1.6; font-weight: 400; }
+
+/* Dashboard mockup */
+.hero-visual {
+  background: var(--white);
+  border: 1px solid var(--light);
+  border-radius: 16px;
+  overflow: hidden;
+  box-shadow: 0 20px 60px rgba(24,95,165,0.12);
+  animation: floatUp 0.8s ease both;
+}
+@keyframes floatUp {
+  from { opacity: 0; transform: translateY(30px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+.mock-header {
+  background: var(--blue); padding: 14px 18px;
+  display: flex; align-items: center; gap: 10px;
+}
+.mock-logo-bar { display: flex; gap: 2px; height: 20px; }
+.mock-bar { width: 4px; border-radius: 2px; } /* fixed: was 3px without width fallback */
+.mock-title { font-size: 13px; font-weight: 500; color: var(--white); }
+.mock-subtitle { font-size: 11px; color: var(--light); margin-left: auto; }
+.mock-body { padding: 18px; }
+.mock-stats { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; margin-bottom: 16px; }
+.mock-stat {
+  padding: 12px 14px; border-radius: 8px;
+  border: 1px solid var(--tint); background: var(--offwhite);
+}
+.mock-stat-label { font-size: 10px; color: var(--muted); margin-bottom: 3px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.05em; }
+.mock-stat-value { font-size: 18px; font-weight: 500; color: var(--navy); }
+.mock-stat-value.green { color: var(--green); }
+.mock-invoice { padding: 10px 12px; border: 1px solid var(--tint); border-radius: 8px; margin-bottom: 8px; display: flex; justify-content: space-between; align-items: center; }
+.mock-invoice:last-child { margin-bottom: 0; }
+.mock-inv-name { font-size: 12px; font-weight: 500; color: var(--ink); }
+.mock-inv-date { font-size: 11px; color: var(--muted); }
+.mock-inv-amount { font-size: 13px; font-weight: 500; color: var(--navy); }
+.mock-inv-badge { font-size: 10px; padding: 2px 8px; border-radius: 10px; font-weight: 500; }
+.badge-paid { background: #e6f7f1; color: var(--green); }
+.badge-pending { background: #fff8e6; color: #b87800; }
+.badge-compliant { background: var(--tint); color: var(--blue); }
+.mock-zatca { margin-top: 12px; padding: 10px 12px; background: var(--tint); border-radius: 8px; display: flex; align-items: center; gap: 8px; }
+.zatca-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); }
+.zatca-text { font-size: 11px; color: var(--blue); font-weight: 500; }
+
+/* ─── FEATURES ─── */
+.features {
+  padding: 100px 40px;
+  background: var(--offwhite);
+}
+.section-header { text-align: center; max-width: 600px; margin: 0 auto 60px; }
+.section-tag { display: inline-block; font-size: 11px; font-weight: 500; color: var(--blue); text-transform: uppercase; letter-spacing: 0.1em; margin-bottom: 12px; }
+.section-title { font-family: 'Playfair Display', serif; font-size: clamp(28px, 4vw, 40px); color: var(--navy); line-height: 1.2; margin-bottom: 16px; }
+.section-sub { font-size: 16px; color: var(--muted); line-height: 1.7; font-weight: 300; }
+.features-grid {
+  max-width: 1100px; margin: 0 auto;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px;
+}
+.feature-card {
+  background: var(--white); border-radius: 14px; padding: 28px;
+  border: 1px solid rgba(168,217,188,0.4); /* was rgba(180,210,244,0.4) — blue artifact, now green-tinted */
+  transition: transform 0.2s, box-shadow 0.2s;
+}
+.feature-card:hover { transform: translateY(-3px); box-shadow: 0 12px 40px rgba(0,108,53,0.1); }
+.feature-icon {
+  width: 44px; height: 44px; border-radius: 10px;
+  background: var(--tint); display: flex; align-items: center; justify-content: center;
+  margin-bottom: 16px;
+}
+.feature-icon svg { width: 20px; height: 20px; }
+.feature-title { font-size: 16px; font-weight: 500; color: var(--navy); margin-bottom: 8px; }
+.feature-desc { font-size: 14px; color: var(--muted); line-height: 1.6; font-weight: 300; }
+
+/* ─── COMPLIANCE ─── */
+.compliance {
+  padding: 100px 40px;
+  background: var(--navy);
+  color: var(--white);
+  position: relative; overflow: hidden;
+}
+.compliance-inner { max-width: 1100px; margin: 0 auto; display: grid; grid-template-columns: 1fr 1fr; gap: 80px; align-items: center; }
+.compliance h2 { font-family: 'Playfair Display', serif; font-size: clamp(28px, 4vw, 42px); line-height: 1.2; margin-bottom: 20px; }
+.compliance h2 span { color: var(--light); }
+.compliance p { font-size: 16px; color: rgba(255,255,255,0.65); line-height: 1.7; font-weight: 300; margin-bottom: 32px; }
+.compliance-items { display: flex; flex-direction: column; gap: 14px; }
+.compliance-item { display: flex; align-items: flex-start; gap: 12px; }
+.comp-check { width: 20px; height: 20px; border-radius: 50%; background: var(--green); flex-shrink: 0; display: flex; align-items: center; justify-content: center; margin-top: 1px; }
+.comp-check svg { width: 10px; height: 10px; }
+.comp-text { font-size: 14px; color: rgba(255,255,255,0.8); line-height: 1.5; }
+.compliance-logos { display: flex; gap: 12px; flex-wrap: wrap; }
+.comp-logo {
+  padding: 14px 20px; background: rgba(255,255,255,0.07);
+  border: 1px solid rgba(255,255,255,0.12); border-radius: 10px;
+  font-size: 13px; font-weight: 500; color: var(--light);
+  display: flex; flex-direction: column; align-items: center; gap: 4px;
+}
+.comp-logo-label { font-size: 10px; color: rgba(255,255,255,0.4); font-weight: 400; }
+
+/* ─── PRICING ─── */
+.pricing {
+  padding: 100px 40px;
+  background: var(--white);
+}
+.pricing-grid {
+  max-width: 1000px; margin: 0 auto;
+  display: grid; grid-template-columns: repeat(3, 1fr); gap: 20px;
+}
+.pricing-card {
+  border-radius: 16px; padding: 32px 28px;
+  border: 1px solid var(--light);
+  position: relative; transition: transform 0.2s;
+}
+.pricing-card:hover { transform: translateY(-4px); }
+.pricing-card.featured {
+  background: var(--blue); color: var(--white);
+  border-color: var(--blue);
+  box-shadow: 0 20px 50px rgba(0,108,53,0.25);
+}
+.popular-badge {
+  position: absolute; top: -12px; left: 50%; transform: translateX(-50%);
+  background: var(--green); color: var(--white);
+  font-size: 11px; font-weight: 500; padding: 4px 14px; border-radius: 20px;
+}
+.plan-name { font-size: 13px; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--muted); margin-bottom: 8px; }
+.pricing-card.featured .plan-name { color: var(--light); }
+.plan-price { font-family: 'Playfair Display', serif; font-size: 40px; color: var(--navy); line-height: 1; margin-bottom: 4px; }
+.pricing-card.featured .plan-price { color: var(--white); }
+.plan-period { font-size: 13px; color: var(--muted); margin-bottom: 6px; }
+.pricing-card.featured .plan-period { color: rgba(255,255,255,0.6); }
+.plan-setup { font-size: 12px; color: var(--sky); margin-bottom: 24px; font-weight: 500; }
+.pricing-card.featured .plan-setup { color: var(--light); }
+.plan-divider { border: none; border-top: 1px solid var(--tint); margin-bottom: 20px; }
+.pricing-card.featured .plan-divider { border-color: rgba(255,255,255,0.15); }
+.plan-features { list-style: none; display: flex; flex-direction: column; gap: 10px; margin-bottom: 28px; }
+.plan-features li { display: flex; align-items: center; gap: 8px; font-size: 13px; color: var(--ink); font-weight: 300; }
+.pricing-card.featured .plan-features li { color: rgba(255,255,255,0.85); }
+.plan-check { color: var(--green); font-size: 14px; font-weight: 500; }
+.pricing-card.featured .plan-check { color: var(--light); }
+.plan-cta {
+  display: block; text-align: center; padding: 12px;
+  border-radius: 8px; font-size: 14px; font-weight: 500; text-decoration: none;
+  background: var(--tint); color: var(--blue);
+  transition: background 0.2s;
+}
+.plan-cta:hover { background: var(--light); }
+.pricing-card.featured .plan-cta { background: var(--white); color: var(--blue); }
+.pricing-card.featured .plan-cta:hover { background: var(--tint); }
+
+/* ─── CTA SECTION ─── */
+.cta-section {
+  padding: 100px 40px;
+  background: var(--tint);
+  text-align: center;
+}
+.cta-section h2 { font-family: 'Playfair Display', serif; font-size: clamp(28px, 4vw, 44px); color: var(--navy); margin-bottom: 16px; }
+.cta-section p { font-size: 17px; color: var(--muted); max-width: 500px; margin: 0 auto 36px; font-weight: 300; line-height: 1.7; }
+.whatsapp-btn {
+  display: inline-flex; align-items: center; gap: 10px;
+  padding: 16px 36px; background: var(--blue); color: var(--white);
+  border-radius: 12px; font-size: 16px; font-weight: 500; text-decoration: none;
+  transition: background 0.2s, transform 0.15s;
+  box-shadow: 0 8px 24px rgba(0,108,53,0.3);
+}
+.whatsapp-btn:hover { background: #1da851; transform: translateY(-2px); }
+
+/* ─── FOOTER ─── */
+footer {
+  padding: 40px;
+  background: var(--ink);
+  display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;
+}
+footer .logo-gulf { color: var(--white); font-size: 16px; }
+footer .logo-ledger { color: var(--muted); }
+.footer-links { display: flex; gap: 24px; }
+.footer-links a { color: rgba(255,255,255,0.4); font-size: 13px; text-decoration: none; transition: color 0.2s; }
+.footer-links a:hover { color: var(--light); }
+.footer-copy { font-size: 12px; color: rgba(255,255,255,0.25); }
+
+/* ─── RTL (Arabic) — preserved from original, working as before ─── */
+body.ar { direction: rtl; }
+body.ar nav { flex-direction: row-reverse; }
+body.ar .nav-right { flex-direction: row-reverse; }
+body.ar .nav-links { flex-direction: row-reverse; }
+body.ar .hero-inner { direction: rtl; }
+body.ar .compliance-inner { direction: rtl; }
+body.ar footer { flex-direction: row-reverse; }
+body.ar .mock-subtitle { margin-left: 0; margin-right: auto; }
+body.ar .hero-badge { flex-direction: row-reverse; }
+body.ar .btn-primary, body.ar .btn-secondary { flex-direction: row-reverse; }
+body.ar .compliance-item { flex-direction: row; }
+body.ar .plan-features li { flex-direction: row-reverse; }
+
+/* ─── RESPONSIVE ─── */
+@media (max-width: 768px) {
+  nav { padding: 10px 16px; }
+  .nav-links {
+    display: none;
+    position: absolute;
+    top: 100%; left: 0; right: 0;
+    flex-direction: column;
+    background: var(--navy);
+    padding: 20px;
+    gap: 16px;
+    border-top: 1px solid rgba(255,255,255,0.1);
+  }
+  .nav-links.mobile-open { display: flex; }
+  .mobile-menu-btn { display: block; }
+  .hero { padding: 90px 20px 60px; }
+  .hero-inner { grid-template-columns: 1fr; gap: 40px; }
+  .hero-visual { order: -1; }
+  .features, .compliance, .pricing, .cta-section { padding: 60px 20px; }
+  .compliance-inner { grid-template-columns: 1fr; gap: 40px; }
+  .pricing-grid { grid-template-columns: 1fr; }
+  footer { padding: 28px 20px; flex-direction: column; text-align: center; }
+  /* Stats bar */
+  section[style*="background:var(--navy)"] > div { grid-template-columns: 1fr 1fr !important; gap: 16px !important; }
+  /* No-accountant grid */
+  section[style*="background:var(--offwhite)"] div[style*="grid-template-columns:repeat(3"] { grid-template-columns: 1fr !important; }
+}
+
+/* Tablet improvement — was cramming text+mockup at 768-900px */
+@media (min-width: 769px) and (max-width: 980px) {
+  .hero-inner { gap: 40px; }
+  .hero { padding: 110px 24px 70px; }
+}
+
+/* ─── ANIMATIONS ─── */
+.fade-up { opacity: 0; transform: translateY(24px); transition: opacity 0.6s ease, transform 0.6s ease; }
+.fade-up.visible { opacity: 1; transform: translateY(0); }
+
+/* Respect users who prefer reduced motion */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    transition-duration: 0.01ms !important;
+  }
+  html { scroll-behavior: auto; }
+}
+</style>
+</head>
+
+<body>
+
+<!-- Navbar -->
+<nav id="navbar">
+  <a href="#" class="nav-logo">
+    <div class="nav-logo-icon">
+      <div class="bar1"></div>
+      <div class="bar2"></div>
+    </div>
+    <div class="nav-logo-text">
+      <span class="logo-gulf">Gulf</span>
+      <span class="logo-ledger">LEDGER</span>
+    </div>
+  </a>
+  <div class="nav-right">
+    <div class="nav-links" id="navLinks">
+      <a href="#features" data-en="Features" data-ar="المميزات">المميزات</a>
+      <a href="#compliance" data-en="Compliance" data-ar="الامتثال">الامتثال</a>
+      <a href="#pricing" data-en="Pricing" data-ar="الأسعار">الأسعار</a>
+      <a href="login.html" style="padding:7px 18px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.25);border-radius:7px;color:#fff;text-decoration:none;font-size:15px;font-weight:600;transition:background .2s;" onmouseover="this.style.background='rgba(255,255,255,0.2)'" onmouseout="this.style.background='rgba(255,255,255,0.12)'" data-en="Client Login" data-ar="دخول العملاء">دخول العملاء</a>
+      <!-- TODO: replace 966500000000 with real WhatsApp number -->
+      <a href="signup.html" class="nav-cta" data-en="Start Free Trial" data-ar="ابدأ مجاناً">ابدأ مجاناً</a>
+    </div>
+    <div class="lang-toggle">
+      <button class="lang-btn active" onclick="setLang('ar')" id="btn-ar">ع</button>
+      <button class="lang-btn" onclick="setLang('en')" id="btn-en">EN</button>
+    </div>
+    <!-- Mobile hamburger — shows only on mobile, hidden on desktop -->
+    <button class="mobile-menu-btn" onclick="toggleMobileMenu()" aria-label="Menu">☰</button>
+  </div>
+</nav>
+
+<!-- Hero -->
+<section class="hero">
+  <svg class="hero-bg-lines" viewBox="0 0 1200 800" preserveAspectRatio="xMidYMid slice" aria-hidden="true">
+    <line x1="0" y1="100" x2="1200" y2="100" stroke="#185FA5" stroke-width="1"/>
+    <line x1="0" y1="200" x2="1200" y2="200" stroke="#185FA5" stroke-width="1"/>
+    <line x1="0" y1="300" x2="1200" y2="300" stroke="#185FA5" stroke-width="1"/>
+    <line x1="0" y1="400" x2="1200" y2="400" stroke="#185FA5" stroke-width="1"/>
+    <line x1="0" y1="500" x2="1200" y2="500" stroke="#185FA5" stroke-width="1"/>
+    <line x1="0" y1="600" x2="1200" y2="600" stroke="#185FA5" stroke-width="1"/>
+    <line x1="0" y1="700" x2="1200" y2="700" stroke="#185FA5" stroke-width="1"/>
+    <line x1="200" y1="0" x2="200" y2="800" stroke="#185FA5" stroke-width="1"/>
+    <line x1="400" y1="0" x2="400" y2="800" stroke="#185FA5" stroke-width="1"/>
+    <line x1="600" y1="0" x2="600" y2="800" stroke="#185FA5" stroke-width="1"/>
+    <line x1="800" y1="0" x2="800" y2="800" stroke="#185FA5" stroke-width="1"/>
+    <line x1="1000" y1="0" x2="1000" y2="800" stroke="#185FA5" stroke-width="1"/>
+  </svg>
+  <div class="hero-inner">
+    <div>
+      <div class="hero-badge">
+        <div class="badge-dot"></div>
+        <span data-en="ZATCA Phase 2 Compliant" data-ar="متوافق مع زاتكا المرحلة 2">متوافق مع زاتكا المرحلة 2</span>
+      </div>
+      <h1 data-en="Run your business.<br><span>We handle the accounting.</span>" data-ar="أدر أعمالك.<br><span>نحن نتولى الحسابات.</span>">أدر أعمالك.<br><span>نحن نتولى الحسابات.</span></h1>
+      <p class="hero-sub" data-en="Send a ZATCA-compliant invoice in 10 seconds. VAT, accounting, and financial statements happen automatically — no accountant needed." data-ar="أرسل فاتورة متوافقة مع زاتكا في 10 ثوانٍ. الضريبة والمحاسبة والقوائم المالية تحدث تلقائياً — لا تحتاج لمحاسب.">أرسل فاتورة متوافقة مع زاتكا في 10 ثوانٍ. الضريبة والمحاسبة والقوائم المالية تحدث تلقائياً — لا تحتاج لمحاسب.</p>
+      <div class="hero-actions">
+        <a href="signup.html" class="btn-primary" data-en="Start Free Trial" data-ar="ابدأ تجربتك المجانية">
+          <span data-en="Start Free Trial — 7 Days" data-ar="ابدأ تجربتك المجانية — ٧ أيام">ابدأ تجربتك المجانية — ٧ أيام</span>
+        </a>
+        <a href="login.html" class="btn-secondary" data-en="Client Login →" data-ar="دخول العملاء ←">دخول العملاء ←</a>
+      </div>
+      <div class="hero-govt-callout">
+        <span class="hero-govt-callout-icon">🎁</span>
+        <span class="hero-govt-callout-text" data-en="Eligible businesses (under SAR 3M revenue) can recover up to SAR 2,500 from the government — your Starter plan could cost you nothing." data-ar="المنشآت المؤهلة (إيرادات أقل من 3 مليون ريال) تسترد حتى 2,500 ريال من الحكومة — باقة المبتدئ قد تكون مجانية تماماً.">المنشآت المؤهلة (إيرادات أقل من 3 مليون ريال) تسترد حتى 2,500 ريال من الحكومة — باقة المبتدئ قد تكون مجانية تماماً.</span>
+      </div>
+      <div class="hero-trust">
+        <div class="trust-item"><span class="trust-icon">✓</span><span data-en="Invoice in 10 seconds" data-ar="فاتورة في 10 ثوانٍ">فاتورة في 10 ثوانٍ</span></div>
+        <div class="trust-item"><span class="trust-icon">✓</span><span data-en="Auto VAT & Zakat" data-ar="VAT وزكاة تلقائية">VAT وزكاة تلقائية</span></div>
+        <div class="trust-item"><span class="trust-icon">✓</span><span data-en="ZATCA QR Code" data-ar="رمز QR زاتكا">رمز QR زاتكا</span></div>
+        <div class="trust-item"><span class="trust-icon">✓</span><span data-en="Arabic & English" data-ar="عربي وإنجليزي">عربي وإنجليزي</span></div>
+      </div>
+    </div>
+    <div class="hero-visual">
+      <div class="mock-header">
+        <div class="mock-logo-bar">
+          <div class="mock-bar" style="background:#fff;"></div>
+          <div class="mock-bar" style="background:rgba(255,255,255,0.5);"></div>
+        </div>
+        <span class="mock-title">GulfLedger</span>
+        <span class="mock-subtitle" data-en="Dashboard" data-ar="لوحة التحكم">Dashboard</span>
+      </div>
+      <div class="mock-body">
+        <div class="mock-stats">
+          <div class="mock-stat">
+            <div class="mock-stat-label" data-en="Total Invoiced" data-ar="إجمالي الفواتير">Total Invoiced</div>
+            <div class="mock-stat-value">SAR 84,500</div>
+          </div>
+          <div class="mock-stat">
+            <div class="mock-stat-label" data-en="VAT Payable" data-ar="ضريبة مستحقة">VAT Payable</div>
+            <div class="mock-stat-value">SAR 5,400</div>
+          </div>
+          <div class="mock-stat">
+            <div class="mock-stat-label" data-en="Net Profit" data-ar="صافي الربح">Net Profit</div>
+            <div class="mock-stat-value green">SAR 31,200</div>
+          </div>
+          <div class="mock-stat">
+            <div class="mock-stat-label" data-en="Zakat Due" data-ar="الزكاة المستحقة">Zakat Due</div>
+            <div class="mock-stat-value">SAR 780</div>
+          </div>
+        </div>
+        <div class="mock-invoice">
+          <div>
+            <div class="mock-inv-name" data-en="Al Rashidi Trading Co." data-ar="مؤسسة الراشدي للتجارة">Al Rashidi Trading Co.</div>
+            <div class="mock-inv-date" data-en="15 Apr 2026" data-ar="15 أبريل 2026">15 Apr 2026</div>
+          </div>
+          <div style="text-align:end;">
+            <div class="mock-inv-amount">SAR 12,600</div>
+            <span class="mock-inv-badge badge-paid" data-en="Paid" data-ar="مدفوع">Paid</span>
+          </div>
+        </div>
+        <div class="mock-invoice">
+          <div>
+            <div class="mock-inv-name" data-en="Gulf Medical Center" data-ar="مركز الخليج الطبي">Gulf Medical Center</div>
+            <div class="mock-inv-date" data-en="14 Apr 2026" data-ar="14 أبريل 2026">14 Apr 2026</div>
+          </div>
+          <div style="text-align:end;">
+            <div class="mock-inv-amount">SAR 8,400</div>
+            <span class="mock-inv-badge badge-pending" data-en="Pending" data-ar="معلق">Pending</span>
+          </div>
+        </div>
+        <div class="mock-invoice">
+          <div>
+            <div class="mock-inv-name" data-en="Riyadh Tech Solutions" data-ar="حلول الرياض التقنية">Riyadh Tech Solutions</div>
+            <div class="mock-inv-date" data-en="12 Apr 2026" data-ar="12 أبريل 2026">12 Apr 2026</div>
+          </div>
+          <div style="text-align:end;">
+            <div class="mock-inv-amount">SAR 5,200</div>
+            <span class="mock-inv-badge badge-compliant" data-en="ZATCA ✓" data-ar="زاتكا ✓">ZATCA ✓</span>
+          </div>
+        </div>
+        <div class="mock-zatca">
+          <div class="zatca-dot"></div>
+          <span class="zatca-text" data-en="All invoices ZATCA Phase 2 compliant" data-ar="جميع الفواتير متوافقة مع زاتكا المرحلة 2">All invoices ZATCA Phase 2 compliant</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Stats Bar -->
+<section style="background:var(--navy);padding:20px 40px;border-top:1px solid rgba(255,255,255,0.08);">
+  <div style="max-width:960px;margin:0 auto;display:grid;grid-template-columns:repeat(4,1fr);gap:20px;text-align:center;">
+    <div>
+      <div style="font-family:'Playfair Display',serif;font-size:28px;color:#fff;font-weight:700;">100%</div>
+      <div style="font-size:13px;color:var(--light);margin-top:3px;" data-en="ZATCA Compliant" data-ar="متوافق مع زاتكا">متوافق مع زاتكا</div>
+    </div>
+    <div>
+      <div style="font-family:'Playfair Display',serif;font-size:28px;color:#fff;font-weight:700;">0</div>
+      <div style="font-size:13px;color:var(--light);margin-top:3px;" data-en="Accountants needed" data-ar="محاسب مطلوب">محاسب مطلوب</div>
+    </div>
+    <div>
+      <div style="font-family:'Playfair Display',serif;font-size:28px;color:#fff;font-weight:700;">2</div>
+      <div style="font-size:13px;color:var(--light);margin-top:3px;" data-en="Languages (AR + EN)" data-ar="لغة (عربي + إنجليزي)">لغة (عربي + إنجليزي)</div>
+    </div>
+    <div>
+      <div style="font-family:'Playfair Display',serif;font-size:28px;color:var(--green);font-weight:700;">2,500</div>
+      <div style="font-size:13px;color:var(--light);margin-top:3px;" data-en="SAR recoverable from govt." data-ar="ريال قابلة للاسترداد من الحكومة">ريال قابلة للاسترداد</div>
+    </div>
+  </div>
+</section>
+
+<!-- No Accountant Section -->
+<section style="background:var(--offwhite);padding:60px 40px;">
+  <div style="max-width:900px;margin:0 auto;text-align:center;" class="fade-up">
+    <div style="display:inline-block;background:var(--tint);border:1px solid var(--light);border-radius:20px;padding:4px 14px;font-size:13px;font-weight:700;color:var(--blue);letter-spacing:.06em;text-transform:uppercase;margin-bottom:16px;" data-en="Accountant-Free System" data-ar="نظام بدون محاسب">نظام بدون محاسب</div>
+    <h2 style="font-family:'Playfair Display',serif;font-size:32px;color:var(--navy);margin-bottom:12px;line-height:1.3;" data-en="You run your business.<br>GulfLedger handles the books." data-ar="أنت تدير أعمالك.<br>GulfLedger يدير الحسابات.">أنت تدير أعمالك.<br>GulfLedger يدير الحسابات.</h2>
+    <p style="font-size:15px;color:var(--muted);max-width:600px;margin:0 auto 32px;line-height:1.7;" data-en="Every invoice you save auto-posts to the ledger. Every purchase auto-calculates input VAT. Your P&L, balance sheet, and Zakat are always up to date — without touching a single journal entry." data-ar="كل فاتورة تحفظها تُرحَّل تلقائياً للدفتر. كل مشترياتك تحسب ضريبة المدخلات تلقائياً. قائمة دخلك وميزانيتك وزكاتك محدّثة دائماً — دون أن تلمس قيداً محاسبياً واحداً.">كل فاتورة تُرحَّل تلقائياً. كل مشترياتك تحسب ضريبة المدخلات. قائمة دخلك وزكاتك محدّثة دائماً.</p>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:16px;max-width:700px;margin:0 auto;">
+      <div style="background:var(--white);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center;">
+        <div style="font-size:28px;margin-bottom:8px;">📄</div>
+        <div style="font-size:15px;font-weight:700;color:var(--navy);margin-bottom:4px;" data-en="Save Invoice" data-ar="احفظ الفاتورة">احفظ الفاتورة</div>
+        <div style="font-size:13px;color:var(--muted);" data-en="System auto-posts to ledger" data-ar="يُرحَّل تلقائياً للدفتر">يُرحَّل تلقائياً للدفتر</div>
+      </div>
+      <div style="background:var(--white);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center;">
+        <div style="font-size:28px;margin-bottom:8px;">📦</div>
+        <div style="font-size:15px;font-weight:700;color:var(--navy);margin-bottom:4px;" data-en="Receive Stock" data-ar="استلم البضاعة">استلم البضاعة</div>
+        <div style="font-size:13px;color:var(--muted);" data-en="WAC & input VAT auto-calculated" data-ar="متوسط التكلفة وضريبة المدخلات تلقائياً">متوسط التكلفة وضريبة المدخلات تلقائياً</div>
+      </div>
+      <div style="background:var(--white);border:1px solid var(--border);border-radius:10px;padding:16px;text-align:center;">
+        <div style="font-size:28px;margin-bottom:8px;">📊</div>
+        <div style="font-size:15px;font-weight:700;color:var(--navy);margin-bottom:4px;" data-en="View Statements" data-ar="اعرض القوائم المالية">اعرض القوائم المالية</div>
+        <div style="font-size:13px;color:var(--muted);" data-en="P&L, balance sheet always ready" data-ar="قائمة الدخل والميزانية جاهزة دائماً">قائمة الدخل والميزانية جاهزة دائماً</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Features -->
+<section class="features" id="features">
+  <div class="section-header fade-up">
+    <div class="section-tag" data-en="Why GulfLedger" data-ar="لماذا جلف ليدجر">لماذا جلف ليدجر</div>
+    <h2 class="section-title" data-en="Zero accounting knowledge needed.<br>Everything works automatically." data-ar="لا تحتاج أي خبرة محاسبية.<br>كل شيء يعمل تلقائياً.">لا تحتاج أي خبرة محاسبية.<br>كل شيء يعمل تلقائياً.</h2>
+    <p class="section-sub" data-en="Create invoice → accounting posts itself. Add expense → ledger updates. The system does the thinking so you don't have to." data-ar="أنشئ فاتورة ← المحاسبة تُرحَّل تلقائياً. أضف مصروف ← الدفتر يتحدث. النظام يفكر بدلاً منك.">أنشئ فاتورة ← المحاسبة تُرحَّل تلقائياً. أضف مصروف ← الدفتر يتحدث. النظام يفكر بدلاً منك.</p>
+  </div>
+  <div class="features-grid">
+    <div class="feature-card fade-up">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#006C35" stroke-width="2" stroke-linecap="round">
+          <rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/>
+          <line x1="8" y1="14" x2="12" y2="14"/><line x1="8" y1="17" x2="16" y2="17"/>
+        </svg>
+      </div>
+      <div class="feature-title" data-en="ZATCA-Compliant Invoices" data-ar="فواتير متوافقة مع زاتكا">ZATCA-Compliant Invoices</div>
+      <div class="feature-desc" data-en="Generate Phase 2 compliant invoices with QR codes, XML format, and automatic submission to the Fatoora portal." data-ar="أنشئ فواتير متوافقة مع المرحلة 2 مع رموز QR وتنسيق XML والتقديم التلقائي لبوابة فاتورة.">Generate Phase 2 compliant invoices with QR codes, XML format, and automatic submission to the Fatoora portal.</div>
+    </div>
+    <div class="feature-card fade-up">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#006C35" stroke-width="2" stroke-linecap="round">
+          <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
+        </svg>
+      </div>
+      <div class="feature-title" data-en="Full Accounting Engine" data-ar="محرك محاسبة متكامل">Full Accounting Engine</div>
+      <div class="feature-desc" data-en="General ledger, P&amp;L, balance sheet — all auto-generated from your invoices. Year-end financial statements ready for Qawaem." data-ar="دفتر الأستاذ والأرباح والخسائر والميزانية العمومية — كلها تُنشأ تلقائياً من فواتيرك. البيانات المالية جاهزة لمنصة قوائم.">General ledger, P&amp;L, balance sheet — all auto-generated from your invoices. Year-end financial statements ready for Qawaem.</div>
+    </div>
+    <div class="feature-card fade-up">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#006C35" stroke-width="2" stroke-linecap="round">
+          <circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/>
+        </svg>
+      </div>
+      <div class="feature-title" data-en="Automated Zakat Reports" data-ar="تقارير الزكاة الآلية">Automated Zakat Reports</div>
+      <div class="feature-desc" data-en="Calculate your Zakat base automatically using the working capital method. Ready to upload to ZATCA's portal in one click." data-ar="احسب وعاء زكاتك تلقائياً باستخدام طريقة رأس المال العامل. جاهز للرفع لبوابة زاتكا بنقرة واحدة.">Calculate your Zakat base automatically using the working capital method. Ready to upload to ZATCA's portal in one click.</div>
+    </div>
+    <div class="feature-card fade-up">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#006C35" stroke-width="2" stroke-linecap="round">
+          <path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/>
+        </svg>
+      </div>
+      <div class="feature-title" data-en="Expense Tracking" data-ar="تتبع المصاريف">تتبع المصاريف</div>
+      <div class="feature-desc" data-en="Record salaries, rent, utilities, and marketing expenses in seconds. Auto-posts to the ledger with correct account codes — no accounting knowledge needed." data-ar="سجّل الرواتب والإيجار والمرافق ومصاريف التسويق في ثوانٍ. يُرحَّل تلقائياً للدفتر بالأكواد الصحيحة — لا تحتاج لمعرفة محاسبية.">سجّل الرواتب والإيجار والمرافق ومصاريف التسويق في ثوانٍ. يُرحَّل تلقائياً للدفتر.</div>
+    </div>
+    <div class="feature-card fade-up">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#006C35" stroke-width="2" stroke-linecap="round">
+          <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/>
+        </svg>
+      </div>
+      <div class="feature-title" data-en="WhatsApp Delivery" data-ar="إرسال عبر واتساب">إرسال عبر واتساب</div>
+      <div class="feature-desc" data-en="Send invoices directly via WhatsApp — the way Saudi businesses actually communicate. PDF attachment, instant delivery." data-ar="أرسل الفواتير مباشرة عبر واتساب — بالطريقة التي تتواصل بها الأعمال السعودية فعلاً. مرفق PDF، توصيل فوري.">أرسل الفواتير مباشرة عبر واتساب — بالطريقة التي تتواصل بها الأعمال السعودية فعلاً.</div>
+    </div>
+    <div class="feature-card fade-up">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#006C35" stroke-width="2" stroke-linecap="round">
+          <path d="M5 12l5 5L20 7"/>
+        </svg>
+      </div>
+      <div class="feature-title" data-en="Bilingual by Default" data-ar="ثنائي اللغة بشكل افتراضي">ثنائي اللغة بشكل افتراضي</div>
+      <div class="feature-desc" data-en="Every invoice, report, and document outputs in Arabic and English simultaneously. No translation plugins needed." data-ar="كل فاتورة وتقرير ووثيقة تصدر بالعربية والإنجليزية في آنٍ واحد. لا حاجة لإضافات الترجمة.">كل فاتورة وتقرير ووثيقة تصدر بالعربية والإنجليزية في آنٍ واحد. لا حاجة لإضافات الترجمة.</div>
+    </div>
+    <div class="feature-card fade-up">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#006C35" stroke-width="2" stroke-linecap="round">
+          <circle cx="12" cy="8" r="4"/><path d="M6 20v-2a4 4 0 014-4h4a4 4 0 014 4v2"/>
+        </svg>
+      </div>
+      <div class="feature-title" data-en="Customer Database" data-ar="قاعدة بيانات العملاء">قاعدة بيانات العملاء</div>
+      <div class="feature-desc" data-en="Type a mobile number — customer details load instantly. New customers saved automatically on first invoice. Build your CRM without extra effort." data-ar="اكتب رقم الجوال — بيانات العميل تُحمَّل فوراً. العملاء الجدد يُحفَظون تلقائياً في أول فاتورة. بنِ قاعدة عملائك بدون جهد.">اكتب رقم الجوال — بيانات العميل تُحمَّل فوراً. العملاء الجدد يُحفَظون تلقائياً في أول فاتورة.</div>
+    </div>
+    <div class="feature-card fade-up">
+      <div class="feature-icon">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#006C35" stroke-width="2" stroke-linecap="round">
+          <path d="M12 2a10 10 0 1010 10"/><path d="M12 6v6l4 2"/><circle cx="18" cy="6" r="3" fill="#006C35" stroke="none"/>
+        </svg>
+      </div>
+      <div class="feature-title" data-en="✨ AI CFO Insights" data-ar="✨ تحليلات المدير المالي الذكي">✨ تحليلات المدير المالي الذكي</div>
+      <div class="feature-desc" data-en="Your dashboard tells you what's happening — AI tells you what to do. VAT due alerts, cash flow warnings, expense trends. Your personal CFO." data-ar="لوحة التحكم تخبرك بما يحدث — الذكاء الاصطناعي يخبرك بما تفعل. تنبيهات VAT، تحذيرات التدفق النقدي، اتجاهات المصاريف. مدير مالي شخصي.">لوحة التحكم تخبرك بما يحدث — الذكاء الاصطناعي يخبرك بما تفعل. تنبيهات VAT، تحذيرات التدفق النقدي، اتجاهات المصاريف.</div>
+    </div>
+  </div>
+</section>
+
+<!-- Compliance -->
+<section class="compliance" id="compliance">
+  <div class="compliance-inner">
+    <div class="fade-up">
+      <h2 data-en="Compliance isn't an add-on.<br><span>It's the core.</span>" data-ar="الامتثال ليس إضافة.<br><span>إنه الجوهر.</span>">Compliance isn't an add-on.<br><span>It's the core.</span></h2>
+      <p data-en="Saudi businesses face unique regulatory requirements. GulfLedger is built from the ground up to handle them automatically — so you never have to worry about a penalty." data-ar="تواجه الأعمال السعودية متطلبات تنظيمية فريدة. تم بناء GulfLedger من الصفر للتعامل معها تلقائياً — حتى لا تقلق أبداً من غرامة.">تواجه الأعمال السعودية متطلبات تنظيمية فريدة. تم بناء GulfLedger من الصفر للتعامل معها تلقائياً — حتى لا تقلق أبداً من غرامة.</p>
+      <div class="compliance-items">
+        <div class="compliance-item">
+          <div class="comp-check"><svg viewBox="0 0 10 10" fill="none" stroke="white" stroke-width="1.5"><path d="M1.5 5l2.5 2.5L8.5 2.5"/></svg></div>
+          <span class="comp-text" data-en="ZATCA Phase 2 e-invoicing with cryptographic QR and XML" data-ar="الفواتير الإلكترونية زاتكا المرحلة 2 مع رمز QR التشفيري وXML">ZATCA Phase 2 e-invoicing with cryptographic QR and XML</span>
+        </div>
+        <div class="compliance-item">
+          <div class="comp-check"><svg viewBox="0 0 10 10" fill="none" stroke="white" stroke-width="1.5"><path d="M1.5 5l2.5 2.5L8.5 2.5"/></svg></div>
+          <span class="comp-text" data-en="Qawaem-ready financial statements (SOCPA portal)" data-ar="بيانات مالية جاهزة لمنصة قوائم (بوابة الهيئة السعودية للمحاسبين)">Qawaem-ready financial statements (SOCPA portal)</span>
+        </div>
+        <div class="compliance-item">
+          <div class="comp-check"><svg viewBox="0 0 10 10" fill="none" stroke="white" stroke-width="1.5"><path d="M1.5 5l2.5 2.5L8.5 2.5"/></svg></div>
+          <span class="comp-text" data-en="Automated Zakat base calculation — 2.5% working capital method" data-ar="حساب وعاء الزكاة التلقائي — طريقة رأس المال العامل 2.5%">Automated Zakat base calculation — 2.5% working capital method</span>
+        </div>
+        <div class="compliance-item">
+          <div class="comp-check"><svg viewBox="0 0 10 10" fill="none" stroke="white" stroke-width="1.5"><path d="M1.5 5l2.5 2.5L8.5 2.5"/></svg></div>
+          <span class="comp-text" data-en="Zakat filing — 2.5% working capital method, submitted to ZATCA annually" data-ar="إيداع الزكاة — طريقة رأس المال العامل 2.5%، يُقدَّم لزاتكا سنوياً">إيداع الزكاة — طريقة رأس المال العامل 2.5%، يُقدَّم لزاتكا سنوياً</span>
+        </div>
+        <div class="compliance-item">
+          <div class="comp-check"><svg viewBox="0 0 10 10" fill="none" stroke="white" stroke-width="1.5"><path d="M1.5 5l2.5 2.5L8.5 2.5"/></svg></div>
+          <span class="comp-text" data-en="Audit-ready records — 6 year archive as required by ZATCA" data-ar="سجلات جاهزة للتدقيق — أرشيف 6 سنوات كما تشترط زاتكا">Audit-ready records — 6 year archive as required by ZATCA</span>
+        </div>
+      </div>
+    </div>
+    <div class="fade-up" style="animation-delay:0.2s">
+      <div class="compliance-logos">
+        <div class="comp-logo">
+          <span>زاتكا</span>
+          <span class="comp-logo-label">ZATCA / KSA</span>
+        </div>
+        <div class="comp-logo">
+          <span>قوائم</span>
+          <span class="comp-logo-label">Qawaem (قوائم) / SOCPA</span>
+        </div>
+        <div class="comp-logo">
+          <span>VAT 15%</span>
+          <span class="comp-logo-label">KSA Standard Rate</span>
+        </div>
+        <div class="comp-logo">
+          <span>فاتورة</span>
+          <span class="comp-logo-label">Fatoora Portal</span>
+        </div>
+        <div class="comp-logo">
+          <span>زكاة</span>
+          <span class="comp-logo-label">Zakat — 2.5%</span>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Pricing -->
+<section class="pricing" id="pricing">
+  <div class="section-header fade-up">
+    <div class="section-tag" data-en="Simple Pricing" data-ar="أسعار بسيطة">أسعار بسيطة</div>
+    <h2 class="section-title" data-en="Start small, scale freely." data-ar="ابدأ صغيراً، وسّع بحرية.">ابدأ صغيراً، وسّع بحرية.</h2>
+    <p class="section-sub" data-en="No setup fees. No contracts." data-ar="بدون رسوم إعداد. بدون عقود.">بدون رسوم إعداد. بدون عقود.</p>
+  </div>
+
+  <style>
+    .billing-wrap { margin-bottom:16px; }
+    .billing-save-row { text-align:center; margin-bottom:6px; min-height:20px; }
+    .save-pill { display:inline-block; background:#f0fdf4; border:1px solid #86efac; color:var(--green); font-size:12px; font-weight:700; padding:2px 9px; border-radius:8px; }
+    .save-pill.hidden { visibility:hidden; }
+    .billing-tabs { display:flex; background:rgba(0,0,0,0.06); border-radius:8px; padding:3px; gap:3px; }
+    /* Switched font from undefined Cairo to Tajawal (loaded) for consistent Arabic rendering */
+    .billing-tab { flex:1; padding:7px 8px; font-size:16px; font-weight:600; border:none; border-radius:6px; cursor:pointer; font-family:'Tajawal','DM Sans',sans-serif; background:transparent; color:var(--muted); transition:all .2s; text-align:center; white-space:nowrap; }
+    .billing-tab.active { background:var(--white); color:var(--navy); box-shadow:0 1px 4px rgba(0,0,0,0.12); }
+
+    /* Featured card overrides */
+    .pricing-card.featured .billing-tabs { background:rgba(255,255,255,0.15); }
+    .pricing-card.featured .billing-tab { color:rgba(255,255,255,0.6); }
+    .pricing-card.featured .billing-tab.active { background:rgba(255,255,255,0.25); color:#fff; box-shadow:none; }
+    .price-big { font-family:'Playfair Display',serif; font-size:38px; color:var(--navy); line-height:1; }
+    .pricing-card.featured .price-big { color:var(--white); }
+    .price-sub { font-size:13px; color:var(--muted); margin-top:4px; min-height:15px; line-height:1.4; }
+    .pricing-card.featured .price-sub { color:rgba(255,255,255,0.6); }
+
+    /* "Coming soon" pill — replaces 🔜 emoji that broke RTL alignment */
+    .coming-soon-pill { display:inline-block; background:var(--amber); color:#fff; font-size:9px; font-weight:700; padding:2px 6px; border-radius:4px; letter-spacing:0.05em; text-transform:uppercase; }
+  </style>
+
+  <div class="pricing-grid">
+    <!-- STARTER -->
+    <div class="pricing-card fade-up">
+      <div class="billing-wrap">
+        <div class="billing-save-row"><span class="save-pill hidden" id="starter-pill" data-ar="وفّر 20%" data-en="Save 20%">وفّر 20%</span></div>
+        <div class="billing-tabs">
+          <button class="billing-tab active" id="starter-monthly" onclick="setBilling(this,'starter','monthly')" data-ar="شهري" data-en="Monthly">شهري</button>
+          <button class="billing-tab" id="starter-annual" onclick="setBilling(this,'starter','annual')" data-ar="سنوي" data-en="Annual">سنوي</button>
+        </div>
+      </div>
+      <div class="plan-name" data-en="Starter" data-ar="المبتدئ">المبتدئ</div>
+      <div class="price-big"><span id="starter-price">199</span> <span style="font-size:16px;font-weight:400;" data-ar="ريال" data-en="SAR">ريال</span></div>
+      <div class="price-sub" id="starter-sub" data-ar="شهرياً — إلغاء في أي وقت" data-en="per month — cancel anytime">شهرياً — إلغاء في أي وقت</div>
+      <div class="plan-setup" data-en="No setup fees" data-ar="بدون رسوم إعداد">بدون رسوم إعداد</div>
+      <hr class="plan-divider">
+      <ul class="plan-features">
+        <li><span class="plan-check">✓</span><span data-en="ZATCA-compliant invoices + QR" data-ar="فواتير زاتكا متوافقة + QR">فواتير زاتكا متوافقة + QR</span></li>
+        <li><span class="plan-check">✓</span><span data-en="Customer database — auto-fill by mobile" data-ar="قاعدة عملاء — تعبئة تلقائية بالجوال">قاعدة عملاء — تعبئة تلقائية بالجوال</span></li>
+        <li><span class="plan-check">✓</span><span data-en="WhatsApp delivery + public invoice link" data-ar="إرسال واتساب + رابط فاتورة عام">إرسال واتساب + رابط فاتورة عام</span></li>
+        <li><span class="plan-check">✓</span><span data-en="Full accounting + ledger + VAT + statements" data-ar="محاسبة كاملة + دفتر + VAT + قوائم">محاسبة كاملة + دفتر + VAT + قوائم</span></li>
+        <li><span class="plan-check">✓</span><span data-en="✨ AI CFO insights" data-ar="✨ تحليلات المدير المالي الذكي">✨ تحليلات المدير المالي الذكي</span></li>
+        <li><span class="plan-check">✓</span><span data-en="2 users" data-ar="2 مستخدمين">2 مستخدمين</span></li>
+      </ul>
+      <!-- TODO: replace 966500000000 with real WhatsApp number -->
+      <a href="signup.html" class="plan-cta" data-en="Start Free Trial" data-ar="ابدأ مجاناً">ابدأ مجاناً</a>
+    </div>
+
+    <!-- BUSINESS -->
+    <div class="pricing-card featured fade-up" style="animation-delay:0.1s">
+      <div class="popular-badge" data-en="Most Popular" data-ar="الأكثر شيوعاً">الأكثر شيوعاً</div>
+      <div class="billing-wrap">
+        <div class="billing-save-row"><span class="save-pill hidden" id="business-pill" data-ar="وفّر 20%" data-en="Save 20%">وفّر 20%</span></div>
+        <div class="billing-tabs">
+          <button class="billing-tab active" id="business-monthly" onclick="setBilling(this,'business','monthly')" data-ar="شهري" data-en="Monthly">شهري</button>
+          <button class="billing-tab" id="business-annual" onclick="setBilling(this,'business','annual')" data-ar="سنوي" data-en="Annual">سنوي</button>
+        </div>
+      </div>
+      <div class="plan-name" data-en="Business" data-ar="الأعمال">الأعمال</div>
+      <div class="price-big"><span id="business-price">399</span> <span style="font-size:16px;font-weight:400;" data-ar="ريال" data-en="SAR">ريال</span></div>
+      <div class="price-sub" id="business-sub" data-ar="شهرياً — إلغاء في أي وقت" data-en="per month — cancel anytime">شهرياً — إلغاء في أي وقت</div>
+      <div class="plan-setup" data-en="No setup fees" data-ar="بدون رسوم إعداد">بدون رسوم إعداد</div>
+      <hr class="plan-divider">
+      <ul class="plan-features">
+        <li><span class="plan-check">✓</span><span data-en="Everything in Starter" data-ar="كل مزايا المبتدئ">كل مزايا المبتدئ</span></li>
+        <li><span class="plan-check">✓</span><span data-en="Inventory management + FIFO costing" data-ar="إدارة المخزون + تكلفة FIFO">إدارة المخزون + تكلفة FIFO</span></li>
+        <li><span class="plan-check">✓</span><span data-en="Supplier management + stock receiving" data-ar="إدارة الموردين + استلام البضاعة">إدارة الموردين + استلام البضاعة</span></li>
+        <li><span class="plan-check">✓</span><span data-en="Payment tracking — sales &amp; suppliers" data-ar="تتبع المدفوعات — مبيعات وموردين">تتبع المدفوعات — مبيعات وموردين</span></li>
+        <li><span class="plan-check">✓</span><span data-en="Zakat auto-calculation (2.5%)" data-ar="حساب زكاة تلقائي (2.5%)">حساب زكاة تلقائي (2.5%)</span></li>
+        <li><span class="plan-check">✓</span><span data-en="5 users" data-ar="5 مستخدمين">5 مستخدمين</span></li>
+      </ul>
+      <!-- TODO: replace 966500000000 with real WhatsApp number -->
+      <a href="signup.html" class="plan-cta" data-en="Start Free Trial" data-ar="ابدأ مجاناً">ابدأ مجاناً</a>
+    </div>
+
+    <!-- PRO -->
+    <div class="pricing-card fade-up" style="animation-delay:0.2s;opacity:0.88;">
+      <div class="billing-wrap">
+        <div class="billing-save-row"><span class="save-pill hidden" id="pro-pill" data-ar="وفّر 20%" data-en="Save 20%">وفّر 20%</span></div>
+        <div class="billing-tabs">
+          <button class="billing-tab active" id="pro-monthly" onclick="setBilling(this,'pro','monthly')" data-ar="شهري" data-en="Monthly">شهري</button>
+          <button class="billing-tab" id="pro-annual" onclick="setBilling(this,'pro','annual')" data-ar="سنوي" data-en="Annual">سنوي</button>
+        </div>
+      </div>
+      <div class="plan-name" data-en="Pro" data-ar="الاحترافي">الاحترافي</div>
+      <div class="price-big"><span id="pro-price">799</span> <span style="font-size:16px;font-weight:400;" data-ar="ريال" data-en="SAR">ريال</span></div>
+      <div class="price-sub" id="pro-sub" data-ar="شهرياً" data-en="per month">شهرياً</div>
+      <div class="plan-setup" data-en="No setup fees" data-ar="بدون رسوم إعداد">بدون رسوم إعداد</div>
+      <hr class="plan-divider">
+      <ul class="plan-features">
+        <li><span class="plan-check">✓</span><span data-en="Everything in Business" data-ar="كل مزايا الأعمال">كل مزايا الأعمال</span></li>
+        <li><span class="plan-check">✓</span><span data-en="Purchase Orders + 3-way match" data-ar="أوامر الشراء + المطابقة الثلاثية">أوامر الشراء + المطابقة الثلاثية</span></li>
+        <li><span class="plan-check">✓</span><span data-en="Supplier invoices + GR Clearing" data-ar="فواتير الموردين + حساب GR مؤقت">فواتير الموردين + حساب GR مؤقت</span></li>
+        <li><span class="plan-check">✓</span><span data-en="Unlimited users + role-based access" data-ar="مستخدمون غير محدودون + صلاحيات بالدور">مستخدمون غير محدودون + صلاحيات بالدور</span></li>
+        <li><span class="coming-soon-pill" data-en="Soon" data-ar="قريباً">قريباً</span><span data-en="Multi-branch / multi-entity" data-ar="متعدد الفروع والكيانات">متعدد الفروع والكيانات</span></li>
+        <li><span class="coming-soon-pill" data-en="Soon" data-ar="قريباً">قريباً</span><span data-en="ZATCA Phase 2 auto-submission" data-ar="إرسال تلقائي لزاتكا المرحلة 2">إرسال تلقائي لزاتكا المرحلة 2</span></li>
+      </ul>
+      <!-- TODO: replace 966500000000 with real WhatsApp number -->
+      <a href="signup.html" class="plan-cta" data-en="Start Free Trial" data-ar="ابدأ مجاناً">ابدأ مجاناً</a>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="cta-section" id="contact">
+  <h2 class="fade-up" data-en="Send your first invoice in 10 seconds." data-ar="أرسل أول فاتورة في 10 ثوانٍ.">أرسل أول فاتورة في 10 ثوانٍ.</h2>
+  <p class="fade-up" data-en="No accountant needed. No setup fees. ZATCA-compliant from day one." data-ar="لا تحتاج محاسب. بدون رسوم إعداد. متوافق مع زاتكا من اليوم الأول.">لا تحتاج محاسب. بدون رسوم إعداد. متوافق مع زاتكا من اليوم الأول.</p>
+  <div style="display:flex;gap:14px;justify-content:center;flex-wrap:wrap;margin-top:8px;">
+    <a href="signup.html" class="whatsapp-btn fade-up">
+      <span data-en="Start Free Trial — 7 Days" data-ar="ابدأ تجربتك المجانية — ٧ أيام">ابدأ تجربتك المجانية — ٧ أيام</span>
+    </a>
+    <a href="login.html" class="fade-up" style="display:inline-flex;align-items:center;gap:8px;padding:14px 28px;background:rgba(255,255,255,0.1);border:1.5px solid rgba(0,108,53,0.3);border-radius:50px;color:var(--blue);text-decoration:none;font-size:15px;font-weight:600;transition:background .2s;" onmouseover="this.style.background='rgba(0,108,53,0.1)'" onmouseout="this.style.background='rgba(255,255,255,0.1)'" data-en="Client Login →" data-ar="دخول العملاء ←">دخول العملاء ←</a>
+  </div>
+</section>
+
+<!-- App Navigation Section — preserved from original. NOTE: pages may or may not be auth-gated; verify in dashboard.html / supabase.js -->
+<section style="padding:60px 40px;background:var(--navy);text-align:center;">
+  <div style="max-width:900px;margin:0 auto;">
+    <div style="display:inline-block;background:rgba(255,255,255,0.1);border:1px solid rgba(255,255,255,0.2);border-radius:20px;padding:5px 16px;font-size:12px;color:var(--light);margin-bottom:20px;" data-ar="عملاء GulfLedger — وصول مباشر للنظام" data-en="GulfLedger clients — direct system access">عملاء GulfLedger — وصول مباشر للنظام</div>
+    <h2 style="font-family:'Playfair Display',serif;font-size:clamp(24px,3vw,36px);color:#fff;margin-bottom:12px;" data-ar="ادخل لنظامك" data-en="Access your system">ادخل لنظامك</h2>
+    <p style="font-size:15px;color:rgba(255,255,255,0.6);margin-bottom:36px;" data-ar="هل أنت عميل؟ سجّل الدخول للوصول لجميع أدوات إدارة أعمالك" data-en="Already a client? Sign in to access all your business tools">هل أنت عميل؟ سجّل الدخول للوصول لجميع أدوات إدارة أعمالك</p>
+    <a href="login.html" style="display:inline-flex;align-items:center;gap:10px;padding:16px 36px;background:var(--sky);color:#fff;border-radius:10px;text-decoration:none;font-size:16px;font-weight:700;margin-bottom:36px;transition:background .2s;" onmouseover="this.style.background='var(--blue)'" onmouseout="this.style.background='var(--sky)'" data-ar="→ تسجيل الدخول" data-en="→ Sign In">→ تسجيل الدخول</a>
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:12px;max-width:800px;margin:0 auto;">
+      <a href="invoices.html" style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:20px 14px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:10px;text-decoration:none;transition:background .2s;" onmouseover="this.style.background='rgba(255,255,255,0.14)'" onmouseout="this.style.background='rgba(255,255,255,0.07)'">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--light)" stroke-width="1.5"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/></svg>
+        <span style="font-size:13px;font-weight:500;color:#fff;" data-ar="الفواتير" data-en="Invoices">الفواتير</span>
+      </a>
+      <a href="inventory.html" style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:20px 14px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:10px;text-decoration:none;transition:background .2s;" onmouseover="this.style.background='rgba(255,255,255,0.14)'" onmouseout="this.style.background='rgba(255,255,255,0.07)'">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--light)" stroke-width="1.5"><path d="M20 7H4a2 2 0 00-2 2v6a2 2 0 002 2h16a2 2 0 002-2V9a2 2 0 00-2-2z"/></svg>
+        <span style="font-size:13px;font-weight:500;color:#fff;" data-ar="المخزون" data-en="Inventory">المخزون</span>
+      </a>
+      <a href="ledger.html" style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:20px 14px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:10px;text-decoration:none;transition:background .2s;" onmouseover="this.style.background='rgba(255,255,255,0.14)'" onmouseout="this.style.background='rgba(255,255,255,0.07)'">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--light)" stroke-width="1.5"><path d="M12 2L2 7l10 5 10-5-10-5z"/></svg>
+        <span style="font-size:13px;font-weight:500;color:#fff;" data-ar="دفتر الأستاذ" data-en="Ledger">دفتر الأستاذ</span>
+      </a>
+      <a href="vat.html" style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:20px 14px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:10px;text-decoration:none;transition:background .2s;" onmouseover="this.style.background='rgba(255,255,255,0.14)'" onmouseout="this.style.background='rgba(255,255,255,0.07)'">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--light)" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        <span style="font-size:13px;font-weight:500;color:#fff;" data-ar="إقرار VAT" data-en="VAT Return">إقرار VAT</span>
+      </a>
+      <a href="statements.html" style="display:flex;flex-direction:column;align-items:center;gap:8px;padding:20px 14px;background:rgba(255,255,255,0.07);border:1px solid rgba(255,255,255,0.15);border-radius:10px;text-decoration:none;transition:background .2s;" onmouseover="this.style.background='rgba(255,255,255,0.14)'" onmouseout="this.style.background='rgba(255,255,255,0.07)'">
+        <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="var(--light)" stroke-width="1.5"><path d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2z"/></svg>
+        <span style="font-size:13px;font-weight:500;color:#fff;" data-ar="القوائم المالية" data-en="Statements">القوائم المالية</span>
+      </a>
+    </div>
+  </div>
+</section>
+
+<!-- Footer -->
+<footer>
+  <a href="#" class="nav-logo" style="text-decoration:none;">
+    <div class="nav-logo-icon">
+      <div class="bar1"></div>
+      <div class="bar2"></div>
+    </div>
+    <div class="nav-logo-text">
+      <span class="logo-gulf" style="color:#fff;">Gulf</span>
+      <span class="logo-ledger">LEDGER</span>
+    </div>
+  </a>
+  <div class="footer-links">
+    <a href="#features" data-en="Features" data-ar="المميزات">المميزات</a>
+    <a href="#pricing" data-en="Pricing" data-ar="الأسعار">الأسعار</a>
+    <a href="login.html" data-en="Client Login" data-ar="دخول العملاء">دخول العملاء</a>
+    <a href="signup.html" data-en="Start Free Trial" data-ar="ابدأ مجاناً">ابدأ مجاناً</a>
+  </div>
+  <div class="footer-copy" data-en="© 2026 GulfLedger. All rights reserved." data-ar="© 2026 جلف ليدجر. جميع الحقوق محفوظة.">© 2026 جلف ليدجر. جميع الحقوق محفوظة.</div>
+</footer>
+
+<script>
+  var plans = {
+    starter: { monthly: 199, annual: 159, annualTotal: 1908 },
+    business: { monthly: 399, annual: 319, annualTotal: 3828 },
+    pro: { monthly: 799, annual: 639, annualTotal: 7668 }
+  };
+
+  function setBilling(btn, plan, type) {
+    var L = document.documentElement.getAttribute('lang') || 'ar';
+    var card = btn.closest('.pricing-card');
+    // Update tab active state
+    card.querySelectorAll('.billing-tab').forEach(function(t){ t.classList.remove('active'); });
+    btn.classList.add('active');
+    // Show/hide save pill
+    var pill = document.getElementById(plan + '-pill');
+    if (pill) pill.className = type === 'annual' ? 'save-pill' : 'save-pill hidden';
+    var p = plans[plan];
+    var priceEl = document.getElementById(plan + '-price');
+    var subEl = document.getElementById(plan + '-sub');
+    if (!priceEl) return;
+    if (type === 'annual') {
+      priceEl.textContent = p.annualTotal.toLocaleString();
+      if (subEl) subEl.textContent = L === 'ar'
+        ? 'سنوياً — يعادل ' + p.annual + ' ريال/شهر'
+        : 'per year — equals ' + p.annual + ' SAR/mo';
+    } else {
+      priceEl.textContent = p.monthly;
+      if (subEl) subEl.textContent = L === 'ar'
+        ? 'شهرياً — إلغاء في أي وقت'
+        : 'per month — cancel anytime';
     }
   }
-  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', glListbarBoot);
-  else glListbarBoot();
-})();
+
+  function setLang(lang) {
+    localStorage.setItem('gl_lang', lang);
+    document.documentElement.setAttribute('lang', lang);
+    document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
+    document.getElementById('btn-en').classList.toggle('active', lang === 'en');
+    document.getElementById('btn-ar').classList.toggle('active', lang === 'ar');
+    document.body.classList.toggle('ar', lang === 'ar');
+    document.querySelectorAll('[data-ar][data-en]').forEach(el => {
+      const val = el.getAttribute('data-' + lang);
+      if (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA') {
+        el.placeholder = val;
+      } else {
+        el.innerHTML = val;
+      }
+    });
+  }
+
+  // Mobile menu toggle (newly added — fixes broken mobile nav)
+  function toggleMobileMenu() {
+    document.getElementById('navLinks').classList.toggle('mobile-open');
+  }
+
+  // Close mobile menu when a nav link is clicked
+  document.querySelectorAll('#navLinks a').forEach(function(a){
+    a.addEventListener('click', function(){
+      document.getElementById('navLinks').classList.remove('mobile-open');
+    });
+  });
+
+  window.addEventListener('scroll', () => {
+    document.getElementById('navbar').classList.toggle('scrolled', window.scrollY > 20);
+  });
+
+  const observer = new IntersectionObserver((entries) => {
+    entries.forEach(e => { if (e.isIntersecting) e.target.classList.add('visible'); });
+  }, { threshold: 0.15 });
+  document.querySelectorAll('.fade-up').forEach(el => observer.observe(el));
+
+  setLang(localStorage.getItem('gl_lang')||'ar');
+</script>
+
+<div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.05.17-01</div>
+<script>console.log('%c[GulfLedger build] v2026.05.17-01 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+</body>
+</html>
