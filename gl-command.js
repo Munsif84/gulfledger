@@ -372,6 +372,33 @@
     });
   }
 
+
+  /* ── LANGUAGE-AWARE ENTITY NAMES (site convention) ──────────────────────
+     THE RULE: whatever the record holds, display follows the SITE language
+     with graceful fallback. Arabic site (95% of clients) → Arabic name
+     first; English site → English name if one was entered at creation,
+     otherwise the Arabic original (never blank, never wrong-language when
+     the right one exists).
+       glName(entity)    → name_ar/name_en/name family
+       glCompany(entity) → company_name(_en) family, falls through to names
+     Every list, dropdown, table cell, and report should render entity
+     names through these — not raw .name / .name_ar. */
+  function glName(e){
+    if(!e) return '';
+    var ar = lang() === 'ar';
+    return (ar ? (e.name_ar || e.name || e.name_en)
+               : (e.name_en || e.name || e.name_ar)) || '';
+  }
+  function glCompany(e){
+    if(!e) return '';
+    var ar = lang() === 'ar';
+    return (ar ? (e.company_name || e.company_name_ar || e.company_name_en)
+               : (e.company_name_en || e.company_name || e.company_name_ar))
+           || glName(e);
+  }
+  window.glName = glName;
+  window.glCompany = glCompany;
+
   function glListbar(){
     var ar = lang() === 'ar';
     /* Scan the standard .toolbar AND report-specific toolbars so the one filter
