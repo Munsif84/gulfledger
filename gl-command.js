@@ -399,6 +399,34 @@
   window.glName = glName;
   window.glCompany = glCompany;
 
+
+  /* ── STATIC LANGUAGE APPLIER (one convention, applied centrally) ────────
+     Language changes reload the page, so a single pass at load is enough.
+     Handles the three static surfaces pages have: element text via
+     data-ar/data-en, placeholders via data-ph-ar/data-ph-en, titles via
+     data-title-ar/data-title-en. <option> elements included. Runs after
+     DOM ready on every page that loads gl-command.js — pages need zero
+     applier code of their own. */
+  function glApplyStaticLang(){
+    var L = lang();
+    document.querySelectorAll('[data-ar][data-en]').forEach(function(el){
+      if(el.children.length > 0 && el.tagName !== 'OPTION') return;
+      var t = el.getAttribute('data-' + L);
+      if(t != null) el.textContent = t;
+    });
+    document.querySelectorAll('[data-ph-ar][data-ph-en]').forEach(function(el){
+      var t = el.getAttribute(L === 'ar' ? 'data-ph-ar' : 'data-ph-en');
+      if(t != null) el.setAttribute('placeholder', t);
+    });
+    document.querySelectorAll('[data-title-ar][data-title-en]').forEach(function(el){
+      var t = el.getAttribute(L === 'ar' ? 'data-title-ar' : 'data-title-en');
+      if(t != null) el.setAttribute('title', t);
+    });
+  }
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', glApplyStaticLang);
+  } else { glApplyStaticLang(); }
+
   function glListbar(){
     var ar = lang() === 'ar';
     /* Scan the standard .toolbar AND report-specific toolbars so the one filter
