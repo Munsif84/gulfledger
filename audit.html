@@ -1,1063 +1,1037 @@
-<!DOCTYPE html>
-<!--
-═══════════════════════════════════════════════════════════════════════════════
-  GulfLedger — audit.html
-  Round 5b: Audit Log Viewer (rebuilt to match canonical site design language)
+// ═══ SELF-CONTAINED submit (engine inlined) ═══
+import { secp256k1 } from "https://esm.sh/@noble/curves@1.4.0/secp256k1";
+import { sha256 } from "https://esm.sh/@noble/hashes@1.4.0/sha256";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+import { DOMParser, XMLSerializer } from "https://esm.sh/@xmldom/xmldom@0.8.10";
+import { XMLParser, XMLBuilder } from "https://esm.sh/fast-xml-parser@4.4.1";
 
-  Read-only viewer for everything the app has written to:
-    - audit_log              (canonical — most modules)
-    - expense_audit_log      (legacy — finance.html receipt-attach events)
-═══════════════════════════════════════════════════════════════════════════════
--->
-<html lang="ar" dir="rtl">
-<head>
-<meta charset="UTF-8">
-<title>سجل المراجعة · GulfLedger</title>
-<meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="/gl-design-system.css">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500&family=IBM+Plex+Sans:wght@400;500&family=Tajawal:wght@300;400;500;700;800&family=Playfair+Display:wght@700&family=Cairo:wght@400;700&display=swap" rel="stylesheet">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-<script>
-  (function(){
-    var lang = localStorage.getItem('gl_lang') || 'ar';
-    document.documentElement.setAttribute('lang', lang);
-    document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
-  })();
-</script>
-<style>
-/* ═══ Design tokens — same set used across site ═══ */
+// ═══════════════════════════════════════════════════════════════════════════
+// GulfLedger · ZATCA shared module (Deno / Supabase Edge Functions)
+// supabase/functions/_shared/zatca.ts
+// ───────────────────────────────────────────────────────────────────────────
+// Contains: environment endpoints, ASN.1 DER builders, the ZATCA-profile CSR
+// builder (secp256k1, SAN dirName attributes, certificate-template ext),
+// auth helpers, and the Fatoora API fetch wrapper.
+//
+// ⚠ VERIFY-BEFORE-PROD: endpoint paths and header names below follow the
+// published Fatoora API conventions; confirm against the current ZATCA
+// developer portal before simulation/production onboarding. Sandbox is the
+// proving ground — Sprint 1 exits with a successful sandbox round-trip.
+// ═══════════════════════════════════════════════════════════════════════════
 
-.mono{font-family:inherit;font-variant-numeric:tabular-nums;}
-a{color:var(--blue);text-decoration:none;}
 
-/* ═══ TOP NAV (canonical) ═══ */
-.topnav{background:var(--navy);padding:10px 24px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:300;box-shadow:0 2px 8px rgba(0,0,0,0.15);}
-.nav-logo{display:flex;align-items:center;gap:8px;text-decoration:none;}
-.nav-bars{display:flex;gap:5px;height:36px;}
-.nav-bar{width:5px;border-radius:2px;}
-.nav-name{font-family:'Playfair Display',serif;font-size:23px;color:#fff;}
-.nav-right{display:flex;align-items:center;gap:8px;}
-.nav-divider{width:1px;height:20px;background:rgba(255,255,255,0.2);}
-.nav-biz{font-size:14px;color:rgba(255,255,255,0.85);max-width:160px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:4px 10px;background:rgba(255,255,255,0.08);border-radius:6px;border:1px solid rgba(255,255,255,0.15);}
-.lang-switch{display:inline-flex;gap:2px;background:rgba(255,255,255,0.08);border-radius:6px;padding:2px;}
-.lang-btn{background:none;border:none;color:rgba(255,255,255,0.7);padding:4px 10px;cursor:pointer;font-size:12px;font-weight:600;border-radius:4px;transition:all .15s;font-family:inherit;}
-.lang-btn.on{background:rgba(255,255,255,0.2);color:#fff;}
 
-.app-nav{background:var(--blue);padding:8px 20px;display:flex;gap:4px;align-items:center;overflow-x:auto;position:sticky;top:44px;z-index:299;box-shadow:0 2px 6px rgba(0,0,0,0.1);-webkit-overflow-scrolling:touch;}
-.app-nav::-webkit-scrollbar{height:0;}
-.app-nav-link{padding:5px 14px;font-size:14px;font-weight:500;color:rgba(255,255,255,0.7);text-decoration:none;border-radius:6px;white-space:nowrap;transition:all .15s;}
-.app-nav-link:hover{background:rgba(255,255,255,0.12);color:#fff;}
-.app-nav-link.active{background:rgba(255,255,255,0.18);color:#fff;}
 
-/* Profile menu */
-.profile-menu{position:relative;}
-.profile-trigger{display:inline-flex;align-items:center;gap:4px;background:rgba(255,255,255,0.08);color:#fff;border:1px solid rgba(255,255,255,0.15);border-radius:6px;padding:4px 10px;cursor:pointer;font-size:13px;transition:background .15s;font-family:inherit;}
-.profile-trigger:hover{background:rgba(255,255,255,0.15);}
-.profile-avatar{font-size:16px;}
-.profile-caret{font-size:10px;opacity:0.7;}
-.profile-dropdown{position:absolute;top:calc(100% + 6px);inset-inline-end:0;min-width:180px;background:#fff;border:1px solid var(--border);border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,0.15);padding:4px;z-index:400;display:none;}
-.profile-dropdown.open{display:block;}
-.profile-item{display:flex;align-items:center;gap:10px;padding:9px 12px;border-radius:6px;color:var(--ink);text-decoration:none;font-size:13px;cursor:pointer;transition:background .12s;width:100%;text-align:inherit;background:none;border:none;font-family:inherit;}
-.profile-item:hover{background:rgba(0,108,53,0.06);}
-.profile-icon{font-size:16px;flex-shrink:0;}
-.profile-divider{height:1px;background:var(--border);margin:4px 0;}
 
-/* ═══ PAGE (canonical container) ═══ */
-.page{max-width:1280px;margin:0 auto;padding:18px;}
+// ── Environments ───────────────────────────────────────────────────────────
+export const ZATCA_ENV = {
+  sandbox: {
+    base: "https://gw-fatoora.zatca.gov.sa/e-invoicing/developer-portal",
+    certTemplate: "TSTZATCA-Code-Signing",
+  },
+  simulation: {
+    base: "https://gw-fatoora.zatca.gov.sa/e-invoicing/simulation",
+    certTemplate: "PREZATCA-Code-Signing",
+  },
+  production: {
+    base: "https://gw-fatoora.zatca.gov.sa/e-invoicing/core",
+    certTemplate: "ZATCA-Code-Signing",
+  },
+} as const;
+export type ZatcaEnvName = keyof typeof ZATCA_ENV;
 
-/* Page title */
-.page-head{display:flex;align-items:flex-end;justify-content:space-between;gap:14px;margin-bottom:16px;flex-wrap:wrap;}
-.page-title{font-size:22px;font-weight:800;color:var(--ink);display:flex;align-items:center;gap:10px;}
-.page-sub{font-size:13px;color:var(--muted);margin-top:4px;}
-
-/* Stats row (canonical) */
-.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
-.stat-card{background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px;}
-.stat-card .label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px;}
-.stat-card .value{font-family:inherit;font-variant-numeric:tabular-nums;font-size:20px;font-weight:700;color:var(--ink);line-height:1.1;}
-.stat-card .sub{font-size:11px;color:var(--muted);margin-top:2px;}
-.stat-card.amber{border-color:#fde68a;background:#fffbeb;}
-.stat-card.amber .value{color:var(--amber);}
-.stat-card.red{border-color:#fca5a5;background:#fef2f2;}
-.stat-card.red .value{color:var(--red);}
-.stat-card.green{border-color:#86efac;background:#f0fdf4;}
-.stat-card.green .value{color:var(--green);}
-
-/* Toolbar (canonical) */
-.toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap;}
-.toolbar-left{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;}
-.search-wrap{position:relative;flex:1;max-width:340px;min-width:200px;}
-.search-input{width:100%;padding:9px 12px 9px 36px;border:1.5px solid var(--border);border-radius:10px;font-family:inherit;font-size:14px;background:#fff;}
-.search-input:focus{outline:none;border-color:var(--blue);}
-[dir="rtl"] .search-input{padding:9px 36px 9px 12px;}
-.search-icon{position:absolute;top:50%;transform:translateY(-50%);color:var(--muted);font-size:14px;pointer-events:none;left:12px;}
-[dir="rtl"] .search-icon{left:auto;right:12px;}
-
-/* Buttons (canonical) */
-.btn{padding:9px 16px;border-radius:9px;font-family:inherit;font-size:13px;font-weight:700;cursor:pointer;display:inline-flex;align-items:center;gap:6px;border:none;white-space:nowrap;transition:all .15s;}
-.btn-primary{background:var(--blue);color:#fff;}
-.btn-primary:hover{background:var(--navy);}
-.btn-secondary{background:#fff;color:var(--blue);border:1.5px solid var(--light);}
-.btn-secondary:hover{background:var(--tint);}
-.btn-ghost{background:transparent;color:var(--muted);border:1px solid var(--border);}
-.btn-ghost:hover{background:var(--bg);color:var(--ink);}
-.btn-sm{padding:5px 10px;font-size:12px;}
-
-/* Filter group + filter button — canonical segmented-control pattern from invoices.html.
-   Used for inline single-axis filters next to a search box. */
-.filter-group{display:inline-flex;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:2px;flex-wrap:wrap;}
-.filter-btn{padding:6px 12px;border:none;border-radius:6px;font-family:inherit;font-size:12px;font-weight:600;cursor:pointer;background:transparent;color:var(--muted);transition:all .15s;display:inline-flex;align-items:center;gap:6px;}
-.filter-btn:hover{color:var(--ink);}
-.filter-btn.active{background:#fff;color:var(--navy);box-shadow:0 1px 3px rgba(0,0,0,0.06);}
-.filter-btn .count-badge{display:inline-block;background:var(--tint);color:var(--muted);padding:1px 6px;border-radius:6px;font-size:10px;font-weight:700;font-family:inherit;font-variant-numeric:tabular-nums;}
-.filter-btn.active .count-badge{background:var(--tint);color:var(--blue);}
-
-/* Filter select dropdown (canonical, matches finance.html) */
-.filter-select{padding:8px 11px;border:1.5px solid var(--border);border-radius:10px;font-family:inherit;font-size:13px;background:#fff;color:var(--ink);cursor:pointer;}
-.filter-select:focus{outline:none;border-color:var(--blue);}
-
-/* Date range row */
-.date-range{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px;}
-.date-range .field{display:flex;flex-direction:column;gap:4px;}
-.date-range label{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em;}
-.date-range input[type=date], .date-range select{padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;background:#fff;}
-.date-range input[type=date]:focus, .date-range select:focus{outline:none;border-color:var(--blue);}
-
-/* Section title (canonical small label) */
-.section-title-sm{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);margin:14px 0 8px;padding-bottom:5px;border-bottom:1px solid var(--tint);display:flex;align-items:center;gap:6px;}
-
-/* Table wrap (canonical) */
-.table-wrap{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden;}
-.tbl{width:100%;border-collapse:collapse;font-size:14px;}
-.tbl th,.tbl td{text-align:start;}
-.tbl th{padding:10px 14px;background:var(--color-bg-subtle);color:var(--color-text-muted);font-size:12px;font-weight:500;border-bottom:1px solid var(--border);white-space:nowrap;}
-.tbl td{padding:11px 14px;border-bottom:1px solid var(--tint);vertical-align:middle;white-space:nowrap;}
-.tbl td.wrap-allowed{white-space:normal;}
-.tbl tr:last-child td{border-bottom:none;}
-.tbl .num,.tbl th.num{font-family:inherit;font-variant-numeric:tabular-nums;}
-.tbl .center,.tbl th.center{text-align:center;}
-
-/* Day group header — sits inside the table-wrap above each day's rows */
-.day-header{padding:9px 14px;background:#fafbfa;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-bottom:1px solid var(--tint);display:flex;justify-content:space-between;align-items:center;}
-.day-header .day-count{font-family:inherit;font-variant-numeric:tabular-nums;color:var(--ink);background:var(--tint);padding:1px 7px;border-radius:8px;font-size:11px;font-weight:700;}
-
-/* Entity-type badge (small inline icon+label) */
-.entity-badge{display:inline-flex;align-items:center;gap:4px;background:var(--tint);color:var(--ink);font-size:11px;font-weight:600;padding:2px 8px;border-radius:8px;}
-
-/* Action badge — color-coded by verb */
-.action-badge{display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;text-transform:uppercase;letter-spacing:.04em;margin-inline-end:6px;}
-.act-created   {background:#dcfce7;color:#166534;}
-.act-edited    {background:#dbeafe;color:#1e40af;}
-.act-deleted   {background:#fee2e2;color:#991b1b;}
-.act-voided    {background:#fee2e2;color:#991b1b;}
-.act-paid      {background:#dcfce7;color:#166534;}
-.act-deactivated{background:#f0f0f0;color:#6b7280;}
-.act-close_short{background:#fef3c7;color:#92400e;}
-.act-add_supplier_invoice{background:#e0e7ff;color:#3730a3;}
-.act-auto_create_draft{background:#dcfce7;color:#166534;}
-.act-other     {background:#f0f0f0;color:#6b7280;}
-
-/* User chip */
-.user-chip{display:inline-flex;align-items:center;gap:4px;background:var(--tint);color:var(--ink);font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:10px;}
-
-/* Reason callout (when entry has a reason field) */
-.reason-callout{margin-top:6px;font-size:12.5px;color:var(--ink);background:#fffbeb;border-inline-start:3px solid var(--amber);padding:6px 10px;border-radius:0 6px 6px 0;line-height:1.5;}
-
-/* Diff toggle + diff table */
-.diff-toggle{background:#fff;border:1px solid var(--border);color:var(--muted);padding:4px 10px;border-radius:6px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0;transition:all .15s;}
-.diff-toggle:hover{border-color:var(--blue);color:var(--blue);}
-.diff-wrap{margin-top:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;display:none;}
-.diff-wrap.open{display:block;}
-.diff-tbl{width:100%;border-collapse:collapse;font-size:12px;}
-.diff-tbl th{padding:8px 12px;background:var(--tint);text-align:start;font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border);}
-.diff-tbl td{padding:8px 12px;border-bottom:1px solid var(--tint);vertical-align:top;font-family:inherit;font-variant-numeric:tabular-nums;font-size:12px;line-height:1.5;}
-.diff-tbl tr:last-child td{border-bottom:none;}
-.diff-field{font-weight:700;color:var(--ink);font-family:'Tajawal','Cairo',sans-serif;}
-.diff-before{color:var(--muted);text-decoration:line-through;text-decoration-color:rgba(198,40,40,0.4);}
-.diff-after{color:var(--green);}
-
-/* Empty state (canonical) */
-.empty-state{text-align:center;padding:60px 20px;color:var(--muted);}
-.empty-state .icon{font-size:44px;opacity:0.3;margin-bottom:12px;}
-.empty-state .title{font-size:16px;font-weight:700;color:var(--ink);margin-bottom:6px;}
-.empty-state .text{font-size:13px;line-height:1.5;max-width:380px;margin:0 auto;}
-
-/* Loading */
-.loading-state{text-align:center;padding:80px 20px;color:var(--muted);}
-.loading-spinner{font-size:42px;margin-bottom:14px;animation:pulse 1.5s ease-in-out infinite;}
-@keyframes pulse{0%,100%{opacity:1;}50%{opacity:0.4;}}
-
-/* Notify toast (canonical) */
-.notify{position:fixed;bottom:24px;inset-inline-end:24px;background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 18px;box-shadow:0 8px 24px rgba(0,0,0,0.12);font-size:13px;font-weight:600;color:var(--ink);max-width:380px;z-index:1000;opacity:0;transform:translateY(20px);transition:opacity .25s, transform .25s;pointer-events:none;}
-.notify.show{opacity:1;transform:translateY(0);pointer-events:auto;}
-.notify.error{border-color:#fecaca;background:#fef2f2;color:#991b1b;}
-.notify.success{border-color:#86efac;background:#f0fdf4;color:#166534;}
-
-/* Mobile */
-@media (max-width:900px){
-  .page{padding:12px;}
-  .stats-row{grid-template-columns:repeat(2,1fr);}
-  .page-title{font-size:18px;}
-  .tbl{font-size:13px;}
-  .tbl th,.tbl td{padding:9px 10px;}
+// ── Small utils ────────────────────────────────────────────────────────────
+export const te = new TextEncoder();
+export function bytesToHex(b: Uint8Array): string {
+  return Array.from(b).map((x) => x.toString(16).padStart(2, "0")).join("");
 }
-@media (max-width:560px){
-  .stats-row{grid-template-columns:1fr;}
+export function hexToBytes(h: string): Uint8Array {
+  const out = new Uint8Array(h.length / 2);
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(h.slice(i * 2, i * 2 + 2), 16);
+  return out;
 }
-</style>
-</head>
-<body>
+export function b64(b: Uint8Array): string {
+  let s = "";
+  for (const x of b) s += String.fromCharCode(x);
+  return btoa(s);
+}
+export function concat(...arrs: Uint8Array[]): Uint8Array {
+  const len = arrs.reduce((n, a) => n + a.length, 0);
+  const out = new Uint8Array(len);
+  let o = 0;
+  for (const a of arrs) { out.set(a, o); o += a.length; }
+  return out;
+}
 
-<!-- ═══ TOP NAV ═══ -->
-<div class="topnav">
-  <a href="dashboard.html" class="nav-logo" aria-label="GulfLedger home">
-    <div class="nav-bars">
-      <div class="nav-bar" style="background:#fff;"></div>
-      <div class="nav-bar" style="background:rgba(255,255,255,0.45);"></div>
-    </div>
-    <span class="nav-name">Gulf<span style="color:rgba(255,255,255,0.75);">Ledger</span></span>
-  </a>
-  <div class="nav-right">
-    <div class="lang-switch">
-      <button class="lang-btn" id="btn-ar" onclick="setLang('ar')">ع</button>
-      <button class="lang-btn" id="btn-en" onclick="setLang('en')">EN</button>
-    </div>
-    <div class="nav-divider"></div>
-    <span class="nav-biz" id="biz-name" title="">...</span>
-    <div class="profile-menu" id="profile-menu">
-      <button class="profile-trigger" onclick="toggleProfileMenu(event)" aria-haspopup="true" aria-expanded="false" aria-label="Profile menu">
-        <span class="profile-avatar" id="profile-avatar">👤</span>
-        <span class="profile-caret">▾</span>
-      </button>
-      <div class="profile-dropdown" id="profile-dropdown" role="menu">
-        <a href="settings.html" class="profile-item" role="menuitem">
-          <span class="profile-icon">⚙️</span>
-          <span data-ar="الإعدادات" data-en="Settings">الإعدادات</span>
-        </a>
-        <a href="audit.html" class="profile-item" role="menuitem" style="background:var(--tint);">
-          <span class="profile-icon">📜</span>
-          <span data-ar="سجل المراجعة" data-en="Audit Log">سجل المراجعة</span>
-        </a>
-        <div class="profile-divider"></div>
-        <button class="profile-item profile-item-button" onclick="logout()" role="menuitem">
-          <span class="profile-icon">🚪</span>
-          <span data-ar="تسجيل الخروج" data-en="Sign out">تسجيل الخروج</span>
-        </button>
-      </div>
-    </div>
-  </div>
-</div>
+// ── ASN.1 DER builders (minimal, sufficient for the ZATCA CSR) ────────────
+function derLen(n: number): Uint8Array {
+  if (n < 0x80) return new Uint8Array([n]);
+  const bytes: number[] = [];
+  let v = n;
+  while (v > 0) { bytes.unshift(v & 0xff); v >>= 8; }
+  return new Uint8Array([0x80 | bytes.length, ...bytes]);
+}
+function tlv(tag: number, value: Uint8Array): Uint8Array {
+  return concat(new Uint8Array([tag]), derLen(value.length), value);
+}
+export const SEQ = (...c: Uint8Array[]) => tlv(0x30, concat(...c));
+export const SET = (...c: Uint8Array[]) => tlv(0x31, concat(...c));
+export const INT = (n: number) => tlv(0x02, new Uint8Array([n]));
+export const UTF8 = (s: string) => tlv(0x0c, te.encode(s));
+export const PRINTABLE = (s: string) => tlv(0x13, te.encode(s));
+export const OCTET = (b: Uint8Array) => tlv(0x04, b);
+export const BITSTR = (b: Uint8Array) => tlv(0x03, concat(new Uint8Array([0x00]), b));
+export const CTX = (n: number, b: Uint8Array, constructed = true) =>
+  tlv((constructed ? 0xa0 : 0x80) | n, b);
 
-<!-- ═══ APP NAV ═══ -->
-<div class="app-nav">
-  <a href="dashboard.html" class="app-nav-link" data-ar="الرئيسية" data-en="Dashboard">الرئيسية</a>
-  <a href="purchasing.html" class="app-nav-link" data-ar="المشتريات" data-en="Purchasing">المشتريات</a>
-  <a href="invoices.html" class="app-nav-link" data-ar="المبيعات" data-en="Sales">المبيعات</a>
-  <a href="inventory.html" class="app-nav-link" data-ar="المخزون" data-en="Inventory">المخزون</a>
-  <a href="finance.html" class="app-nav-link" data-ar="المالية" data-en="Finance">المالية</a>
-  <a href="accounting.html" class="app-nav-link" data-ar="المحاسبة" data-en="Accounting">المحاسبة</a>
-  <a href="reports.html" class="app-nav-link" data-ar="التقارير" data-en="Reports">التقارير</a>
-</div>
-
-<!-- ═══ LOADING ═══ -->
-<div class="loading-state" id="loading-state">
-  <div class="loading-spinner">📜</div>
-  <div data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
-</div>
-
-<!-- ═══ PAGE ═══ -->
-<div class="page" id="page" style="display:none;">
-
-  <!-- Page header -->
-  <div class="page-head">
-    <div>
-      <div class="page-title">📜 <span data-ar="سجل المراجعة" data-en="Audit Log">سجل المراجعة</span></div>
-      <div class="page-sub" data-ar="سجل بكل التغييرات في النظام — من فعل ماذا ومتى. للقراءة فقط."
-                              data-en="Every change in the system — who did what and when. Read-only.">سجل بكل التغييرات في النظام — من فعل ماذا ومتى. للقراءة فقط.</div>
-    </div>
-  </div>
-
-  <!-- Stats row -->
-  <div class="stats-row">
-    <div class="stat-card">
-      <div class="label" data-ar="عدد الأحداث" data-en="Events">عدد الأحداث</div>
-      <div class="value" id="stat-total">0</div>
-      <div class="sub" id="stat-total-sub"></div>
-    </div>
-    <div class="stat-card">
-      <div class="label" data-ar="أكثر مستخدم نشاطاً" data-en="Most active user">أكثر مستخدم نشاطاً</div>
-      <div class="value" id="stat-top-user" style="font-size:14px;">—</div>
-      <div class="sub" id="stat-top-user-sub"></div>
-    </div>
-    <div class="stat-card amber">
-      <div class="label" data-ar="عمليات الإلغاء" data-en="Voids">عمليات الإلغاء</div>
-      <div class="value" id="stat-voids">0</div>
-      <div class="sub" data-ar="في الفترة المحددة" data-en="in selected period">في الفترة المحددة</div>
-    </div>
-    <div class="stat-card">
-      <div class="label" data-ar="عمليات التعديل" data-en="Edits">عمليات التعديل</div>
-      <div class="value" id="stat-edits">0</div>
-      <div class="sub" data-ar="في الفترة المحددة" data-en="in selected period">في الفترة المحددة</div>
-    </div>
-  </div>
-
-  <!-- Toolbar (row 1): search + entity filter-group + action select + user select.
-       Matches the inline-controls pattern from invoices.html. -->
-  <div class="toolbar">
-    <div class="toolbar-left">
-      <div class="search-wrap">
-        <span class="search-icon">🔍</span>
-        <input type="text" class="search-input" id="flt-search" placeholder="">
-      </div>
-      <!-- Entity filter pills (filter-group, populated by renderEntityPills) -->
-      <div id="entity-pills"></div>
-      <!-- Action filter as select dropdown (many values; select is cleaner than pills) -->
-      <select id="flt-action" class="filter-select" onchange="onActionSelectChange()">
-        <option value="" data-ar="كل الإجراءات" data-en="All actions">كل الإجراءات</option>
-      </select>
-      <!-- User filter as select dropdown -->
-      <select id="flt-user" class="filter-select">
-        <option value="" data-ar="كل المستخدمين" data-en="All users">كل المستخدمين</option>
-      </select>
-    </div>
-  </div>
-
-  <!-- Toolbar (row 2): date range + period preset filter-group. Two complementary
-       inputs on the time axis (precise date pickers + quick preset shortcuts). -->
-  <div class="toolbar">
-    <div class="toolbar-left">
-      <div class="date-range">
-        <div class="field">
-          <label data-ar="من" data-en="From">من</label>
-          <input type="date" id="flt-from">
-        </div>
-        <div class="field">
-          <label data-ar="إلى" data-en="To">إلى</label>
-          <input type="date" id="flt-to">
-        </div>
-      </div>
-      <!-- Period preset filter-group -->
-      <div class="filter-group">
-        <button class="filter-btn" data-preset="today" onclick="applyPreset('today')" data-ar="اليوم" data-en="Today">اليوم</button>
-        <button class="filter-btn" data-preset="7d" onclick="applyPreset('7d')" data-ar="7 أيام" data-en="7d">7 أيام</button>
-        <button class="filter-btn active" data-preset="30d" onclick="applyPreset('30d')" data-ar="30 يوم" data-en="30d">30 يوم</button>
-        <button class="filter-btn" data-preset="90d" onclick="applyPreset('90d')" data-ar="90 يوم" data-en="90d">90 يوم</button>
-        <button class="filter-btn" data-preset="year" onclick="applyPreset('year')" data-ar="هذا العام" data-en="Year">هذا العام</button>
-        <button class="filter-btn" data-preset="all" onclick="applyPreset('all')" data-ar="الكل" data-en="All">الكل</button>
-      </div>
-    </div>
-  </div>
-
-  <!-- Timeline (rendered as a series of day-grouped table-wraps) -->
-  <div id="audit-timeline">
-    <!-- filled by renderTimeline() -->
-  </div>
-
-</div>
-
-<!-- ═══ NOTIFY ═══ -->
-<div class="notify" id="notify"></div>
-
-<script>
-const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
-const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Inlreml2bmFzand0dWh2anhmeHpmIiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2MjI5NzAsImV4cCI6MjA5MjE5ODk3MH0.t9n60yaQJZcgD4BoNIhGiNNVMB3QIxcLc4KQL82pmNE';
-const sb = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
-
-let currentLang = localStorage.getItem('gl_lang') || 'ar';
-let currentUser = null;
-let currentBiz = null;
-
-/* ═════════ Lang ═════════ */
-function setLang(lang){
-  currentLang = lang;
-  localStorage.setItem('gl_lang', lang);
-  document.documentElement.setAttribute('lang', lang);
-  document.documentElement.setAttribute('dir', lang === 'ar' ? 'rtl' : 'ltr');
-  document.getElementById('btn-ar').classList.toggle('on', lang === 'ar');
-  document.getElementById('btn-en').classList.toggle('on', lang === 'en');
-  applyLang();
-  if(allEntries.length){
-    renderEntityPills();
-    renderActionPills();
-    renderTimeline();
-    renderStats();
+export function OID(oid: string): Uint8Array {
+  const parts = oid.split(".").map(Number);
+  const body: number[] = [parts[0] * 40 + parts[1]];
+  for (let i = 2; i < parts.length; i++) {
+    let v = parts[i];
+    const stack: number[] = [v & 0x7f];
+    v >>= 7;
+    while (v > 0) { stack.unshift((v & 0x7f) | 0x80); v >>= 7; }
+    body.push(...stack);
   }
-}
-function applyLang(){
-  document.querySelectorAll('[data-ar],[data-en]').forEach(el => {
-    const val = el.getAttribute('data-' + currentLang);
-    if(val != null && el.children.length === 0) el.textContent = val;
-  });
-  const s = document.getElementById('flt-search');
-  if(s) s.placeholder = currentLang === 'ar' ? 'بحث عن رقم مرجعي أو سبب...' : 'Search by reference or reason...';
+  return tlv(0x06, new Uint8Array(body));
 }
 
-/* ═════════ Profile menu ═════════ */
-function toggleProfileMenu(e){
-  e?.stopPropagation();
-  document.getElementById('profile-dropdown').classList.toggle('open');
-}
-document.addEventListener('click', () => {
-  document.getElementById('profile-dropdown')?.classList.remove('open');
-});
+// Relative distinguished name: SET { SEQ { OID, value } }
+const RDN = (oid: string, value: Uint8Array) => SET(SEQ(OID(oid), value));
 
-async function logout(){
-  await sb.auth.signOut();
-  window.location.href = 'login.html';
-}
-
-/* ═════════ Notify ═════════ */
-function notify(msg, type='info'){
-  const el = document.getElementById('notify');
-  el.textContent = msg;
-  el.className = 'notify show ' + type;
-  setTimeout(() => el.classList.remove('show'), 3000);
-}
-
-/* ═════════ Helpers ═════════ */
-function escHTML(s){
-  if(s == null) return '';
-  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
-}
-function pickLang(obj, baseField){
-  if(!obj) return '—';
-  const ar = obj[baseField + '_ar'];
-  const en = obj[baseField + '_en'];
-  const fallback = obj[baseField] || null;
-  if(currentLang === 'en') return en || ar || fallback || '—';
-  return ar || en || fallback || '—';
-}
-function todayISO(){
-  const d = new Date();
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
-}
-function daysAgoISO(n){
-  const d = new Date();
-  d.setDate(d.getDate() - n);
-  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+// ── ZATCA CSR ──────────────────────────────────────────────────────────────
+// Profile (per ZATCA SDK CSR config):
+//   Subject:  C=SA, OU=<branch>, O=<org>, CN=<common name>
+//   Extensions (in extensionRequest attribute):
+//     1.3.6.1.4.1.311.20.2  certificateTemplateName  PRINTABLESTRING (per env)
+//     2.5.29.17             subjectAltName → directoryName with:
+//        SN  (2.5.4.5)                   EGS serial  "1-GulfLedger|2-<model>|3-<uuid>"
+//        UID (0.9.2342.19200300.100.1.1) VAT number (15 digits)
+//        title (2.5.4.12)                invoice-type bitmap, "1100" = std+simplified
+//        registeredAddress (2.5.4.26)    short address
+//        businessCategory  (2.5.4.15)    industry
+export interface CsrFields {
+  commonName: string;       // e.g. "GulfLedger-EGS-1"
+  orgName: string;          // legal business name (Arabic OK)
+  orgUnit: string;          // branch name or TRN-10digit for VAT groups
+  egsSerial: string;        // "1-GulfLedger|2-WebEGS|3-<uuid>"
+  vatNumber: string;        // 15-digit TRN
+  invoiceTypes: string;     // "1100"
+  address: string;          // registered address (short national address)
+  businessCategory: string; // e.g. "Retail"
 }
 
-/* loadCurrentBusiness — mirrors the helper used in other pages */
-async function loadCurrentBusiness(user){
-  const {data: activeMembership} = await sb.from('business_users')
-    .select('business_id, role').eq('user_id', user.id).eq('status', 'active').limit(5);
-  if(activeMembership && activeMembership.length > 0){
-    const ownerRow = activeMembership.find(m => m.role === 'owner');
-    const adminRow = activeMembership.find(m => m.role === 'admin');
-    const chosen = ownerRow || adminRow || activeMembership[0];
-    const {data: biz} = await sb.from('businesses').select('*').eq('id', chosen.business_id).maybeSingle();
-    if(biz) return {biz, role: chosen.role, reason: null};
-    return {biz: null, role: chosen.role, reason: 'biz_lookup_failed'};
-  }
-  const {data: anyMembership} = await sb.from('business_users').select('id').eq('user_id', user.id).limit(5);
-  if(anyMembership && anyMembership.length > 0) return {biz: null, role: null, reason: 'revoked'};
-  return {biz: null, role: null, reason: 'no_business'};
+export function buildZatcaCsr(privKeyHex: string, fields: CsrFields, env: ZatcaEnvName): { csrPem: string; csrB64: string } {
+  const priv = hexToBytes(privKeyHex);
+  const pubUncompressed = secp256k1.getPublicKey(priv, false); // 65 bytes, 0x04 || X || Y
+
+  // SubjectPublicKeyInfo: { {ecPublicKey, secp256k1}, BIT STRING point }
+  const spki = SEQ(
+    SEQ(OID("1.2.840.10045.2.1"), OID("1.3.132.0.10")),
+    BITSTR(pubUncompressed),
+  );
+
+  // Subject Name (order: C, OU, O, CN — matches ZATCA SDK output)
+  const subject = SEQ(
+    RDN("2.5.4.6", PRINTABLE("SA")),
+    RDN("2.5.4.11", UTF8(fields.orgUnit)),
+    RDN("2.5.4.10", UTF8(fields.orgName)),
+    RDN("2.5.4.3", UTF8(fields.commonName)),
+  );
+
+  // SAN: GeneralNames with one directoryName [4]
+  const sanDirName = SEQ(
+    // ZATCA "SN" = OpenSSL shortname for SURNAME (2.5.4.4), NOT serialNumber
+    // (2.5.4.5). Verified by byte-diff against a sandbox-ISSUED CSR.
+    RDN("2.5.4.4", UTF8(fields.egsSerial)),
+    RDN("0.9.2342.19200300.100.1.1", UTF8(fields.vatNumber)),
+    RDN("2.5.4.12", UTF8(fields.invoiceTypes)),
+    RDN("2.5.4.26", UTF8(fields.address)),
+    RDN("2.5.4.15", UTF8(fields.businessCategory)),
+  );
+  const san = SEQ(CTX(4, sanDirName)); // GeneralName ::= [4] directoryName
+
+  const extensions = SEQ(
+    SEQ(OID("1.3.6.1.4.1.311.20.2"), OCTET(PRINTABLE(ZATCA_ENV[env].certTemplate))),
+    SEQ(OID("2.5.29.17"), OCTET(san)),
+  );
+
+  // attributes [0]: Attribute { extensionRequest, SET { extensions } }
+  const attributes = CTX(0, SEQ(OID("1.2.840.113549.1.9.14"), SET(extensions)));
+
+  const cri = SEQ(INT(0), subject, spki, attributes);
+
+  // Sign CRI with ECDSA-SHA256 over secp256k1; DER signature
+  const digest = sha256(cri);
+  const sig = secp256k1.sign(digest, priv);
+  const sigDer = sig.toDERRawBytes();
+
+  const csr = SEQ(
+    cri,
+    SEQ(OID("1.2.840.10045.4.3.2")), // ecdsa-with-SHA256
+    BITSTR(sigDer),
+  );
+
+  const csrB64 = b64(csr);
+  const lines = csrB64.match(/.{1,64}/g)!.join("\n");
+  const csrPem = `-----BEGIN CERTIFICATE REQUEST-----\n${lines}\n-----END CERTIFICATE REQUEST-----`;
+  return { csrPem, csrB64: btoa(csrPem) }; // ZATCA expects base64 of the full PEM
 }
 
-/* ═════════ STATE ═════════ */
-let allEntries = [];
-let allExpensesCache = {};
-let activeFilters = {
-  from: daysAgoISO(30),
-  to: todayISO(),
-  preset: '30d',
-  user_id: '',
-  entity_type: '',
-  action: '',
-  search: ''
+export function generateKeypairHex(): { privHex: string } {
+  const priv = secp256k1.utils.randomPrivateKey();
+  return { privHex: bytesToHex(priv) };
+}
+
+// ── Fatoora API ────────────────────────────────────────────────────────────
+const ZATCA_COMMON_HEADERS = {
+  "Content-Type": "application/json",
+  "Accept": "application/json",
+  "Accept-Version": "V2",
+  "Accept-Language": "en",
+  // ZATCA's WAF rejects header-less clients; present as a normal HTTP client.
+  "User-Agent": "GulfLedger-EGS/1.0 (Supabase Edge; +https://gulfledger.vercel.app)",
 };
 
-/* ═════════ LABEL MAPS ═════════ */
-const ENTITY_LABELS = {
-  invoice:         {ar:'فاتورة',       en:'Invoice',         icon:'🧾'},
-  expense:         {ar:'مصروف',         en:'Expense',         icon:'💸'},
-  inventory_item:  {ar:'صنف مخزون',     en:'Inventory item',  icon:'📦'},
-  supplier:        {ar:'مورد',          en:'Supplier',        icon:'🏭'},
-  purchase_order:  {ar:'أمر شراء',      en:'Purchase order',  icon:'📋'},
-  stock_receipt:   {ar:'استلام بضاعة',   en:'Stock receipt',    icon:'📥'},
-  customer:        {ar:'عميل',          en:'Customer',        icon:'👤'},
-  journal_entry:   {ar:'قيد محاسبي',    en:'Journal entry',   icon:'📒'},
-  business:        {ar:'منشأة',          en:'Business',        icon:'🏢'},
-  team_member:     {ar:'عضو فريق',       en:'Team member',     icon:'👥'},
-  other:           {ar:'أخرى',           en:'Other',            icon:'•'}
-};
-
-const ACTION_LABELS = {
-  created:              {ar:'أنشأ',         en:'created',              cls:'act-created'},
-  edited:               {ar:'عدّل',          en:'edited',               cls:'act-edited'},
-  deleted:              {ar:'حذف',          en:'deleted',              cls:'act-deleted'},
-  voided:               {ar:'ألغى',          en:'voided',               cls:'act-voided'},
-  paid:                 {ar:'سدد',          en:'paid',                 cls:'act-paid'},
-  deactivated:          {ar:'عطّل',          en:'deactivated',          cls:'act-deactivated'},
-  close_short:          {ar:'أغلق مبكراً',   en:'closed short',         cls:'act-close_short'},
-  add_supplier_invoice: {ar:'أضاف رقم الفاتورة',  en:'added invoice #',  cls:'act-add_supplier_invoice'},
-  auto_create_draft:    {ar:'أنشأ مسودة',        en:'auto-created draft', cls:'act-auto_create_draft'},
-  other:                {ar:'حدّث',          en:'updated',              cls:'act-other'}
-};
-
-function entityLabel(type){
-  const m = ENTITY_LABELS[type] || ENTITY_LABELS.other;
-  return currentLang === 'ar' ? m.ar : m.en;
-}
-function entityIcon(type){
-  return (ENTITY_LABELS[type] || ENTITY_LABELS.other).icon;
-}
-function actionLabel(act){
-  const m = ACTION_LABELS[act] || ACTION_LABELS.other;
-  return currentLang === 'ar' ? m.ar : m.en;
-}
-function actionClass(act){
-  return (ACTION_LABELS[act] || ACTION_LABELS.other).cls;
+async function readZatcaBody(res: Response): Promise<{ body: unknown; raw: string }> {
+  const raw = await res.text().catch(() => "");
+  try { return { body: JSON.parse(raw), raw }; } catch { return { body: {}, raw }; }
 }
 
-/* ═════════ NORMALIZER ═════════ */
-function normalizeAuditLog(row){
-  return {
-    id: 'A:' + row.id,
-    source: 'audit_log',
-    created_at: row.created_at,
-    user_id: row.user_id || null,
-    user_email: row.user_email || null,
-    entity_type: row.entity_type || 'other',
-    entity_id: row.entity_id || null,
-    entity_reference: row.entity_reference || null,
-    action: row.action || 'other',
-    before_data: row.before_data || null,
-    after_data: row.after_data || null,
-    reason: row.reason || null
-  };
-}
-function normalizeExpenseAuditLog(row){
-  const exp = allExpensesCache[row.expense_id];
-  return {
-    id: 'E:' + row.id,
-    source: 'expense_audit_log',
-    created_at: row.created_at || new Date().toISOString(),
-    user_id: row.user_id || null,
-    user_email: row.user_email || null,
-    entity_type: 'expense',
-    entity_id: row.expense_id,
-    entity_reference: exp?.expense_number || null,
-    action: row.action || 'edited',
-    before_data: null,
-    after_data: null,
-    reason: row.reason || null
-  };
-}
+/** Calls ZATCA — directly, or via the Vercel relay if ZATCA_RELAY_URL is set
+ *  (ZATCA's Cloudflare challenges Supabase egress IPs; the relay re-originates
+ *  the request from the GulfLedger domain). Same return shape either way. */
+async function zatcaCall(env: ZatcaEnvName, path: string, headers: Record<string, string>, body: unknown) {
+  const relayUrl = Deno.env.get("ZATCA_RELAY_URL") ?? "";
+  const relaySecret = Deno.env.get("ZATCA_RELAY_SECRET") ?? "";
+  const basePath = new URL(ZATCA_ENV[env].base).pathname; // /e-invoicing/<env>
 
-/* ═════════ DATE HELPERS ═════════ */
-function fmtTimeRelative(iso){
-  if(!iso) return '—';
-  const ar = currentLang === 'ar';
-  const diff = Math.max(0, Date.now() - new Date(iso).getTime());
-  const min = Math.floor(diff / 60000);
-  if(min < 1)    return ar ? 'الآن' : 'just now';
-  if(min < 60)   return ar ? `قبل ${min} دقيقة` : `${min}m ago`;
-  const hr = Math.floor(min / 60);
-  if(hr < 24)    return ar ? `قبل ${hr} ساعة` : `${hr}h ago`;
-  const days = Math.floor(hr / 24);
-  if(days < 7)   return ar ? `قبل ${days} يوم` : `${days}d ago`;
-  const weeks = Math.floor(days / 7);
-  if(weeks < 5)  return ar ? `قبل ${weeks} أسبوع` : `${weeks}w ago`;
-  return iso.slice(0, 10);
-}
-function fmtTimeAbs(iso){
-  if(!iso) return '—';
-  try {
-    const d = new Date(iso);
-    return d.toLocaleString(currentLang === 'ar' ? 'ar-SA-u-nu-latn' : 'en-US', {
-      year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit'
+  if (relayUrl && relaySecret) {
+    const res = await fetch(relayUrl, {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-relay-secret": relaySecret },
+      body: JSON.stringify({ path: `${basePath}${path}`, headers, body }),
     });
-  } catch(e){ return iso; }
-}
-function fmtDayHeader(iso){
-  const ar = currentLang === 'ar';
-  if(!iso) return '—';
-  const date = new Date(iso);
-  const today = new Date(); today.setHours(0,0,0,0);
-  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
-  const that = new Date(date); that.setHours(0,0,0,0);
-  if(that.getTime() === today.getTime())     return ar ? 'اليوم' : 'Today';
-  if(that.getTime() === yesterday.getTime()) return ar ? 'الأمس' : 'Yesterday';
-  try {
-    return date.toLocaleDateString(ar ? 'ar-SA-u-nu-latn' : 'en-US', {
-      weekday:'long', year:'numeric', month:'long', day:'numeric'
-    });
-  } catch(e){ return iso.slice(0, 10); }
-}
-
-/* ═════════ LOAD ═════════ */
-async function loadEntries(){
-  if(!currentBiz?.id) return;
-  const ar = currentLang === 'ar';
-  const wrap = document.getElementById('audit-timeline');
-  wrap.innerHTML = `<div class="loading-state"><div class="loading-spinner">⏳</div><div>${ar?'جارٍ تحميل السجل...':'Loading audit log...'}</div></div>`;
-
-  const fromTs = activeFilters.from ? activeFilters.from + 'T00:00:00' : null;
-  const toTs   = activeFilters.to   ? activeFilters.to   + 'T23:59:59' : null;
-
-  try {
-    let q1 = sb.from('audit_log')
-      .select('id, created_at, user_id, user_email, entity_type, entity_id, entity_reference, action, before_data, after_data, reason')
-      .eq('business_id', currentBiz.id)
-      .order('created_at', {ascending: false})
-      .limit(1000);
-    if(fromTs) q1 = q1.gte('created_at', fromTs);
-    if(toTs)   q1 = q1.lte('created_at', toTs);
-    const {data: rows1, error: e1} = await q1;
-    if(e1) throw e1;
-
-    const {data: bizExpenses} = await sb.from('expenses')
-      .select('id, expense_number').eq('business_id', currentBiz.id);
-    allExpensesCache = {};
-    (bizExpenses || []).forEach(e => { allExpensesCache[e.id] = e; });
-    const expIds = (bizExpenses || []).map(e => e.id);
-
-    let rows2 = [];
-    if(expIds.length && !window._expenseAuditLogMissing){
-      let q2 = sb.from('expense_audit_log')
-        .select('id, created_at, user_id, user_email, expense_id, action, reason')
-        .in('expense_id', expIds)
-        .order('created_at', {ascending: false})
-        .limit(1000);
-      if(fromTs) q2 = q2.gte('created_at', fromTs);
-      if(toTs)   q2 = q2.lte('created_at', toTs);
-      const {data, error: e2} = await q2;
-      if(e2){
-        const msg = (e2.message || '').toLowerCase();
-        if(msg.includes('does not exist') || msg.includes('relation')){
-          window._expenseAuditLogMissing = true;
-          console.info('[GL] expense_audit_log table not present — legacy queries disabled for this session');
-        } else {
-          console.warn('[GL] expense_audit_log query failed:', e2.message);
-        }
-      } else {
-        rows2 = data || [];
-      }
-    }
-
-    allEntries = [
-      ...(rows1 || []).map(normalizeAuditLog),
-      ...rows2.map(normalizeExpenseAuditLog)
-    ].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
-
-    populateUserDropdown();
-    renderEntityPills();
-    renderActionPills();
-    renderTimeline();
-    renderStats();
-
-  } catch(e){
-    console.error('[GL] audit log load failed:', e);
-    wrap.innerHTML = `<div class="table-wrap"><div class="empty-state">
-      <div class="icon">⚠️</div>
-      <div class="title">${ar?'فشل تحميل السجل':'Failed to load audit log'}</div>
-      <div class="text">${escHTML(e.message||'')}</div>
-    </div></div>`;
+    const wrapper = await res.json().catch(() => ({}));
+    const raw = String(wrapper.raw ?? "");
+    let parsed: unknown = {};
+    try { parsed = JSON.parse(raw); } catch { /* html or empty */ }
+    return { ok: wrapper.upstream_status === 200, status: Number(wrapper.upstream_status ?? res.status), body: parsed, raw: raw.slice(0, 600), server: String(wrapper.server ?? "relay") };
   }
-}
 
-function populateUserDropdown(){
-  const sel = document.getElementById('flt-user');
-  if(!sel) return;
-  const ar = currentLang === 'ar';
-  const users = new Map();
-  allEntries.forEach(e => {
-    if(e.user_email && !users.has(e.user_email)) users.set(e.user_email, e.user_id);
+  const res = await fetch(`${ZATCA_ENV[env].base}${path}`, {
+    method: "POST",
+    headers: { ...ZATCA_COMMON_HEADERS, ...headers },
+    body: JSON.stringify(body),
   });
-  const current = activeFilters.user_id;
-  let html = `<option value="">${ar?'كل المستخدمين':'All users'}</option>`;
-  for(const [email, id] of users){
-    const selAttr = (id === current || email === current) ? ' selected' : '';
-    html += `<option value="${escHTML(email)}"${selAttr}>${escHTML(email)}</option>`;
+  const { body: parsed, raw } = await readZatcaBody(res);
+  return { ok: res.status === 200, status: res.status, body: parsed, raw: raw.slice(0, 600), server: res.headers.get("server") ?? "" };
+}
+
+export async function zatcaComplianceCsid(env: ZatcaEnvName, csrB64: string, otp: string) {
+  return zatcaCall(env, "/compliance", { "OTP": otp, "Accept-Version": "V2", "Accept-Language": "en", "Accept": "application/json" }, { csr: csrB64 });
+}
+
+export async function zatcaProductionCsid(env: ZatcaEnvName, complianceCsid: string, secret: string, complianceRequestId: string) {
+  const auth = "Basic " + btoa(`${complianceCsid}:${secret}`);
+  return zatcaCall(env, "/production/csids", { "Authorization": auth, "Accept-Version": "V2", "Accept-Language": "en", "Accept": "application/json" }, { compliance_request_id: complianceRequestId });
+}
+
+// ── Supabase helpers ───────────────────────────────────────────────────────
+export function serviceClient() {
+  return createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!,
+  );
+}
+
+/** Verify the caller's JWT and their access to the business. Returns user id.
+ *  v2: validates the token EXPLICITLY (works across legacy + new signing keys)
+ *  and reports the precise reason on failure, so 401s are debuggable. */
+export async function requireBusinessAccess(req: Request, businessId: string): Promise<{ userId: string } | Response> {
+  const authHeader = req.headers.get("Authorization") ?? "";
+  // Internal calls (the zatca-sweep cron) authenticate with the service-role
+  // key — no user context. Trusted: only holders of the service key can do this.
+  const bearer0 = authHeader.replace(/^Bearer\s+/i, "");
+  if (bearer0 && bearer0 === Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")) return null;
+  const _ik = Deno.env.get("INTERNAL_KEY");
+  if (bearer0 && _ik && bearer0 === _ik) return null;
+  const jwt = authHeader.replace(/^Bearer\s+/i, "").trim();
+  if (!jwt) return json({ error: "unauthorized", reason: "no_token", hint: "Authorization header missing" }, 401);
+
+  const userClient = createClient(
+    Deno.env.get("SUPABASE_URL")!,
+    Deno.env.get("SUPABASE_ANON_KEY")!,
+    { global: { headers: { Authorization: `Bearer ${jwt}` } } },
+  );
+  const { data, error } = await userClient.auth.getUser(jwt);
+  if (error || !data?.user) {
+    return json({ error: "unauthorized", reason: "getUser_failed", detail: error?.message ?? "no user" }, 401);
   }
-  sel.innerHTML = html;
-}
+  const user = data.user;
 
-/* ═════════ FILTERS ═════════ */
-function applyPreset(key){
-  const today = todayISO();
-  if(key === 'today')      { activeFilters.from = today;         activeFilters.to = today; }
-  else if(key === '7d')    { activeFilters.from = daysAgoISO(7);  activeFilters.to = today; }
-  else if(key === '30d')   { activeFilters.from = daysAgoISO(30); activeFilters.to = today; }
-  else if(key === '90d')   { activeFilters.from = daysAgoISO(90); activeFilters.to = today; }
-  else if(key === 'year')  {
-    activeFilters.from = `${new Date().getFullYear()}-01-01`;
-    activeFilters.to = today;
+  // Business access: try the RPC; if the helper signature differs, fall back to
+  // a direct membership probe under the user's own RLS.
+  let hasAccess = false;
+  const rpc = await userClient.rpc("user_has_business_access", { p_business_id: businessId });
+  if (!rpc.error && rpc.data === true) hasAccess = true;
+  if (!hasAccess) {
+    const probe = await userClient.from("businesses").select("id").eq("id", businessId).maybeSingle();
+    if (!probe.error && probe.data?.id === businessId) hasAccess = true;
   }
-  else if(key === 'all')   { activeFilters.from = ''; activeFilters.to = ''; }
-  activeFilters.preset = key;
-  document.getElementById('flt-from').value = activeFilters.from;
-  document.getElementById('flt-to').value = activeFilters.to;
-  document.querySelectorAll('[data-preset]').forEach(btn => {
-    btn.classList.toggle('active', btn.dataset.preset === key);
-  });
-  loadEntries();
+  if (!hasAccess) return json({ error: "forbidden", reason: "no_business_access", business_id: businessId }, 403);
+  return { userId: user.id };
 }
 
-function onDateChange(){
-  activeFilters.from = document.getElementById('flt-from').value || '';
-  activeFilters.to = document.getElementById('flt-to').value || '';
-  activeFilters.preset = '';
-  document.querySelectorAll('[data-preset]').forEach(btn => btn.classList.remove('active'));
-  loadEntries();
-}
-
-function onUserChange(){
-  activeFilters.user_id = document.getElementById('flt-user').value || '';
-  renderTimeline();
-  renderStats();
-}
-
-function onSearchInput(){
-  activeFilters.search = (document.getElementById('flt-search').value || '').toLowerCase().trim();
-  renderTimeline();
-}
-
-function setEntityFilter(type){
-  activeFilters.entity_type = activeFilters.entity_type === type ? '' : type;
-  renderEntityPills();
-  renderTimeline();
-  renderStats();
-}
-
-/* ═════════ FILTERED ENTRIES ═════════ */
-function getFilteredEntries(){
-  return allEntries.filter(e => {
-    if(activeFilters.entity_type && e.entity_type !== activeFilters.entity_type) return false;
-    if(activeFilters.action && e.action !== activeFilters.action) return false;
-    if(activeFilters.user_id && e.user_email !== activeFilters.user_id && e.user_id !== activeFilters.user_id) return false;
-    if(activeFilters.search){
-      const q = activeFilters.search;
-      const hay = (
-        (e.entity_reference || '') + ' ' +
-        (e.reason || '') + ' ' +
-        (e.user_email || '') + ' ' +
-        JSON.stringify(e.before_data || '') + ' ' +
-        JSON.stringify(e.after_data || '')
-      ).toLowerCase();
-      if(!hay.includes(q)) return false;
-    }
-    return true;
+export function json(payload: unknown, status = 200): Response {
+  return new Response(JSON.stringify(payload), {
+    status,
+    headers: {
+      "Content-Type": "application/json",
+      "Access-Control-Allow-Origin": "*",
+      "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
+    },
   });
 }
 
-/* ═════════ PILLS ═════════ */
-function renderEntityPills(){
-  const wrap = document.getElementById('entity-pills');
-  if(!wrap) return;
-  const ar = currentLang === 'ar';
-  const counts = {};
-  allEntries.forEach(e => { counts[e.entity_type] = (counts[e.entity_type] || 0) + 1; });
-  const types = Object.keys(counts).sort();
-  /* Use the canonical filter-group + filter-btn segmented control (matches invoices.html).
-     Include an "All" first option that clears the entity filter. */
-  const buttons = [['', ar?'الكل':'All', allEntries.length]]
-    .concat(types.map(t => [t, entityIcon(t) + ' ' + entityLabel(t), counts[t]]));
-  wrap.innerHTML = `<div class="filter-group">` + buttons.map(([key,label,count]) => {
-    const active = activeFilters.entity_type === key;
-    const safeKey = key.replace(/'/g, '');
-    const cls = 'filter-btn' + (active ? ' active' : '');
-    return `<button class="${cls}" onclick="setEntityFilter('${safeKey}')">${escHTML(label)}${count > 0 ? `<span class="count-badge">${count}</span>` : ''}</button>`;
-  }).join('') + `</div>`;
+export function corsPreflight(req: Request): Response | null {
+  if (req.method === "OPTIONS") return json({ ok: true });
+  return null;
 }
 
-/* Action filter is rendered as a <select> dropdown rather than pills because
-   action vocabularies are open-ended (created/edited/voided/deleted/paid/close_short...).
-   Mirrors the filter-select pattern used in finance.html for expense category. */
-function renderActionPills(){
-  const sel = document.getElementById('flt-action');
-  if(!sel) return;
-  const ar = currentLang === 'ar';
-  const counts = {};
-  const filteredByOther = allEntries.filter(e => {
-    if(activeFilters.entity_type && e.entity_type !== activeFilters.entity_type) return false;
-    if(activeFilters.user_id && e.user_email !== activeFilters.user_id) return false;
-    return true;
-  });
-  filteredByOther.forEach(e => { counts[e.action] = (counts[e.action] || 0) + 1; });
-  const actions = Object.keys(counts).sort();
-  const current = activeFilters.action || '';
-  let html = `<option value="">${ar?'كل الإجراءات':'All actions'} (${filteredByOther.length})</option>`;
-  actions.forEach(a => {
-    const selected = (a === current) ? ' selected' : '';
-    html += `<option value="${escHTML(a)}"${selected}>${escHTML(actionLabel(a))} (${counts[a]})</option>`;
-  });
-  sel.innerHTML = html;
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SPRINT 2 — UBL 2.1 builder, invoice hashing, XAdES signing, QR (TLV)
+// ───────────────────────────────────────────────────────────────────────────
+// Hash quirks mirror the ZATCA SDK exactly (verified against zatca-xml-js):
+//   invoiceHash          = b64( raw sha256 bytes of pure XML )
+//   certificateHash      = b64( HEX-STRING of sha256 of the cert base64 text )
+//   signedPropertiesHash = b64( HEX-STRING of sha256 of the props XML block )
+//   signature            = ECDSA-SHA256 over the raw invoiceHash bytes
+// The signed-properties whitespace is part of the digest — do not reformat.
+// ═══════════════════════════════════════════════════════════════════════════
+
+export interface UblLine {
+  name: string;
+  quantity: number;
+  unitPrice: number;        // VAT-exclusive
+  vatCategory: "S" | "Z" | "E" | "O";
+  vatRate: number;          // 15 for S, 0 otherwise
+}
+export interface UblInvoiceOpts {
+  invoiceNumber: string;
+  uuid: string;
+  issueDate: string;        // YYYY-MM-DD
+  issueTime: string;        // HH:mm:ss
+  invoiceTypeCode: "388" | "381" | "383";
+  subType: "standard" | "simplified";  // 0100000 | 0200000
+  icv: number;
+  pih: string;
+  seller: { name: string; vat: string; street: string; building: string; city: string; district: string; postal: string; crn?: string };
+  buyer:  { name: string; vat?: string; street?: string; city?: string };
+  lines: UblLine[];
+  billingReferenceId?: string;  // original invoice number, for 381/383
+  note?: string;
 }
 
-function onActionSelectChange(){
-  activeFilters.action = document.getElementById('flt-action').value || '';
-  renderEntityPills();
-  renderActionPills();
-  renderTimeline();
-  renderStats();
+function xesc(s: string): string {
+  // C14N text escaping: only & < > are escaped in character data. Escaping
+  // quotes here would make our bytes diverge from ZATCA's re-canonicalization
+  // (they re-emit a raw ") for any value containing quotes. \r is stripped
+  // because C14N would re-encode it as &#xD;.
+  return String(s ?? "").replace(/\r/g, "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+function money(n: number): string { return (Math.round(n * 100) / 100).toFixed(2); }
+
+export function buildInvoiceXml(o: UblInvoiceOpts): string {
+  const typeName = o.subType === "simplified" ? "0200000" : "0100000";
+  let totalExcl = 0, totalVat = 0;
+  const cats = new Map<string, { taxable: number; vat: number; rate: number }>();
+  const linesXml = o.lines.map((l, i) => {
+    const ext = l.quantity * l.unitPrice;
+    const vat = ext * (l.vatRate / 100);
+    totalExcl += ext; totalVat += vat;
+    const c = cats.get(l.vatCategory) ?? { taxable: 0, vat: 0, rate: l.vatRate };
+    c.taxable += ext; c.vat += vat; cats.set(l.vatCategory, c);
+    return `<cac:InvoiceLine><cbc:ID>${i + 1}</cbc:ID><cbc:InvoicedQuantity unitCode="PCE">${l.quantity}</cbc:InvoicedQuantity><cbc:LineExtensionAmount currencyID="SAR">${money(ext)}</cbc:LineExtensionAmount><cac:TaxTotal><cbc:TaxAmount currencyID="SAR">${money(vat)}</cbc:TaxAmount><cbc:RoundingAmount currencyID="SAR">${money(ext + vat)}</cbc:RoundingAmount></cac:TaxTotal><cac:Item><cbc:Name>${xesc(l.name)}</cbc:Name><cac:ClassifiedTaxCategory><cbc:ID>${l.vatCategory}</cbc:ID><cbc:Percent>${money(l.vatRate)}</cbc:Percent><cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:ClassifiedTaxCategory></cac:Item><cac:Price><cbc:PriceAmount currencyID="SAR">${money(l.unitPrice)}</cbc:PriceAmount></cac:Price></cac:InvoiceLine>`;
+  }).join("");
+
+  const exemptReason = (cat: string) =>
+    cat === "Z" ? `<cbc:TaxExemptionReasonCode>VATEX-SA-32</cbc:TaxExemptionReasonCode><cbc:TaxExemptionReason>Export of goods</cbc:TaxExemptionReason>`
+    : cat === "E" ? `<cbc:TaxExemptionReasonCode>VATEX-SA-29</cbc:TaxExemptionReasonCode><cbc:TaxExemptionReason>Financial services</cbc:TaxExemptionReason>`
+    : cat === "O" ? `<cbc:TaxExemptionReasonCode>VATEX-SA-OOS</cbc:TaxExemptionReasonCode><cbc:TaxExemptionReason>Out of scope</cbc:TaxExemptionReason>`
+    : "";
+  const subtotalsXml = [...cats.entries()].map(([cat, c]) =>
+    `<cac:TaxSubtotal><cbc:TaxableAmount currencyID="SAR">${money(c.taxable)}</cbc:TaxableAmount><cbc:TaxAmount currencyID="SAR">${money(c.vat)}</cbc:TaxAmount><cac:TaxCategory><cbc:ID>${cat}</cbc:ID><cbc:Percent>${money(c.rate)}</cbc:Percent>${exemptReason(cat)}<cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:TaxCategory></cac:TaxSubtotal>`
+  ).join("");
+
+  const billingRef = o.billingReferenceId
+    ? `<cac:BillingReference><cac:InvoiceDocumentReference><cbc:ID>${xesc(o.billingReferenceId)}</cbc:ID></cac:InvoiceDocumentReference></cac:BillingReference>`
+    : "";
+  const noteXml = o.note ? `<cbc:Note languageID="ar">${xesc(o.note)}</cbc:Note>` : "";
+  const buyerVatXml = o.buyer.vat
+    ? `<cac:PartyTaxScheme><cbc:CompanyID>${xesc(o.buyer.vat)}</cbc:CompanyID><cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme></cac:PartyTaxScheme>`
+    : "";
+  const sellerCrn = o.seller.crn
+    ? `<cac:PartyIdentification><cbc:ID schemeID="CRN">${xesc(o.seller.crn)}</cbc:ID></cac:PartyIdentification>`
+    : "";
+
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<Invoice xmlns="urn:oasis:names:specification:ubl:schema:xsd:Invoice-2" xmlns:cac="urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2" xmlns:cbc="urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2" xmlns:ext="urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2">
+SET_UBL_EXTENSIONS_STRING
+    <cbc:ProfileID>reporting:1.0</cbc:ProfileID>
+    <cbc:ID>${xesc(o.invoiceNumber)}</cbc:ID>
+    <cbc:UUID>${o.uuid}</cbc:UUID>
+    <cbc:IssueDate>${o.issueDate}</cbc:IssueDate>
+    <cbc:IssueTime>${o.issueTime}</cbc:IssueTime>
+    <cbc:InvoiceTypeCode name="${typeName}">${o.invoiceTypeCode}</cbc:InvoiceTypeCode>
+    ${noteXml}<cbc:DocumentCurrencyCode>SAR</cbc:DocumentCurrencyCode>
+    <cbc:TaxCurrencyCode>SAR</cbc:TaxCurrencyCode>
+    ${billingRef}<cac:AdditionalDocumentReference>
+        <cbc:ID>ICV</cbc:ID>
+        <cbc:UUID>${o.icv}</cbc:UUID>
+    </cac:AdditionalDocumentReference>
+    <cac:AdditionalDocumentReference>
+        <cbc:ID>PIH</cbc:ID>
+        <cac:Attachment>
+            <cbc:EmbeddedDocumentBinaryObject mimeCode="text/plain">${o.pih}</cbc:EmbeddedDocumentBinaryObject>
+        </cac:Attachment>
+    </cac:AdditionalDocumentReference>
+    SET_QR_CODE_DATA
+    <cac:Signature>
+        <cbc:ID>urn:oasis:names:specification:ubl:signature:Invoice</cbc:ID>
+        <cbc:SignatureMethod>urn:oasis:names:specification:ubl:dsig:enveloped:xades</cbc:SignatureMethod>
+    </cac:Signature>
+    <cac:AccountingSupplierParty>
+        <cac:Party>
+            ${sellerCrn}<cac:PostalAddress>
+                <cbc:StreetName>${xesc(o.seller.street)}</cbc:StreetName>
+                <cbc:BuildingNumber>${xesc(o.seller.building)}</cbc:BuildingNumber>
+                <cbc:CitySubdivisionName>${xesc(o.seller.district)}</cbc:CitySubdivisionName>
+                <cbc:CityName>${xesc(o.seller.city)}</cbc:CityName>
+                <cbc:PostalZone>${xesc(o.seller.postal)}</cbc:PostalZone>
+                <cac:Country><cbc:IdentificationCode>SA</cbc:IdentificationCode></cac:Country>
+            </cac:PostalAddress>
+            <cac:PartyTaxScheme>
+                <cbc:CompanyID>${xesc(o.seller.vat)}</cbc:CompanyID>
+                <cac:TaxScheme><cbc:ID>VAT</cbc:ID></cac:TaxScheme>
+            </cac:PartyTaxScheme>
+            <cac:PartyLegalEntity>
+                <cbc:RegistrationName>${xesc(o.seller.name)}</cbc:RegistrationName>
+            </cac:PartyLegalEntity>
+        </cac:Party>
+    </cac:AccountingSupplierParty>
+    <cac:AccountingCustomerParty>
+        <cac:Party>
+            ${(o.buyer.street || o.buyer.city) ? `<cac:PostalAddress>
+                <cbc:StreetName>${xesc(o.buyer.street ?? "")}</cbc:StreetName>
+                <cbc:CityName>${xesc(o.buyer.city ?? "")}</cbc:CityName>
+                <cac:Country><cbc:IdentificationCode>SA</cbc:IdentificationCode></cac:Country>
+            </cac:PostalAddress>
+            ` : ""}${buyerVatXml}<cac:PartyLegalEntity>
+                <cbc:RegistrationName>${xesc(o.buyer.name)}</cbc:RegistrationName>
+            </cac:PartyLegalEntity>
+        </cac:Party>
+    </cac:AccountingCustomerParty>
+    <cac:Delivery>
+        <cbc:ActualDeliveryDate>${o.issueDate}</cbc:ActualDeliveryDate>
+    </cac:Delivery>
+    <cac:PaymentMeans><cbc:PaymentMeansCode>10</cbc:PaymentMeansCode>${o.invoiceTypeCode !== "388" ? `<cbc:InstructionNote>${xesc(o.note ?? "Correction")}</cbc:InstructionNote>` : ""}</cac:PaymentMeans>
+    <cac:TaxTotal>
+        <cbc:TaxAmount currencyID="SAR">${money(totalVat)}</cbc:TaxAmount>
+        ${subtotalsXml}
+    </cac:TaxTotal>
+    <cac:TaxTotal>
+        <cbc:TaxAmount currencyID="SAR">${money(totalVat)}</cbc:TaxAmount>
+    </cac:TaxTotal>
+    <cac:LegalMonetaryTotal>
+        <cbc:LineExtensionAmount currencyID="SAR">${money(totalExcl)}</cbc:LineExtensionAmount>
+        <cbc:TaxExclusiveAmount currencyID="SAR">${money(totalExcl)}</cbc:TaxExclusiveAmount>
+        <cbc:TaxInclusiveAmount currencyID="SAR">${money(totalExcl + totalVat)}</cbc:TaxInclusiveAmount>
+        <cbc:PayableAmount currencyID="SAR">${money(totalExcl + totalVat)}</cbc:PayableAmount>
+    </cac:LegalMonetaryTotal>
+    ${linesXml}
+</Invoice>`;
 }
 
-/* ═════════ ENTITY HREF ═════════ */
-function entityHref(entry){
-  const id = entry.entity_id;
-  switch(entry.entity_type){
-    case 'invoice':         return id ? `invoices.html?invoice=${encodeURIComponent(id)}` : null;
-    case 'expense':         return id ? `finance.html?tab=expenses&expense=${encodeURIComponent(id)}` : null;
-    case 'inventory_item':  return id ? `inventory.html?item=${encodeURIComponent(id)}` : null;
-    case 'supplier':        return id ? `purchasing.html?tab=suppliers&supplier=${encodeURIComponent(id)}` : null;
-    case 'purchase_order':  return id ? `purchasing.html?tab=orders&po=${encodeURIComponent(id)}` : null;
-    case 'stock_receipt':   return id ? `inventory.html?receipt=${encodeURIComponent(id)}` : null;
-    default:                return null;
-  }
+// ── Hashing helpers (SDK quirks) ───────────────────────────────────────────
+export function sha256B64(input: string | Uint8Array): string {
+  const bytes = typeof input === "string" ? te.encode(input) : input;
+  return b64(sha256(bytes));
 }
+export function sha256HexB64(input: string | Uint8Array): string {
+  const bytes = typeof input === "string" ? te.encode(input) : input;
+  return btoa(bytesToHex(sha256(bytes)));
+}
+export const INITIAL_PIH = "NWZlY2ViNjZmZmM4NmYzOGQ5NTI3ODZjNmQ2OTZjNzljMmRiYzIzOWRkNGU5MWI0NjcyOWQ3M2EyN2ZiNTdlOQ==";
 
-/* ═════════ DIFF ═════════ */
-function formatDiffValue(v){
-  if(v === null || v === undefined) return '—';
-  if(typeof v === 'object'){
-    try { return JSON.stringify(v); } catch(e){ return String(v); }
-  }
-  const s = String(v);
-  if(s.length > 200) return s.slice(0, 200) + '…';
+// XML namespaces used by ZATCA UBL invoices.
+const UBL_NS = {
+  ext: "urn:oasis:names:specification:ubl:schema:xsd:CommonExtensionComponents-2",
+  cac: "urn:oasis:names:specification:ubl:schema:xsd:CommonAggregateComponents-2",
+  cbc: "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2",
+};
+
+function removeNode(n: any) { if (n && n.parentNode) n.parentNode.removeChild(n); }
+
+/** Pure invoice XML (the hashed form): no declaration, no UBLExtensions,
+ *  no cac:Signature block, no QR document reference.
+ *
+ *  ZATCA recomputes the invoice hash by taking the SIGNED invoice, deleting
+ *  three elements (Invoice/ext:UBLExtensions, Invoice/cac:Signature, and the
+ *  Invoice/cac:AdditionalDocumentReference whose cbc:ID = "QR"), canonicalizing
+ *  the result with C14N, then SHA-256 + base64. The hash MUST be byte-identical
+ *  to that, or ZATCA returns invalid-invoice-hash.
+ *
+ *  We do this the way ZATCA does — real DOM deletion + canonical serialization
+ *  — instead of regex/string surgery, which can never reliably byte-match C14N.
+ *
+ *  PROVEN OFFLINE (Node, against xmldsigjs XmlCanonicalizer(false,false) — the
+ *  exact canonicalizer the reference zatca-xml-js uses): for the ZATCA invoice
+ *  shape (all namespaces declared on the root, simple attributes, no comments /
+ *  PIs), @xmldom/xmldom's XMLSerializer output is byte-identical to true C14N,
+ *  including entity escaping (&amp; &lt;), UTF-8 chars, attribute preservation,
+ *  and whitespace. Hashes matched on both trimmed and full realistic invoices.
+ *
+ *  The two trailing whitespace fixups below are ZATCA's own documented quirk
+ *  (replicated from zatca-xml-js getInvoiceHash) — applied AFTER canonicalization.
+ *
+ *  NB: pass the SIGNED xml (or the pre-signature template) — the result is the
+ *  same either way, because the three removed elements are exactly the parts
+ *  that differ between them. Hash is therefore signature/QR-independent. */
+export function getPureInvoiceXml(xml: string): string {
+  // Byte-exact equivalent of ZATCA's reference pipeline (XPath-exclude the three
+  // blocks, then C14N11) for OUR self-generated template. The key insight that
+  // fixes the hash: the XPath exclusion removes ONLY the element nodes — the
+  // whitespace TEXT NODES around them remain and appear in the canonical bytes.
+  // So we remove exactly the elements (no surrounding-whitespace eating, no
+  // "fixups") and the residue is automatically what ZATCA computes.
+  // Preconditions guaranteed by buildInvoiceXml: no self-closing tags, no
+  // multi-attribute elements, root namespaces already in C14N prefix order,
+  // LF line endings, text escaped as & < > only.
+  let s = xml;
+  // C14N drops the XML declaration (and its newline — outside the root element)
+  s = s.replace(/<\?xml[^?]*\?>\n?/, "");
+  // Placeholders (hash may be computed pre-injection): removing just the token
+  // leaves the same bytes as element-only removal of the injected block.
+  s = s.replace("SET_UBL_EXTENSIONS_STRING", "");
+  s = s.replace("SET_QR_CODE_DATA", "");
+  // Element-only removals — regexes deliberately do NOT consume the whitespace
+  // text nodes before/after the elements.
+  s = s.replace(/<ext:UBLExtensions>[\s\S]*?<\/ext:UBLExtensions>/, "");
+  s = s.replace(/<cac:AdditionalDocumentReference>\s*<cbc:ID>QR<\/cbc:ID>[\s\S]*?<\/cac:AdditionalDocumentReference>/, "");
+  s = s.replace(/<cac:Signature>[\s\S]*?<\/cac:Signature>/, "");
   return s;
 }
-function renderDiff(entry){
-  const ar = currentLang === 'ar';
-  const before = entry.before_data || {};
-  const after  = entry.after_data || {};
-
-  if((!entry.before_data && !entry.after_data) ||
-     (typeof before !== 'object' && typeof after !== 'object')){
-    return '';
-  }
-
-  const skip = new Set(['updated_at','created_at']);
-  const keys = new Set();
-  Object.keys(before || {}).forEach(k => { if(!skip.has(k)) keys.add(k); });
-  Object.keys(after || {}).forEach(k => { if(!skip.has(k)) keys.add(k); });
-  if(keys.size === 0) return '';
-
-  const isEdit = entry.action === 'edited';
-  const rows = [];
-  keys.forEach(k => {
-    const b = before[k];
-    const a = after[k];
-    const bStr = formatDiffValue(b);
-    const aStr = formatDiffValue(a);
-    if(isEdit && bStr === aStr) return;
-    rows.push({k, bStr, aStr, hasBefore: b !== undefined && b !== null,
-                              hasAfter: a !== undefined && a !== null});
-  });
-  if(rows.length === 0) return '';
-
-  return `<table class="diff-tbl">
-    <thead>
-      <tr>
-        <th style="width:30%;">${ar?'الحقل':'Field'}</th>
-        <th style="width:35%;">${ar?'قبل':'Before'}</th>
-        <th style="width:35%;">${ar?'بعد':'After'}</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${rows.map(r => `<tr>
-        <td class="diff-field">${escHTML(r.k)}</td>
-        <td>${r.hasBefore ? `<span class="diff-before">${escHTML(r.bStr)}</span>` : '<span style="color:var(--muted);">—</span>'}</td>
-        <td>${r.hasAfter  ? `<span class="diff-after">${escHTML(r.aStr)}</span>`  : '<span style="color:var(--muted);">—</span>'}</td>
-      </tr>`).join('')}
-    </tbody>
-  </table>`;
+export function computeInvoiceHash(xml: string): string {
+  return sha256B64(getPureInvoiceXml(xml));
 }
 
-/* ═════════ TIMELINE ═════════ */
-function renderTimeline(){
-  const wrap = document.getElementById('audit-timeline');
-  if(!wrap) return;
-  const ar = currentLang === 'ar';
-  const entries = getFilteredEntries();
-
-  if(entries.length === 0){
-    wrap.innerHTML = `<div class="table-wrap"><div class="empty-state">
-      <div class="icon">📭</div>
-      <div class="title">${ar?'لا توجد أحداث':'No events'}</div>
-      <div class="text">${ar?'لا توجد أحداث في النطاق المحدد. جرب تعديل التصفية أو الفترة.':'Nothing matches the current filters. Try widening the date range.'}</div>
-    </div></div>`;
-    return;
-  }
-
-  /* Group by day */
-  const byDay = new Map();
-  entries.forEach(e => {
-    const day = (e.created_at || '').slice(0, 10);
-    if(!byDay.has(day)) byDay.set(day, []);
-    byDay.get(day).push(e);
-  });
-
-  /* Render each day as one table-wrap. Day header sits above the rows. */
-  let html = '';
-  for(const [day, dayEntries] of byDay){
-    html += `<div class="table-wrap" style="margin-bottom:14px;">
-      <div class="day-header">
-        <span>${escHTML(fmtDayHeader(day))}</span>
-        <span class="day-count">${dayEntries.length}</span>
-      </div>
-      <table class="tbl">
-        <thead>
-          <tr>
-            <th style="width:90px;">${ar?'الوقت':'Time'}</th>
-            <th style="width:110px;">${ar?'الإجراء':'Action'}</th>
-            <th>${ar?'الكيان':'Entity'}</th>
-            <th>${ar?'المستخدم':'User'}</th>
-            <th class="center" style="width:120px;"></th>
-          </tr>
-        </thead>
-        <tbody>
-          ${dayEntries.map(e => renderTimelineRow(e)).join('')}
-        </tbody>
-      </table>
-    </div>`;
-  }
-  wrap.innerHTML = html;
+// ── Certificate parsing (from the CSID binarySecurityToken) ───────────────
+export interface CertInfo {
+  certB64: string;        // base64 DER (cleaned, no armor/newlines)
+  derBytes: Uint8Array;
+  hash: string;           // SDK quirk: b64(hex(sha256(certB64 text)))
+  issuer: string;         // RFC2253-ish, e.g. "CN=eInvoicing"
+  serialDecimal: string;
 }
+export function parseCsidCertificate(binarySecurityToken: string): CertInfo {
+  // BST is base64( base64-DER text ) in ZATCA responses
+  let certB64 = binarySecurityToken.trim();
+  try {
+    const once = atob(certB64);
+    if (once.startsWith("MII")) certB64 = once.replace(/\s+/g, "");
+  } catch (_e) { /* already raw */ }
+  const der = Uint8Array.from(atob(certB64), (ch) => ch.charCodeAt(0));
 
-function renderTimelineRow(e){
-  const ar = currentLang === 'ar';
-  const verbCls = actionClass(e.action);
-  const verb = actionLabel(e.action);
-  const eType = entityLabel(e.entity_type);
-  const eIcon = entityIcon(e.entity_type);
-  const ref = e.entity_reference || (e.entity_id ? e.entity_id.slice(0,8) : '—');
-  const href = entityHref(e);
-  const refHtml = href
-    ? `<a href="${escHTML(href)}" style="font-weight:600;">${escHTML(ref)}</a>`
-    : `<strong>${escHTML(ref)}</strong>`;
-
-  const diffHtml = renderDiff(e);
-  const hasDiff = !!diffHtml;
-  const reasonHtml = e.reason
-    ? `<div class="reason-callout">${ar?'السبب: ':'Reason: '}${escHTML(e.reason)}</div>`
-    : '';
-  const legacyTag = e.source === 'expense_audit_log'
-    ? `<span style="font-size:10px;color:var(--muted);margin-inline-start:6px;">${ar?'(سجل قديم)':'(legacy)'}</span>`
-    : '';
-
-  return `<tr>
-    <td class="mono" style="font-size:12px;color:var(--muted);" title="${escHTML(fmtTimeAbs(e.created_at))}">${escHTML(fmtTimeRelative(e.created_at))}</td>
-    <td><span class="action-badge ${verbCls}">${escHTML(verb)}</span></td>
-    <td>
-      <span class="entity-badge">${eIcon} ${escHTML(eType)}</span>
-      <span style="margin-inline-start:8px;">${refHtml}</span>
-      ${legacyTag}
-      ${reasonHtml}
-      ${hasDiff ? `<div class="diff-wrap" id="diff-${escHTML(e.id)}">${diffHtml}</div>` : ''}
-    </td>
-    <td>${e.user_email ? `<span class="user-chip">👤 ${escHTML(e.user_email)}</span>` : '<span style="color:var(--muted);">—</span>'}</td>
-    <td class="center">
-      ${hasDiff
-        ? `<button class="diff-toggle" onclick="toggleDiff('${escHTML(e.id)}', this)">${ar?'عرض التغييرات':'Show changes'}</button>`
-        : ''}
-    </td>
-  </tr>`;
-}
-
-function toggleDiff(id, btn){
-  const ar = currentLang === 'ar';
-  const el = document.getElementById('diff-' + id);
-  if(!el) return;
-  const isOpen = el.classList.toggle('open');
-  if(btn){
-    btn.textContent = isOpen ? (ar ? 'إخفاء التغييرات' : 'Hide changes')
-                              : (ar ? 'عرض التغييرات' : 'Show changes');
-  }
-}
-
-/* ═════════ STATS ═════════ */
-function renderStats(){
-  const ar = currentLang === 'ar';
-  const entries = getFilteredEntries();
-
-  /* Total */
-  document.getElementById('stat-total').textContent = entries.length.toLocaleString(ar?'ar-SA-u-nu-latn':'en-US');
-  const sub = document.getElementById('stat-total-sub');
-  if(activeFilters.from && activeFilters.to){
-    sub.textContent = (ar?'من ':'From ') + activeFilters.from + (ar?' إلى ':' to ') + activeFilters.to;
-  } else if(activeFilters.preset === 'all'){
-    sub.textContent = ar ? 'كل الوقت' : 'All time';
-  } else {
-    sub.textContent = '';
-  }
-
-  /* Most active user */
-  const userCounts = {};
-  entries.forEach(e => {
-    if(!e.user_email) return;
-    userCounts[e.user_email] = (userCounts[e.user_email] || 0) + 1;
-  });
-  let topUser = null, topCount = 0;
-  for(const [email, count] of Object.entries(userCounts)){
-    if(count > topCount){ topUser = email; topCount = count; }
-  }
-  document.getElementById('stat-top-user').textContent = topUser || '—';
-  document.getElementById('stat-top-user-sub').textContent = topUser
-    ? `${topCount.toLocaleString(ar?'ar-SA-u-nu-latn':'en-US')} ${ar?'حدث':'events'}`
-    : '';
-
-  /* Voids + edits counts */
-  const voidsCount = entries.filter(e => e.action === 'voided' || e.action === 'deleted').length;
-  const editsCount = entries.filter(e => e.action === 'edited').length;
-  document.getElementById('stat-voids').textContent = voidsCount.toLocaleString(ar?'ar-SA-u-nu-latn':'en-US');
-  document.getElementById('stat-edits').textContent = editsCount.toLocaleString(ar?'ar-SA-u-nu-latn':'en-US');
-}
-
-/* ═════════ INIT ═════════ */
-async function init(){
-  applyLang();
-  document.getElementById('btn-ar').classList.toggle('on', currentLang === 'ar');
-  document.getElementById('btn-en').classList.toggle('on', currentLang === 'en');
-
-  const {data:{session}} = await sb.auth.getSession();
-  if(!session){ window.location.href = 'login.html'; return; }
-  currentUser = session.user;
-
-  const {biz, role, reason} = await loadCurrentBusiness(session.user);
-  if(!biz){
-    const ar = currentLang === 'ar';
-    if(reason === 'revoked'){
-      document.body.innerHTML = `<div style="max-width:480px;margin:80px auto;padding:32px;background:#fff;border-radius:14px;box-shadow:0 8px 24px rgba(0,0,0,.1);text-align:center;font-family:Tajawal,Cairo,sans-serif;">
-        <h1 style="color:#c43e3e;font-size:22px;margin-bottom:12px;">${ar?'تم إلغاء الوصول':'Access revoked'}</h1>
-        <p style="color:#666;margin-bottom:20px;">${ar?'تم إزالة وصولك. تواصل مع مالك المنشأة.':'Your access has been removed. Contact the business owner.'}</p>
-        <button onclick="logout()" class="btn btn-primary">${ar?'تسجيل الخروج':'Sign out'}</button></div>`;
-      return;
+  // Minimal DER walk: Certificate → TBSCertificate → [serialNumber, issuer]
+  function readTL(buf: Uint8Array, off: number): { tag: number; len: number; hl: number } {
+    const tag = buf[off];
+    let len = buf[off + 1], hl = 2;
+    if (len & 0x80) {
+      const n = len & 0x7f; len = 0;
+      for (let i = 0; i < n; i++) len = (len << 8) | buf[off + 2 + i];
+      hl = 2 + n;
     }
-    notify((ar?'فشل تحميل المنشأة':'Failed to load business') + ' (' + (reason||'unknown') + ')', 'error');
-    return;
+    return { tag, len, hl };
   }
-  currentBiz = biz;
-  currentBiz._myRole = role;
-  document.getElementById('biz-name').textContent = pickLang(biz, 'name');
-
-  document.getElementById('flt-from').value = activeFilters.from;
-  document.getElementById('flt-to').value = activeFilters.to;
-
-  document.getElementById('flt-from').addEventListener('change', onDateChange);
-  document.getElementById('flt-to').addEventListener('change', onDateChange);
-  document.getElementById('flt-user').addEventListener('change', onUserChange);
-  document.getElementById('flt-search').addEventListener('input', debounce(onSearchInput, 250));
-
-  document.getElementById('loading-state').style.display = 'none';
-  document.getElementById('page').style.display = '';
-
-  await loadEntries();
+  let off = 0;
+  let t = readTL(der, off); off += t.hl;            // Certificate SEQ
+  t = readTL(der, off);                              // TBS SEQ
+  let tbsOff = off + t.hl;
+  let p = tbsOff;
+  let v = readTL(der, p);                            // version [0] or serial
+  if (v.tag === 0xa0) { p += v.hl + v.len; v = readTL(der, p); }
+  const serialBytes = der.slice(p + v.hl, p + v.hl + v.len);
+  let serialDecimal = 0n;
+  for (const byte of serialBytes) serialDecimal = (serialDecimal << 8n) | BigInt(byte);
+  p += v.hl + v.len;
+  v = readTL(der, p); p += v.hl + v.len;             // signature AlgorithmIdentifier
+  // issuer Name
+  const issOff = p; const issTl = readTL(der, p);
+  const issuerDer = der.slice(issOff, issOff + issTl.hl + issTl.len);
+  // Build the FULL issuer DN, RFC2253 style (RDNs reversed, joined ", ").
+  // Sandbox certs are just CN=eInvoicing, but simulation/production issuers are
+  // multi-RDN (CN=..., DC=..., ...) — the XAdES X509IssuerName must match what
+  // ZATCA derives or the signed-properties check fails outside sandbox.
+  let issuer = "CN=eInvoicing";
+  try {
+    const OIDS: Record<string, string> = {
+      "2.5.4.3": "CN", "2.5.4.10": "O", "2.5.4.11": "OU", "2.5.4.6": "C",
+      "2.5.4.7": "L", "2.5.4.8": "ST", "0.9.2342.19200300.100.1.25": "DC",
+    };
+    const oidStr = (b: Uint8Array): string => {
+      if (!b.length) return "";
+      const out: number[] = [Math.floor(b[0] / 40), b[0] % 40];
+      let v = 0;
+      for (let i = 1; i < b.length; i++) { v = (v << 7) | (b[i] & 0x7f); if (!(b[i] & 0x80)) { out.push(v); v = 0; } }
+      return out.join(".");
+    };
+    const nameTl = readTL(issuerDer, 0);           // Name ::= SEQUENCE OF RDN
+    const rdns: string[] = [];
+    let q = nameTl.hl;
+    while (q < nameTl.hl + nameTl.len) {
+      const setTl = readTL(issuerDer, q);          // RDN ::= SET OF ATVA
+      let r = q + setTl.hl;
+      const parts: string[] = [];
+      while (r < q + setTl.hl + setTl.len) {
+        const seqTl = readTL(issuerDer, r);        // ATVA ::= SEQUENCE { OID, value }
+        let a = r + seqTl.hl;
+        const oidTl = readTL(issuerDer, a);
+        const oid = oidStr(issuerDer.slice(a + oidTl.hl, a + oidTl.hl + oidTl.len));
+        a += oidTl.hl + oidTl.len;
+        const valTl = readTL(issuerDer, a);
+        const val = new TextDecoder().decode(issuerDer.slice(a + valTl.hl, a + valTl.hl + valTl.len));
+        const key = OIDS[oid];
+        if (key) parts.push(key + "=" + val);
+        r += seqTl.hl + seqTl.len;
+      }
+      if (parts.length) rdns.push(parts.join("+"));
+      q += setTl.hl + setTl.len;
+    }
+    if (rdns.length) issuer = rdns.reverse().join(", ");
+  } catch (_e) { /* keep fallback */ }
+  return { certB64, derBytes: der, hash: sha256HexB64(certB64), issuer, serialDecimal: serialDecimal.toString() };
 }
 
-function debounce(fn, ms){
-  let t;
-  return function(...args){
-    clearTimeout(t);
-    t = setTimeout(() => fn.apply(this, args), ms);
-  };
+// ── XAdES signed properties + UBLExtensions injection ─────────────────────
+const SIGNED_PROPS_TEMPLATE = (signingTime: string, certHash: string, issuer: string, serial: string) =>
+`<xades:SignedProperties xmlns:xades="http://uri.etsi.org/01903/v1.3.2#" Id="xadesSignedProperties">
+                                    <xades:SignedSignatureProperties>
+                                        <xades:SigningTime>${signingTime}</xades:SigningTime>
+                                        <xades:SigningCertificate>
+                                            <xades:Cert>
+                                                <xades:CertDigest>
+                                                    <ds:DigestMethod xmlns:ds="http://www.w3.org/2000/09/xmldsig#" Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+                                                    <ds:DigestValue xmlns:ds="http://www.w3.org/2000/09/xmldsig#">${certHash}</ds:DigestValue>
+                                                </xades:CertDigest>
+                                                <xades:IssuerSerial>
+                                                    <ds:X509IssuerName xmlns:ds="http://www.w3.org/2000/09/xmldsig#">${issuer}</ds:X509IssuerName>
+                                                    <ds:X509SerialNumber xmlns:ds="http://www.w3.org/2000/09/xmldsig#">${serial}</ds:X509SerialNumber>
+                                                </xades:IssuerSerial>
+                                            </xades:Cert>
+                                        </xades:SigningCertificate>
+                                    </xades:SignedSignatureProperties>
+                                </xades:SignedProperties>`;
+
+export interface SignResult { signedXml: string; invoiceHash: string; qr: string; }
+
+export function signInvoice(xml: string, privKeyHex: string, cert: CertInfo, opts: {
+  sellerName: string; sellerVat: string; issueDateTime: string; total: string; vat: string; isSimplified: boolean;
+}): SignResult {
+  // ── Compute the invoice hash the way ZATCA does: from the SIGNED-SHAPE
+  //    document, not the raw template. ZATCA recomputes the hash by deleting
+  //    ext:UBLExtensions / cac:Signature / QR-ref from the *submitted* (signed)
+  //    XML and canonicalizing the remainder. The leftover inter-element
+  //    whitespace differs between the bare template and the signed document, so
+  //    hashing the template yields a non-matching hash (this was the bug).
+  //
+  //    The hash is independent of the *content* of those three deleted blocks
+  //    (proven offline), so we assemble the signed document with placeholder
+  //    blocks of the SAME structure/whitespace as the final ones, hash that,
+  //    then fill in the real signature/QR. Result byte-matches ZATCA's C14N. ──
+  const ublExtForHash = `<ext:UBLExtensions>
+        <ext:UBLExtension>
+            <ext:ExtensionURI>urn:oasis:names:specification:ubl:dsig:enveloped:xades</ext:ExtensionURI>
+            <ext:ExtensionContent>SIGNATURE_PLACEHOLDER</ext:ExtensionContent>
+        </ext:UBLExtension>
+    </ext:UBLExtensions>`;
+  const qrRefForHash = `<cac:AdditionalDocumentReference>
+        <cbc:ID>QR</cbc:ID>
+        <cac:Attachment>
+            <cbc:EmbeddedDocumentBinaryObject mimeCode="text/plain">QR_PLACEHOLDER</cbc:EmbeddedDocumentBinaryObject>
+        </cac:Attachment>
+    </cac:AdditionalDocumentReference>`;
+  const signedShapeForHash = xml
+    .replace("SET_UBL_EXTENSIONS_STRING", ublExtForHash)
+    .replace("    SET_QR_CODE_DATA", "    " + qrRefForHash);
+  const invoiceHash = computeInvoiceHash(signedShapeForHash);
+
+  const hashBytes = Uint8Array.from(atob(invoiceHash), (c) => c.charCodeAt(0));
+  const priv = hexToBytes(privKeyHex);
+  const sig = secp256k1.sign(sha256(hashBytes), priv);
+  const signatureB64 = b64(sig.toDERRawBytes());
+
+  const signingTime = new Date().toISOString().slice(0, 19);
+  const props = SIGNED_PROPS_TEMPLATE(signingTime, cert.hash, cert.issuer, cert.serialDecimal);
+  const signedPropsHash = sha256HexB64(props);
+
+  // QR TLV
+  const pubKeyDer = (() => {
+    const pub = secp256k1.getPublicKey(priv, false);
+    return SEQ(SEQ(OID("1.2.840.10045.2.1"), OID("1.3.132.0.10")), BITSTR(pub));
+  })();
+  const tlvParts: Uint8Array[] = [];
+  const tlv = (tag: number, val: Uint8Array) => { tlvParts.push(new Uint8Array([tag, val.length])); tlvParts.push(val); };
+  tlv(1, te.encode(opts.sellerName));
+  tlv(2, te.encode(opts.sellerVat));
+  tlv(3, te.encode(opts.issueDateTime));
+  tlv(4, te.encode(opts.total));
+  tlv(5, te.encode(opts.vat));
+  tlv(6, te.encode(invoiceHash));
+  // Tag 7 must be the base64 signature STRING characters — ZATCA compares it
+  // verbatim against ds:SignatureValue (raw DER bytes here = guaranteed
+  // INVOICE_SIGNATURE_VALUE_QRCODE_INVALID).
+  tlv(7, te.encode(signatureB64));
+  tlv(8, pubKeyDer);
+  if (opts.isSimplified) {
+    // tag 9: the CA's signature over the cert (last BIT STRING of the certificate)
+    const der = cert.derBytes;
+    let lastBitstr: Uint8Array | null = null;
+    // The cert's trailing BIT STRING (CA signature). Handles both short-form
+    // and 0x81 long-form DER lengths; anchored to "reaches end of cert".
+    for (let i = Math.max(0, der.length - 120); i < der.length - 2; i++) {
+      if (der[i] !== 0x03) continue;
+      const l1 = der[i + 1];
+      if (!(l1 & 0x80) && i + 2 + l1 === der.length) { lastBitstr = der.slice(i + 3, i + 2 + l1); break; }
+      if (l1 === 0x81 && i + 3 + der[i + 2] === der.length) { lastBitstr = der.slice(i + 4, i + 3 + der[i + 2]); break; }
+    }
+    if (lastBitstr) tlv(9, lastBitstr);
+  }
+  const qr = b64(concat(...tlvParts));
+
+  const ublExt = `<ext:UBLExtensions>
+        <ext:UBLExtension>
+            <ext:ExtensionURI>urn:oasis:names:specification:ubl:dsig:enveloped:xades</ext:ExtensionURI>
+            <ext:ExtensionContent>
+                <sig:UBLDocumentSignatures xmlns:sig="urn:oasis:names:specification:ubl:schema:xsd:CommonSignatureComponents-2" xmlns:sac="urn:oasis:names:specification:ubl:schema:xsd:SignatureAggregateComponents-2" xmlns:sbc="urn:oasis:names:specification:ubl:schema:xsd:SignatureBasicComponents-2">
+                    <sac:SignatureInformation>
+                        <cbc:ID>urn:oasis:names:specification:ubl:signature:1</cbc:ID>
+                        <sbc:ReferencedSignatureID>urn:oasis:names:specification:ubl:signature:Invoice</sbc:ReferencedSignatureID>
+                        <ds:Signature xmlns:ds="http://www.w3.org/2000/09/xmldsig#" Id="signature">
+                            <ds:SignedInfo>
+                                <ds:CanonicalizationMethod Algorithm="http://www.w3.org/2006/12/xml-c14n11"/>
+                                <ds:SignatureMethod Algorithm="http://www.w3.org/2001/04/xmldsig-more#ecdsa-sha256"/>
+                                <ds:Reference Id="invoiceSignedData" URI="">
+                                    <ds:Transforms>
+                                        <ds:Transform Algorithm="http://www.w3.org/TR/1999/REC-xpath-19991116">
+                                            <ds:XPath>not(//ancestor-or-self::ext:UBLExtensions)</ds:XPath>
+                                        </ds:Transform>
+                                        <ds:Transform Algorithm="http://www.w3.org/TR/1999/REC-xpath-19991116">
+                                            <ds:XPath>not(//ancestor-or-self::cac:Signature)</ds:XPath>
+                                        </ds:Transform>
+                                        <ds:Transform Algorithm="http://www.w3.org/TR/1999/REC-xpath-19991116">
+                                            <ds:XPath>not(//ancestor-or-self::cac:AdditionalDocumentReference[cbc:ID='QR'])</ds:XPath>
+                                        </ds:Transform>
+                                        <ds:Transform Algorithm="http://www.w3.org/2006/12/xml-c14n11"/>
+                                    </ds:Transforms>
+                                    <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+                                    <ds:DigestValue>${invoiceHash}</ds:DigestValue>
+                                </ds:Reference>
+                                <ds:Reference Type="http://www.w3.org/2000/09/xmldsig#SignatureProperties" URI="#xadesSignedProperties">
+                                    <ds:DigestMethod Algorithm="http://www.w3.org/2001/04/xmlenc#sha256"/>
+                                    <ds:DigestValue>${signedPropsHash}</ds:DigestValue>
+                                </ds:Reference>
+                            </ds:SignedInfo>
+                            <ds:SignatureValue>${signatureB64}</ds:SignatureValue>
+                            <ds:KeyInfo>
+                                <ds:X509Data>
+                                    <ds:X509Certificate>${cert.certB64}</ds:X509Certificate>
+                                </ds:X509Data>
+                            </ds:KeyInfo>
+                            <ds:Object>
+                                <xades:QualifyingProperties xmlns:xades="http://uri.etsi.org/01903/v1.3.2#" Target="signature">
+                                    ${props}
+                                </xades:QualifyingProperties>
+                            </ds:Object>
+                        </ds:Signature>
+                    </sac:SignatureInformation>
+                </sig:UBLDocumentSignatures>
+            </ext:ExtensionContent>
+        </ext:UBLExtension>
+    </ext:UBLExtensions>`;
+
+  const qrRef = `<cac:AdditionalDocumentReference>
+        <cbc:ID>QR</cbc:ID>
+        <cac:Attachment>
+            <cbc:EmbeddedDocumentBinaryObject mimeCode="text/plain">${qr}</cbc:EmbeddedDocumentBinaryObject>
+        </cac:Attachment>
+    </cac:AdditionalDocumentReference>`;
+
+  const signedXml = xml
+    .replace("SET_UBL_EXTENSIONS_STRING", ublExt)
+    .replace("    SET_QR_CODE_DATA", "    " + qrRef);
+  return { signedXml, invoiceHash, qr };
 }
 
-init();
-</script>
-</body>
-</html>
+// ── Submission APIs ────────────────────────────────────────────────────────
+export async function zatcaComplianceInvoiceCheck(env: ZatcaEnvName, csid: string, secret: string, payload: { invoiceHash: string; uuid: string; invoice: string }) {
+  const auth = "Basic " + btoa(`${csid}:${secret}`);
+  return zatcaCall(env, "/compliance/invoices", { "Authorization": auth, "Accept-Version": "V2", "Accept-Language": "en" }, payload);
+}
+export async function zatcaClearInvoice(env: ZatcaEnvName, csid: string, secret: string, payload: { invoiceHash: string; uuid: string; invoice: string }) {
+  const auth = "Basic " + btoa(`${csid}:${secret}`);
+  return zatcaCall(env, "/invoices/clearance/single", { "Authorization": auth, "Accept-Version": "V2", "Accept-Language": "en", "Clearance-Status": "1" }, payload);
+}
+export async function zatcaReportInvoice(env: ZatcaEnvName, csid: string, secret: string, payload: { invoiceHash: string; uuid: string; invoice: string }) {
+  const auth = "Basic " + btoa(`${csid}:${secret}`);
+  return zatcaCall(env, "/invoices/reporting/single", { "Authorization": auth, "Accept-Version": "V2", "Accept-Language": "en", "Clearance-Status": "0" }, payload);
+}
+
+
+// ═══════════ FUNCTION ═══════════
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GulfLedger · zatca-submit-invoice
+// ───────────────────────────────────────────────────────────────────────────
+// POST { invoice_id }
+// Auth: user JWT with access to the invoice's business.
+//
+// The Phase-2 hot path:
+//   load invoice + items + business + active device →
+//   allocate ICV (atomic on device row) → build UBL → sign (XAdES + QR) →
+//   B2B → clearance, simplified → reporting (sandbox: compliance endpoint) →
+//   archive XML/hash/QR on invoice + log submission + advance PIH chain.
+//
+// Idempotent: an invoice already cleared/reported returns its stored state.
+// ═══════════════════════════════════════════════════════════════════════════
+
+
+Deno.serve(async (req) => {
+  const pre = corsPreflight(req);
+  if (pre) return pre;
+  if (req.method !== "POST") return json({ error: "POST only" }, 405);
+
+  let payload: { invoice_id?: string };
+  try { payload = await req.json(); } catch { return json({ error: "invalid JSON" }, 400); }
+  if (!payload.invoice_id) return json({ error: "invoice_id required" }, 400);
+
+  const db = serviceClient();
+
+  const { data: inv, error: invErr } = await db.from("invoices").select("*").eq("id", payload.invoice_id).single();
+  if (invErr || !inv) return json({ error: "invoice_not_found", detail: invErr?.message }, 404);
+
+  const access = await requireBusinessAccess(req, inv.business_id);
+  if (access instanceof Response) return access;
+
+  if (inv.zatca_status === "cleared" || inv.zatca_status === "reported") {
+    return json({ ok: true, already: true, status: inv.zatca_status, zatca_uuid: inv.zatca_uuid, icv: inv.zatca_icv });
+  }
+
+  const { data: items, error: itemsErr } = await db.from("invoice_items").select("*").eq("invoice_id", inv.id).order("sort_order");
+  if (itemsErr) return json({ error: "items_query_failed", detail: itemsErr.message }, 422);
+  if (!items?.length) return json({ error: "invoice_has_no_items", invoice_id: inv.id }, 422);
+
+  const { data: biz } = await db.from("businesses").select("*").eq("id", inv.business_id).single();
+  if (!biz) return json({ error: "business_not_found" }, 404);
+
+  const { data: device } = await db.from("zatca_devices")
+    .select("*").eq("business_id", inv.business_id).eq("status", "active")
+    .order("created_at", { ascending: false }).limit(1).maybeSingle();
+  if (!device) return json({ error: "no_active_device", message_ar: "لا يوجد جهاز فوترة مفعّل — أكمل الربط مع فاتورة أولاً." }, 409);
+
+  const { data: keys } = await db.from("zatca_device_keys").select("*").eq("device_id", device.id).single();
+  if (!keys?.private_key_hex) return json({ error: "device_credentials_missing" }, 500);
+
+  const env = device.environment as ZatcaEnvName;
+  const pick = (...ks: string[]) => { for (const k of ks) { const v = (biz as Record<string, unknown>)[k]; if (v != null && String(v).trim() !== "") return String(v); } return ""; };
+
+  // ── Allocate ICV atomically: claim icv_counter+1 guarded by current value ──
+  const nextIcv = Number(device.icv_counter) + 1;
+  const pih = device.last_invoice_hash || INITIAL_PIH;
+  const { data: claimed } = await db.from("zatca_devices")
+    .update({ icv_counter: nextIcv })
+    .eq("id", device.id).eq("icv_counter", device.icv_counter)
+    .select("id").maybeSingle();
+  if (!claimed) return json({ error: "icv_conflict_retry", message_ar: "تعارض في عداد الفواتير — أعد المحاولة." }, 409);
+
+  // ── Build UBL ──
+  const isSimplified = inv.invoice_type !== "b2b";
+  const docType: "388" | "381" | "383" = inv.is_credit_note ? "381" : "388";
+  const issueDate = String(inv.invoice_date ?? inv.created_at).slice(0, 10);
+  const issueTime = (String(inv.created_at).match(/T(\d{2}:\d{2}:\d{2})/) ?? [, "09:00:00"])[1]!;
+  const uuid = inv.zatca_uuid ?? crypto.randomUUID();
+
+  const lines: UblLine[] = items.map((it: Record<string, unknown>) => {
+    const rate = Number(it.vat_rate ?? 15);
+    const cat: UblLine["vatCategory"] = rate > 0 ? "S" : (String(it.vat_category ?? "Z").toUpperCase() as UblLine["vatCategory"]);
+    return {
+      name: String(it.description ?? it.name ?? "Item"),
+      quantity: Number(it.quantity ?? 1),
+      unitPrice: Number(it.unit_price ?? it.price ?? 0),
+      vatCategory: ["S", "Z", "E", "O"].includes(cat) ? cat : "S",
+      vatRate: rate,
+    };
+  });
+
+  const xml = buildInvoiceXml({
+    invoiceNumber: String(inv.invoice_number),
+    uuid,
+    issueDate, issueTime,
+    invoiceTypeCode: docType,
+    subType: isSimplified ? "simplified" : "standard",
+    icv: nextIcv,
+    pih,
+    seller: await (async () => {
+      // Base: the business (legal name + TRN never change — a branch is not a
+      // separate legal entity). If the invoice was issued by a BRANCH, its own
+      // CR number and national address override per-field (ZATCA requires each
+      // branch's CR + address on its invoices); missing fields fall back.
+      const base = {
+        name: pick("name", "name_ar", "business_name") || "Business",
+        vat: pick("vat_number", "trn", "tax_number").replace(/\D/g, ""),
+        street: pick("street_name", "street", "address") || "Street",
+        building: pick("building_number", "building_no") || "0000",
+        city: pick("city") || "Riyadh",
+        district: pick("district") || "District",
+        postal: pick("postal_code", "zip") || "00000",
+        crn: pick("cr_number", "commercial_registration") || undefined,
+      };
+      if (inv.branch_id) {
+        const { data: br } = await db.from("branches").select("*").eq("id", inv.branch_id).maybeSingle();
+        if (br) {
+          if (br.cr_number) base.crn = String(br.cr_number);
+          if (br.street_name) base.street = String(br.street_name);
+          if (br.building_number) base.building = String(br.building_number);
+          if (br.city) base.city = String(br.city);
+          if (br.district) base.district = String(br.district);
+          if (br.postal_code) base.postal = String(br.postal_code);
+        }
+      }
+      return base;
+    })(),
+    buyer: {
+      name: String(inv.buyer_name ?? "Customer"),
+      vat: inv.buyer_trn ? String(inv.buyer_trn).replace(/\D/g, "") : undefined,
+      street: inv.buyer_address ? String(inv.buyer_address) : undefined,
+      city: inv.buyer_city ? String(inv.buyer_city) : undefined,
+    },
+    lines,
+  });
+
+  // ── Sign / hash ──
+  // Pick the credential pair that matches the endpoint:
+  // sandbox uses the compliance-invoice endpoint (compliance CSID+secret);
+  // production clearance/reporting uses the production CSID+secret.
+  const useProduction = env === "production" && device.production_csid;
+  const activeCsid = String(useProduction ? device.production_csid : (device.compliance_csid || device.production_csid));
+  const activeSecret = String(useProduction ? (keys.production_secret || keys.csid_secret) : (keys.compliance_secret || keys.csid_secret));
+  const cert = parseCsidCertificate(activeCsid);
+
+  // ZATCA treats the two invoice classes differently (confirmed by ZATCA support
+  // + reference SDKs): SIMPLIFIED (B2C) invoices must be cryptographically SIGNED
+  // by us — ZATCA verifies our signature. STANDARD (B2B) invoices must NOT carry
+  // our signature — ZATCA signs/clears them server-side; we only attach the
+  // invoice hash. Submitting a signed standard invoice yields invalid-invoice-hash
+  // even when the hash is perfectly computed (ZATCA recomputes against the
+  // server-cleared form, not our signed one).
+  const signed = signInvoice(xml, String(keys.private_key_hex), cert, {
+    sellerName: pick("name", "name_ar", "business_name") || "Business",
+    sellerVat: pick("vat_number", "trn", "tax_number").replace(/\D/g, ""),
+    issueDateTime: `${issueDate}T${issueTime}`,
+    total: Number(inv.total ?? 0).toFixed(2),
+    vat: Number(inv.vat_amount ?? 0).toFixed(2),
+    isSimplified,
+  });
+
+  // For STANDARD invoices, submit the UNSIGNED document: resolve the signature
+  // and QR placeholders to empty so neither the UBLExtensions signature block nor
+  // the QR reference is present. The invoice hash (computed identically) still
+  // goes in the API body. For SIMPLIFIED, submit the fully signed document.
+  const submissionXml = isSimplified
+    ? signed.signedXml
+    : xml.replace("SET_UBL_EXTENSIONS_STRING", "").replace("    SET_QR_CODE_DATA\n", "");
+
+  // 4. Submit
+  // CRITICAL (the historical "invalid hash" root cause on the standard path):
+  // the hash MUST be computed over the exact document we submit. Simplified
+  // submits the signed XML (hash from the signed shape). Standard submits an
+  // UNSIGNED shape (no UBLExtensions, no QR ref, but cac:Signature stays) —
+  // its canonical residue differs from the signed shape, so it needs its own
+  // hash computed from submissionXml itself.
+  const submissionHash = isSimplified ? signed.invoiceHash : computeInvoiceHash(submissionXml);
+
+  // ── Submit ──
+  const apiPayload = { invoiceHash: submissionHash, uuid, invoice: btoa(unescape(encodeURIComponent(submissionXml))) };
+  
+  
+  const resp = env === "sandbox"
+    ? await zatcaComplianceInvoiceCheck(env, activeCsid, activeSecret, apiPayload)
+    : (isSimplified
+        ? await zatcaReportInvoice(env, activeCsid, activeSecret, apiPayload)
+        : await zatcaClearInvoice(env, activeCsid, activeSecret, apiPayload));
+
+  const accepted = resp.status === 200 || resp.status === 202;
+  const newStatus = !accepted ? "rejected" : (env === "sandbox" ? "compliance_ok" : (isSimplified ? "reported" : "cleared"));
+
+  // ── Log submission + archive on invoice; advance PIH only when accepted ──
+  // Columns match the LIVE zatca_submissions schema (zatca_response /
+  // response_status / submission_type — the original richer design).
+  const respBody = typeof resp.body === "object" && resp.body !== null ? resp.body : { raw: resp.raw };
+  const vr = (respBody as Record<string, any>)?.validationResults;
+  const pickMsgs = (arr: unknown) => Array.isArray(arr) ? arr.map((m: any) => `${m?.code ?? ""}: ${m?.message ?? ""}`.trim()) : null;
+  const { data: sub, error: subErr } = await db.from("zatca_submissions").insert({
+    business_id: inv.business_id,
+    device_id: device.id,
+    invoice_id: inv.id,
+    invoice_uuid: uuid,
+    icv: nextIcv,
+    invoice_hash: submissionHash,
+    pih,
+    submission_type: env === "sandbox" ? "compliance" : (isSimplified ? "reporting" : "clearance"),
+    invoice_subtype: isSimplified ? "simplified" : "standard",
+    response_status: resp.status,
+    zatca_response: respBody,
+    warnings: pickMsgs(vr?.warningMessages),
+    errors: pickMsgs(vr?.errorMessages),
+  }).select("id").maybeSingle();
+  if (subErr) console.error("[zatca-submit] submissions archive failed:", subErr.message);
+
+  // Column names match the invoices migration (zatca_invoice_hash / zatca_qr_tlv
+  // are what invoice-view renders). zatca_columns_migration.sql adds the rest.
+  const { error: archErr } = await db.from("invoices").update({
+    zatca_uuid: uuid,
+    zatca_status: newStatus,
+    zatca_submitted: accepted,
+    zatca_submission_id: sub?.id ?? null,
+    zatca_icv: nextIcv,
+    zatca_invoice_hash: submissionHash,
+    zatca_xml: submissionXml,
+    zatca_qr_tlv: isSimplified ? signed.qr : null,
+    zatca_cleared_at: accepted ? new Date().toISOString() : null,
+  }).eq("id", inv.id);
+  if (archErr) console.error("[zatca-submit] invoice archive update failed:", archErr.message);
+
+  if (accepted) {
+    await db.from("zatca_devices").update({ last_invoice_hash: submissionHash, updated_at: new Date().toISOString() }).eq("id", device.id);
+  } else {
+    // Rejected: roll the counter back so the chain has no gap
+    await db.from("zatca_devices").update({ icv_counter: device.icv_counter }).eq("id", device.id).eq("icv_counter", nextIcv);
+  }
+
+  return json({
+    _build: "c14n-exact-v10-branch",
+    ok: accepted,
+    status: newStatus,
+    icv: nextIcv,
+    invoice_hash: submissionHash,
+    zatca_http: resp.status,
+    zatca: resp.body,
+    zatca_raw: accepted ? undefined : resp.raw,
+    qr_preview: signed.qr.slice(0, 60) + "…",
+    message_ar: accepted
+      ? (env === "sandbox" ? "✅ اجتازت الفاتورة فحص الامتثال (Sandbox)" : isSimplified ? "✅ تم إبلاغ فاتورة عن الفاتورة" : "✅ تم اعتماد الفاتورة من فاتورة")
+      : "⚠ رفضت فاتورة المستند — راجع التفاصيل",
+  }, accepted ? 200 : 422);
+});
