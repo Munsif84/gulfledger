@@ -73,7 +73,7 @@
   + '.glc-hint b{font-weight:700;color:var(--color-text-muted,#737373);}'
   + '@media (max-width:560px){.glc-backdrop{padding:8vh 8px 8px;}.glc{max-height:74vh;}}'
   /* Topnav trigger button (self-injected before .gl-qa-btn) */
-  + '.glc-trigger{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border:1px solid rgba(255,255,255,0.28);border-radius:8px;background:rgba(255,255,255,0.10);color:#fff;font-family:var(--font-sans,sans-serif);font-size:12.5px;cursor:pointer;transition:background .12s,border-color .12s;margin-inline-end:8px;}'
+  + '.glc-trigger{display:inline-flex;align-items:center;gap:8px;padding:8px 16px;border:1px solid rgba(232,200,116,0.55);border-radius:10px;background:rgba(255,255,255,0.12);color:#fff;font-family:var(--font-sans,sans-serif);font-size:13.5px;font-weight:700;cursor:pointer;transition:background .12s,border-color .12s;margin-inline-end:10px;box-shadow:0 1px 4px rgba(0,0,0,0.12);}'
   + '.glc-trigger:hover{background:rgba(255,255,255,0.18);border-color:rgba(255,255,255,0.45);}'
   + '.glc-trigger .glc-i{width:15px;height:15px;}'
   + '.glc-trigger kbd{font-family:var(--font-sans,sans-serif);font-size:10px;font-weight:700;border:1px solid rgba(255,255,255,0.35);border-radius:4px;padding:1px 5px;opacity:0.85;}'
@@ -108,9 +108,10 @@
         var btn = document.createElement('button');
         btn.type = 'button';
         btn.className = 'glc-trigger';
-        btn.setAttribute('aria-label', ar ? 'بحث سريع' : 'Quick search');
+        btn.setAttribute('aria-label', ar ? 'إجراءات سريعة وبحث' : 'Quick actions & search');
         btn.innerHTML = I('i-search')
-          + '<span class="glc-tr-label">' + (ar ? 'بحث' : 'Search') + '</span>'
+          + '<span class="glc-tr-label">' + (ar ? 'إجراءات سريعة' : 'Quick actions') + '</span>'
+          + '<span style="opacity:.75;font-size:10px;">▾</span>'
           + '<kbd>Ctrl K</kbd>';
         btn.addEventListener('click', openPal);
         qa.parentNode.insertBefore(btn, qa);
