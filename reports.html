@@ -691,6 +691,9 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
         <span class="icon"><svg class="gl-i"><use href="/gl-icons.svg#i-user"/></svg></span>
         <span data-ar="كشف حساب عميل" data-en="Customer Statement">كشف حساب عميل</span>
       </button>
+      <button class="sidebar-link" onclick="showReport('stmt', this); glStmtInit();">
+        <span data-ar="📄 كشوف الحساب" data-en="📄 Statements">📄 كشوف الحساب</span>
+      </button>
       <button class="sidebar-link" onclick="showReport('aging', this)">
         <span class="icon">⏳</span>
         <span data-ar="أعمار الذمم المدينة" data-en="AR Aging">أعمار الذمم المدينة</span>
@@ -719,6 +722,9 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
       <button class="sidebar-link" onclick="showReport('ap_aging', this)">
         <span class="icon">⏳</span>
         <span data-ar="أعمار الذمم الدائنة" data-en="AP Aging">أعمار الذمم الدائنة</span>
+      </button>
+      <button class="sidebar-link" onclick="showReport('br', this); glBrInit();">
+        <span data-ar="🏬 تقرير الفروع" data-en="🏬 Branch Report">🏬 تقرير الفروع</span>
       </button>
       <button class="sidebar-link" onclick="showReport('pnl', this)">
         <span class="icon">⚖️</span>
@@ -749,17 +755,6 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
          takes the user straight to the right view in accounting.html. Working as a deep
          link is preferred over duplicating the rendering code, which is tightly bound to
          the closed-period system, account-map cache, and snapshot mechanism. -->
-    
-      <div class="sidebar-group-label" data-ar="صفحات مرتبطة" data-en="Related">صفحات مرتبطة</div>
-    <button class="sidebar-link" onclick="showReport('audit', this); glAuditInit();">
-      <span data-ar="📜 سجل التدقيق" data-en="📜 Audit Log">📜 سجل التدقيق</span>
-    </button>
-    <a class="sidebar-link" href="statements.html" style="text-decoration:none;">
-      <span data-ar="كشوف الحساب" data-en="Account Statements">كشوف الحساب</span>
-    </a>
-    <a class="sidebar-link" href="branch-report.html" style="text-decoration:none;">
-      <span data-ar="تقرير الفروع" data-en="Branch Report">تقرير الفروع</span>
-    </a>
   </aside>
 
   <!-- Main report area — single section-card; header + body update per report -->
@@ -1171,6 +1166,377 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
 #gl-audit-root .stats-row{grid-template-columns:1fr;}
 </style>
       </section>
+
+      <section class="report-section" id="report-br" style="display:none;">
+<div id="gl-br-root">
+<div class="br-wrap">
+  <a class="br-back" href="dashboard.html" data-ar="→ العودة للوحة التحكم" data-en="→ Back to dashboard">→ العودة للوحة التحكم</a>
+
+  <div class="br-head">
+    <div class="br-title">
+      <h1 data-ar="أداء الفروع" data-en="Branch Performance">أداء الفروع</h1>
+      <p data-ar="المبيعات والإيرادات وضريبة القيمة المضافة لكل فرع" data-en="Sales, revenue and VAT per branch">المبيعات والإيرادات لكل فرع</p>
+    </div>
+    <div class="br-controls">
+      <div class="br-field">
+        <label data-ar="من" data-en="From">من</label>
+        <input type="date" id="from-date">
+      </div>
+      <div class="br-field">
+        <label data-ar="إلى" data-en="To">إلى</label>
+        <input type="date" id="to-date">
+      </div>
+      <div class="br-field">
+        <label data-ar="فترة" data-en="Period">فترة</label>
+        <select id="quick-range" onchange="applyQuickRange()">
+          <option value="mtd" data-ar="هذا الشهر" data-en="This month">هذا الشهر</option>
+          <option value="qtd" data-ar="هذا الربع" data-en="This quarter">هذا الربع</option>
+          <option value="ytd" data-ar="هذا العام" data-en="This year">هذا العام</option>
+          <option value="all" data-ar="الكل" data-en="All time">الكل</option>
+        </select>
+      </div>
+    </div>
+  </div>
+
+  <div class="br-cards">
+    <div class="br-kpi"><div class="br-kpi-label" data-ar="إجمالي الإيرادات" data-en="Total revenue">إجمالي الإيرادات</div><div class="br-kpi-val" id="kpi-revenue">—</div></div>
+    <div class="br-kpi"><div class="br-kpi-label" data-ar="عدد الفواتير" data-en="Invoices">عدد الفواتير</div><div class="br-kpi-val" id="kpi-count">—</div></div>
+    <div class="br-kpi"><div class="br-kpi-label" data-ar="ضريبة القيمة المضافة" data-en="VAT collected">ضريبة القيمة المضافة</div><div class="br-kpi-val" id="kpi-vat">—</div></div>
+  </div>
+
+  <div id="report-area">
+    <div class="br-loading" data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
+  </div>
+</div>
+</div>
+<style>
+#gl-br-root .br-wrap{max-width:960px;margin:0 auto;padding:24px 16px 60px;}
+#gl-br-root .br-head{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap;margin-bottom:20px;}
+#gl-br-root .br-title h1{font-size:var(--text-2xl);font-weight:800;color:var(--color-text-strong);}
+#gl-br-root .br-title p{font-size:var(--text-sm);color:var(--color-text-muted);margin-top:2px;}
+#gl-br-root .br-controls{display:flex;gap:8px;align-items:flex-end;flex-wrap:wrap;}
+#gl-br-root .br-field{display:flex;flex-direction:column;gap:3px;}
+#gl-br-root .br-field label{font-size:var(--text-xs);font-weight:700;color:var(--color-text-muted);}
+#gl-br-root .br-field input, #gl-br-root .br-field select{padding:7px 10px;border:1px solid var(--color-border);border-radius:var(--radius-md);font-family:var(--font-sans);font-size:var(--text-sm);background:var(--color-bg-surface);color:var(--color-text-strong);}
+#gl-br-root .br-cards{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin-bottom:20px;}
+#gl-br-root .br-cards{grid-template-columns:1fr;}
+#gl-br-root .br-kpi{background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);padding:16px 18px;box-shadow:var(--shadow-sm);}
+#gl-br-root .br-kpi-label{font-size:var(--text-xs);color:var(--color-text-muted);font-weight:600;margin-bottom:6px;}
+#gl-br-root .br-kpi-val{font-size:var(--text-xl);font-weight:800;color:var(--color-text-strong);font-variant-numeric:tabular-nums;}
+#gl-br-root .br-table{width:100%;border-collapse:collapse;background:var(--color-bg-surface);border:1px solid var(--color-border);border-radius:var(--radius-lg);overflow:hidden;}
+#gl-br-root .br-table th{background:var(--color-bg-subtle);text-align:start;padding:11px 14px;font-size:var(--text-xs);font-weight:700;color:var(--color-text-muted);text-transform:uppercase;letter-spacing:.04em;}
+#gl-br-root .br-table th.num, #gl-br-root .br-table td.num{text-align:end;font-variant-numeric:tabular-nums;}
+#gl-br-root .br-table td{padding:12px 14px;border-top:1px solid var(--color-border);font-size:var(--text-sm);color:var(--color-text-default);}
+#gl-br-root .br-table tr.total-row td{border-top:2px solid var(--color-border-strong);font-weight:800;color:var(--color-text-strong);background:var(--color-bg-subtle);}
+#gl-br-root .br-branch-name{font-weight:700;color:var(--color-text-strong);}
+#gl-br-root .br-main-pill{font-size:10px;font-weight:700;padding:2px 8px;border-radius:999px;background:var(--color-primary-soft);color:var(--color-primary);margin-inline-start:8px;}
+#gl-br-root .br-loading, #gl-br-root .br-empty{text-align:center;padding:40px;color:var(--color-text-muted);font-size:var(--text-sm);}
+#gl-br-root .br-back{display:inline-block;margin-bottom:14px;color:var(--color-primary);text-decoration:none;font-weight:600;font-size:var(--text-sm);}
+#gl-br-root .br-back:hover{text-decoration:underline;}
+#gl-br-root .br-bar{height:6px;border-radius:3px;background:var(--color-primary);margin-top:6px;}
+#gl-br-root .br-bar-track{height:6px;border-radius:3px;background:var(--color-bg-muted);overflow:hidden;}
+</style>
+      </section>
+
+      <section class="report-section" id="report-stmt" style="display:none;">
+<div id="gl-stmt-root">
+<div class="layout">
+
+  <!-- SIDEBAR -->
+  <div class="sidebar">
+    <div class="sb-sec">
+      <span class="sb-lbl" onclick="this.closest('.sb-sec').classList.toggle('open')"  data-ar="📋 القوائم" data-en="📋 Statements">📋 القوائم</span>
+      <div class="sb-item active" id="sb-income"  onclick="goTab('income')">
+        <div class="sb-dot" style="background:var(--green);"></div>
+        <span data-ar="قائمة الدخل"       data-en="Income Statement">قائمة الدخل</span>
+      </div>
+      <div class="sb-item" id="sb-balance" onclick="goTab('balance')">
+        <div class="sb-dot" style="background:var(--blue);"></div>
+        <span data-ar="الميزانية العمومية" data-en="Balance Sheet">الميزانية العمومية</span>
+      </div>
+      <div class="sb-item" id="sb-zakat"   onclick="goTab('zakat')">
+        <div class="sb-dot" style="background:var(--amber);"></div>
+        <span data-ar="حساب الزكاة"       data-en="Zakat Calculation">حساب الزكاة</span>
+      </div>
+      <div class="sb-item" id="sb-qawaem"  onclick="goTab('qawaem')">
+        <div class="sb-dot" style="background:#6d28d9;"></div>
+        <span data-ar="رفع على قوائم"     data-en="Submit to Qawaem">رفع على قوائم</span>
+      </div>
+    </div>
+    <div class="sb-sec">
+      <span class="sb-lbl" onclick="this.closest('.sb-sec').classList.toggle('open')"  data-ar="ملخص" data-en="Summary">ملخص</span>
+      <div style="padding:6px;font-size:11px;color:var(--muted);line-height:1.8;">
+        <div><span data-ar="الإيرادات: " data-en="Revenue: ">الإيرادات: </span><span class="c-green" id="sb-revenue">—</span></div>
+        <div><span data-ar="المصاريف: " data-en="Expenses: ">المصاريف: </span><span class="c-red" id="sb-expenses">—</span></div>
+        <div><span data-ar="صافي الربح: " data-en="Net Profit: ">صافي الربح: </span><span id="sb-profit" style="font-weight:700;">—</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="main">
+
+    <!-- PERIOD BAR -->
+    <div class="period-bar">
+      <div>
+        <label data-ar="من" data-en="From">من</label>
+        <input type="date" lang="en" id="stmt-from">
+      </div>
+      <div>
+        <label data-ar="إلى" data-en="To">إلى</label>
+        <input type="date" lang="en" id="stmt-to">
+      </div>
+      <div>
+        <label data-ar="السنة المالية" data-en="Fiscal Year">السنة المالية</label>
+        <select id="fiscal-year" onchange="setFiscalYear()">
+          <option value="2026">2026</option>
+          <option value="2025">2025</option>
+          <option value="2024">2024</option>
+        </select>
+      </div>
+      <button class="btn-gen" onclick="generateStatements()" data-ar="إنشاء القوائم" data-en="Generate Statements">إنشاء القوائم</button>
+      <button class="btn-s" onclick="window.print()" style="font-size:12px;" data-ar="🖨 طباعة" data-en="🖨 Print">🖨 طباعة</button>
+    </div>
+
+    <!-- TAB: INCOME STATEMENT -->
+    <div class="tc active" id="tc-income">
+
+      <div class="note-box blue">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+        <span data-ar="قائمة الدخل محتسبة من الفواتير والقيود المحاسبية المسجّلة في النظام. راجع دقة القيود قبل الرفع على قوائم." data-en="Income statement calculated from invoices and journal entries. Verify accuracy before submitting to Qawaem.">قائمة الدخل محتسبة من الفواتير والقيود المسجّلة. راجع الدقة قبل الرفع على قوائم.</span>
+      </div>
+
+      <div class="stmt-doc" id="income-doc">
+        <div class="stmt-header">
+          <div class="stmt-biz" id="inc-biz-name">—</div>
+          <div class="stmt-title" data-ar="قائمة الدخل" data-en="Income Statement">قائمة الدخل</div>
+          <div class="stmt-period" id="inc-period">—</div>
+        </div>
+        <div class="stmt-body" id="income-body">
+          <div style="text-align:center;padding:30px;color:var(--muted);font-size:13px;" data-ar="اضغط 'إنشاء القوائم' لعرض النتائج" data-en="Click 'Generate Statements' to view results">اضغط "إنشاء القوائم" لعرض النتائج</div>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn-p" onclick="generateStatements()" data-ar="تحديث القوائم" data-en="Refresh">تحديث القوائم</button>
+        <button class="btn-s" onclick="goTab('balance')" data-ar="الميزانية العمومية ←" data-en="Balance Sheet →">الميزانية العمومية ←</button>
+        <button class="btn-s" onclick="goTab('zakat')" data-ar="حساب الزكاة ←" data-en="Zakat →">حساب الزكاة ←</button>
+      </div>
+    </div>
+
+    <!-- TAB: BALANCE SHEET -->
+    <div class="tc" id="tc-balance">
+      <div class="stmt-doc" id="balance-doc">
+        <div class="stmt-header">
+          <div class="stmt-biz" id="bal-biz-name">—</div>
+          <div class="stmt-title" data-ar="الميزانية العمومية" data-en="Balance Sheet">الميزانية العمومية</div>
+          <div class="stmt-period" id="bal-period">—</div>
+        </div>
+        <div class="stmt-body" id="balance-body">
+          <div style="text-align:center;padding:30px;color:var(--muted);font-size:13px;" data-ar="اضغط 'إنشاء القوائم' لعرض النتائج" data-en="Click 'Generate Statements' to view results">اضغط "إنشاء القوائم" لعرض النتائج</div>
+        </div>
+      </div>
+      <div class="btn-row">
+        <button class="btn-s" onclick="goTab('income')" data-ar="قائمة الدخل ←" data-en="Income Statement →">قائمة الدخل ←</button>
+        <button class="btn-s" onclick="goTab('zakat')" data-ar="حساب الزكاة ←" data-en="Zakat →">حساب الزكاة ←</button>
+      </div>
+    </div>
+
+    <!-- TAB: ZAKAT -->
+    <div class="tc" id="tc-zakat">
+      <div class="note-box amber">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+        <span data-ar="الزكاة محتسبة وفق طريقة الأصول المتداولة المعدّلة المعتمدة من هيئة الزكاة والضريبة. النسبة 2.5% من وعاء الزكاة." data-en="Zakat calculated per the adjusted net assets method approved by ZATCA. Rate: 2.5% of Zakat base.">الزكاة محتسبة وفق طريقة الأصول المتداولة المعدّلة. النسبة 2.5% من وعاء الزكاة.</span>
+      </div>
+
+      <div class="zakat-box" id="zakat-doc">
+        <div class="zakat-header">
+          <div class="zakat-title" data-ar="حساب الزكاة السنوية" data-en="Annual Zakat Calculation">حساب الزكاة السنوية</div>
+          <div class="zakat-sub" id="zakat-period">—</div>
+        </div>
+        <div id="zakat-body">
+          <div style="text-align:center;padding:30px;color:var(--muted);font-size:13px;" data-ar="اضغط 'إنشاء القوائم' لعرض النتائج" data-en="Click 'Generate Statements' to view results">اضغط "إنشاء القوائم" لعرض النتائج</div>
+        </div>
+      </div>
+
+      <div class="btn-row">
+        <button class="btn-s" onclick="goTab('qawaem')" data-ar="رفع على قوائم ←" data-en="Submit to Qawaem →">رفع على قوائم ←</button>
+        <a href="vat.html" class="btn-s" data-ar="إقرار VAT ←" data-en="VAT Return →">إقرار VAT ←</a>
+      </div>
+    </div>
+
+    <!-- TAB: QAWAEM -->
+    <div class="tc" id="tc-qawaem">
+      <div class="note-box blue">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="flex-shrink:0;"><circle cx="12" cy="12" r="10"/><path d="M12 8v4m0 4h.01"/></svg>
+        <span data-ar="منصة قوائم هي بوابة الهيئة السعودية للمحاسبين القانونيين (SOCPA) لرفع القوائم المالية السنوية. الرفع إلزامي لجميع الشركات." data-en="Qawaem is the SOCPA portal for annual financial statement filing. Filing is mandatory for all companies.">منصة قوائم هي بوابة SOCPA لرفع القوائم المالية السنوية. الرفع إلزامي.</span>
+      </div>
+
+      <div class="qawaem-box">
+        <div class="qawaem-title">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--blue)" stroke-width="2"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+          <span data-ar="خطوات الرفع على منصة قوائم" data-en="Steps to Submit on Qawaem Platform">خطوات الرفع على منصة قوائم</span>
+        </div>
+
+        <div class="qawaem-step">
+          <div class="qawaem-step-num" data-ar="الخطوة الأولى" data-en="Step 1">الخطوة الأولى</div>
+          <div class="qawaem-step-text" data-ar="اطبع القوائم المالية من هذه الصفحة — قائمة الدخل والميزانية العمومية" data-en="Print financial statements from this page — income statement and balance sheet">اطبع القوائم المالية من هذه الصفحة — قائمة الدخل والميزانية العمومية</div>
+        </div>
+
+        <div class="qawaem-step">
+          <div class="qawaem-step-num" data-ar="الخطوة الثانية" data-en="Step 2">الخطوة الثانية</div>
+          <div class="qawaem-step-text">
+            <span data-ar="افتح منصة قوائم على:" data-en="Open Qawaem platform at:">افتح منصة قوائم على:</span>
+            <a href="https://qawaem.bc.gov.sa" target="_blank" style="color:var(--blue);font-weight:700;margin-right:6px;">qawaem.bc.gov.sa</a>
+          </div>
+        </div>
+
+        <div class="qawaem-step">
+          <div class="qawaem-step-num" data-ar="الخطوة الثالثة" data-en="Step 3">الخطوة الثالثة</div>
+          <div class="qawaem-step-text" data-ar="سجّل الدخول عبر نفاذ ← اختر 'إنشاء قوائم مالية' ← أدخل البيانات من القوائم المطبوعة" data-en="Login via Nafath → Select 'Create Financial Statements' → Enter data from printed statements">سجّل الدخول عبر نفاذ ← اختر "إنشاء قوائم مالية" ← أدخل البيانات</div>
+        </div>
+
+        <div class="qawaem-step">
+          <div class="qawaem-step-num" data-ar="الخطوة الرابعة" data-en="Step 4">الخطوة الرابعة</div>
+          <div class="qawaem-step-text" data-ar="راجع القوائم وأرسلها — ستحصل على رقم مرجعي وشهادة تقديم" data-en="Review and submit — you will receive a reference number and submission certificate">راجع وأرسل — ستحصل على رقم مرجعي وشهادة تقديم</div>
+        </div>
+
+        <div style="margin-top:14px;padding:12px 14px;background:var(--tint);border-radius:8px;">
+          <div style="font-size:11px;font-weight:700;color:var(--navy);margin-bottom:6px;" data-ar="البيانات الجاهزة للرفع" data-en="Data ready for submission">البيانات الجاهزة للرفع</div>
+          <div id="qawaem-summary" style="font-size:12px;color:var(--muted);line-height:1.8;">
+            <span data-ar="احتسب القوائم أولاً لعرض ملخص الرفع" data-en="Generate statements first to view submission summary">احتسب القوائم أولاً لعرض ملخص الرفع</span>
+          </div>
+        </div>
+
+        <div class="btn-row" style="margin-top:14px;">
+          <a href="https://qawaem.bc.gov.sa" target="_blank" class="btn-p" style="text-decoration:none;font-size:13px;" data-ar="فتح منصة قوائم ←" data-en="Open Qawaem Platform →">فتح منصة قوائم ←</a>
+          <button class="btn-s" onclick="window.print()" data-ar="🖨 طباعة القوائم" data-en="🖨 Print Statements">🖨 طباعة القوائم</button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+</div>
+<style>
+#gl-stmt-root .gl-build-badge{display:none!important;}
+#gl-stmt-root /* Suppress transitions during language/direction switch — eliminates fold/wipe jank */
+html.lang-switching, #gl-stmt-root html.lang-switching *, #gl-stmt-root html.lang-switching *::before, #gl-stmt-root html.lang-switching *::after{
+  transition: none !important;
+  animation-duration: 0s !important;
+  animation-delay: 0s !important;
+}
+#gl-stmt-root .btn-logout{padding:5px 14px;background:rgba(255,255,255,0.1);color:#fff;border:1px solid rgba(255,255,255,0.2);border-radius:6px;font-family:var(--font-sans);font-size:16px;cursor:pointer;}
+#gl-stmt-root .btn-logout:hover{background:rgba(255,255,255,0.2);}
+#gl-stmt-root .lang-switch{display:flex;border:1px solid rgba(255,255,255,0.2);border-radius:6px;overflow:hidden;}
+#gl-stmt-root .lang-btn{padding:4px 10px;font-size:13px;cursor:pointer;border:none;background:transparent;color:rgba(255,255,255,0.6);font-family:var(--font-sans);}
+#gl-stmt-root .lang-btn.on{background:var(--sky);color:#fff;}
+#gl-stmt-root .sidebar{background:var(--white);border-left:1px solid var(--border);padding:14px 0;overflow-y:auto;}
+#gl-stmt-root .sb-sec{padding:0 12px;margin-bottom:8px;}
+#gl-stmt-root .sb-lbl{font-size:12px;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--muted);padding:8px 6px 5px;display:block;}
+#gl-stmt-root .sb-item{display:flex;align-items:center;gap:8px;padding:8px 10px;border-radius:7px;cursor:pointer;font-size:15px;color:var(--ink);margin-bottom:2px;user-select:none;transition:background .15s;}
+#gl-stmt-root .sb-item:hover{background:var(--tint);color:var(--blue);}
+#gl-stmt-root .sb-item.active{background:var(--tint);color:var(--blue);font-weight:600;border-right:3px solid var(--blue);}
+#gl-stmt-root .sb-dot{width:8px;height:8px;border-radius:50%;flex-shrink:0;}
+#gl-stmt-root .main{padding:20px;overflow-y:auto;}
+#gl-stmt-root .period-bar label{font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;}
+#gl-stmt-root .period-bar select, #gl-stmt-root .period-bar input{padding:7px 10px;border:1px solid var(--border);border-radius:6px;font-family:var(--font-sans);font-size:15px;color:var(--ink);}
+#gl-stmt-root .btn-gen{padding:9px 20px;background:var(--blue);color:#fff;border:none;border-radius:7px;font-family:var(--font-sans);font-size:15px;font-weight:700;cursor:pointer;}
+#gl-stmt-root .btn-gen:hover{background:var(--navy);}
+#gl-stmt-root .tc.active{display:block;}
+#gl-stmt-root .stmt-header{background:var(--navy);padding:18px 24px;}
+#gl-stmt-root .stmt-biz{font-family:'Playfair Display',serif;font-size:20px;color:#fff;margin-bottom:3px;}
+#gl-stmt-root .stmt-title{font-size:15px;color:var(--light);font-weight:500;}
+#gl-stmt-root .stmt-period{font-size:13px;color:rgba(255,255,255,0.5);margin-top:3px;}
+#gl-stmt-root .stmt-group{background:var(--tint);padding:8px 22px;font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--navy);border-bottom:1px solid var(--border);}
+#gl-stmt-root .stmt-row{display:flex;justify-content:space-between;padding:10px 22px;border-bottom:1px solid var(--tint);font-size:15px;}
+#gl-stmt-root .stmt-row:last-child{border-bottom:none;}
+#gl-stmt-root .stmt-row.indent{padding-right:36px;}
+#gl-stmt-root .stmt-row.subtotal{background:var(--tint);font-weight:600;color:var(--navy);}
+#gl-stmt-root .stmt-row.total{background:var(--navy);color:#fff;font-size:16px;font-weight:700;padding:12px 22px;}
+#gl-stmt-root .stmt-row.profit{background:var(--green);color:#fff;font-size:15px;font-weight:700;padding:14px 22px;}
+#gl-stmt-root .stmt-row.loss{background:var(--red);color:#fff;font-size:15px;font-weight:700;padding:14px 22px;}
+#gl-stmt-root .stmt-val{font-family:inherit;font-variant-numeric:tabular-nums;font-weight:500;}
+#gl-stmt-root .stmt-val.green{color:var(--green);}
+#gl-stmt-root .stmt-val.red{color:var(--red);}
+#gl-stmt-root .stmt-val.white{color:#fff;}
+#gl-stmt-root .stmt-label{color:var(--ink);}
+#gl-stmt-root .zakat-header{background:linear-gradient(135deg,#0C447C,#1D9E75);padding:16px 22px;}
+#gl-stmt-root .zakat-title{font-family:'Playfair Display',serif;font-size:16px;color:#fff;}
+#gl-stmt-root .zakat-sub{font-size:13px;color:rgba(255,255,255,0.6);margin-top:2px;}
+#gl-stmt-root .zakat-row{display:flex;justify-content:space-between;padding:10px 22px;border-bottom:1px solid var(--tint);font-size:15px;}
+#gl-stmt-root .zakat-row:last-child{border-bottom:none;}
+#gl-stmt-root .zakat-row.total{background:linear-gradient(135deg,#0C447C,#1D9E75);color:#fff;font-size:16px;font-weight:700;padding:13px 22px;}
+#gl-stmt-root .zakat-val{font-family:inherit;font-variant-numeric:tabular-nums;font-weight:600;}
+#gl-stmt-root .qawaem-title{font-size:16px;font-weight:700;color:var(--navy);margin-bottom:14px;display:flex;align-items:center;gap:8px;}
+#gl-stmt-root .qawaem-step{background:var(--tint);border-radius:8px;padding:14px;margin-bottom:10px;}
+#gl-stmt-root .qawaem-step-num{font-size:13px;font-weight:700;color:var(--blue);text-transform:uppercase;letter-spacing:.05em;margin-bottom:5px;}
+#gl-stmt-root .qawaem-step-text{font-size:16px;color:var(--ink);line-height:1.6;}
+#gl-stmt-root .qawaem-badge{background:var(--green);color:#fff;font-size:12px;font-weight:700;padding:2px 9px;border-radius:8px;display:inline-block;margin-right:6px;}
+#gl-stmt-root .btn-p:hover{background:var(--navy);}
+#gl-stmt-root .btn-s{padding:8px 16px;background:var(--tint);color:var(--blue);border:1.5px solid var(--light);border-radius:7px;font-family:var(--font-sans);font-size:16px;cursor:pointer;text-decoration:none;display:inline-block;}
+#gl-stmt-root .btn-s:hover{border-color:var(--blue);}
+#gl-stmt-root .btn-row{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
+#gl-stmt-root .note-box.amber{background:#fffbeb;border:1px solid #fde68a;color:var(--amber);}
+#gl-stmt-root .note-box.blue{background:var(--tint);border:1px solid var(--light);color:var(--navy);}
+#gl-stmt-root .layout{display:block;}
+#gl-stmt-root .main{padding:0;}
+#gl-stmt-root .stmt-doc, #gl-stmt-root .zakat-box{border:1px solid #000;border-radius:0;margin-bottom:20px;}
+#gl-stmt-root .layout{grid-template-columns:1fr;}
+#gl-stmt-root .sidebar{display:none;}
+#gl-stmt-root input[type="date"]{ -webkit-appearance: none; color-scheme: light; font-family: 'DM Mono', monospace; }
+#gl-stmt-root .lang-switch .lang-btn{padding:3px 8px;font-size:12px;}
+#gl-stmt-root .btn-logout{padding:4px 10px;font-size:13px;}
+#gl-stmt-root /* APP NAV — scrollable, #gl-stmt-root compact */
+  .app-nav{padding:6px 10px;gap:2px;}
+#gl-stmt-root /* SIDEBAR LAYOUTS — hide sidebar, #gl-stmt-root full width main */
+  .layout{grid-template-columns:1fr !important;}
+#gl-stmt-root .sidebar{display:none !important;}
+#gl-stmt-root .form-panel{border-left:none;border-bottom:1px solid var(--border);}
+#gl-stmt-root .invoice-doc{margin-top:12px;}
+#gl-stmt-root /* FORM GRIDS — all single column */
+  .fg-2, #gl-stmt-root .fg-3, #gl-stmt-root .fg-4, #gl-stmt-root .fg-5{grid-template-columns:1fr !important;}
+#gl-stmt-root .field-row.double, #gl-stmt-root .field-row.triple{grid-template-columns:1fr !important;}
+#gl-stmt-root .period-bar select, #gl-stmt-root .period-bar input{width:100%;}
+#gl-stmt-root /* TABLES — horizontal scroll */
+  .tbl-wrap, #gl-stmt-root .overflow-x-auto, #gl-stmt-root [style*="overflow-x:auto"]{overflow-x:auto;-webkit-overflow-scrolling:touch;}
+#gl-stmt-root .tbl{min-width:520px;}
+#gl-stmt-root .inv-items{min-width:480px;}
+#gl-stmt-root .inv-parties > div:first-child{border-right:none;border-bottom:1px solid var(--border);}
+#gl-stmt-root .stab{padding:6px 10px;font-size:13px;}
+#gl-stmt-root .f201-row > div{flex:none;width:100%;}
+#gl-stmt-root .f201-stats{grid-template-columns:1fr 1fr !important;}
+#gl-stmt-root .page{padding:14px 12px !important;}
+#gl-stmt-root .card-bdy{padding:12px !important;}
+#gl-stmt-root .stats{grid-template-columns:1fr !important;}
+#gl-stmt-root .item-row{grid-template-columns:16px 1fr 36px 52px 44px 52px 20px !important;}
+#gl-stmt-root .f201-stats{grid-template-columns:1fr !important;}
+#gl-stmt-root .mob-sidebar-btn{display:flex;}
+#gl-stmt-root .sidebar.mob-open{display:block !important;position:fixed;top:88px;right:0;width:220px;height:calc(100vh - 88px);
+    z-index:400;box-shadow:-4px 0 24px rgba(0,0,0,0.15);overflow-y:auto;}
+#gl-stmt-root .sidebar.mob-open ~ .mob-overlay{display:block;}
+#gl-stmt-root .mob-overlay{display:none;position:fixed;inset:0;background:rgba(0,0,0,0.3);z-index:399;}
+#gl-stmt-root [dir="ltr"] .mob-sidebar-btn{right:auto;left:16px;}
+#gl-stmt-root [dir="ltr"] .sidebar.mob-open{right:auto;left:0;}
+#gl-stmt-root .sb-lbl{cursor:pointer;display:flex;align-items:center;justify-content:space-between;padding:10px 8px 8px;border-radius:6px;transition:background .12s;user-select:none;}
+#gl-stmt-root .sb-lbl::after{content:'\25B8';font-size:12px;color:var(--muted);transition:transform .2s;flex-shrink:0;margin-right:2px;}
+#gl-stmt-root [dir="ltr"] .sb-lbl::after{margin-right:0;margin-left:2px;}
+#gl-stmt-root .sb-sec.open .sb-lbl::after{transform:rotate(90deg);}
+#gl-stmt-root .sb-sec > .sb-item, #gl-stmt-root .sb-sec > .sb-alert{display:none;background:var(--tint);border-radius:0;}
+#gl-stmt-root .sb-sec.open > .sb-item, #gl-stmt-root .sb-sec.open > .sb-alert{display:flex;}
+#gl-stmt-root .sb-sec > .sb-item:first-of-type, #gl-stmt-root .sb-sec.open > .sb-item:first-of-type{border-radius:6px 6px 0 0;}
+#gl-stmt-root .sb-sec > .sb-item:last-child, #gl-stmt-root .sb-sec.open > .sb-item:last-child{border-radius:0 0 6px 6px;margin-bottom:4px;}
+#gl-stmt-root .sb-stat{display:none;}
+#gl-stmt-root .sb-lbl{cursor:pointer;display:flex!important;align-items:center;justify-content:space-between;padding:10px 8px 8px;border-radius:6px;transition:background .12s;user-select:none;}
+#gl-stmt-root .sb-lbl::after{content:'\25B8';font-size:12px;color:var(--muted);transition:transform .2s;flex-shrink:0;}
+#gl-stmt-root .sb-sec.open .sb-lbl::after{transform:rotate(90deg);}
+#gl-stmt-root .sb-sec > .sb-item, #gl-stmt-root .sb-sec > .sb-alert{display:none;background:var(--tint);}
+#gl-stmt-root .sb-sec.open > .sb-item, #gl-stmt-root .sb-sec.open > .sb-alert{display:flex;}
+#gl-stmt-root .sb-stat, #gl-stmt-root .sb-stat-val, #gl-stmt-root [id*="sb-purch-summary"]{display:none!important;}
+#gl-stmt-root .sb-sec:has(.sb-stat){display:none;}
+#gl-stmt-root /* GL:SB-PLUS — + on action items */
+#sb-registry::before, #gl-stmt-root #sb-receive::before, #gl-stmt-root #sb-add::before, #gl-stmt-root #sb-po-new::before, #gl-stmt-root #sb-sup-inv-new::before, #gl-stmt-root [id^="sb-new"]::before{content:'+ ';font-weight:700;color:var(--blue);font-size:16px;}
+</style>
+      </section>
       <section class="report-section" id="report-pnl" style="display:none;">
         <div class="toolbar" id="pnl-toolbar" style="display:none;margin-bottom:10px;">
           <select class="filter-select" id="pnl-branch" onchange="runReportPnL()">
@@ -1491,8 +1857,10 @@ const REPORT_TITLES = {
   supplier_statement:{icon: '<svg class="gl-i"><use href="/gl-icons.svg#i-invoice"/></svg>', ar: 'كشف حساب مورد',                     en: 'Supplier Statement', sub_ar: 'حركة الفواتير والرصيد لمورد محدد خلال الفترة',                       sub_en: 'Bill activity and balance for a specific supplier over the period'},
   aging:             {icon: '⏳', ar: 'أعمار الذمم المدينة',                en: 'AR Aging',           sub_ar: 'الفواتير غير المسددة مجمّعة بحسب عمر التأخر',                       sub_en: 'Unpaid invoices grouped by how overdue they are'},
   ap_aging:          {icon: '⏳', ar: 'أعمار الذمم الدائنة',                en: 'AP Aging',           sub_ar: 'فواتير الموردين غير المسددة مجمّعة بحسب عمر التأخر',                  sub_en: 'Unpaid supplier bills grouped by how overdue they are'},
+  br:                {icon: '🏬', ar: 'تقرير الفروع', en: 'Branch Report', sub_ar: 'الأداء لكل فرع', sub_en: 'Per-branch performance'},
+  stmt:              {icon: '📄', ar: 'كشوف الحساب', en: 'Account Statements', sub_ar: 'كشوف العملاء والموردين', sub_en: 'Customer & supplier statements'},
   audit:             {icon: '📜', ar: 'سجل التدقيق', en: 'Audit Log', sub_ar: 'من فعل ماذا ومتى — كل التغييرات المسجلة', sub_en: 'Who did what, when — every recorded change'},
-  pnl:               {icon: '⚖️', ar: 'قائمة الدخل — مقارنة الفترات',        en: 'P&L — Period Comparison', sub_ar: 'الإيرادات والمصروفات من دفتر القيود، الفترة الحالية مقابل الفترة السابقة المماثلة', sub_en: 'Revenue and expenses from the journal — current period vs the preceding equal period'},
+  pnl:               {icon: '⚖️', ar: 'تحليل الأرباح — مقارنة الفترات',        en: 'Profit Analysis — Period Comparison', sub_ar: 'الإيرادات والمصروفات من دفتر القيود، الفترة الحالية مقابل الفترة السابقة المماثلة', sub_en: 'Revenue and expenses from the journal — current period vs the preceding equal period'},
   stock_valuation:   {icon: '💎', ar: 'تقييم المخزون',                       en: 'Stock Valuation',    sub_ar: 'القيمة الحالية للمخزون مع تحليل الأصناف الراكدة والمتحركة ببطء',     sub_en: 'Current inventory value with slow-moving and dead-stock analysis'}
 };
 
@@ -2161,6 +2529,492 @@ async function glAuditInit(){
     await loadEntries();
     renderEntityPills(); renderActionPills(); renderStats(); renderTimeline();
   }catch(e){ console.error('[GL audit]', e); }
+}
+
+
+/* ═══ BRANCH-REPORT (native) ═══ */
+
+function applyLang(){document.querySelectorAll('[data-ar]').forEach(el=>{el.textContent=(L==='ar')?el.getAttribute('data-ar'):el.getAttribute('data-en');});}
+function fmt(n){return (Number(n)||0).toLocaleString('en-US',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function applyQuickRange(){
+  const r=document.getElementById('quick-range').value;
+  const now=new Date(); let from;
+  if(r==='mtd') from=new Date(now.getFullYear(),now.getMonth(),1);
+  else if(r==='qtd') from=new Date(now.getFullYear(),Math.floor(now.getMonth()/3)*3,1);
+  else if(r==='ytd') from=new Date(now.getFullYear(),0,1);
+  else from=new Date(2000,0,1);
+  document.getElementById('from-date').value=fmtDate(from);
+  document.getElementById('to-date').value=fmtDate(now);
+  loadReport();
+}
+async function loadReport(){
+  const area=document.getElementById('report-area');
+  area.innerHTML=`<div class="br-loading">${L==='ar'?'جارٍ التحميل...':'Loading...'}</div>`;
+  const from=document.getElementById('from-date').value;
+  const to=document.getElementById('to-date').value;
+
+  let q=sb.from('invoices')
+    .select('branch_id,total,vat_amount,status,issue_date')
+    .eq('business_id',currentBiz.id)
+    .neq('status','voided')
+    .neq('status','draft');
+  if(from) q=q.gte('issue_date',from);
+  if(to) q=q.lte('issue_date',to);
+  const {data:invoices,error}=await q;
+  if(error){area.innerHTML=`<div class="br-empty">${error.message}</div>`;return;}
+
+  /* Aggregate per branch */
+  const agg={};
+  let totRev=0,totVat=0,totCount=0;
+  (invoices||[]).forEach(inv=>{
+    const key=inv.branch_id||'__none__';
+    if(!agg[key]) agg[key]={count:0,revenue:0,vat:0};
+    const total=Number(inv.total)||0, vat=Number(inv.vat_amount)||0;
+    agg[key].count++; agg[key].revenue+=total; agg[key].vat+=vat;
+    totRev+=total; totVat+=vat; totCount++;
+  });
+
+  /* KPIs */
+  document.getElementById('kpi-revenue').textContent='SAR '+fmt(totRev);
+  document.getElementById('kpi-count').textContent=totCount;
+  document.getElementById('kpi-vat').textContent='SAR '+fmt(totVat);
+
+  const rows=Object.keys(agg).map(k=>({
+    branch_id:k,
+    name: k==='__none__' ? (L==='ar'?'بدون فرع':'No branch') : ((L==='ar'?(branchMap[k]?.name_ar||branchMap[k]?.name):branchMap[k]?.name)||(L==='ar'?'فرع محذوف':'Deleted branch')),
+    is_main: branchMap[k]?.is_main,
+    ...agg[k]
+  })).sort((a,b)=>b.revenue-a.revenue);
+
+  if(rows.length===0){
+    area.innerHTML=`<div class="br-empty">${L==='ar'?'لا توجد فواتير في هذه الفترة':'No invoices in this period'}</div>`;
+    return;
+  }
+
+  const maxRev=Math.max(...rows.map(r=>r.revenue),1);
+  const ar=L==='ar';
+  area.innerHTML=`
+    <table class="br-table">
+      <thead><tr>
+        <th>${ar?'الفرع':'Branch'}</th>
+        <th class="num">${ar?'الفواتير':'Invoices'}</th>
+        <th class="num">${ar?'الإيرادات (شامل الضريبة)':'Revenue (incl. VAT)'}</th>
+        <th class="num">${ar?'الصافي':'Net'}</th>
+        <th class="num">${ar?'ض.ق.م':'VAT'}</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r=>{
+          const net=r.revenue-r.vat;
+          const pct=Math.round((r.revenue/maxRev)*100);
+          const mainPill=r.is_main?`<span class="br-main-pill">${ar?'رئيسي':'Main'}</span>`:'';
+          return `<tr>
+            <td><span class="br-branch-name">${escAttr(r.name)}</span>${mainPill}
+              <div class="br-bar-track"><div class="br-bar" style="width:${pct}%;"></div></div>
+            </td>
+            <td class="num">${r.count}</td>
+            <td class="num">SAR ${fmt(r.revenue)}</td>
+            <td class="num">SAR ${fmt(net)}</td>
+            <td class="num">SAR ${fmt(r.vat)}</td>
+          </tr>`;
+        }).join('')}
+        <tr class="total-row">
+          <td>${ar?'الإجمالي':'Total'}</td>
+          <td class="num">${totCount}</td>
+          <td class="num">SAR ${fmt(totRev)}</td>
+          <td class="num">SAR ${fmt(totRev-totVat)}</td>
+          <td class="num">SAR ${fmt(totVat)}</td>
+        </tr>
+      </tbody>
+    </table>`;
+}
+let _glBrInitDone=false;
+async function glBrInit(){
+  if(_glBrInitDone) return; _glBrInitDone=true;
+  try{
+  /* resolve business via active membership */
+  const {data:mem}=await sb.from('business_users').select('business_id').eq('user_id',session.user.id).eq('status','active').limit(1).maybeSingle();
+  if(!mem){document.getElementById('report-area').innerHTML=`<div class="br-empty">${L==='ar'?'لا توجد منشأة':'No business found'}</div>`;return;}
+  /* load branches */
+  const {data:branches}=await sb.from('branches').select('id,name,name_ar,is_main').eq('business_id',currentBiz.id);
+  (branches||[]).forEach(b=>{branchMap[b.id]=b;});
+  applyQuickRange(); /* sets default MTD range and loads */
+  }catch(e){ console.error('[GL branch-report]', e); }
+}
+
+/* ═══ STATEMENTS (native) ═══ */
+let stmtData = {};
+function setFiscalYear() {
+  const yr = document.getElementById('fiscal-year').value;
+  document.getElementById('stmt-from').value = yr + '-01-01';
+  document.getElementById('stmt-to').value   = yr + '-12-31';
+}
+async function generateStatements() {
+  const from = document.getElementById('stmt-from').value;
+  const to   = document.getElementById('stmt-to').value;
+  if (!from || !to) { notify(L==='ar'?'اختر الفترة':'Select period', 'r'); return; }
+
+  const periodLabel = from + ' — ' + to;
+  const bizName     = currentBiz?.name || '—';
+
+  // Load invoices (revenue)
+  const { data: invoices } = await sb.from('invoices')
+    .select('*').eq('user_id', currentUser.id)
+    .gte('issue_date', from).lte('issue_date', to);
+
+  // Load journal entries with lines (expenses)
+  const { data: entries } = await sb.from('journal_entries')
+    .select('*, journal_lines(*)')
+    .eq('user_id', currentUser.id)
+    .gte('entry_date', from).lte('entry_date', to);
+
+  // Load inventory for COGS and balance sheet
+  const { data: invItems } = await sb.from('inventory_items')
+    .select('*').eq('user_id', currentUser.id);
+
+  // Load last inventory snapshot for opening stock
+  const { data: snapshots } = await sb.from('inventory_snapshots')
+    .select('*').eq('business_id', currentBiz?.id)
+    .lt('snapshot_date', from)
+    .order('snapshot_date', { ascending: false }).limit(1);
+
+  // Load inventory movements for COGS (outgoing stock)
+  const { data: outMovements } = await sb.from('inventory_movements')
+    .select('quantity, unit_cost, inventory_items(cost_price)')
+    .eq('business_id', currentBiz?.id)
+    .eq('movement_type', 'out')
+    .gte('movement_date', from)
+    .lte('movement_date', to);
+
+  // Load purchase movements for COGS formula
+  const { data: inMovements } = await sb.from('inventory_movements')
+    .select('quantity, unit_cost')
+    .eq('business_id', currentBiz?.id)
+    .eq('movement_type', 'in')
+    .gte('movement_date', from)
+    .lte('movement_date', to)
+    .neq('reference', 'OPENING');
+
+  /* ── REVENUE ── */
+  const revenue     = (invoices||[]).reduce((s,i) => s + (i.subtotal||0), 0);
+  const vatOutput   = (invoices||[]).reduce((s,i) => s + (i.vat_amount||0), 0);
+  const invCount    = (invoices||[]).length;
+
+  /* ── COGS — from inventory out movements ── */
+  let cogs = (outMovements||[]).reduce((s,m) => {
+    const cost = m.unit_cost || m.inventory_items?.cost_price || 0;
+    return s + (m.quantity||0) * cost;
+  }, 0);
+
+  /* ── If no out movements, use formula: Opening + Purchases - Closing ── */
+  if (cogs === 0) {
+    const { data: snapshots } = await sb.from('inventory_snapshots')
+      .select('*').eq('business_id', currentBiz?.id)
+      .lt('snapshot_date', from)
+      .order('snapshot_date', { ascending: false }).limit(1);
+    const openingVal  = snapshots && snapshots.length ? snapshots[0].total_value : 0;
+    const purchases   = (inMovements||[]).reduce((s,m) => s + (m.quantity||0)*(m.unit_cost||0), 0);
+    const closingVal  = (invItems||[]).reduce((s,i) => s + (i.cost_price||0)*(i.current_qty||0), 0);
+    cogs = Math.max(0, openingVal + purchases - closingVal);
+  }
+
+  /* ── EXPENSES from period journal entries ── */
+  let salaries=0, rent=0, utilities=0, marketing=0, depreciation=0, bankCharges=0, misc=0, zakatExp=0;
+
+  (entries||[]).forEach(e => {
+    (e.journal_lines||[]).forEach(l => {
+      const dr = l.debit  || 0;
+      switch(l.account_code) {
+        case '5200': salaries    += dr; break;
+        case '5300': rent        += dr; break;
+        case '5400': utilities   += dr; break;
+        case '5500': marketing   += dr; break;
+        case '5600': depreciation+= dr; break;
+        case '5700': bankCharges += dr; break;
+        case '5800': misc        += dr; break;
+        case '5900': zakatExp    += dr; break;
+      }
+    });
+  });
+
+  // Inventory asset value from current stock (always from DB)
+  const inventoryVal = (invItems||[]).reduce((s,i) => s + (i.cost_price||0)*(i.current_qty||0), 0);
+
+  // ── BALANCE SHEET from journal entries (all-time, not period-filtered) ──
+  // Load ALL journal entries for balance sheet (balance sheet is cumulative, not period)
+  const { data: allEntries } = await sb.from('journal_entries')
+    .select('*, journal_lines(*)')
+    .eq('user_id', currentUser.id);
+
+  let cash2=0, receivables2=0, prepaid2=0, fixedAssets2=0, accumDeprec2=0;
+  let payables2=0, vatPayable2=0, loans2=0, capital2=0, retained2=0;
+
+  (allEntries||[]).forEach(e => {
+    (e.journal_lines||[]).forEach(l => {
+      const dr = l.debit  || 0;
+      const cr = l.credit || 0;
+      switch(l.account_code) {
+        case '1100': cash2        += dr - cr; break;
+        case '1200': receivables2 += dr - cr; break;
+        case '1400': prepaid2     += dr - cr; break;
+        case '1500': case '1600': fixedAssets2  += dr - cr; break;
+        case '1700': accumDeprec2 += cr - dr; break;
+        case '2100': payables2    += cr - dr; break;
+        case '2200': case '2210': vatPayable2  += cr - dr; break;
+        case '2300': case '2500': loans2       += cr - dr; break;
+        case '3100': capital2     += cr - dr; break;
+        case '3200': retained2    += cr - dr; break;
+      }
+    });
+  });
+
+  // Use journal-based values for balance sheet
+  // Cash: journal 1100 net. If zero (no cash entries), show 0 not invoice total
+  const cash        = Math.max(0, cash2);
+  // Receivables: journal 1200 net (Dr Receivables - Cr collections)
+  const receivables = Math.max(0, receivables2);
+  // Payables: journal 2100 net
+  const payables    = Math.max(0, payables2);
+  const vatPayable  = Math.max(0, vatPayable2);
+  const loans       = Math.max(0, loans2);
+  const capital     = Math.max(0, capital2);
+  const retained    = retained2;
+  const prepaid     = Math.max(0, prepaid2);
+  const fixedAssets = Math.max(0, fixedAssets2);
+  const accumDeprec = Math.max(0, accumDeprec2);
+
+  const grossProfit  = revenue - cogs;
+  const totalExpenses= salaries + rent + utilities + marketing + depreciation + bankCharges + misc;
+  const ebitda       = grossProfit - totalExpenses;
+  const netProfit    = ebitda - zakatExp;
+
+  stmtData = { revenue, cogs, grossProfit, totalExpenses, salaries, rent, utilities, marketing,
+    depreciation, bankCharges, misc, zakat:zakatExp, ebitda, netProfit, vatOutput,
+    cash, receivables, inventoryVal, prepaid, fixedAssets, accumDeprec,
+    payables, vatPayable, loans, capital, retained, invCount, periodLabel, bizName, from, to };
+
+  renderIncomeStatement();
+  renderBalanceSheet();
+  renderZakat();
+  renderQawaemSummary();
+
+  // Update sidebar
+  document.getElementById('sb-revenue').textContent  = 'SAR ' + fmt(revenue);
+  document.getElementById('sb-expenses').textContent = 'SAR ' + fmt(cogs + totalExpenses);
+  document.getElementById('sb-profit').textContent   = 'SAR ' + fmt(netProfit);
+  document.getElementById('sb-profit').style.color   = netProfit >= 0 ? 'var(--green)' : 'var(--red)';
+}
+function renderIncomeStatement() {
+  const d = stmtData;
+  const L2 = L;
+
+  document.getElementById('inc-biz-name').textContent = d.bizName;
+  document.getElementById('inc-period').textContent   = (L2==='ar'?'للفترة المنتهية في ':'For period ending ') + d.to;
+
+  const rows = (label, val, cls='', indent=false) =>
+    `<div class="stmt-row${indent?' indent':''}${cls?' '+cls:''}">
+      <span class="stmt-label">${label}</span>
+      <span class="stmt-val${val<0?' red':val>0?' green':''}">${val<0?'('+fmt(-val)+')':fmt(val)}</span>
+    </div>`;
+
+  document.getElementById('income-body').innerHTML = `
+    <div class="stmt-group" data-group="rev">${L2==='ar'?'الإيرادات':'Revenue'}</div>
+    ${rows(L2==='ar'?'إيرادات المبيعات':'Sales Revenue', d.revenue)}
+    ${rows(L2==='ar'?'(عدد الفواتير: '+d.invCount+')':'(Invoices: '+d.invCount+')', 0, 'indent')}
+
+    <div class="stmt-group">${L2==='ar'?'تكلفة البضاعة المباعة':'Cost of Goods Sold'}</div>
+    ${rows(L2==='ar'?'تكلفة المبيعات (COGS)':'Cost of Sales (COGS)', d.cogs)}
+    <div class="stmt-row subtotal">
+      <span>${L2==='ar'?'مجمل الربح':'Gross Profit'}</span>
+      <span class="stmt-val${d.grossProfit>=0?' green':' red'}">${fmt(Math.abs(d.grossProfit))}</span>
+    </div>
+
+    <div class="stmt-group">${L2==='ar'?'المصاريف التشغيلية':'Operating Expenses'}</div>
+    ${d.salaries>0    ? rows(L2==='ar'?'مصاريف الرواتب':'Salaries', d.salaries, '', true) : ''}
+    ${d.rent>0        ? rows(L2==='ar'?'مصاريف الإيجار':'Rent', d.rent, '', true) : ''}
+    ${d.utilities>0   ? rows(L2==='ar'?'مصاريف الكهرباء والمياه':'Utilities', d.utilities, '', true) : ''}
+    ${d.marketing>0   ? rows(L2==='ar'?'مصاريف التسويق':'Marketing', d.marketing, '', true) : ''}
+    ${d.depreciation>0? rows(L2==='ar'?'مصاريف الإهلاك':'Depreciation', d.depreciation, '', true) : ''}
+    ${d.bankCharges>0 ? rows(L2==='ar'?'مصاريف بنكية':'Bank Charges', d.bankCharges, '', true) : ''}
+    ${d.misc>0        ? rows(L2==='ar'?'مصاريف متنوعة':'Misc Expenses', d.misc, '', true) : ''}
+    ${d.totalExpenses===0 ? `<div class="stmt-row indent"><span style="color:var(--muted);font-size:12px;">${L2==='ar'?'لا توجد مصاريف مسجّلة — أضف قيوداً في دفتر الأستاذ':'No expenses recorded — add entries in the ledger'}</span></div>` : ''}
+    <div class="stmt-row subtotal">
+      <span>${L2==='ar'?'إجمالي المصاريف':'Total Expenses'}</span>
+      <span class="stmt-val red">${fmt(d.totalExpenses)}</span>
+    </div>
+
+    <div class="stmt-group">${L2==='ar'?'صافي الربح قبل الزكاة':'Net Profit before Zakat'}</div>
+    <div class="stmt-row subtotal">
+      <span>${L2==='ar'?'الربح قبل الزكاة':'Profit before Zakat'}</span>
+      <span class="stmt-val${d.ebitda>=0?' green':' red'}">${d.ebitda<0?'('+fmt(-d.ebitda)+')':fmt(d.ebitda)}</span>
+    </div>
+    ${d.zakat>0 ? rows(L2==='ar'?'الزكاة المستحقة':'Zakat', d.zakat) : ''}
+
+    <div class="stmt-row ${d.netProfit>=0?'profit':'loss'}">
+      <span>${L2==='ar'?'صافي الربح (الخسارة)':'Net Profit (Loss)'}</span>
+      <span class="stmt-val white">${d.netProfit<0?'('+fmt(-d.netProfit)+')':fmt(d.netProfit)} SAR</span>
+    </div>`;
+}
+function renderBalanceSheet() {
+  const d  = stmtData;
+  const L2 = L;
+
+  document.getElementById('bal-biz-name').textContent = d.bizName;
+  document.getElementById('bal-period').textContent   = (L2==='ar'?'كما في ':'As at ') + d.to;
+
+  const totalCurrentAssets  = d.cash + d.receivables + d.inventoryVal + d.prepaid;
+  const totalFixedAssets     = d.fixedAssets - d.accumDeprec;
+  const totalAssets          = totalCurrentAssets + totalFixedAssets;
+  const totalCurrentLiab     = d.payables + d.vatPayable;
+  const totalLongTermLiab    = d.loans;
+  const totalLiabilities     = totalCurrentLiab + totalLongTermLiab;
+  const equityRetained       = d.retained + d.netProfit;
+  const totalEquity          = d.capital + equityRetained;
+  const totalLiabEquity      = totalLiabilities + totalEquity;
+
+  const row = (label, val, bold=false, indent=false) =>
+    `<div class="stmt-row${indent?' indent':''}">
+      <span class="stmt-label" style="${bold?'font-weight:700;':''}">${label}</span>
+      <span class="stmt-val">${fmt(val)}</span>
+    </div>`;
+
+  document.getElementById('balance-body').innerHTML = `
+    <div class="stmt-group">${L2==='ar'?'الأصول المتداولة':'Current Assets'}</div>
+    ${row(L2==='ar'?'النقد وما في حكمه':'Cash & Equivalents', d.cash, false, true)}
+    ${row(L2==='ar'?'ذمم مدينة':'Receivables', d.receivables, false, true)}
+    ${row(L2==='ar'?'المخزون':'Inventory', d.inventoryVal, false, true)}
+    ${d.prepaid>0?row(L2==='ar'?'مصاريف مدفوعة مقدماً':'Prepaid Expenses', d.prepaid, false, true):''}
+    <div class="stmt-row subtotal"><span>${L2==='ar'?'إجمالي الأصول المتداولة':'Total Current Assets'}</span><span class="stmt-val">${fmt(totalCurrentAssets)}</span></div>
+
+    <div class="stmt-group">${L2==='ar'?'الأصول الثابتة':'Fixed Assets'}</div>
+    ${d.fixedAssets>0?row(L2==='ar'?'الأصول الثابتة — إجمالي':'Fixed Assets — Gross', d.fixedAssets, false, true):''}
+    ${d.accumDeprec>0?row(L2==='ar'?'يُطرح: مجمع الإهلاك':'Less: Accumulated Depreciation', -d.accumDeprec, false, true):''}
+    <div class="stmt-row subtotal"><span>${L2==='ar'?'صافي الأصول الثابتة':'Net Fixed Assets'}</span><span class="stmt-val">${fmt(totalFixedAssets)}</span></div>
+
+    <div class="stmt-row total"><span>${L2==='ar'?'إجمالي الأصول':'TOTAL ASSETS'}</span><span class="stmt-val white">${fmt(totalAssets)}</span></div>
+
+    <div class="stmt-group">${L2==='ar'?'الخصوم المتداولة':'Current Liabilities'}</div>
+    ${d.payables>0?row(L2==='ar'?'ذمم دائنة':'Payables', d.payables, false, true):''}
+    ${d.vatPayable>0?row(L2==='ar'?'ضريبة القيمة المضافة المستحقة':'VAT Payable', d.vatPayable, false, true):''}
+    <div class="stmt-row subtotal"><span>${L2==='ar'?'إجمالي الخصوم المتداولة':'Total Current Liabilities'}</span><span class="stmt-val">${fmt(totalCurrentLiab)}</span></div>
+
+    ${d.loans>0?`
+    <div class="stmt-group">${L2==='ar'?'الخصوم طويلة الأجل':'Long-term Liabilities'}</div>
+    ${row(L2==='ar'?'قروض طويلة الأجل':'Long-term Loans', d.loans, false, true)}
+    `:''}
+
+    <div class="stmt-row subtotal"><span>${L2==='ar'?'إجمالي الخصوم':'Total Liabilities'}</span><span class="stmt-val">${fmt(totalLiabilities)}</span></div>
+
+    <div class="stmt-group">${L2==='ar'?'حقوق الملكية':'Equity'}</div>
+    ${d.capital>0?row(L2==='ar'?'رأس المال':'Share Capital', d.capital, false, true):''}
+    ${row(L2==='ar'?'الأرباح المحتجزة وصافي الربح':'Retained Earnings + Net Profit', equityRetained, false, true)}
+    <div class="stmt-row subtotal"><span>${L2==='ar'?'إجمالي حقوق الملكية':'Total Equity'}</span><span class="stmt-val">${fmt(totalEquity)}</span></div>
+
+    <div class="stmt-row total"><span>${L2==='ar'?'إجمالي الخصوم وحقوق الملكية':'TOTAL LIABILITIES & EQUITY'}</span><span class="stmt-val white">${fmt(totalLiabEquity)}</span></div>
+
+    ${Math.abs(totalAssets - totalLiabEquity) > 1 ? `
+    <div style="padding:10px 22px;background:#fffbeb;font-size:11px;color:var(--amber);">
+      ⚠ ${L2==='ar'?'الميزانية غير متوازنة — الفجوة: SAR '+fmt(Math.abs(totalAssets-totalLiabEquity))+' — أضف قيوداً في دفتر الأستاذ لتسوية الفروقات':'Balance sheet unbalanced — gap: SAR '+fmt(Math.abs(totalAssets-totalLiabEquity))+' — add journal entries to reconcile'}
+    </div>` : ''}`;
+}
+function renderZakat() {
+  const d  = stmtData;
+  const L2 = L;
+
+  document.getElementById('zakat-period').textContent = (L2==='ar'?'السنة المالية: ':'Fiscal Year: ') + d.from.substring(0,4);
+
+  // Zakat base = Net Working Capital
+  const currentAssets = d.cash + d.receivables + d.inventoryVal + d.prepaid;
+  const currentLiab   = d.payables + d.vatPayable;
+  const workingCap    = currentAssets - currentLiab;
+  const zakatBase     = Math.max(0, workingCap);
+  const zakatDue      = zakatBase * 0.025;
+  const nisab         = 20650; // approx SAR nisab for 2026
+
+  document.getElementById('zakat-body').innerHTML = `
+    <div class="zakat-row">
+      <span>${L2==='ar'?'إجمالي الأصول المتداولة':'Total Current Assets'}</span>
+      <span class="zakat-val">SAR ${fmt(currentAssets)}</span>
+    </div>
+    <div class="zakat-row">
+      <span>${L2==='ar'?'يُطرح: الخصوم المتداولة':'Less: Current Liabilities'}</span>
+      <span class="zakat-val" style="color:var(--red);">(SAR ${fmt(currentLiab)})</span>
+    </div>
+    <div class="zakat-row" style="background:var(--tint);font-weight:600;">
+      <span>${L2==='ar'?'رأس المال العامل (وعاء الزكاة)':'Working Capital (Zakat Base)'}</span>
+      <span class="zakat-val" style="color:var(--navy);">SAR ${fmt(zakatBase)}</span>
+    </div>
+    <div class="zakat-row">
+      <span>${L2==='ar'?'نسبة الزكاة':'Zakat Rate'}</span>
+      <span class="zakat-val">2.5%</span>
+    </div>
+    <div class="zakat-row">
+      <span>${L2==='ar'?'النصاب (تقريباً)':'Nisab (approx)'}</span>
+      <span class="zakat-val">SAR ${fmt(nisab)}</span>
+    </div>
+    <div class="zakat-row">
+      <span>${L2==='ar'?'هل وعاء الزكاة يبلغ النصاب؟':'Zakat base meets Nisab?'}</span>
+      <span class="zakat-val" style="color:${zakatBase>=nisab?'var(--green)':'var(--muted)'};font-weight:700;">${zakatBase>=nisab?(L2==='ar'?'✓ نعم':'✓ Yes'):(L2==='ar'?'لا — أقل من النصاب':'No — below Nisab')}</span>
+    </div>
+    <div class="zakat-row total">
+      <span>${L2==='ar'?'الزكاة المستحقة':'Zakat Due'}</span>
+      <span class="zakat-val" style="font-size:18px;">${zakatBase>=nisab?'SAR '+fmt(zakatDue):(L2==='ar'?'لا زكاة مستحقة':'No Zakat due')}</span>
+    </div>
+    <div style="padding:12px 22px;font-size:11px;color:var(--muted);line-height:1.7;border-top:1px solid var(--border);">
+      ${L2==='ar'
+        ?'ملاحظة: هذا الحساب تقديري وفق طريقة الأصول المتداولة المعدّلة. يُنصح بمراجعة محاسب معتمد قبل تقديم إقرار الزكاة الرسمي لدى هيئة الزكاة والضريبة والجمارك.'
+        :'Note: This is an estimate using the adjusted net current assets method. Consult a certified accountant before filing the official Zakat return with ZATCA.'}
+    </div>`;
+}
+function renderQawaemSummary() {
+  const d  = stmtData;
+  const L2 = L;
+  document.getElementById('qawaem-summary').innerHTML = `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;font-size:12px;">
+      <div><strong>${L2==='ar'?'إجمالي الإيرادات:':'Total Revenue:'}</strong> SAR ${fmt(d.revenue)}</div>
+      <div><strong>${L2==='ar'?'صافي الربح:':'Net Profit:'}</strong> <span style="color:${d.netProfit>=0?'var(--green)':'var(--red)'};">SAR ${fmt(Math.abs(d.netProfit))}</span></div>
+      <div><strong>${L2==='ar'?'عدد الفواتير:':'Invoices:'}</strong> ${d.invCount}</div>
+      <div><strong>${L2==='ar'?'الفترة:':'Period:'}</strong> ${d.from.substring(0,4)}</div>
+    </div>`;
+}
+function goTab(name) {
+  ['income','balance','zakat','qawaem'].forEach(t => {
+    document.getElementById('tc-'+t).classList.toggle('active', t===name);
+    const sb = document.getElementById('sb-'+t);
+    if (sb) sb.classList.toggle('active', t===name);
+  });
+}
+function fmt(n)        { return (n||0).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g,','); }
+function today()       { return new Date().toISOString().split('T')[0]; }
+function toggleMobSidebar(){
+  const sb=document.querySelector('.sidebar');
+  const ov=document.getElementById('mob-overlay');
+  if(!sb)return;
+  const open=sb.classList.toggle('mob-open');
+  if(ov)ov.style.display=open?'block':'none';
+  document.getElementById('mob-sb-btn').textContent=open?'×':'☰';
+}
+function closeMobSidebar(){
+  const sb=document.querySelector('.sidebar');
+  const ov=document.getElementById('mob-overlay');
+  if(sb)sb.classList.remove('mob-open');
+  if(ov)ov.style.display='none';
+  const btn=document.getElementById('mob-sb-btn');
+  if(btn)btn.textContent='☰';
+}
+function fixDates(){
+    document.querySelectorAll('input[type="date"]').forEach(function(el){
+      if(!el.getAttribute('data-gregorian-fixed')){
+        el.setAttribute('lang','en-SA-u-ca-gregory');
+        el.setAttribute('data-gregorian-fixed','1');
+      }
+    });
+  }
+function getStoredLang(){return localStorage.getItem('gl_lang')||'ar';}
+let _glStmtInitDone=false;
+async function glStmtInit(){
+  if(_glStmtInitDone) return; _glStmtInitDone=true;
+  try{
+  }catch(e){ console.error('[GL statements]', e); }
 }
 
 function showReport(name, btn, preset){
