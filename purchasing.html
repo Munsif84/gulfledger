@@ -620,7 +620,7 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
         <span data-ar="شحنة تصدير جديدة" data-en="New Export Shipment">شحنة تصدير جديدة</span>
       </button>
     </div>
-    <div class="gl-hint" style="margin-bottom:10px;" data-ar="القاعدة: عملاء المحل (walk-in) تُفوتر مبيعاتهم بضريبة 15% دائماً — التصدير الصفري حصراً عبر شحنة موثقة ببيان تصدير جمركي، والفاتورة تُصدر كخطوة أخيرة." data-en="Rule: walk-in customers are always invoiced at 15% — zero-rated export happens only through a documented shipment with a customs export declaration; the invoice is the last step.">القاعدة: عملاء المحل (walk-in) تُفوتر مبيعاتهم بضريبة 15% دائماً — التصدير الصفري حصراً عبر شحنة موثقة ببيان تصدير جمركي، والفاتورة تُصدر كخطوة أخيرة.</div>
+    <div class="gl-hint" style="margin-bottom:10px;" data-ar="القاعدة: عملاء المحل تُفوتر مبيعاتهم بضريبة 15% دائماً. دورة التصدير: شحنة ← فاتورة (تُرفق للتخليص) ← شحن ← بيان جمركي يُسجَّل هنا فيكتمل الإثبات." data-en="Rule: walk-ins are always invoiced at 15%. Export lifecycle: shipment → invoice (accompanies customs clearance) → ship → declaration recorded here, completing the evidence.">القاعدة: عملاء المحل (walk-in) تُفوتر مبيعاتهم بضريبة 15% دائماً — التصدير الصفري حصراً عبر شحنة موثقة ببيان تصدير جمركي، والفاتورة تُصدر كخطوة أخيرة.</div>
     <div id="exp-list"></div>
   </div>
 
@@ -664,12 +664,16 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
       </div>
       <div class="field"><div class="field-label" data-ar="ربط فاتورة التصدير" data-en="Linked Export Invoice">ربط فاتورة التصدير</div>
         <select id="exp-invoice"><option value="">—</option></select></div>
+      <div class="field"><div class="field-label" data-ar="مستندات الإثبات" data-en="Evidence Documents">مستندات الإثبات</div>
+        <input type="file" id="exp-files" multiple accept=".pdf,.jpg,.jpeg,.png">
+        <div class="field-hint" data-ar="بيان التصدير، بوليصة الشحن AWB/BL، الفاتورة التجارية، قائمة التعبئة — PDF/JPG/PNG" data-en="Export declaration, AWB/BL, commercial invoice, packing list — PDF/JPG/PNG">بيان التصدير، بوليصة الشحن AWB/BL، الفاتورة التجارية، قائمة التعبئة — PDF/JPG/PNG</div>
+        <div id="exp-files-list" style="margin-top:6px;font-size:12px;"></div></div>
       <div class="field"><div class="field-label" data-ar="ملاحظات" data-en="Notes">ملاحظات</div>
         <textarea id="exp-notes" rows="2"></textarea></div>
       <div class="gl-hint" data-ar="بيان التصدير هو إثبات نسبة الصفر أمام الزكاة والضريبة — بدونه الفاتورة الصفرية غير مدعومة نظاماً." data-en="The export declaration is the legal evidence for zero-rating — without it a zero-rated invoice is undefended in audit.">بيان التصدير هو إثبات نسبة الصفر أمام الزكاة والضريبة — بدونه الفاتورة الصفرية غير مدعومة نظاماً.</div>
     </div>
     <div class="modal-foot" style="display:flex;gap:8px;justify-content:space-between;padding:14px 18px;border-top:1px solid #EFEDE7;">
-      <a class="btn btn-ghost" id="exp-issue-link" href="invoices.html" data-ar="🧾 إصدار الفاتورة (الخطوة الأخيرة)" data-en="🧾 Issue Invoice (last step)">🧾 إصدار الفاتورة (الخطوة الأخيرة)</a>
+      <a class="btn btn-ghost" id="exp-issue-link" href="invoices.html" data-ar="🧾 إصدار فاتورة التصدير" data-en="🧾 Issue Export Invoice">🧾 إصدار فاتورة التصدير</a>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-ghost" onclick="expClose()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
         <button class="btn btn-primary" onclick="expSave()" data-ar="حفظ الشحنة" data-en="Save Shipment">حفظ الشحنة</button>
@@ -2554,8 +2558,9 @@ function formatDateTime(iso){
    The shipment record carries the customs export declaration that legally
    defends the zero rate; the invoice is issued as the LAST step and linked
    back. No journal here — the sale's accounting lives on the invoice. */
-let expShipments = [];
+let expShipments = [], expEditId = null;
 async function expOpen(editId){
+  expEditId = editId || null;
   const ar = currentLang === 'ar';
   const sel = document.getElementById('exp-customer');
   const {data: fc} = await sb.from('customers').select('id,name,name_ar,name_en,country')
@@ -2565,7 +2570,37 @@ async function expOpen(editId){
   sel.onchange = expFillInvoices;
   document.getElementById('exp-invoice').innerHTML = '<option value="">—</option>';
   document.getElementById('exp-decl-date').value = new Date().toISOString().slice(0,10);
+  ['exp-decl','exp-carrier','exp-notes'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('exp-status').value = 'preparing';
+  document.getElementById('exp-files').value = '';
+  document.getElementById('exp-files-list').innerHTML = '';
+  if(expEditId){
+    const s = expShipments.find(x => x.id === expEditId);
+    if(s){
+      sel.value = s.customer_id || '';
+      await expFillInvoices();
+      document.getElementById('exp-invoice').value = s.invoice_id || '';
+      document.getElementById('exp-decl').value = s.declaration_no || '';
+      if(s.declaration_date) document.getElementById('exp-decl-date').value = s.declaration_date;
+      document.getElementById('exp-carrier').value = s.carrier_ref || '';
+      document.getElementById('exp-status').value = s.status || 'preparing';
+      document.getElementById('exp-notes').value = s.notes || '';
+      expRenderFiles(s);
+    }
+  }
   document.getElementById('exp-modal').classList.add('open');
+}
+function expRenderFiles(s){
+  const ar = currentLang === 'ar';
+  let files = [];
+  try{ files = JSON.parse(s.notes_files || s.files_json || '[]'); }catch(_e){}
+  if(s._files) files = s._files;
+  document.getElementById('exp-files-list').innerHTML = (files||[]).map(f =>
+    `<div>📎 <a href="#" onclick="expOpenFile('${f.path}');return false;">${escHTML(f.name)}</a></div>`).join('');
+}
+async function expOpenFile(path){
+  const {data} = await sb.storage.from('expense-receipts').createSignedUrl(path, 300);
+  if(data?.signedUrl) window.open(data.signedUrl, '_blank');
 }
 async function expFillInvoices(){
   const cid = document.getElementById('exp-customer').value;
@@ -2590,7 +2625,16 @@ async function expSave(){
     notify(ar?'حالة "مُصدَّر" تتطلب رقم بيان التصدير':'Status "Declared" requires the declaration number','error'); return;
   }
   const {data: cust} = await sb.from('customers').select('country').eq('id', cid).single();
-  const {error} = await sb.from('export_shipments').insert({
+  /* attachments: upload each file to storage, collect refs */
+  const fl = document.getElementById('exp-files').files;
+  const uploaded = [];
+  for(const file of fl){
+    const path = `${currentBiz.id}/exports/${Date.now()}-${file.name}`;
+    const {error: upErr} = await sb.storage.from('expense-receipts').upload(path, file, {upsert:false});
+    if(upErr){ notify((ar?'فشل رفع ':'Upload failed: ') + file.name, 'error'); }
+    else uploaded.push({name: file.name, path});
+  }
+  const payload = {
     business_id: currentBiz.id, user_id: currentUser.id, customer_id: cid,
     destination_country: cust?.country || null,
     declaration_no: decl || null,
@@ -2598,10 +2642,26 @@ async function expSave(){
     carrier_ref: document.getElementById('exp-carrier').value.trim() || null,
     invoice_id: document.getElementById('exp-invoice').value || null,
     status, notes: document.getElementById('exp-notes').value.trim() || null
-  });
+  };
+  if(uploaded.length){
+    const prev = expEditId ? (expShipments.find(x=>x.id===expEditId)||{}) : {};
+    let old = []; try{ old = JSON.parse(prev.files_json||'[]'); }catch(_e){}
+    payload.files_json = JSON.stringify(old.concat(uploaded));
+  }
+  let error;
+  if(expEditId){ ({error} = await sb.from('export_shipments').update(payload).eq('id', expEditId)); }
+  else { ({error} = await sb.from('export_shipments').insert(payload)); }
   if(error){ notify((ar?'خطأ: ':'Error: ') + error.message,'error'); return; }
   notify(ar?'✓ تم حفظ شحنة التصدير':'✓ Export shipment saved','success');
   expClose(); expLoad();
+}
+async function expDelete(id){
+  const ar = currentLang === 'ar';
+  if(!confirm(ar?'حذف شحنة التصدير؟ (لا يمس الفاتورة المرتبطة)':'Delete this export shipment? (linked invoice untouched)')) return;
+  const {error} = await sb.from('export_shipments').delete().eq('id', id);
+  if(error){ notify((ar?'خطأ: ':'Error: ') + error.message,'error'); return; }
+  notify(ar?'✓ حُذفت الشحنة':'✓ Shipment deleted','success');
+  expLoad();
 }
 async function expLoad(){
   const ar = currentLang === 'ar';
@@ -2618,16 +2678,21 @@ async function expLoad(){
   el.innerHTML = `<table class="tbl"><thead><tr>
       <th>${ar?'العميل':'Customer'}</th><th>${ar?'الوجهة':'Destination'}</th>
       <th>${ar?'بيان التصدير':'Declaration'}</th><th>${ar?'الشحن':'Carrier'}</th>
-      <th>${ar?'الحالة':'Status'}</th><th class="ctr">${ar?'الإثبات':'Evidence'}</th></tr></thead><tbody>
+      <th>${ar?'الحالة':'Status'}</th><th class="ctr">${ar?'الإثبات':'Evidence'}</th><th class="ctr"></th></tr></thead><tbody>
     ${expShipments.map(s => {
       const c = s.customers || {};
       const nm = (ar?(c.name_ar||c.name||c.name_en):(c.name_en||c.name||c.name_ar))||'—';
       const ev = s.declaration_no
         ? '<span style="color:#0E5232;font-weight:700;">✓</span>'
         : '<span title="' + (ar?'الفاتورة الصفرية غير مدعومة بدون بيان':'Zero-rating undefended without declaration') + '" style="color:#b45309;font-weight:700;">⚠</span>';
+      let nf = 0; try{ nf = JSON.parse(s.files_json||'[]').length; }catch(_e){}
       return `<tr><td>${escHTML(nm)}</td><td class="nowrap">${escHTML(s.destination_country||'—')}</td>
         <td class="nowrap">${escHTML(s.declaration_no||'—')}</td><td>${escHTML(s.carrier_ref||'—')}</td>
-        <td>${stLbl(s.status)}</td><td class="ctr">${ev}</td></tr>`;
+        <td>${stLbl(s.status)}</td><td class="ctr">${ev}${nf?` <span style="color:#5B7263;">📎${nf}</span>`:''}</td>
+        <td class="ctr nowrap">
+          <button class="btn btn-ghost btn-sm" onclick="expOpen('${s.id}')" title="${ar?'تعديل':'Edit'}">✏️</button>
+          <button class="btn btn-ghost btn-sm" onclick="expDelete('${s.id}')" title="${ar?'حذف':'Delete'}">🗑</button>
+        </td></tr>`;
     }).join('')}
   </tbody></table>`;
 }
