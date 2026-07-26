@@ -428,6 +428,38 @@
     document.addEventListener('DOMContentLoaded', glApplyStaticLang);
   } else { glApplyStaticLang(); }
 
+
+  /* ── UNIVERSAL LANGUAGE SWITCHER (central fallback) ─────────────────────
+     Older/lighter pages carry no switcher and no profile menu. Rather than
+     grafting headers per page: if a page has no #btn-ar, inject the flag
+     pair into its top bar, and provide setLang if the page lacks one
+     (persist + reload — the sitewide convention). Every page, present and
+     future, gets a working switcher with zero page edits. */
+  function glEnsureLang(){
+    if(document.getElementById('btn-ar')) return;
+    var host = document.querySelector('.nav-right') || document.querySelector('.topnav') || document.querySelector('header');
+    if(!host) return;
+    if(typeof window.setLang !== 'function'){
+      window.setLang = function(l){
+        var prev = localStorage.getItem('gl_lang');
+        localStorage.setItem('gl_lang', l);
+        if(prev !== l) location.reload();
+      };
+    }
+    var wrap = document.createElement('div');
+    wrap.className = 'lang-switch';
+    wrap.style.cssText = 'display:inline-flex;gap:4px;align-items:center;margin-inline-start:8px;';
+    wrap.innerHTML =
+        '<button class="lang-btn" id="btn-ar" title="العربية" aria-label="العربية" style="font-size:17px;line-height:1;padding:4px 8px;background:transparent;border:1px solid rgba(255,255,255,0.3);border-radius:6px;cursor:pointer;">🇸🇦</button>'
+      + '<button class="lang-btn" id="btn-en" title="English" aria-label="English" style="font-size:17px;line-height:1;padding:4px 8px;background:transparent;border:1px solid rgba(255,255,255,0.3);border-radius:6px;cursor:pointer;">🇬🇧</button>';
+    wrap.querySelector('#btn-ar').addEventListener('click', function(){ window.setLang('ar'); });
+    wrap.querySelector('#btn-en').addEventListener('click', function(){ window.setLang('en'); });
+    host.appendChild(wrap);
+  }
+  if(document.readyState === 'loading'){
+    document.addEventListener('DOMContentLoaded', glEnsureLang);
+  } else { glEnsureLang(); }
+
   function glListbar(){
     var ar = lang() === 'ar';
     /* Scan the standard .toolbar AND report-specific toolbars so the one filter
