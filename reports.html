@@ -749,30 +749,11 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
          takes the user straight to the right view in accounting.html. Working as a deep
          link is preferred over duplicating the rendering code, which is tightly bound to
          the closed-period system, account-map cache, and snapshot mechanism. -->
-    <div class="sidebar-group">
-      <div class="sidebar-group-label" data-ar="التقارير المالية" data-en="Financials">التقارير المالية</div>
-      <a class="sidebar-link" href="accounting.html?sub=reports&amp;view=tb">
-        <span class="icon">📒</span>
-        <span data-ar="ميزان المراجعة" data-en="Trial Balance">ميزان المراجعة</span>
-        <span class="link-out" title="يفتح في المحاسبة · Opens in Accounting">↗</span>
-      </a>
-      <a class="sidebar-link" href="accounting.html?sub=reports&amp;view=pl">
-        <span class="icon"><svg class="gl-i"><use href="/gl-icons.svg#i-trend-up"/></svg></span>
-        <span data-ar="قائمة الدخل" data-en="Profit & Loss">قائمة الدخل</span>
-        <span class="link-out" title="يفتح في المحاسبة · Opens in Accounting">↗</span>
-      </a>
-      <a class="sidebar-link" href="accounting.html?sub=reports&amp;view=bs">
-        <span class="icon"><svg class="gl-i"><use href="/gl-icons.svg#i-scale"/></svg></span>
-        <span data-ar="الميزانية العمومية" data-en="Balance Sheet">الميزانية العمومية</span>
-        <span class="link-out" title="يفتح في المحاسبة · Opens in Accounting">↗</span>
-      </a>
-      <a class="sidebar-link" href="accounting.html?sub=reports&amp;view=cf">
-        <span class="icon"><svg class="gl-i"><use href="/gl-icons.svg#i-cash"/></svg></span>
-        <span data-ar="التدفقات النقدية" data-en="Cash Flow">التدفقات النقدية</span>
-        <span class="link-out" title="يفتح في المحاسبة · Opens in Accounting">↗</span>
-      </a>
-    </div>
+    
       <div class="sidebar-group-label" data-ar="صفحات مرتبطة" data-en="Related">صفحات مرتبطة</div>
+    <button class="sidebar-link" onclick="showReport('audit', this); glAuditInit();">
+      <span data-ar="📜 سجل التدقيق" data-en="📜 Audit Log">📜 سجل التدقيق</span>
+    </button>
     <a class="sidebar-link" href="statements.html" style="text-decoration:none;">
       <span data-ar="كشوف الحساب" data-en="Account Statements">كشوف الحساب</span>
     </a>
@@ -1047,6 +1028,149 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
         </div>
       </section>
 
+      
+      <section class="report-section" id="report-audit" style="display:none;">
+<div id="gl-audit-root">
+<div class="stats-row">
+    <div class="stat-card">
+      <div class="label" data-ar="عدد الأحداث" data-en="Events">عدد الأحداث</div>
+      <div class="value" id="stat-total">0</div>
+      <div class="sub" id="stat-total-sub"></div>
+    </div>
+    <div class="stat-card">
+      <div class="label" data-ar="أكثر مستخدم نشاطاً" data-en="Most active user">أكثر مستخدم نشاطاً</div>
+      <div class="value" id="stat-top-user" style="font-size:14px;">—</div>
+      <div class="sub" id="stat-top-user-sub"></div>
+    </div>
+    <div class="stat-card amber">
+      <div class="label" data-ar="عمليات الإلغاء" data-en="Voids">عمليات الإلغاء</div>
+      <div class="value" id="stat-voids">0</div>
+      <div class="sub" data-ar="في الفترة المحددة" data-en="in selected period">في الفترة المحددة</div>
+    </div>
+    <div class="stat-card">
+      <div class="label" data-ar="عمليات التعديل" data-en="Edits">عمليات التعديل</div>
+      <div class="value" id="stat-edits">0</div>
+      <div class="sub" data-ar="في الفترة المحددة" data-en="in selected period">في الفترة المحددة</div>
+    </div>
+  </div>
+
+  <!-- Toolbar (row 1): search + entity filter-group + action select + user select.
+       Matches the inline-controls pattern from invoices.html. -->
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <div class="search-wrap">
+        <span class="search-icon">🔍</span>
+        <input type="text" class="search-input" id="flt-search" placeholder="">
+      </div>
+      <!-- Entity filter pills (filter-group, populated by renderEntityPills) -->
+      <div id="entity-pills"></div>
+      <!-- Action filter as select dropdown (many values; select is cleaner than pills) -->
+      <select id="flt-action" class="filter-select" onchange="onActionSelectChange()">
+        <option value="" data-ar="كل الإجراءات" data-en="All actions">كل الإجراءات</option>
+      </select>
+      <!-- User filter as select dropdown -->
+      <select id="flt-user" class="filter-select">
+        <option value="" data-ar="كل المستخدمين" data-en="All users">كل المستخدمين</option>
+      </select>
+    </div>
+  </div>
+
+  <!-- Toolbar (row 2): date range + period preset filter-group. Two complementary
+       inputs on the time axis (precise date pickers + quick preset shortcuts). -->
+  <div class="toolbar">
+    <div class="toolbar-left">
+      <div class="date-range">
+        <div class="field">
+          <label data-ar="من" data-en="From">من</label>
+          <input type="date" id="flt-from">
+        </div>
+        <div class="field">
+          <label data-ar="إلى" data-en="To">إلى</label>
+          <input type="date" id="flt-to">
+        </div>
+      </div>
+      <!-- Period preset filter-group -->
+      <div class="filter-group">
+        <button class="filter-btn" data-preset="today" onclick="applyPreset('today')" data-ar="اليوم" data-en="Today">اليوم</button>
+        <button class="filter-btn" data-preset="7d" onclick="applyPreset('7d')" data-ar="7 أيام" data-en="7d">7 أيام</button>
+        <button class="filter-btn active" data-preset="30d" onclick="applyPreset('30d')" data-ar="30 يوم" data-en="30d">30 يوم</button>
+        <button class="filter-btn" data-preset="90d" onclick="applyPreset('90d')" data-ar="90 يوم" data-en="90d">90 يوم</button>
+        <button class="filter-btn" data-preset="year" onclick="applyPreset('year')" data-ar="هذا العام" data-en="Year">هذا العام</button>
+        <button class="filter-btn" data-preset="all" onclick="applyPreset('all')" data-ar="الكل" data-en="All">الكل</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Timeline (rendered as a series of day-grouped table-wraps) -->
+  <div id="audit-timeline">
+    <!-- filled by renderTimeline() -->
+  </div>
+
+</div>
+
+<!-- ═══ NOTIFY ═══ -->
+
+</div>
+<style>
+#gl-audit-root /* Stats row (canonical) */
+.stats-row{display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:16px;}
+#gl-audit-root .stat-card{background:#fff;border:1px solid var(--border);border-radius:10px;padding:12px 14px;}
+#gl-audit-root .stat-card .label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--muted);margin-bottom:4px;}
+#gl-audit-root .stat-card .value{font-family:inherit;font-variant-numeric:tabular-nums;font-size:20px;font-weight:700;color:var(--ink);line-height:1.1;}
+#gl-audit-root .stat-card .sub{font-size:11px;color:var(--muted);margin-top:2px;}
+#gl-audit-root .stat-card.amber{border-color:#fde68a;background:#fffbeb;}
+#gl-audit-root .stat-card.amber .value{color:var(--amber);}
+#gl-audit-root .stat-card.red{border-color:#fca5a5;background:#fef2f2;}
+#gl-audit-root .stat-card.red .value{color:var(--red);}
+#gl-audit-root .stat-card.green{border-color:#86efac;background:#f0fdf4;}
+#gl-audit-root .stat-card.green .value{color:var(--green);}
+#gl-audit-root /* Toolbar (canonical) */
+.toolbar{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:14px;flex-wrap:wrap;}
+#gl-audit-root .toolbar-left{display:flex;align-items:center;gap:8px;flex-wrap:wrap;flex:1;}
+#gl-audit-root .search-wrap{position:relative;flex:1;max-width:340px;min-width:200px;}
+#gl-audit-root /* Filter group + filter button — canonical segmented-control pattern from invoices.html.
+   Used for inline single-axis filters next to a search box. */
+.filter-group{display:inline-flex;background:var(--bg);border:1px solid var(--border);border-radius:8px;padding:2px;flex-wrap:wrap;}
+#gl-audit-root .filter-btn .count-badge{display:inline-block;background:var(--tint);color:var(--muted);padding:1px 6px;border-radius:6px;font-size:10px;font-weight:700;font-family:inherit;font-variant-numeric:tabular-nums;}
+#gl-audit-root .filter-btn.active .count-badge{background:var(--tint);color:var(--blue);}
+#gl-audit-root /* Date range row */
+.date-range{display:flex;gap:10px;align-items:flex-end;flex-wrap:wrap;margin-bottom:12px;}
+#gl-audit-root .date-range .field{display:flex;flex-direction:column;gap:4px;}
+#gl-audit-root .date-range label{font-size:11px;color:var(--muted);font-weight:700;text-transform:uppercase;letter-spacing:.05em;}
+#gl-audit-root .date-range input[type=date], #gl-audit-root .date-range select{padding:7px 10px;border:1.5px solid var(--border);border-radius:8px;font-family:inherit;font-size:13px;background:#fff;}
+#gl-audit-root .date-range input[type=date]:focus, #gl-audit-root .date-range select:focus{outline:none;border-color:var(--blue);}
+#gl-audit-root /* Table wrap (canonical) */
+.table-wrap{background:#fff;border:1px solid var(--border);border-radius:12px;overflow:hidden;}
+#gl-audit-root /* Day group header — sits inside the table-wrap above each day's rows */
+.day-header{padding:9px 14px;background:#fafbfa;color:var(--muted);font-size:11px;font-weight:700;letter-spacing:.04em;text-transform:uppercase;border-bottom:1px solid var(--tint);display:flex;justify-content:space-between;align-items:center;}
+#gl-audit-root .day-header .day-count{font-family:inherit;font-variant-numeric:tabular-nums;color:var(--ink);background:var(--tint);padding:1px 7px;border-radius:8px;font-size:11px;font-weight:700;}
+#gl-audit-root /* Entity-type badge (small inline icon+label) */
+.entity-badge{display:inline-flex;align-items:center;gap:4px;background:var(--tint);color:var(--ink);font-size:11px;font-weight:600;padding:2px 8px;border-radius:8px;}
+#gl-audit-root /* Action badge — color-coded by verb */
+.action-badge{display:inline-block;font-size:10px;font-weight:700;padding:2px 8px;border-radius:8px;text-transform:uppercase;letter-spacing:.04em;margin-inline-end:6px;}
+#gl-audit-root /* Reason callout (when entry has a reason field) */
+.reason-callout{margin-top:6px;font-size:12.5px;color:var(--ink);background:#fffbeb;border-inline-start:3px solid var(--amber);padding:6px 10px;border-radius:0 6px 6px 0;line-height:1.5;}
+#gl-audit-root /* Diff toggle + diff table */
+.diff-toggle{background:#fff;border:1px solid var(--border);color:var(--muted);padding:4px 10px;border-radius:6px;font-family:inherit;font-size:11px;font-weight:600;cursor:pointer;flex-shrink:0;transition:all .15s;}
+#gl-audit-root .diff-toggle:hover{border-color:var(--blue);color:var(--blue);}
+#gl-audit-root .diff-wrap{margin-top:10px;background:var(--bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;display:none;}
+#gl-audit-root .diff-wrap.open{display:block;}
+#gl-audit-root .diff-tbl{width:100%;border-collapse:collapse;font-size:12px;}
+#gl-audit-root .diff-tbl th{padding:8px 12px;background:var(--tint);text-align:start;font-size:10.5px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.04em;border-bottom:1px solid var(--border);}
+#gl-audit-root .diff-tbl td{padding:8px 12px;border-bottom:1px solid var(--tint);vertical-align:top;font-family:inherit;font-variant-numeric:tabular-nums;font-size:12px;line-height:1.5;}
+#gl-audit-root .diff-tbl tr:last-child td{border-bottom:none;}
+#gl-audit-root .diff-field{font-weight:700;color:var(--ink);font-family:'Tajawal','Cairo',sans-serif;}
+#gl-audit-root .diff-before{color:var(--muted);text-decoration:line-through;text-decoration-color:rgba(198,40,40,0.4);}
+#gl-audit-root .diff-after{color:var(--green);}
+#gl-audit-root /* Empty state (canonical) */
+.empty-state{text-align:center;padding:60px 20px;color:var(--muted);}
+#gl-audit-root .empty-state .icon{font-size:44px;opacity:0.3;margin-bottom:12px;}
+#gl-audit-root .empty-state .title{font-size:16px;font-weight:700;color:var(--ink);margin-bottom:6px;}
+#gl-audit-root .empty-state .text{font-size:13px;line-height:1.5;max-width:380px;margin:0 auto;}
+#gl-audit-root .stats-row{grid-template-columns:repeat(2,1fr);}
+#gl-audit-root .stats-row{grid-template-columns:1fr;}
+</style>
+      </section>
       <section class="report-section" id="report-pnl" style="display:none;">
         <div class="toolbar" id="pnl-toolbar" style="display:none;margin-bottom:10px;">
           <select class="filter-select" id="pnl-branch" onchange="runReportPnL()">
@@ -1367,6 +1491,7 @@ const REPORT_TITLES = {
   supplier_statement:{icon: '<svg class="gl-i"><use href="/gl-icons.svg#i-invoice"/></svg>', ar: 'كشف حساب مورد',                     en: 'Supplier Statement', sub_ar: 'حركة الفواتير والرصيد لمورد محدد خلال الفترة',                       sub_en: 'Bill activity and balance for a specific supplier over the period'},
   aging:             {icon: '⏳', ar: 'أعمار الذمم المدينة',                en: 'AR Aging',           sub_ar: 'الفواتير غير المسددة مجمّعة بحسب عمر التأخر',                       sub_en: 'Unpaid invoices grouped by how overdue they are'},
   ap_aging:          {icon: '⏳', ar: 'أعمار الذمم الدائنة',                en: 'AP Aging',           sub_ar: 'فواتير الموردين غير المسددة مجمّعة بحسب عمر التأخر',                  sub_en: 'Unpaid supplier bills grouped by how overdue they are'},
+  audit:             {icon: '📜', ar: 'سجل التدقيق', en: 'Audit Log', sub_ar: 'من فعل ماذا ومتى — كل التغييرات المسجلة', sub_en: 'Who did what, when — every recorded change'},
   pnl:               {icon: '⚖️', ar: 'قائمة الدخل — مقارنة الفترات',        en: 'P&L — Period Comparison', sub_ar: 'الإيرادات والمصروفات من دفتر القيود، الفترة الحالية مقابل الفترة السابقة المماثلة', sub_en: 'Revenue and expenses from the journal — current period vs the preceding equal period'},
   stock_valuation:   {icon: '💎', ar: 'تقييم المخزون',                       en: 'Stock Valuation',    sub_ar: 'القيمة الحالية للمخزون مع تحليل الأصناف الراكدة والمتحركة ببطء',     sub_en: 'Current inventory value with slow-moving and dead-stock analysis'}
 };
@@ -1497,6 +1622,547 @@ function setDefaultDates(){
    (date range vs as-of vs customer/supplier picker).
    For 'data_builder', shows the data-builder section; the engine takes over.
 ═══════════════════════════════════════════════════════ */
+/* ═══ AUDIT LOG (transplanted native section) ═══ */
+let glAuditInited = false;
+let allExpensesCache = {};
+let activeFilters = {
+  from: daysAgoISO(30),
+  to: todayISO(),
+  preset: '30d',
+  user_id: '',
+  entity_type: '',
+  action: '',
+  search: ''
+};
+const ENTITY_LABELS = {
+  invoice:         {ar:'فاتورة',       en:'Invoice',         icon:'🧾'},
+  expense:         {ar:'مصروف',         en:'Expense',         icon:'💸'},
+  inventory_item:  {ar:'صنف مخزون',     en:'Inventory item',  icon:'📦'},
+  supplier:        {ar:'مورد',          en:'Supplier',        icon:'🏭'},
+  purchase_order:  {ar:'أمر شراء',      en:'Purchase order',  icon:'📋'},
+  stock_receipt:   {ar:'استلام بضاعة',   en:'Stock receipt',    icon:'📥'},
+  customer:        {ar:'عميل',          en:'Customer',        icon:'👤'},
+  journal_entry:   {ar:'قيد محاسبي',    en:'Journal entry',   icon:'📒'},
+  business:        {ar:'منشأة',          en:'Business',        icon:'🏢'},
+  team_member:     {ar:'عضو فريق',       en:'Team member',     icon:'👥'},
+  other:           {ar:'أخرى',           en:'Other',            icon:'•'}
+};
+const ACTION_LABELS = {
+  created:              {ar:'أنشأ',         en:'created',              cls:'act-created'},
+  edited:               {ar:'عدّل',          en:'edited',               cls:'act-edited'},
+  deleted:              {ar:'حذف',          en:'deleted',              cls:'act-deleted'},
+  voided:               {ar:'ألغى',          en:'voided',               cls:'act-voided'},
+  paid:                 {ar:'سدد',          en:'paid',                 cls:'act-paid'},
+  deactivated:          {ar:'عطّل',          en:'deactivated',          cls:'act-deactivated'},
+  close_short:          {ar:'أغلق مبكراً',   en:'closed short',         cls:'act-close_short'},
+  add_supplier_invoice: {ar:'أضاف رقم الفاتورة',  en:'added invoice #',  cls:'act-add_supplier_invoice'},
+  auto_create_draft:    {ar:'أنشأ مسودة',        en:'auto-created draft', cls:'act-auto_create_draft'},
+  other:                {ar:'حدّث',          en:'updated',              cls:'act-other'}
+};
+let allEntries = [];
+function todayISO(){
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function daysAgoISO(n){
+  const d = new Date();
+  d.setDate(d.getDate() - n);
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+}
+function entityLabel(type){
+  const m = ENTITY_LABELS[type] || ENTITY_LABELS.other;
+  return currentLang === 'ar' ? m.ar : m.en;
+}
+function entityIcon(type){
+  return (ENTITY_LABELS[type] || ENTITY_LABELS.other).icon;
+}
+function actionLabel(act){
+  const m = ACTION_LABELS[act] || ACTION_LABELS.other;
+  return currentLang === 'ar' ? m.ar : m.en;
+}
+function actionClass(act){
+  return (ACTION_LABELS[act] || ACTION_LABELS.other).cls;
+}
+function normalizeAuditLog(row){
+  return {
+    id: 'A:' + row.id,
+    source: 'audit_log',
+    created_at: row.created_at,
+    user_id: row.user_id || null,
+    user_email: row.user_email || null,
+    entity_type: row.entity_type || 'other',
+    entity_id: row.entity_id || null,
+    entity_reference: row.entity_reference || null,
+    action: row.action || 'other',
+    before_data: row.before_data || null,
+    after_data: row.after_data || null,
+    reason: row.reason || null
+  };
+}
+function normalizeExpenseAuditLog(row){
+  const exp = allExpensesCache[row.expense_id];
+  return {
+    id: 'E:' + row.id,
+    source: 'expense_audit_log',
+    created_at: row.created_at || new Date().toISOString(),
+    user_id: row.user_id || null,
+    user_email: row.user_email || null,
+    entity_type: 'expense',
+    entity_id: row.expense_id,
+    entity_reference: exp?.expense_number || null,
+    action: row.action || 'edited',
+    before_data: null,
+    after_data: null,
+    reason: row.reason || null
+  };
+}
+function fmtTimeRelative(iso){
+  if(!iso) return '—';
+  const ar = currentLang === 'ar';
+  const diff = Math.max(0, Date.now() - new Date(iso).getTime());
+  const min = Math.floor(diff / 60000);
+  if(min < 1)    return ar ? 'الآن' : 'just now';
+  if(min < 60)   return ar ? `قبل ${min} دقيقة` : `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if(hr < 24)    return ar ? `قبل ${hr} ساعة` : `${hr}h ago`;
+  const days = Math.floor(hr / 24);
+  if(days < 7)   return ar ? `قبل ${days} يوم` : `${days}d ago`;
+  const weeks = Math.floor(days / 7);
+  if(weeks < 5)  return ar ? `قبل ${weeks} أسبوع` : `${weeks}w ago`;
+  return iso.slice(0, 10);
+}
+function fmtTimeAbs(iso){
+  if(!iso) return '—';
+  try {
+    const d = new Date(iso);
+    return d.toLocaleString(currentLang === 'ar' ? 'ar-SA-u-nu-latn' : 'en-US', {
+      year:'numeric', month:'short', day:'2-digit', hour:'2-digit', minute:'2-digit'
+    });
+  } catch(e){ return iso; }
+}
+function fmtDayHeader(iso){
+  const ar = currentLang === 'ar';
+  if(!iso) return '—';
+  const date = new Date(iso);
+  const today = new Date(); today.setHours(0,0,0,0);
+  const yesterday = new Date(today); yesterday.setDate(yesterday.getDate() - 1);
+  const that = new Date(date); that.setHours(0,0,0,0);
+  if(that.getTime() === today.getTime())     return ar ? 'اليوم' : 'Today';
+  if(that.getTime() === yesterday.getTime()) return ar ? 'الأمس' : 'Yesterday';
+  try {
+    return date.toLocaleDateString(ar ? 'ar-SA-u-nu-latn' : 'en-US', {
+      weekday:'long', year:'numeric', month:'long', day:'numeric'
+    });
+  } catch(e){ return iso.slice(0, 10); }
+}
+async function loadEntries(){
+  if(!currentBiz?.id) return;
+  const ar = currentLang === 'ar';
+  const wrap = document.getElementById('audit-timeline');
+  wrap.innerHTML = `<div class="loading-state"><div class="loading-spinner">⏳</div><div>${ar?'جارٍ تحميل السجل...':'Loading audit log...'}</div></div>`;
+
+  const fromTs = activeFilters.from ? activeFilters.from + 'T00:00:00' : null;
+  const toTs   = activeFilters.to   ? activeFilters.to   + 'T23:59:59' : null;
+
+  try {
+    let q1 = sb.from('audit_log')
+      .select('id, created_at, user_id, user_email, entity_type, entity_id, entity_reference, action, before_data, after_data, reason')
+      .eq('business_id', currentBiz.id)
+      .order('created_at', {ascending: false})
+      .limit(1000);
+    if(fromTs) q1 = q1.gte('created_at', fromTs);
+    if(toTs)   q1 = q1.lte('created_at', toTs);
+    const {data: rows1, error: e1} = await q1;
+    if(e1) throw e1;
+
+    const {data: bizExpenses} = await sb.from('expenses')
+      .select('id, expense_number').eq('business_id', currentBiz.id);
+    allExpensesCache = {};
+    (bizExpenses || []).forEach(e => { allExpensesCache[e.id] = e; });
+    const expIds = (bizExpenses || []).map(e => e.id);
+
+    let rows2 = [];
+    if(expIds.length && !window._expenseAuditLogMissing){
+      let q2 = sb.from('expense_audit_log')
+        .select('id, created_at, user_id, user_email, expense_id, action, reason')
+        .in('expense_id', expIds)
+        .order('created_at', {ascending: false})
+        .limit(1000);
+      if(fromTs) q2 = q2.gte('created_at', fromTs);
+      if(toTs)   q2 = q2.lte('created_at', toTs);
+      const {data, error: e2} = await q2;
+      if(e2){
+        const msg = (e2.message || '').toLowerCase();
+        if(msg.includes('does not exist') || msg.includes('relation')){
+          window._expenseAuditLogMissing = true;
+          console.info('[GL] expense_audit_log table not present — legacy queries disabled for this session');
+        } else {
+          console.warn('[GL] expense_audit_log query failed:', e2.message);
+        }
+      } else {
+        rows2 = data || [];
+      }
+    }
+
+    allEntries = [
+      ...(rows1 || []).map(normalizeAuditLog),
+      ...rows2.map(normalizeExpenseAuditLog)
+    ].sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''));
+
+    populateUserDropdown();
+    renderEntityPills();
+    renderActionPills();
+    renderTimeline();
+    renderStats();
+
+  } catch(e){
+    console.error('[GL] audit log load failed:', e);
+    wrap.innerHTML = `<div class="table-wrap"><div class="empty-state">
+      <div class="icon">⚠️</div>
+      <div class="title">${ar?'فشل تحميل السجل':'Failed to load audit log'}</div>
+      <div class="text">${escHTML(e.message||'')}</div>
+    </div></div>`;
+  }
+}
+function populateUserDropdown(){
+  const sel = document.getElementById('flt-user');
+  if(!sel) return;
+  const ar = currentLang === 'ar';
+  const users = new Map();
+  allEntries.forEach(e => {
+    if(e.user_email && !users.has(e.user_email)) users.set(e.user_email, e.user_id);
+  });
+  const current = activeFilters.user_id;
+  let html = `<option value="">${ar?'كل المستخدمين':'All users'}</option>`;
+  for(const [email, id] of users){
+    const selAttr = (id === current || email === current) ? ' selected' : '';
+    html += `<option value="${escHTML(email)}"${selAttr}>${escHTML(email)}</option>`;
+  }
+  sel.innerHTML = html;
+}
+function applyPreset(key){
+  const today = todayISO();
+  if(key === 'today')      { activeFilters.from = today;         activeFilters.to = today; }
+  else if(key === '7d')    { activeFilters.from = daysAgoISO(7);  activeFilters.to = today; }
+  else if(key === '30d')   { activeFilters.from = daysAgoISO(30); activeFilters.to = today; }
+  else if(key === '90d')   { activeFilters.from = daysAgoISO(90); activeFilters.to = today; }
+  else if(key === 'year')  {
+    activeFilters.from = `${new Date().getFullYear()}-01-01`;
+    activeFilters.to = today;
+  }
+  else if(key === 'all')   { activeFilters.from = ''; activeFilters.to = ''; }
+  activeFilters.preset = key;
+  document.getElementById('flt-from').value = activeFilters.from;
+  document.getElementById('flt-to').value = activeFilters.to;
+  document.querySelectorAll('[data-preset]').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.preset === key);
+  });
+  loadEntries();
+}
+function onDateChange(){
+  activeFilters.from = document.getElementById('flt-from').value || '';
+  activeFilters.to = document.getElementById('flt-to').value || '';
+  activeFilters.preset = '';
+  document.querySelectorAll('[data-preset]').forEach(btn => btn.classList.remove('active'));
+  loadEntries();
+}
+function onUserChange(){
+  activeFilters.user_id = document.getElementById('flt-user').value || '';
+  renderTimeline();
+  renderStats();
+}
+function onSearchInput(){
+  activeFilters.search = (document.getElementById('flt-search').value || '').toLowerCase().trim();
+  renderTimeline();
+}
+function setEntityFilter(type){
+  activeFilters.entity_type = activeFilters.entity_type === type ? '' : type;
+  renderEntityPills();
+  renderTimeline();
+  renderStats();
+}
+function getFilteredEntries(){
+  return allEntries.filter(e => {
+    if(activeFilters.entity_type && e.entity_type !== activeFilters.entity_type) return false;
+    if(activeFilters.action && e.action !== activeFilters.action) return false;
+    if(activeFilters.user_id && e.user_email !== activeFilters.user_id && e.user_id !== activeFilters.user_id) return false;
+    if(activeFilters.search){
+      const q = activeFilters.search;
+      const hay = (
+        (e.entity_reference || '') + ' ' +
+        (e.reason || '') + ' ' +
+        (e.user_email || '') + ' ' +
+        JSON.stringify(e.before_data || '') + ' ' +
+        JSON.stringify(e.after_data || '')
+      ).toLowerCase();
+      if(!hay.includes(q)) return false;
+    }
+    return true;
+  });
+}
+function renderEntityPills(){
+  const wrap = document.getElementById('entity-pills');
+  if(!wrap) return;
+  const ar = currentLang === 'ar';
+  const counts = {};
+  allEntries.forEach(e => { counts[e.entity_type] = (counts[e.entity_type] || 0) + 1; });
+  const types = Object.keys(counts).sort();
+  /* Use the canonical filter-group + filter-btn segmented control (matches invoices.html).
+     Include an "All" first option that clears the entity filter. */
+  const buttons = [['', ar?'الكل':'All', allEntries.length]]
+    .concat(types.map(t => [t, entityIcon(t) + ' ' + entityLabel(t), counts[t]]));
+  wrap.innerHTML = `<div class="filter-group">` + buttons.map(([key,label,count]) => {
+    const active = activeFilters.entity_type === key;
+    const safeKey = key.replace(/'/g, '');
+    const cls = 'filter-btn' + (active ? ' active' : '');
+    return `<button class="${cls}" onclick="setEntityFilter('${safeKey}')">${escHTML(label)}${count > 0 ? `<span class="count-badge">${count}</span>` : ''}</button>`;
+  }).join('') + `</div>`;
+}
+function renderActionPills(){
+  const sel = document.getElementById('flt-action');
+  if(!sel) return;
+  const ar = currentLang === 'ar';
+  const counts = {};
+  const filteredByOther = allEntries.filter(e => {
+    if(activeFilters.entity_type && e.entity_type !== activeFilters.entity_type) return false;
+    if(activeFilters.user_id && e.user_email !== activeFilters.user_id) return false;
+    return true;
+  });
+  filteredByOther.forEach(e => { counts[e.action] = (counts[e.action] || 0) + 1; });
+  const actions = Object.keys(counts).sort();
+  const current = activeFilters.action || '';
+  let html = `<option value="">${ar?'كل الإجراءات':'All actions'} (${filteredByOther.length})</option>`;
+  actions.forEach(a => {
+    const selected = (a === current) ? ' selected' : '';
+    html += `<option value="${escHTML(a)}"${selected}>${escHTML(actionLabel(a))} (${counts[a]})</option>`;
+  });
+  sel.innerHTML = html;
+}
+function onActionSelectChange(){
+  activeFilters.action = document.getElementById('flt-action').value || '';
+  renderEntityPills();
+  renderActionPills();
+  renderTimeline();
+  renderStats();
+}
+function entityHref(entry){
+  const id = entry.entity_id;
+  switch(entry.entity_type){
+    case 'invoice':         return id ? `invoices.html?invoice=${encodeURIComponent(id)}` : null;
+    case 'expense':         return id ? `finance.html?tab=expenses&expense=${encodeURIComponent(id)}` : null;
+    case 'inventory_item':  return id ? `inventory.html?item=${encodeURIComponent(id)}` : null;
+    case 'supplier':        return id ? `purchasing.html?tab=suppliers&supplier=${encodeURIComponent(id)}` : null;
+    case 'purchase_order':  return id ? `purchasing.html?tab=orders&po=${encodeURIComponent(id)}` : null;
+    case 'stock_receipt':   return id ? `inventory.html?receipt=${encodeURIComponent(id)}` : null;
+    default:                return null;
+  }
+}
+function formatDiffValue(v){
+  if(v === null || v === undefined) return '—';
+  if(typeof v === 'object'){
+    try { return JSON.stringify(v); } catch(e){ return String(v); }
+  }
+  const s = String(v);
+  if(s.length > 200) return s.slice(0, 200) + '…';
+  return s;
+}
+function renderDiff(entry){
+  const ar = currentLang === 'ar';
+  const before = entry.before_data || {};
+  const after  = entry.after_data || {};
+
+  if((!entry.before_data && !entry.after_data) ||
+     (typeof before !== 'object' && typeof after !== 'object')){
+    return '';
+  }
+
+  const skip = new Set(['updated_at','created_at']);
+  const keys = new Set();
+  Object.keys(before || {}).forEach(k => { if(!skip.has(k)) keys.add(k); });
+  Object.keys(after || {}).forEach(k => { if(!skip.has(k)) keys.add(k); });
+  if(keys.size === 0) return '';
+
+  const isEdit = entry.action === 'edited';
+  const rows = [];
+  keys.forEach(k => {
+    const b = before[k];
+    const a = after[k];
+    const bStr = formatDiffValue(b);
+    const aStr = formatDiffValue(a);
+    if(isEdit && bStr === aStr) return;
+    rows.push({k, bStr, aStr, hasBefore: b !== undefined && b !== null,
+                              hasAfter: a !== undefined && a !== null});
+  });
+  if(rows.length === 0) return '';
+
+  return `<table class="diff-tbl">
+    <thead>
+      <tr>
+        <th style="width:30%;">${ar?'الحقل':'Field'}</th>
+        <th style="width:35%;">${ar?'قبل':'Before'}</th>
+        <th style="width:35%;">${ar?'بعد':'After'}</th>
+      </tr>
+    </thead>
+    <tbody>
+      ${rows.map(r => `<tr>
+        <td class="diff-field">${escHTML(r.k)}</td>
+        <td>${r.hasBefore ? `<span class="diff-before">${escHTML(r.bStr)}</span>` : '<span style="color:var(--muted);">—</span>'}</td>
+        <td>${r.hasAfter  ? `<span class="diff-after">${escHTML(r.aStr)}</span>`  : '<span style="color:var(--muted);">—</span>'}</td>
+      </tr>`).join('')}
+    </tbody>
+  </table>`;
+}
+function renderTimeline(){
+  const wrap = document.getElementById('audit-timeline');
+  if(!wrap) return;
+  const ar = currentLang === 'ar';
+  const entries = getFilteredEntries();
+
+  if(entries.length === 0){
+    wrap.innerHTML = `<div class="table-wrap"><div class="empty-state">
+      <div class="icon">📭</div>
+      <div class="title">${ar?'لا توجد أحداث':'No events'}</div>
+      <div class="text">${ar?'لا توجد أحداث في النطاق المحدد. جرب تعديل التصفية أو الفترة.':'Nothing matches the current filters. Try widening the date range.'}</div>
+    </div></div>`;
+    return;
+  }
+
+  /* Group by day */
+  const byDay = new Map();
+  entries.forEach(e => {
+    const day = (e.created_at || '').slice(0, 10);
+    if(!byDay.has(day)) byDay.set(day, []);
+    byDay.get(day).push(e);
+  });
+
+  /* Render each day as one table-wrap. Day header sits above the rows. */
+  let html = '';
+  for(const [day, dayEntries] of byDay){
+    html += `<div class="table-wrap" style="margin-bottom:14px;">
+      <div class="day-header">
+        <span>${escHTML(fmtDayHeader(day))}</span>
+        <span class="day-count">${dayEntries.length}</span>
+      </div>
+      <table class="tbl">
+        <thead>
+          <tr>
+            <th style="width:90px;">${ar?'الوقت':'Time'}</th>
+            <th style="width:110px;">${ar?'الإجراء':'Action'}</th>
+            <th>${ar?'الكيان':'Entity'}</th>
+            <th>${ar?'المستخدم':'User'}</th>
+            <th class="center" style="width:120px;"></th>
+          </tr>
+        </thead>
+        <tbody>
+          ${dayEntries.map(e => renderTimelineRow(e)).join('')}
+        </tbody>
+      </table>
+    </div>`;
+  }
+  wrap.innerHTML = html;
+}
+function renderTimelineRow(e){
+  const ar = currentLang === 'ar';
+  const verbCls = actionClass(e.action);
+  const verb = actionLabel(e.action);
+  const eType = entityLabel(e.entity_type);
+  const eIcon = entityIcon(e.entity_type);
+  const ref = e.entity_reference || (e.entity_id ? e.entity_id.slice(0,8) : '—');
+  const href = entityHref(e);
+  const refHtml = href
+    ? `<a href="${escHTML(href)}" style="font-weight:600;">${escHTML(ref)}</a>`
+    : `<strong>${escHTML(ref)}</strong>`;
+
+  const diffHtml = renderDiff(e);
+  const hasDiff = !!diffHtml;
+  const reasonHtml = e.reason
+    ? `<div class="reason-callout">${ar?'السبب: ':'Reason: '}${escHTML(e.reason)}</div>`
+    : '';
+  const legacyTag = e.source === 'expense_audit_log'
+    ? `<span style="font-size:10px;color:var(--muted);margin-inline-start:6px;">${ar?'(سجل قديم)':'(legacy)'}</span>`
+    : '';
+
+  return `<tr>
+    <td class="mono" style="font-size:12px;color:var(--muted);" title="${escHTML(fmtTimeAbs(e.created_at))}">${escHTML(fmtTimeRelative(e.created_at))}</td>
+    <td><span class="action-badge ${verbCls}">${escHTML(verb)}</span></td>
+    <td>
+      <span class="entity-badge">${eIcon} ${escHTML(eType)}</span>
+      <span style="margin-inline-start:8px;">${refHtml}</span>
+      ${legacyTag}
+      ${reasonHtml}
+      ${hasDiff ? `<div class="diff-wrap" id="diff-${escHTML(e.id)}">${diffHtml}</div>` : ''}
+    </td>
+    <td>${e.user_email ? `<span class="user-chip">👤 ${escHTML(e.user_email)}</span>` : '<span style="color:var(--muted);">—</span>'}</td>
+    <td class="center">
+      ${hasDiff
+        ? `<button class="diff-toggle" onclick="toggleDiff('${escHTML(e.id)}', this)">${ar?'عرض التغييرات':'Show changes'}</button>`
+        : ''}
+    </td>
+  </tr>`;
+}
+function toggleDiff(id, btn){
+  const ar = currentLang === 'ar';
+  const el = document.getElementById('diff-' + id);
+  if(!el) return;
+  const isOpen = el.classList.toggle('open');
+  if(btn){
+    btn.textContent = isOpen ? (ar ? 'إخفاء التغييرات' : 'Hide changes')
+                              : (ar ? 'عرض التغييرات' : 'Show changes');
+  }
+}
+function renderStats(){
+  const ar = currentLang === 'ar';
+  const entries = getFilteredEntries();
+
+  /* Total */
+  document.getElementById('stat-total').textContent = entries.length.toLocaleString(ar?'ar-SA-u-nu-latn':'en-US');
+  const sub = document.getElementById('stat-total-sub');
+  if(activeFilters.from && activeFilters.to){
+    sub.textContent = (ar?'من ':'From ') + activeFilters.from + (ar?' إلى ':' to ') + activeFilters.to;
+  } else if(activeFilters.preset === 'all'){
+    sub.textContent = ar ? 'كل الوقت' : 'All time';
+  } else {
+    sub.textContent = '';
+  }
+
+  /* Most active user */
+  const userCounts = {};
+  entries.forEach(e => {
+    if(!e.user_email) return;
+    userCounts[e.user_email] = (userCounts[e.user_email] || 0) + 1;
+  });
+  let topUser = null, topCount = 0;
+  for(const [email, count] of Object.entries(userCounts)){
+    if(count > topCount){ topUser = email; topCount = count; }
+  }
+  document.getElementById('stat-top-user').textContent = topUser || '—';
+  document.getElementById('stat-top-user-sub').textContent = topUser
+    ? `${topCount.toLocaleString(ar?'ar-SA-u-nu-latn':'en-US')} ${ar?'حدث':'events'}`
+    : '';
+
+  /* Voids + edits counts */
+  const voidsCount = entries.filter(e => e.action === 'voided' || e.action === 'deleted').length;
+  const editsCount = entries.filter(e => e.action === 'edited').length;
+  document.getElementById('stat-voids').textContent = voidsCount.toLocaleString(ar?'ar-SA-u-nu-latn':'en-US');
+  document.getElementById('stat-edits').textContent = editsCount.toLocaleString(ar?'ar-SA-u-nu-latn':'en-US');
+}
+function debounce(fn, ms){
+  let t;
+  return function(...args){
+    clearTimeout(t);
+    t = setTimeout(() => fn.apply(this, args), ms);
+  };
+}
+async function glAuditInit(){
+  if(glAuditInited) return; glAuditInited = true;
+  try{
+    await populateUserDropdown();
+    applyPreset('7d');
+    await loadEntries();
+    renderEntityPills(); renderActionPills(); renderStats(); renderTimeline();
+  }catch(e){ console.error('[GL audit]', e); }
+}
+
 function showReport(name, btn, preset){
   if(btn && btn.classList.contains('disabled')) return;
   currentReport = name;

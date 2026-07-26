@@ -569,7 +569,7 @@
     { href:'finance.html',    ar:'المالية',   en:'Finance',    group:'main' },
     { href:'accounting.html', ar:'المحاسبة',  en:'Accounting', group:'main' },
     { href:'reports.html',    ar:'التقارير',  en:'Reports',    group:'main' },
-    { href:'audit.html',          ar:'سجل التدقيق',   en:'Audit Log',    parent:'settings.html', hidden:true },
+    { href:'audit.html',          ar:'سجل التدقيق',   en:'Audit Log',    parent:'reports.html', hidden:true },
     { href:'statements.html',     ar:'كشوف الحساب',   en:'Statements',   parent:'reports.html', hidden:true },
     { href:'branch-report.html',  ar:'تقرير الفروع',  en:'Branch Report',parent:'reports.html', hidden:true },
     { href:'locations.html',      ar:'المواقع',       en:'Locations',    parent:'inventory.html', hidden:true },
