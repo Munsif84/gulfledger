@@ -679,8 +679,16 @@
     + '.gls-sub.on{background:#0E5232;border-color:#0E5232;color:#fff;}'
     + '@media(max-width:600px){.gls-gulf{font-size:19px;}.gls-top{padding:8px 12px;}.gls-nav{padding:0 8px;}}';
 
+  function glAssertDir(){
+    var L2 = localStorage.getItem('gl_lang') || document.documentElement.lang || 'ar';
+    document.documentElement.setAttribute('lang', L2);
+    document.documentElement.setAttribute('dir', L2 === 'ar' ? 'rtl' : 'ltr');
+  }
   function mountShell(){
     if(location.search.indexOf('embed=1') !== -1) return;   /* framed content-only mode */
+    glAssertDir();
+    setTimeout(glAssertDir, 0);
+    setTimeout(glAssertDir, 400);   /* outlast any late page-init overrides */
     if(document.getElementById('gl-shell')) return;
     if(!document.querySelector('link[href*="Playfair"]')){
       var fl = document.createElement('link'); fl.rel = 'stylesheet';
