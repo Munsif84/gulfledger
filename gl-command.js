@@ -614,11 +614,12 @@
       +         '<svg class="gl-i"><use href="/gl-icons.svg#i-user"/></svg><span class="gls-caret">▾</span>'
       +       '</button>'
       +       '<div class="gls-prof-dd" role="menu">'
+      +         '<div class="gls-dd-user"><b id="gls-user-name">—</b><span id="gls-user-mail"></span></div>'
       +         '<a href="settings.html" class="gls-dd-item"><svg class="gl-i"><use href="/gl-icons.svg#i-settings"/></svg><span>' + (isAr?'الإعدادات':'Settings') + '</span></a>'
       +         '<div class="gls-dd-item gls-lang-row"><span>' + (isAr?'اللغة':'Language') + '</span>'
       +           '<span class="gls-flags">'
-      +             '<button id="btn-ar" title="العربية">🇸🇦</button>'
-      +             '<button id="btn-en" title="English">🇬🇧</button>'
+      +             '<button id="btn-ar" class="' + (isAr ? 'on' : '') + '" title="العربية">🇸🇦</button>'
+      +             '<button id="btn-en" class="' + (isAr ? '' : 'on') + '" title="English">🇬🇧</button>'
       +           '</span>'
       +         '</div>'
       +         '<button class="gls-dd-item gls-logout"><svg class="gl-i"><use href="/gl-icons.svg#i-logout"/></svg><span>' + (isAr?'تسجيل الخروج':'Log out') + '</span></button>'
@@ -646,15 +647,20 @@
     + '.gls-prof.open .gls-prof-dd{display:block;}'
     + '.gls-dd-item{display:flex;align-items:center;gap:9px;width:100%;padding:9px 11px;border:0;background:none;border-radius:8px;font:inherit;font-size:13.5px;color:#0D2618;text-decoration:none;cursor:pointer;justify-content:flex-start;}'
     + '.gls-dd-item:hover{background:#F2F7F3;}'
+    + '.gls-dd-user{display:flex;flex-direction:column;gap:2px;padding:10px 12px 9px;border-bottom:1px solid #EFEDE7;margin-bottom:4px;}'
+    + '.gls-dd-user b{font-size:13.5px;color:#0D2618;}'
+    + '.gls-dd-user span{font-size:11.5px;color:#5B7263;direction:ltr;text-align:end;}'
     + '.gls-dd-item .gl-i{width:16px;height:16px;fill:#5B7263;}'
     + '.gls-lang-row{justify-content:space-between;cursor:default;}'
     + '.gls-flags{display:inline-flex;gap:4px;}'
     + '.gls-flags button{font-size:17px;line-height:1;padding:3px 7px;border:1px solid #E3E1DA;border-radius:6px;background:#fff;cursor:pointer;}'
-    + '.gls-flags button:hover{border-color:#0E5232;}'
-    + '.gls-nav{display:flex;gap:4px;background:#0E5232;padding:0 16px;overflow-x:auto;}'
+    + '.gls-flags button{opacity:.45;}'
+    + '.gls-flags button.on{opacity:1;border-color:#0E5232;background:#EAF5EE;box-shadow:0 0 0 1px #0E5232 inset;}'
+    + '.gls-flags button:hover{opacity:1;border-color:#0E5232;}'
+    + '.gls-nav{display:flex;gap:4px;background:#177349;padding:0 16px;overflow-x:auto;box-shadow:inset 0 1px 0 rgba(255,255,255,0.08);}'
     + '.gls-tab{padding:11px 15px;color:rgba(255,255,255,0.82);text-decoration:none;font-size:14px;font-weight:600;border-bottom:3px solid transparent;white-space:nowrap;}'
     + '.gls-tab:hover{color:#fff;}'
-    + '.gls-tab.on{color:#fff;border-bottom-color:#9FD9B8;}'
+    + '.gls-tab.on{color:#fff;border-bottom-color:#9FD9B8;border-bottom-width:4px;background:rgba(255,255,255,0.13);font-weight:800;border-radius:6px 6px 0 0;}'
     + '.gls-subs{display:flex;gap:8px;background:#F2F7F3;border-bottom:1px solid #E3E1DA;padding:8px 22px;}'
     + '.gls-sub{padding:5px 13px;border:1px solid #D8E5DC;border-radius:999px;background:#fff;color:#0D2618;font-size:12.5px;font-weight:600;text-decoration:none;}'
     + '.gls-sub.on{background:#0E5232;border-color:#0E5232;color:#fff;}'
@@ -689,6 +695,24 @@
       }catch(_e){}
       location.href = 'login.html';
     });
+    /* Fill the username row (best-effort — any auth client shape) */
+    (function fillUser(tries){
+      try{
+        var c = (typeof sb !== 'undefined' && sb) || (typeof supabase !== 'undefined' && supabase) || null;
+        if(c && c.auth && c.auth.getUser){
+          c.auth.getUser().then(function(r){
+            var u = r && r.data && r.data.user;
+            if(!u) return;
+            var nm = (u.user_metadata && (u.user_metadata.full_name || u.user_metadata.name)) || (u.email ? u.email.split('@')[0] : '');
+            var n1 = document.getElementById('gls-user-name'), n2 = document.getElementById('gls-user-mail');
+            if(n1 && nm) n1.textContent = nm;
+            if(n2 && u.email) n2.textContent = u.email;
+          });
+          return;
+        }
+      }catch(_e){}
+      if(tries > 0) setTimeout(function(){ fillUser(tries - 1); }, 400);
+    })(6);
     /* Move the quick-actions trigger (glc) into the shell if it mounts later */
     var mt = shell.querySelector('.gls-mount-trigger');
     var relocate = function(){
