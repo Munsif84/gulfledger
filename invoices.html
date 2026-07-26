@@ -3012,6 +3012,23 @@ function assertB2BArabicName(){
   return false;
 }
 
+
+/* Trade-module handoff: invoices.html?newinv=1&customer=<id> opens the
+   creation form with the export customer preselected — invoice as the
+   LAST step of the export shipment process. */
+async function glTradeHandoff(){
+  const p = new URLSearchParams(location.search);
+  if(p.get('newinv') !== '1') return;
+  const cid = p.get('customer');
+  try{
+    if(typeof switchTab === 'function') switchTab('create');
+    if(cid){
+      const c = (allCustomers||[]).find(x => x.id === cid);
+      if(c && typeof selectCustomer === 'function') selectCustomer(c.id);
+    }
+  }catch(e){ console.warn('[GL] trade handoff:', e); }
+}
+
 function custNameAr(c){
   return c?.name_ar || c?.company_name_ar || (
     /[\u0600-\u06FF]/.test(c?.name || '') ? c.name : ''
@@ -4276,7 +4293,7 @@ function renderInvList(){
             else badge = `<span class="badge badge-unpaid">⏳ ${ar?'غير مدفوع':'Unpaid'}</span>`;
 
             const buyerDisplay = (currentLang === 'en' && inv.buyer_name_en) ? inv.buyer_name_en : (inv.buyer_name || '');
-            const typeBadgeRow = inv.invoice_type === 'b2b' ? '<span class="badge badge-b2b">B2B</span>' : '<span class="badge badge-b2c">B2C</span>';
+            const typeBadgeRow = inv.invoice_type === 'export' ? '<span class="badge badge-b2b" style="background:#dbeafe;color:#1e40af;">🌍 ' + (currentLang==='ar'?'تصدير':'Export') + '</span>' : (inv.invoice_type === 'b2b' ? '<span class="badge badge-b2b">B2B</span>' : '<span class="badge badge-b2c">B2C</span>');
             const zatcaCell = zatcaBadge(inv.zatca_status);
 
             /* Build menu items (now using shared .row-action-item / .row-actions-menu pattern) */
@@ -4646,6 +4663,7 @@ async function loadCustomers(){
     return;
   }
   allCustomers = data || [];
+  glTradeHandoff();
   setText('tab-count-customers', allCustomers.length);
   renderCustList();
   computeStats();

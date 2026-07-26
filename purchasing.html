@@ -612,6 +612,16 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
       </button>
     </div>
     <div id="imp-list"></div>
+
+    <div class="pane-head" style="display:flex;justify-content:space-between;align-items:center;margin:26px 0 14px;">
+      <h2 style="margin:0;font-size:17px;" data-ar="شحنات التصدير" data-en="Export Shipments">شحنات التصدير</h2>
+      <button class="btn btn-primary" onclick="expOpen()">
+        <svg class="gl-i"><use href="/gl-icons.svg#i-receipt-in"/></svg>
+        <span data-ar="شحنة تصدير جديدة" data-en="New Export Shipment">شحنة تصدير جديدة</span>
+      </button>
+    </div>
+    <div class="gl-hint" style="margin-bottom:10px;" data-ar="القاعدة: عملاء المحل (walk-in) تُفوتر مبيعاتهم بضريبة 15% دائماً — التصدير الصفري حصراً عبر شحنة موثقة ببيان تصدير جمركي، والفاتورة تُصدر كخطوة أخيرة." data-en="Rule: walk-in customers are always invoiced at 15% — zero-rated export happens only through a documented shipment with a customs export declaration; the invoice is the last step.">القاعدة: عملاء المحل (walk-in) تُفوتر مبيعاتهم بضريبة 15% دائماً — التصدير الصفري حصراً عبر شحنة موثقة ببيان تصدير جمركي، والفاتورة تُصدر كخطوة أخيرة.</div>
+    <div id="exp-list"></div>
   </div>
 
     </div><!-- /.purchasing-main -->
@@ -624,6 +634,49 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
   <div data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
 </div>
 
+
+
+<div class="modal-overlay gl-as-drawer" id="exp-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" data-ar="شحنة تصدير" data-en="Export Shipment">شحنة تصدير</div>
+      <button class="modal-close" onclick="expClose()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field"><div class="field-label" data-ar="العميل الأجنبي" data-en="Foreign Customer">العميل الأجنبي</div>
+        <select id="exp-customer"></select>
+        <div class="field-hint" data-ar="تظهر فقط بطاقات العملاء بدولة غير السعودية" data-en="Only customers with a non-KSA country appear">تظهر فقط بطاقات العملاء بدولة غير السعودية</div></div>
+      <div class="field-row double">
+        <div class="field"><div class="field-label" data-ar="رقم بيان التصدير الجمركي" data-en="Customs Export Declaration #">رقم بيان التصدير الجمركي</div>
+          <input type="text" id="exp-decl"></div>
+        <div class="field"><div class="field-label" data-ar="تاريخ البيان" data-en="Declaration Date">تاريخ البيان</div>
+          <input type="date" id="exp-decl-date"></div>
+      </div>
+      <div class="field-row double">
+        <div class="field"><div class="field-label" data-ar="مرجع الشحن (AWB/BL)" data-en="Carrier Ref (AWB/BL)">مرجع الشحن (AWB/BL)</div>
+          <input type="text" id="exp-carrier"></div>
+        <div class="field"><div class="field-label" data-ar="الحالة" data-en="Status">الحالة</div>
+          <select id="exp-status">
+            <option value="preparing" data-ar="قيد التجهيز" data-en="Preparing">قيد التجهيز</option>
+            <option value="shipped" data-ar="تم الشحن" data-en="Shipped">تم الشحن</option>
+            <option value="declared" data-ar="مُصدَّر ببيان جمركي" data-en="Declared">مُصدَّر ببيان جمركي</option>
+          </select></div>
+      </div>
+      <div class="field"><div class="field-label" data-ar="ربط فاتورة التصدير" data-en="Linked Export Invoice">ربط فاتورة التصدير</div>
+        <select id="exp-invoice"><option value="">—</option></select></div>
+      <div class="field"><div class="field-label" data-ar="ملاحظات" data-en="Notes">ملاحظات</div>
+        <textarea id="exp-notes" rows="2"></textarea></div>
+      <div class="gl-hint" data-ar="بيان التصدير هو إثبات نسبة الصفر أمام الزكاة والضريبة — بدونه الفاتورة الصفرية غير مدعومة نظاماً." data-en="The export declaration is the legal evidence for zero-rating — without it a zero-rated invoice is undefended in audit.">بيان التصدير هو إثبات نسبة الصفر أمام الزكاة والضريبة — بدونه الفاتورة الصفرية غير مدعومة نظاماً.</div>
+    </div>
+    <div class="modal-foot" style="display:flex;gap:8px;justify-content:space-between;padding:14px 18px;border-top:1px solid #EFEDE7;">
+      <a class="btn btn-ghost" id="exp-issue-link" href="invoices.html" data-ar="🧾 إصدار الفاتورة (الخطوة الأخيرة)" data-en="🧾 Issue Invoice (last step)">🧾 إصدار الفاتورة (الخطوة الأخيرة)</a>
+      <div style="display:flex;gap:8px;">
+        <button class="btn btn-ghost" onclick="expClose()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+        <button class="btn btn-primary" onclick="expSave()" data-ar="حفظ الشحنة" data-en="Save Shipment">حفظ الشحنة</button>
+      </div>
+    </div>
+  </div>
+</div>
 
 <div class="modal-overlay gl-as-drawer" id="imp-modal">
   <div class="modal">
@@ -2496,6 +2549,89 @@ function formatDateTime(iso){
    TAB SWITCHING
 ═══════════════════════════════════════════════════════ */
 
+
+/* ═══ EXPORT SHIPMENTS — evidence-first export process ═══════════════════
+   The shipment record carries the customs export declaration that legally
+   defends the zero rate; the invoice is issued as the LAST step and linked
+   back. No journal here — the sale's accounting lives on the invoice. */
+let expShipments = [];
+async function expOpen(editId){
+  const ar = currentLang === 'ar';
+  const sel = document.getElementById('exp-customer');
+  const {data: fc} = await sb.from('customers').select('id,name,name_ar,name_en,country')
+    .eq('business_id', currentBiz.id).neq('country','SA').not('country','is',null).order('name');
+  sel.innerHTML = '<option value="">' + (ar?'— اختر —':'— select —') + '</option>' +
+    (fc||[]).map(c => `<option value="${c.id}">${escHTML((ar?(c.name_ar||c.name||c.name_en):(c.name_en||c.name||c.name_ar))||'—')} · ${escHTML(c.country||'')}</option>`).join('');
+  sel.onchange = expFillInvoices;
+  document.getElementById('exp-invoice').innerHTML = '<option value="">—</option>';
+  document.getElementById('exp-decl-date').value = new Date().toISOString().slice(0,10);
+  document.getElementById('exp-modal').classList.add('open');
+}
+async function expFillInvoices(){
+  const cid = document.getElementById('exp-customer').value;
+  const inv = document.getElementById('exp-invoice');
+  inv.innerHTML = '<option value="">—</option>';
+  const link = document.getElementById('exp-issue-link');
+  if(link) link.href = 'invoices.html' + (cid ? ('?newinv=1&customer=' + cid) : '');
+  if(!cid) return;
+  const {data} = await sb.from('invoices').select('id,invoice_number,total,invoice_type')
+    .eq('business_id', currentBiz.id).eq('customer_id', cid).eq('invoice_type','export')
+    .order('created_at',{ascending:false}).limit(30);
+  inv.innerHTML += (data||[]).map(i => `<option value="${i.id}">${escHTML(i.invoice_number)} · ${fmt(i.total)}</option>`).join('');
+}
+function expClose(){ document.getElementById('exp-modal').classList.remove('open'); }
+async function expSave(){
+  const ar = currentLang === 'ar';
+  const cid = document.getElementById('exp-customer').value;
+  if(!cid){ notify(ar?'اختر العميل الأجنبي':'Select the foreign customer','error'); return; }
+  const decl = document.getElementById('exp-decl').value.trim();
+  const status = document.getElementById('exp-status').value;
+  if(status === 'declared' && !decl){
+    notify(ar?'حالة "مُصدَّر" تتطلب رقم بيان التصدير':'Status "Declared" requires the declaration number','error'); return;
+  }
+  const {data: cust} = await sb.from('customers').select('country').eq('id', cid).single();
+  const {error} = await sb.from('export_shipments').insert({
+    business_id: currentBiz.id, user_id: currentUser.id, customer_id: cid,
+    destination_country: cust?.country || null,
+    declaration_no: decl || null,
+    declaration_date: document.getElementById('exp-decl-date').value || null,
+    carrier_ref: document.getElementById('exp-carrier').value.trim() || null,
+    invoice_id: document.getElementById('exp-invoice').value || null,
+    status, notes: document.getElementById('exp-notes').value.trim() || null
+  });
+  if(error){ notify((ar?'خطأ: ':'Error: ') + error.message,'error'); return; }
+  notify(ar?'✓ تم حفظ شحنة التصدير':'✓ Export shipment saved','success');
+  expClose(); expLoad();
+}
+async function expLoad(){
+  const ar = currentLang === 'ar';
+  const {data} = await sb.from('export_shipments').select('*, customers(name,name_ar,name_en)')
+    .eq('business_id', currentBiz.id).order('created_at',{ascending:false}).limit(100);
+  expShipments = data || [];
+  const el = document.getElementById('exp-list');
+  if(!expShipments.length){
+    el.innerHTML = `<div class="empty-state"><div class="title">${ar?'لا توجد شحنات تصدير بعد':'No export shipments yet'}</div></div>`;
+    return;
+  }
+  const stLbl = s => ar ? ({preparing:'قيد التجهيز',shipped:'تم الشحن',declared:'مُصدَّر'}[s]||s)
+                        : ({preparing:'Preparing',shipped:'Shipped',declared:'Declared'}[s]||s);
+  el.innerHTML = `<table class="tbl"><thead><tr>
+      <th>${ar?'العميل':'Customer'}</th><th>${ar?'الوجهة':'Destination'}</th>
+      <th>${ar?'بيان التصدير':'Declaration'}</th><th>${ar?'الشحن':'Carrier'}</th>
+      <th>${ar?'الحالة':'Status'}</th><th class="ctr">${ar?'الإثبات':'Evidence'}</th></tr></thead><tbody>
+    ${expShipments.map(s => {
+      const c = s.customers || {};
+      const nm = (ar?(c.name_ar||c.name||c.name_en):(c.name_en||c.name||c.name_ar))||'—';
+      const ev = s.declaration_no
+        ? '<span style="color:#0E5232;font-weight:700;">✓</span>'
+        : '<span title="' + (ar?'الفاتورة الصفرية غير مدعومة بدون بيان':'Zero-rating undefended without declaration') + '" style="color:#b45309;font-weight:700;">⚠</span>';
+      return `<tr><td>${escHTML(nm)}</td><td class="nowrap">${escHTML(s.destination_country||'—')}</td>
+        <td class="nowrap">${escHTML(s.declaration_no||'—')}</td><td>${escHTML(s.carrier_ref||'—')}</td>
+        <td>${stLbl(s.status)}</td><td class="ctr">${ev}</td></tr>`;
+    }).join('')}
+  </tbody></table>`;
+}
+
 /* ═══ IMPORT SHIPMENTS (v1) ══════════════════════════════════════════════
    Saudi treatment: customs duty + freight + clearance + other are LANDED
    COSTS capitalized into inventory; import VAT paid at customs is
@@ -2623,7 +2759,7 @@ async function impLoad(){
 }
 
 function switchTab(name){
-  if(name === 'imports'){ setTimeout(impLoad, 50); }
+  if(name === 'imports'){ setTimeout(impLoad, 50); setTimeout(expLoad, 80); }
   ['suppliers','products','orders','imports'].forEach(t => {
     document.getElementById('tab-' + t)?.classList.toggle('active', t === name);
     const pane = document.getElementById('pane-' + t);

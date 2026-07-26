@@ -1644,9 +1644,21 @@ function renderInvoice(){
   }
 
   /* Type badge */
-  const isB2B = inv.invoice_type === 'b2b';
-  set('type-ar', isB2B ? 'فاتورة ضريبية' : 'فاتورة مبسطة');
-  set('type-en', isB2B ? 'TAX INVOICE' : 'SIMPLIFIED INVOICE');
+  const isExport = inv.invoice_type === 'export';
+  const isB2B = inv.invoice_type === 'b2b' || isExport;
+  set('type-ar', isExport ? 'فاتورة ضريبية — تصدير' : (isB2B ? 'فاتورة ضريبية' : 'فاتورة مبسطة'));
+  set('type-en', isExport ? 'TAX INVOICE — EXPORT' : (isB2B ? 'TAX INVOICE' : 'SIMPLIFIED INVOICE'));
+  /* Art.53 content rule: zero-rated invoices must state the legal basis. */
+  if(isExport){
+    const t = document.getElementById('inv-type-block') || document.querySelector('.inv-title-wrap') || document.getElementById('type-ar')?.parentElement;
+    if(t && !document.getElementById('export-basis-line')){
+      const d = document.createElement('div');
+      d.id = 'export-basis-line';
+      d.style.cssText = 'font-size:10.5px;color:#374151;margin-top:3px;';
+      d.textContent = 'صادرات — الضريبة 0% وفقاً للمادة (32) من اللائحة التنفيذية لنظام ضريبة القيمة المضافة · Export of goods — zero-rated per Art. 32, KSA VAT Implementing Regulations';
+      t.appendChild(d);
+    }
+  }
 
   /* Meta block */
   set('meta-invnum', inv.invoice_number || '—');
