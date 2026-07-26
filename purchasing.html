@@ -641,6 +641,18 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
           <input type="date" id="imp-date"></div>
       </div>
       <div class="field-row double">
+        <div class="field"><div class="field-label" data-ar="عملة الفاتورة" data-en="Invoice Currency">عملة الفاتورة</div>
+          <select id="imp-currency" onchange="impFx()">
+            <option value="SAR">SAR ﷼</option><option value="USD">USD $</option>
+            <option value="EUR">EUR €</option><option value="CNY">CNY ¥</option>
+            <option value="AED">AED د.إ</option><option value="INR">INR ₹</option>
+          </select></div>
+        <div class="field"><div class="field-label" data-ar="سعر الصرف إلى الريال" data-en="FX Rate to SAR">سعر الصرف إلى الريال</div>
+          <input type="number" step="0.000001" id="imp-fx" value="1" oninput="impFx()"></div>
+      </div>
+      <div class="field-row double">
+        <div class="field"><div class="field-label" data-ar="قيمة البضاعة بالعملة الأجنبية" data-en="Goods Value (Foreign)">قيمة البضاعة بالعملة الأجنبية</div>
+          <input type="number" step="0.01" id="imp-goods-fc" oninput="impFx()"></div>
         <div class="field"><div class="field-label" data-ar="قيمة البضاعة CIF (ريال)" data-en="Goods Value CIF (SAR)">قيمة البضاعة CIF (ريال)</div>
           <input type="number" step="0.01" id="imp-goods" oninput="impCalcVat()"></div>
         <div class="field"><div class="field-label" data-ar="الرسوم الجمركية" data-en="Customs Duty">الرسوم الجمركية</div>
@@ -2502,6 +2514,18 @@ async function impRoles(){
   const m = {}; data.forEach(r => { if(r.resolved_code) m[r.role] = r.resolved_code; });
   return (_impRoles = m);
 }
+function impFx(){
+  const cur = document.getElementById('imp-currency').value;
+  const fxEl = document.getElementById('imp-fx');
+  const fcEl = document.getElementById('imp-goods-fc');
+  if(cur === 'SAR'){ fxEl.value = 1; fcEl.disabled = true; }
+  else { fcEl.disabled = false; if(parseFloat(fxEl.value) === 1 && fxEl.dataset.touched !== '1'){} }
+  const fc = parseFloat(fcEl.value) || 0, fx = parseFloat(fxEl.value) || 0;
+  if(cur !== 'SAR' && fc > 0 && fx > 0){
+    document.getElementById('imp-goods').value = (fc * fx).toFixed(2);
+  }
+  impCalcVat();
+}
 function impCalcVat(){
   const g = parseFloat(document.getElementById('imp-goods').value) || 0;
   const d = parseFloat(document.getElementById('imp-duty').value) || 0;
@@ -2563,6 +2587,8 @@ async function impSave(){
       business_id: currentBiz.id, user_id: currentUser.id,
       supplier_id: document.getElementById('imp-supplier').value || null,
       reference: ref, shipment_date: date, goods_value_sar: goods,
+      currency: document.getElementById('imp-currency').value,
+      fx_rate: parseFloat(document.getElementById('imp-fx').value) || 1,
       customs_duty: duty, import_vat: vat, freight: freight,
       clearance_fees: clr, other_costs: other, total_paid: crTotal,
       journal_entry_id: je.id, notes: document.getElementById('imp-notes').value.trim() || null
