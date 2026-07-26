@@ -604,15 +604,14 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
        PANE: IMPORTS & EXPORTS — placeholder
   ════════════════════════════════════════════════ -->
   <div id="pane-imports" style="display:none;">
-    <div class="placeholder-pane">
-      <div class="placeholder-icon"><span class="gl-i-disc is-neutral"><svg class="gl-i"><use href="/gl-icons.svg#i-globe"/></svg></span></div>
-      <h2 data-ar="الاستيراد والتصدير" data-en="Imports & Exports">الاستيراد والتصدير</h2>
-      <p data-ar="إدارة عمليات الاستيراد، الرسوم الجمركية، الشحن الدولي، والمستندات."
-         data-en="Manage imports, customs duties, international shipping, and trade documents.">
-        إدارة عمليات الاستيراد، الرسوم الجمركية، الشحن الدولي، والمستندات.
-      </p>
-      <span class="placeholder-coming" data-ar="ميزة متقدمة" data-en="Advanced feature">ميزة متقدمة</span>
+    <div class="pane-head" style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+      <h2 style="margin:0;" data-ar="الاستيراد والتصدير" data-en="Imports & Exports">الاستيراد والتصدير</h2>
+      <button class="btn btn-primary" onclick="impOpen()">
+        <svg class="gl-i"><use href="/gl-icons.svg#i-globe"/></svg>
+        <span data-ar="شحنة استيراد جديدة" data-en="New Import Shipment">شحنة استيراد جديدة</span>
+      </button>
     </div>
+    <div id="imp-list"></div>
   </div>
 
     </div><!-- /.purchasing-main -->
@@ -623,6 +622,53 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
 <div class="loading-state" id="loading-state">
   <div class="loading-spinner"><svg class="gl-i gl-i-lg"><use href="/gl-icons.svg#i-factory"/></svg></div>
   <div data-ar="جارٍ التحميل..." data-en="Loading...">جارٍ التحميل...</div>
+</div>
+
+
+<div class="modal-overlay gl-as-drawer" id="imp-modal">
+  <div class="modal">
+    <div class="modal-head">
+      <div class="modal-title" data-ar="شحنة استيراد" data-en="Import Shipment">شحنة استيراد</div>
+      <button class="modal-close" onclick="impClose()">×</button>
+    </div>
+    <div class="modal-body">
+      <div class="field"><div class="field-label" data-ar="المورد الدولي" data-en="International Supplier">المورد الدولي</div>
+        <select id="imp-supplier"></select></div>
+      <div class="field-row double">
+        <div class="field"><div class="field-label" data-ar="رقم البيان الجمركي / BL" data-en="Customs Decl. / BL #">رقم البيان الجمركي / BL</div>
+          <input type="text" id="imp-ref"></div>
+        <div class="field"><div class="field-label" data-ar="التاريخ" data-en="Date">التاريخ</div>
+          <input type="date" id="imp-date"></div>
+      </div>
+      <div class="field-row double">
+        <div class="field"><div class="field-label" data-ar="قيمة البضاعة CIF (ريال)" data-en="Goods Value CIF (SAR)">قيمة البضاعة CIF (ريال)</div>
+          <input type="number" step="0.01" id="imp-goods" oninput="impCalcVat()"></div>
+        <div class="field"><div class="field-label" data-ar="الرسوم الجمركية" data-en="Customs Duty">الرسوم الجمركية</div>
+          <input type="number" step="0.01" id="imp-duty" value="0" oninput="impCalcVat()"></div>
+      </div>
+      <div class="field-row double">
+        <div class="field"><div class="field-label" data-ar="ضريبة الاستيراد (تلقائي 15%)" data-en="Import VAT (auto 15%)">ضريبة الاستيراد (تلقائي 15%)</div>
+          <input type="number" step="0.01" id="imp-vat" value="0"></div>
+        <div class="field"><div class="field-label" data-ar="الشحن الدولي" data-en="Freight">الشحن الدولي</div>
+          <input type="number" step="0.01" id="imp-freight" value="0"></div>
+      </div>
+      <div class="field-row double">
+        <div class="field"><div class="field-label" data-ar="رسوم التخليص" data-en="Clearance Fees">رسوم التخليص</div>
+          <input type="number" step="0.01" id="imp-clearance" value="0"></div>
+        <div class="field"><div class="field-label" data-ar="تكاليف أخرى" data-en="Other Costs">تكاليف أخرى</div>
+          <input type="number" step="0.01" id="imp-other" value="0"></div>
+      </div>
+      <div class="field"><div class="field-label" data-ar="الدفع من" data-en="Paid From">الدفع من</div>
+        <select id="imp-account"></select></div>
+      <div class="field"><div class="field-label" data-ar="ملاحظات" data-en="Notes">ملاحظات</div>
+        <textarea id="imp-notes" rows="2"></textarea></div>
+      <div class="gl-hint" style="margin-top:8px;" data-ar="المعالجة: الرسوم والشحن والتخليص تُرسمل ضمن المخزون (تكلفة الوصول)؛ ضريبة الاستيراد المدفوعة للجمارك تُسجل كضريبة مدخلات قابلة للاسترداد في الإقرار." data-en="Treatment: duty, freight & clearance are capitalized into inventory (landed cost); import VAT paid at customs is recorded as recoverable input VAT for your return.">المعالجة: الرسوم والشحن والتخليص تُرسمل ضمن المخزون (تكلفة الوصول)؛ ضريبة الاستيراد المدفوعة للجمارك تُسجل كضريبة مدخلات قابلة للاسترداد في الإقرار.</div>
+    </div>
+    <div class="modal-foot" style="display:flex;gap:8px;justify-content:flex-end;padding:14px 18px;border-top:1px solid #EFEDE7;">
+      <button class="btn btn-ghost" onclick="impClose()" data-ar="إلغاء" data-en="Cancel">إلغاء</button>
+      <button class="btn btn-primary" onclick="impSave()" id="imp-save-btn" data-ar="ترحيل الشحنة" data-en="Post Shipment">ترحيل الشحنة</button>
+    </div>
+  </div>
 </div>
 
 <!-- ════════════════════════════════════════════════
@@ -2437,7 +2483,121 @@ function formatDateTime(iso){
 /* ═══════════════════════════════════════════════════════
    TAB SWITCHING
 ═══════════════════════════════════════════════════════ */
+
+/* ═══ IMPORT SHIPMENTS (v1) ══════════════════════════════════════════════
+   Saudi treatment: customs duty + freight + clearance + other are LANDED
+   COSTS capitalized into inventory; import VAT paid at customs is
+   recoverable input VAT. One balanced journal; the DB bank trigger mirrors
+   the cash movement and refreshes balances. Accounts resolve through the
+   business's role mapping — no hardcoded codes; posting refuses if roles
+   are unresolved rather than guessing accounts. */
+let impShipments = [], _impRoles = null;
+async function impRoles(){
+  if(_impRoles) return _impRoles;
+  const {data, error} = await sb.rpc('resolve_roles_batch', {
+    p_business_id: currentBiz.id,
+    p_roles: ['inventory_primary','vat_input','cash_primary','bank_primary']
+  });
+  if(error || !data) return null;
+  const m = {}; data.forEach(r => { if(r.resolved_code) m[r.role] = r.resolved_code; });
+  return (_impRoles = m);
+}
+function impCalcVat(){
+  const g = parseFloat(document.getElementById('imp-goods').value) || 0;
+  const d = parseFloat(document.getElementById('imp-duty').value) || 0;
+  document.getElementById('imp-vat').value = (Math.round((g + d) * 15) / 100).toFixed(2);
+}
+async function impOpen(){
+  const ar = currentLang === 'ar';
+  document.getElementById('imp-date').value = new Date().toISOString().slice(0,10);
+  const sup = document.getElementById('imp-supplier');
+  sup.innerHTML = '<option value="">' + (ar?'— اختر —':'— select —') + '</option>' +
+    (allSuppliers||[]).map(s => `<option value="${s.id}">${escHTML((ar ? (s.name_ar||s.name_en) : (s.name_en||s.name_ar)) || '—')}</option>`).join('');
+  const {data: accts} = await sb.from('bank_accounts').select('id,account_name,account_type,gl_account_code').eq('business_id', currentBiz.id).eq('is_active', true);
+  document.getElementById('imp-account').innerHTML =
+    (accts||[]).map(a => `<option value="${a.gl_account_code||''}" data-type="${a.account_type}">${escHTML(a.account_name)}</option>`).join('');
+  document.getElementById('imp-modal').classList.add('open');
+}
+function impClose(){ document.getElementById('imp-modal').classList.remove('open'); }
+async function impSave(){
+  const ar = currentLang === 'ar';
+  const btn = document.getElementById('imp-save-btn'); btn.disabled = true;
+  try{
+    const roles = await impRoles();
+    if(!roles || !roles.inventory_primary || !roles.vat_input){
+      notify(ar?'تعذر تحديد حسابات المخزون/الضريبة — راجع إعدادات الحسابات':'Could not resolve inventory/VAT accounts — check account settings','error'); return;
+    }
+    const v = id => parseFloat(document.getElementById(id).value) || 0;
+    const duty=v('imp-duty'), vat=v('imp-vat'), freight=v('imp-freight'), clr=v('imp-clearance'), other=v('imp-other');
+    const goods=v('imp-goods');
+    const landed = +(duty + freight + clr + other).toFixed(2);
+    if(landed <= 0 && vat <= 0){ notify(ar?'أدخل تكاليف الشحنة':'Enter shipment costs','error'); return; }
+    const payCode = document.getElementById('imp-account').value;
+    if(!payCode){ notify(ar?'حساب الدفع غير مرتبط بدليل الحسابات':'Payment account has no GL code','error'); return; }
+    const ref = document.getElementById('imp-ref').value.trim() || ('IMP-' + Date.now().toString().slice(-6));
+    const date = document.getElementById('imp-date').value;
+
+    const {data: je, error: jeErr} = await sb.from('journal_entries').insert({
+      user_id: currentUser.id, business_id: currentBiz.id, entry_date: date,
+      reference: 'IMPORT-' + ref,
+      description: (ar?'تكاليف استيراد ':'Import costs ') + ref,
+      source: 'import_shipment', status: 'posted', is_balanced: true
+    }).select().single();
+    if(jeErr) throw jeErr;
+
+    const jl = [];
+    if(landed > 0) jl.push({entry_id: je.id, user_id: currentUser.id, account_code: roles.inventory_primary,
+      account_name: ar?'المخزون (تكلفة الوصول)':'Inventory (landed cost)', debit: landed, credit: 0,
+      description: ar?'رسوم جمركية وشحن وتخليص':'Duty, freight & clearance'});
+    if(vat > 0) jl.push({entry_id: je.id, user_id: currentUser.id, account_code: roles.vat_input,
+      account_name: ar?'ضريبة مدخلات (استيراد)':'Input VAT (import)', debit: vat, credit: 0,
+      description: ar?'ضريبة استيراد مدفوعة للجمارك':'Import VAT paid at customs'});
+    const crTotal = +jl.reduce((s,l)=>s+l.debit,0).toFixed(2);
+    jl.push({entry_id: je.id, user_id: currentUser.id, account_code: payCode,
+      account_name: ar?'البنك/النقد':'Bank/Cash', debit: 0, credit: crTotal,
+      description: (ar?'سداد تكاليف استيراد ':'Import costs payment ') + ref});
+    const {error: jlErr} = await sb.from('journal_lines').insert(jl);
+    if(jlErr){ await sb.from('journal_entries').delete().eq('id', je.id); throw jlErr; }
+
+    await sb.from('import_shipments').insert({
+      business_id: currentBiz.id, user_id: currentUser.id,
+      supplier_id: document.getElementById('imp-supplier').value || null,
+      reference: ref, shipment_date: date, goods_value_sar: goods,
+      customs_duty: duty, import_vat: vat, freight: freight,
+      clearance_fees: clr, other_costs: other, total_paid: crTotal,
+      journal_entry_id: je.id, notes: document.getElementById('imp-notes').value.trim() || null
+    });
+    notify(ar?'✓ تم ترحيل الشحنة — القيد والبنك محدثان':'✓ Shipment posted — journal & bank updated','success');
+    impClose(); impLoad();
+  }catch(e){
+    console.error('[GL import]', e);
+    notify((currentLang==='ar'?'خطأ: ':'Error: ') + (e.message||e), 'error');
+  }finally{ btn.disabled = false; }
+}
+async function impLoad(){
+  const ar = currentLang === 'ar';
+  const {data} = await sb.from('import_shipments').select('*').eq('business_id', currentBiz.id).order('shipment_date', {ascending:false}).limit(100);
+  impShipments = data || [];
+  const el = document.getElementById('imp-list');
+  if(!impShipments.length){
+    el.innerHTML = `<div class="empty-state"><div class="title">${ar?'لا توجد شحنات استيراد بعد':'No import shipments yet'}</div></div>`;
+    return;
+  }
+  el.innerHTML = `<table class="tbl"><thead><tr>
+      <th>${ar?'التاريخ':'Date'}</th><th>${ar?'المرجع':'Reference'}</th>
+      <th class="num">${ar?'قيمة البضاعة':'Goods'}</th><th class="num">${ar?'رسوم جمركية':'Duty'}</th>
+      <th class="num">${ar?'ضريبة استيراد':'Import VAT'}</th><th class="num">${ar?'شحن وتخليص':'Freight+Clr'}</th>
+      <th class="num">${ar?'الإجمالي المدفوع':'Total Paid'}</th></tr></thead><tbody>
+    ${impShipments.map(s => `<tr>
+      <td class="num">${s.shipment_date}</td><td>${escHTML(s.reference||'—')}</td>
+      <td class="num">${fmt(s.goods_value_sar)}</td><td class="num">${fmt(s.customs_duty)}</td>
+      <td class="num">${fmt(s.import_vat)}</td><td class="num">${fmt((+s.freight||0)+(+s.clearance_fees||0)+(+s.other_costs||0))}</td>
+      <td class="num" style="font-weight:700;">${fmt(s.total_paid)}</td></tr>`).join('')}
+  </tbody></table>`;
+}
+
 function switchTab(name){
+  if(name === 'imports'){ setTimeout(impLoad, 50); }
   ['suppliers','products','orders','imports'].forEach(t => {
     document.getElementById('tab-' + t)?.classList.toggle('active', t === name);
     const pane = document.getElementById('pane-' + t);
