@@ -2814,6 +2814,40 @@ async function impSave(){
     notify((currentLang==='ar'?'خطأ: ':'Error: ') + (e.message||e), 'error');
   }finally{ btn.disabled = false; }
 }
+
+async function impReverse(id){
+  const ar = currentLang === 'ar';
+  const s = impShipments.find(x => x.id === id);
+  if(!s) return;
+  if(s.status === 'reversed'){ notify(ar?'معكوسة مسبقاً':'Already reversed','error'); return; }
+  if(!confirm(ar?'عكس شحنة الاستيراد؟ سيُرحّل قيد عكسي ويُعاد المبلغ للحساب.':'Reverse this import? A contra journal posts and the bank restores.')) return;
+  try{
+    /* guard: one reversal per shipment, ever */
+    const {data: dupe} = await sb.from('journal_entries').select('id')
+      .eq('business_id', currentBiz.id).eq('source','import_reversal').eq('source_id', s.id).limit(1);
+    if(dupe && dupe.length){ notify(ar?'معكوسة مسبقاً':'Already reversed','error'); return; }
+    const {data: lines} = await sb.from('journal_lines').select('*').eq('entry_id', s.journal_entry_id);
+    if(!lines?.length){ notify(ar?'قيد الشحنة غير موجود':'Original journal not found','error'); return; }
+    const {data: rev, error: reErr} = await sb.from('journal_entries').insert({
+      user_id: currentUser.id, business_id: currentBiz.id,
+      entry_date: new Date().toISOString().slice(0,10),
+      reference: 'IMPORTREV-' + (s.reference || ''),
+      description: (ar?'عكس تكاليف استيراد ':'Reversal of import costs ') + (s.reference||''),
+      source: 'import_reversal', source_id: s.id, status: 'posted', is_balanced: true
+    }).select().single();
+    if(reErr) throw reErr;
+    const contra = lines.map(l => ({entry_id: rev.id, user_id: currentUser.id,
+      account_code: l.account_code, account_name: l.account_name,
+      debit: Number(l.credit)||0, credit: Number(l.debit)||0,
+      description: (ar?'عكس: ':'Reversal: ') + (l.description||'')}));
+    const {error: clErr} = await sb.from('journal_lines').insert(contra);
+    if(clErr){ await sb.from('journal_entries').delete().eq('id', rev.id); throw clErr; }
+    await sb.from('import_shipments').update({status:'reversed'}).eq('id', s.id);
+    notify(ar?'✓ عُكست الشحنة — القيد والبنك استُعيدا':'✓ Reversed — journal & bank restored','success');
+    impLoad();
+  }catch(e){ notify((ar?'خطأ: ':'Error: ') + (e.message||e),'error'); }
+}
+
 async function impLoad(){
   const ar = currentLang === 'ar';
   const {data} = await sb.from('import_shipments').select('*').eq('business_id', currentBiz.id).order('shipment_date', {ascending:false}).limit(100);
@@ -2827,12 +2861,13 @@ async function impLoad(){
       <th>${ar?'التاريخ':'Date'}</th><th>${ar?'المرجع':'Reference'}</th>
       <th class="num">${ar?'قيمة البضاعة':'Goods'}</th><th class="num">${ar?'رسوم جمركية':'Duty'}</th>
       <th class="num">${ar?'ضريبة استيراد':'Import VAT'}</th><th class="num">${ar?'شحن وتخليص':'Freight+Clr'}</th>
-      <th class="num">${ar?'الإجمالي المدفوع':'Total Paid'}</th></tr></thead><tbody>
-    ${impShipments.map(s => `<tr>
-      <td class="num">${s.shipment_date}</td><td>${escHTML(s.reference||'—')}</td>
+      <th class="num">${ar?'الإجمالي المدفوع':'Total Paid'}</th><th class="ctr"></th></tr></thead><tbody>
+    ${impShipments.map(s => `<tr style="${s.status==='reversed'?'opacity:.55;':''}">
+      <td class="num">${s.shipment_date}</td><td>${s.status==='reversed'?'↩ ':''}${escHTML(s.reference||'—')}</td>
       <td class="num">${fmt(s.goods_value_sar)}</td><td class="num">${fmt(s.customs_duty)}</td>
       <td class="num">${fmt(s.import_vat)}</td><td class="num">${fmt((+s.freight||0)+(+s.clearance_fees||0)+(+s.other_costs||0))}</td>
-      <td class="num" style="font-weight:700;">${fmt(s.total_paid)}</td></tr>`).join('')}
+      <td class="num" style="font-weight:700;">${fmt(s.total_paid)}</td>
+      <td class="ctr">${s.status==='reversed' ? (currentLang==='ar'?'معكوسة':'Reversed') : `<button class="btn btn-ghost btn-sm" onclick="impReverse('${s.id}')" title="${currentLang==='ar'?'عكس':'Reverse'}">↩</button>`}</td></tr>`).join('')}
   </tbody></table>`;
 }
 
