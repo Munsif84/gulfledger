@@ -2978,6 +2978,37 @@ function formatMobile(m){
 /* ── Customer name helpers (bilingual support) ──
    Arabic name is primary (ZATCA mandate). English is optional secondary.
    For backward compatibility, fall back to legacy 'name' field. */
+
+/* Invoice LIST display: prefer the customer's CURRENT master name (so fixing
+   a customer record immediately fixes how their invoices read in lists).
+   The DOCUMENT (invoice-view, print, XML) remains the sealed snapshot —
+   ZATCA-issued data is immutable by law; only browsing UI resolves live. */
+function invDisplayName(inv){
+  const c = (typeof allCustomers !== 'undefined' && allCustomers || []).find(x => x.id === inv.customer_id);
+  if(c){ const n = custDisplayName(c); if(n) return n; }
+  return (currentLang === 'en')
+    ? (inv.buyer_name_en || inv.buyer_name || '—')
+    : (inv.buyer_name || inv.buyer_name_en || '—');
+}
+
+
+/* ═══ B2B ARABIC GATE (ZATCA compliance, last line of defense) ═══════════
+   A standard (B2B) invoice must carry the buyer name in Arabic. The
+   customer form enforces this for new/edited customers, but legacy records
+   can predate the gate — so issuance itself refuses a B2B invoice whose
+   customer has no genuine Arabic name, directing the user to fix the
+   customer first. B2C receipts (no buyer identity) are unaffected. */
+function assertB2BArabicName(){
+  if(!selectedCustomer) return true;
+  if(selectedCustomer.customer_type !== 'b2b') return true;
+  const ar = custNameAr(selectedCustomer);
+  if(ar && /[\u0600-\u06FF]/.test(ar)) return true;
+  notify(currentLang === 'ar'
+    ? '⚠ فاتورة B2B تتطلب اسم المشتري بالعربية (متطلب زاتكا). عدّل بيانات العميل وأضف الاسم العربي أولاً.'
+    : '⚠ B2B invoices require the buyer name in Arabic (ZATCA mandate). Edit the customer and add the Arabic name first.', 'error');
+  return false;
+}
+
 function custNameAr(c){
   return c?.name_ar || c?.company_name_ar || (
     /[\u0600-\u06FF]/.test(c?.name || '') ? c.name : ''
@@ -3680,7 +3711,7 @@ function renderInvoiceList(list){
     return `<div onclick="${fullyCredited?'':`pickInvoiceForNote('${inv.id}')`}" style="padding:10px 12px;border-bottom:1px solid var(--tint);cursor:${fullyCredited?'not-allowed':'pointer'};display:flex;justify-content:space-between;align-items:center;gap:12px;${fullyCredited?'opacity:0.4;':''}" ${!fullyCredited?'onmouseover="this.style.background=\'#f5f7f5\'" onmouseout="this.style.background=\'\'"':''}>
       <div style="flex:1;min-width:0;">
         <div style="font-weight:700;font-family:inherit;font-variant-numeric:tabular-nums;font-size:13px;">${escHTML(inv.invoice_number)}</div>
-        <div style="font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHTML(inv.buyer_name||'—')}</div>
+        <div style="font-size:12px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${escHTML(invDisplayName(inv))}</div>
       </div>
       <div style="text-align:end;">
         <div style="font-family:inherit;font-variant-numeric:tabular-nums;font-weight:700;font-size:13px;">SAR ${fmt(total)}</div>
@@ -3728,7 +3759,7 @@ function renderAdjustLinesStep(){
   stepEl.innerHTML = `
     <div style="background:${isCredit?'#fef3f0':'#fffbeb'};border:1px solid ${isCredit?'#f4cab9':'#fcd34d'};border-radius:8px;padding:10px 14px;margin-bottom:14px;font-size:12px;line-height:1.6;">
       <div style="font-weight:700;color:${isCredit?'#7b3214':'#78350f'};margin-bottom:4px;">
-        ${ar?'الفاتورة:':'Invoice:'} <span style="font-family:inherit;font-variant-numeric:tabular-nums;">${escHTML(inv.invoice_number)}</span> · ${escHTML(inv.buyer_name||'—')}
+        ${ar?'الفاتورة:':'Invoice:'} <span style="font-family:inherit;font-variant-numeric:tabular-nums;">${escHTML(inv.invoice_number)}</span> · ${escHTML(invDisplayName(inv))}
       </div>
       <div>${ar?'إجمالي الفاتورة:':'Invoice total:'} SAR ${fmt(inv.total)}
         ${cumulCredited > 0 ? ` · ${ar?'مرصود سابقاً:':'previously credited:'} SAR ${fmt(cumulCredited)}` : ''}
@@ -4357,7 +4388,7 @@ function renderCreditNotesList(){
         </thead>
         <tbody>
           ${list.map(cn => {
-            const customer = (currentLang === 'en' && cn.customer_name_en) ? cn.customer_name_en : (cn.customer_name_ar || cn.customer_name_en || '—');
+            const customer = invDisplayName({customer_id: cn.customer_id, buyer_name: cn.customer_name_ar, buyer_name_en: cn.customer_name_en});
             return `<tr class="clickable" onclick="window.location.href='credit-note-view.html?id=${cn.id}'">
               <td><strong style="color:#7f1d1d;">${escHTML(cn.credit_note_number||'—')}</strong></td>
               <td class="num">${escHTML(cn.issue_date||'—')}</td>
@@ -4459,7 +4490,7 @@ function renderDebitNotesList(){
             const statusBadge = isVoided
               ? '<span class="badge badge-voided">↩ ' + (ar?'ملغي':'Voided') + '</span>'
               : '<span class="badge badge-paid">' + (ar?'صادر':'Issued') + '</span>';
-            const customerName = dn.customer_name_ar || dn.customer_name_en || '—';
+            const customerName = invDisplayName({customer_id: dn.customer_id, buyer_name: dn.customer_name_ar, buyer_name_en: dn.customer_name_en});
             return `<tr class="clickable${isVoided?' voided':''}" onclick="window.location.href='debit-note-view.html?id=${dn.id}'">
               <td><strong>${escHTML(dn.debit_note_number||'—')}</strong></td>
               <td class="num">${escHTML(dn.issue_date||'—')}</td>
@@ -5499,6 +5530,8 @@ function isDraftPlaceholder(num){
 }
 
 async function previewInvoice(){
+  if(!assertB2BArabicName()) return;
+
   if(!currentUser) throw new Error('not authenticated');
 
   /* Compute totals */
@@ -5606,6 +5639,8 @@ async function previewInvoice(){
    GENERATE INVOICE — full validation + ledger posting
 ═══════════════════════════════════════════════════════ */
 async function generateInvoice(){
+  if(!assertB2BArabicName()) return;
+
   if(!currentUser) throw new Error('not authenticated');
 
   const isTax = currentInvType === 'tax';
