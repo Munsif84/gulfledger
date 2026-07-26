@@ -765,6 +765,15 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
           </div>
           <input type="text" id="sup-name-en" placeholder="شركة الإمداد للتجارة" data-ph-ar="شركة الإمداد للتجارة" data-ph-en="Supply Trading Co." dir="ltr">
         </div>
+      <div class="field"><label class="field-label"><span data-ar="الدولة" data-en="Country">الدولة</span></label>
+        <select id="sup-country">
+          <option value="SA" selected>🇸🇦 السعودية · Saudi Arabia</option>
+          <option value="AE">🇦🇪 الإمارات · UAE</option><option value="CN">🇨🇳 الصين · China</option>
+          <option value="IN">🇮🇳 الهند · India</option><option value="TR">🇹🇷 تركيا · Türkiye</option>
+          <option value="EG">🇪🇬 مصر · Egypt</option><option value="JO">🇯🇴 الأردن · Jordan</option>
+          <option value="DE">🇩🇪 ألمانيا · Germany</option><option value="US">🇺🇸 أمريكا · USA</option>
+          <option value="OTHER">🌍 أخرى · Other</option>
+        </select></div>
       </div>
       <div class="field-row triple">
         <div class="field">
@@ -2736,8 +2745,12 @@ async function impOpen(){
   const ar = currentLang === 'ar';
   document.getElementById('imp-date').value = new Date().toISOString().slice(0,10);
   const sup = document.getElementById('imp-supplier');
+  const foreign = (allSuppliers||[]).filter(s => s.country && s.country !== 'SA');
   sup.innerHTML = '<option value="">' + (ar?'— اختر —':'— select —') + '</option>' +
-    (allSuppliers||[]).map(s => `<option value="${s.id}">${escHTML((ar ? (s.name_ar||s.name_en) : (s.name_en||s.name_ar)) || '—')}</option>`).join('');
+    foreign.map(s => `<option value="${s.id}">${escHTML((ar ? (s.name_ar||s.name_en) : (s.name_en||s.name_ar)) || '—')} · ${escHTML(s.country)}</option>`).join('');
+  if(!foreign.length){
+    sup.innerHTML = '<option value="">' + (ar?'لا يوجد موردون أجانب — أضف مورداً بدولة غير السعودية أولاً':'No foreign suppliers — add one with a non-KSA country first') + '</option>';
+  }
   const {data: accts} = await sb.from('bank_accounts').select('id,account_name,account_type,gl_account_code').eq('business_id', currentBiz.id).eq('is_active', true);
   document.getElementById('imp-account').innerHTML =
     (accts||[]).map(a => `<option value="${a.gl_account_code||''}" data-type="${a.account_type}">${escHTML(a.account_name)}</option>`).join('');
@@ -3124,6 +3137,7 @@ async function saveSupplier(){
     name: nameAr,
     name_ar: nameAr,
     name_en: v('sup-name-en') || null,
+    country: document.getElementById('sup-country')?.value || 'SA',
     supplier_code: v('sup-code') || null,
     mobile: v('sup-mobile') || null,
     email: v('sup-email') || null,
