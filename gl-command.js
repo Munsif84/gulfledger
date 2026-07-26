@@ -676,6 +676,7 @@
     + '@media(max-width:600px){.gls-gulf{font-size:19px;}.gls-top{padding:8px 12px;}.gls-nav{padding:0 8px;}}';
 
   function mountShell(){
+    if(location.search.indexOf('embed=1') !== -1) return;   /* framed content-only mode */
     if(document.getElementById('gl-shell')) return;
     if(!document.querySelector('link[href*="Playfair"]')){
       var fl = document.createElement('link'); fl.rel = 'stylesheet';
