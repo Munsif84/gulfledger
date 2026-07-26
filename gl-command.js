@@ -541,3 +541,168 @@
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', glListbarBoot);
   else glListbarBoot();
 })();
+
+
+/* ═══════════════════════════════════════════════════════════════════════════
+   GL SHELL — the single source of truth for chrome, tables, filters, feedback
+   ─────────────────────────────────────────────────────────────────────────
+   PRINCIPLE: anything appearing on more than one page is defined HERE, once.
+   The shell REPLACES each page's private header/nav at runtime — so all ~24
+   pages become consistent through this one file, and a page cannot drift
+   because it no longer owns chrome. The Registry declares every page and its
+   place in navigation (sub-pages included), so reachability is a declared
+   fact, not an accident of pasted links.
+   ═══════════════════════════════════════════════════════════════════════ */
+(function(){
+  'use strict';
+  var L = function(){ return (localStorage.getItem('gl_lang') || document.documentElement.lang || 'ar'); };
+  var ar = function(){ return L() === 'ar'; };
+
+  /* ── 1. PAGE REGISTRY ──────────────────────────────────────────────────
+     group:'main' = top nav tab · parent:'x.html' = sub-page chip shown when
+     on that page or its parent · hidden pages exist but never render links. */
+  var REG = [
+    { href:'dashboard.html',  ar:'الرئيسية',  en:'Dashboard',  group:'main' },
+    { href:'purchasing.html', ar:'المشتريات', en:'Purchasing', group:'main' },
+    { href:'inventory.html',  ar:'المخزون',   en:'Inventory',  group:'main' },
+    { href:'invoices.html',   ar:'المبيعات',  en:'Sales',      group:'main' },
+    { href:'finance.html',    ar:'المالية',   en:'Finance',    group:'main' },
+    { href:'accounting.html', ar:'المحاسبة',  en:'Accounting', group:'main' },
+    { href:'reports.html',    ar:'التقارير',  en:'Reports',    group:'main' },
+    { href:'audit.html',          ar:'سجل التدقيق',   en:'Audit Log',    parent:'reports.html' },
+    { href:'statements.html',     ar:'كشوف الحساب',   en:'Statements',   parent:'reports.html' },
+    { href:'branch-report.html',  ar:'تقرير الفروع',  en:'Branch Report',parent:'reports.html' },
+    { href:'locations.html',      ar:'المواقع',       en:'Locations',    parent:'inventory.html' },
+    { href:'customer-detail.html',ar:'بطاقة عميل',    en:'Customer',     parent:'invoices.html', hidden:true },
+    { href:'vendor-detail.html',  ar:'بطاقة مورد',    en:'Vendor',       parent:'purchasing.html', hidden:true },
+    { href:'invoice-view.html',   ar:'عرض فاتورة',    en:'Invoice',      parent:'invoices.html', hidden:true },
+    { href:'credit-note-view.html', ar:'إشعار دائن',  en:'Credit Note',  parent:'invoices.html', hidden:true },
+    { href:'debit-note-view.html',  ar:'إشعار مدين',  en:'Debit Note',   parent:'invoices.html', hidden:true },
+    { href:'settings.html',   ar:'الإعدادات', en:'Settings',   group:'utility' }
+  ];
+  var here = (location.pathname.split('/').pop() || 'dashboard.html');
+  var me = null; REG.forEach(function(p){ if(p.href === here) me = p; });
+
+  /* ── 2. CHROME RENDERER (replaces page-owned header/nav at runtime) ── */
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function shellHeaderHTML(){
+    var isAr = ar();
+    var tabs = REG.filter(function(p){ return p.group === 'main'; }).map(function(p){
+      var active = (p.href === here) || (me && me.parent === p.href);
+      return '<a href="' + p.href + '" class="gls-tab' + (active ? ' on' : '') + '">' + esc(isAr ? p.ar : p.en) + '</a>';
+    }).join('');
+    var subs = '';
+    var parentHref = me && (me.group === 'main' ? me.href : me.parent);
+    if(parentHref){
+      var kids = REG.filter(function(p){ return p.parent === parentHref && !p.hidden; });
+      if(kids.length){
+        subs = '<div class="gls-subs">' + kids.map(function(p){
+          return '<a href="' + p.href + '" class="gls-sub' + (p.href === here ? ' on' : '') + '">' + esc(isAr ? p.ar : p.en) + '</a>';
+        }).join('') + '</div>';
+      }
+    }
+    return ''
+      + '<div class="gls-top">'
+      +   '<a href="dashboard.html" class="gls-logo" aria-label="GulfLedger">'
+      +     '<span class="gls-bars"><i></i><i></i></span>'
+      +     '<span class="gls-name">Gulf<b>Ledger</b></span>'
+      +   '</a>'
+      +   '<div class="gls-right">'
+      +     '<span class="gls-mount-trigger"></span>'
+      +     '<div class="gls-prof">'
+      +       '<button class="gls-prof-btn" aria-haspopup="true" aria-expanded="false">'
+      +         '<svg class="gl-i"><use href="/gl-icons.svg#i-user"/></svg><span class="gls-caret">▾</span>'
+      +       '</button>'
+      +       '<div class="gls-prof-dd" role="menu">'
+      +         '<a href="settings.html" class="gls-dd-item"><svg class="gl-i"><use href="/gl-icons.svg#i-settings"/></svg><span>' + (isAr?'الإعدادات':'Settings') + '</span></a>'
+      +         '<div class="gls-dd-item gls-lang-row"><span>' + (isAr?'اللغة':'Language') + '</span>'
+      +           '<span class="gls-flags">'
+      +             '<button id="btn-ar" title="العربية">🇸🇦</button>'
+      +             '<button id="btn-en" title="English">🇬🇧</button>'
+      +           '</span>'
+      +         '</div>'
+      +         '<button class="gls-dd-item gls-logout"><svg class="gl-i"><use href="/gl-icons.svg#i-logout"/></svg><span>' + (isAr?'تسجيل الخروج':'Log out') + '</span></button>'
+      +       '</div>'
+      +     '</div>'
+      +   '</div>'
+      + '</div>'
+      + '<div class="gls-nav">' + tabs + '</div>'
+      + subs;
+  }
+  var SHELL_CSS = ''
+    + '.gls-top{display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,#0B3D24,#0E5232);padding:10px 22px;}'
+    + '.gls-logo{display:inline-flex;align-items:center;gap:10px;text-decoration:none;}'
+    + '.gls-bars{display:inline-flex;flex-direction:column;gap:3px;}'
+    + '.gls-bars i{width:22px;height:5px;border-radius:3px;background:#fff;display:block;}'
+    + '.gls-bars i:last-child{background:rgba(255,255,255,0.45);width:15px;}'
+    + '.gls-name{font-size:21px;font-weight:800;color:#fff;letter-spacing:-0.01em;}'
+    + '.gls-name b{color:#9FD9B8;font-weight:800;}'
+    + '.gls-right{display:flex;align-items:center;gap:6px;}'
+    + '.gls-prof{position:relative;}'
+    + '.gls-prof-btn{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.25);border-radius:999px;padding:6px 10px;color:#fff;cursor:pointer;}'
+    + '.gls-prof-btn .gl-i{width:17px;height:17px;fill:currentColor;}'
+    + '.gls-caret{font-size:10px;opacity:.8;}'
+    + '.gls-prof-dd{position:absolute;inset-inline-end:0;top:calc(100% + 8px);min-width:210px;background:#fff;border:1px solid #E3E1DA;border-radius:12px;box-shadow:0 10px 30px rgba(0,0,0,0.14);padding:6px;display:none;z-index:60;}'
+    + '.gls-prof.open .gls-prof-dd{display:block;}'
+    + '.gls-dd-item{display:flex;align-items:center;gap:9px;width:100%;padding:9px 11px;border:0;background:none;border-radius:8px;font:inherit;font-size:13.5px;color:#0D2618;text-decoration:none;cursor:pointer;justify-content:flex-start;}'
+    + '.gls-dd-item:hover{background:#F2F7F3;}'
+    + '.gls-dd-item .gl-i{width:16px;height:16px;fill:#5B7263;}'
+    + '.gls-lang-row{justify-content:space-between;cursor:default;}'
+    + '.gls-flags{display:inline-flex;gap:4px;}'
+    + '.gls-flags button{font-size:17px;line-height:1;padding:3px 7px;border:1px solid #E3E1DA;border-radius:6px;background:#fff;cursor:pointer;}'
+    + '.gls-flags button:hover{border-color:#0E5232;}'
+    + '.gls-nav{display:flex;gap:4px;background:#0E5232;padding:0 16px;overflow-x:auto;}'
+    + '.gls-tab{padding:11px 15px;color:rgba(255,255,255,0.82);text-decoration:none;font-size:14px;font-weight:600;border-bottom:3px solid transparent;white-space:nowrap;}'
+    + '.gls-tab:hover{color:#fff;}'
+    + '.gls-tab.on{color:#fff;border-bottom-color:#9FD9B8;}'
+    + '.gls-subs{display:flex;gap:8px;background:#F2F7F3;border-bottom:1px solid #E3E1DA;padding:8px 22px;}'
+    + '.gls-sub{padding:5px 13px;border:1px solid #D8E5DC;border-radius:999px;background:#fff;color:#0D2618;font-size:12.5px;font-weight:600;text-decoration:none;}'
+    + '.gls-sub.on{background:#0E5232;border-color:#0E5232;color:#fff;}'
+    + '@media(max-width:600px){.gls-name{font-size:18px;}.gls-top{padding:8px 12px;}.gls-nav{padding:0 8px;}}';
+
+  function mountShell(){
+    if(document.getElementById('gl-shell')) return;
+    var st = document.createElement('style'); st.textContent = SHELL_CSS; document.head.appendChild(st);
+    var shell = document.createElement('div'); shell.id = 'gl-shell';
+    shell.innerHTML = shellHeaderHTML();
+    /* Replace page-owned chrome: topnav + app-nav (+ sub-tab strips) die here. */
+    var olds = document.querySelectorAll('.topnav, .app-nav');
+    if(olds.length){
+      olds[0].parentNode.insertBefore(shell, olds[0]);
+      olds.forEach(function(n){ n.remove(); });
+    } else {
+      document.body.insertBefore(shell, document.body.firstChild);
+    }
+    /* Behaviors — owned by the shell, not the page */
+    var prof = shell.querySelector('.gls-prof');
+    shell.querySelector('.gls-prof-btn').addEventListener('click', function(e){
+      e.stopPropagation(); prof.classList.toggle('open');
+      this.setAttribute('aria-expanded', prof.classList.contains('open'));
+    });
+    document.addEventListener('click', function(){ prof.classList.remove('open'); });
+    shell.querySelector('#btn-ar').addEventListener('click', function(){ glSetLang('ar'); });
+    shell.querySelector('#btn-en').addEventListener('click', function(){ glSetLang('en'); });
+    shell.querySelector('.gls-logout').addEventListener('click', function(){
+      try{
+        var c = (typeof sb !== 'undefined' && sb) || (typeof supabase !== 'undefined' && supabase) || null;
+        if(c && c.auth && c.auth.signOut){ c.auth.signOut().then(function(){ location.href='login.html'; }); return; }
+      }catch(_e){}
+      location.href = 'login.html';
+    });
+    /* Move the quick-actions trigger (glc) into the shell if it mounts later */
+    var mt = shell.querySelector('.gls-mount-trigger');
+    var relocate = function(){
+      var t = document.querySelector('.glc-trigger');
+      if(t && mt && t.parentNode !== mt){ mt.appendChild(t); }
+    };
+    relocate(); setTimeout(relocate, 300);
+  }
+  function glSetLang(l){
+    var prev = localStorage.getItem('gl_lang');
+    localStorage.setItem('gl_lang', l);
+    if(prev !== l) location.reload();
+  }
+  window.glSetLang = glSetLang;
+  if(document.readyState === 'loading'){ document.addEventListener('DOMContentLoaded', mountShell); }
+  else { mountShell(); }
+})();
