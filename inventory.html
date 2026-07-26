@@ -883,8 +883,11 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
       <a href="locations.html" data-lb="link"><span data-ar="إدارة المواقع ←" data-en="Manage locations →">إدارة المواقع ←</span></a>
       <div style="display:flex;gap:8px;flex-wrap:wrap;margin-inline-start:auto;">
         <a href="purchasing.html?tab=products" data-lb="link"><span data-ar="إدارة المنتجات ←" data-en="Manage products →">إدارة المنتجات ←</span></a>
-        <button class="btn btn-primary btn-sm" onclick="openReceiveModal()">
-          <svg class="gl-i gl-i-sm"><use href="/gl-icons.svg#i-receipt-in"/></svg> <span data-ar="استلام بضاعة" data-en="Receive">استلام بضاعة</span>
+        <button class="btn btn-secondary" onclick="exportStockCsv()">
+          <svg class="gl-i"><use href="/gl-icons.svg#i-download"/></svg> <span data-ar="تصدير CSV" data-en="Export CSV">تصدير CSV</span>
+        </button>
+        <button class="btn btn-primary" onclick="openReceiveModal()">
+          <svg class="gl-i"><use href="/gl-icons.svg#i-receipt-in"/></svg> <span data-ar="استلام بضاعة" data-en="Receive Stock">استلام بضاعة</span>
         </button>
       </div>
     </div>
@@ -979,7 +982,7 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
       </div>
       <div style="display:flex;gap:8px;">
         <button class="btn btn-primary" onclick="openReceiveModal()">
-          + <span data-ar="استلام جديد" data-en="Receive Stock">استلام جديد</span>
+          <svg class="gl-i"><use href="/gl-icons.svg#i-receipt-in"/></svg> <span data-ar="استلام بضاعة" data-en="Receive Stock">استلام بضاعة</span>
         </button>
       </div>
     </div>
@@ -4264,6 +4267,22 @@ function mountCombobox(opts){
 /* ═══════════════════════════════════════════════════════
    RECEIVE STOCK MODAL
 ═══════════════════════════════════════════════════════ */
+
+function exportStockCsv(){
+  const ar = currentLang === 'ar';
+  const rows = [[ar?'الصنف':'Item', 'SKU', ar?'الكمية':'Qty', ar?'التكلفة':'Cost', ar?'القيمة':'Value']];
+  (allItems||[]).forEach(it => rows.push([
+    it.name_ar || it.name || '', it.sku || '',
+    it.quantity ?? it.qty ?? 0, it.cost_price ?? it.cost ?? 0,
+    ((it.quantity ?? it.qty ?? 0) * (it.cost_price ?? it.cost ?? 0)).toFixed(2)
+  ]));
+  const csv = '\ufeff' + rows.map(r => r.map(c => '"' + String(c).replace(/"/g,'""') + '"').join(',')).join('\n');
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(new Blob([csv], {type:'text/csv;charset=utf-8'}));
+  a.download = 'stock-' + new Date().toISOString().slice(0,10) + '.csv';
+  a.click();
+}
+
 async function openReceiveModal(){
   if(allItems.length === 0){
     notify(currentLang==='ar'?'أضف منتجاً واحداً على الأقل أولاً':'Add at least one item first','error');
