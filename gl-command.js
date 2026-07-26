@@ -605,7 +605,7 @@
       + '<div class="gls-top">'
       +   '<a href="dashboard.html" class="gls-logo" aria-label="GulfLedger">'
       +     '<span class="gls-bars"><i></i><i></i></span>'
-      +     '<span class="gls-name">Gulf<b>Ledger</b></span>'
+      +     '<span class="gls-wordmark"><span class="gls-gulf">Gulf</span><span class="gls-ledger">LEDGER</span></span>'
       +   '</a>'
       +   '<div class="gls-right">'
       +     '<span class="gls-mount-trigger"></span>'
@@ -633,11 +633,12 @@
   var SHELL_CSS = ''
     + '.gls-top{display:flex;align-items:center;justify-content:space-between;background:linear-gradient(135deg,#0B3D24,#0E5232);padding:10px 22px;}'
     + '.gls-logo{display:inline-flex;align-items:center;gap:10px;text-decoration:none;}'
-    + '.gls-bars{display:inline-flex;flex-direction:column;gap:3px;}'
-    + '.gls-bars i{width:22px;height:5px;border-radius:3px;background:#fff;display:block;}'
-    + '.gls-bars i:last-child{background:rgba(255,255,255,0.45);width:15px;}'
-    + '.gls-name{font-size:21px;font-weight:800;color:#fff;letter-spacing:-0.01em;}'
-    + '.gls-name b{color:#9FD9B8;font-weight:800;}'
+    + '.gls-bars{display:inline-flex;gap:4px;align-items:stretch;height:34px;}'
+    + '.gls-bars i{width:5px;border-radius:3px;background:#fff;display:block;}'
+    + '.gls-bars i:last-child{background:rgba(255,255,255,0.45);}'
+    + '.gls-wordmark{display:inline-flex;flex-direction:column;line-height:1;}'
+    + '.gls-gulf{font-family:\'Playfair Display\',Georgia,serif;font-size:22px;color:#fff;}'
+    + '.gls-ledger{font-size:11.5px;letter-spacing:3.5px;color:#A8D9BC;font-weight:400;margin-top:3px;}'
     + '.gls-right{display:flex;align-items:center;gap:6px;}'
     + '.gls-prof{position:relative;}'
     + '.gls-prof-btn{display:inline-flex;align-items:center;gap:5px;background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.25);border-radius:999px;padding:6px 10px;color:#fff;cursor:pointer;}'
@@ -664,10 +665,15 @@
     + '.gls-subs{display:flex;gap:8px;background:#F2F7F3;border-bottom:1px solid #E3E1DA;padding:8px 22px;}'
     + '.gls-sub{padding:5px 13px;border:1px solid #D8E5DC;border-radius:999px;background:#fff;color:#0D2618;font-size:12.5px;font-weight:600;text-decoration:none;}'
     + '.gls-sub.on{background:#0E5232;border-color:#0E5232;color:#fff;}'
-    + '@media(max-width:600px){.gls-name{font-size:18px;}.gls-top{padding:8px 12px;}.gls-nav{padding:0 8px;}}';
+    + '@media(max-width:600px){.gls-gulf{font-size:19px;}.gls-top{padding:8px 12px;}.gls-nav{padding:0 8px;}}';
 
   function mountShell(){
     if(document.getElementById('gl-shell')) return;
+    if(!document.querySelector('link[href*="Playfair"]')){
+      var fl = document.createElement('link'); fl.rel = 'stylesheet';
+      fl.href = 'https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600&display=swap';
+      document.head.appendChild(fl);
+    }
     var st = document.createElement('style'); st.textContent = SHELL_CSS; document.head.appendChild(st);
     var shell = document.createElement('div'); shell.id = 'gl-shell';
     shell.innerHTML = shellHeaderHTML();
