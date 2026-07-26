@@ -410,6 +410,10 @@
      applier code of their own. */
   function glApplyStaticLang(){
     var L = lang();
+    /* Direction follows the chosen language on EVERY page — old pages
+       hardcode dir="rtl" and would show RTL layout on the English site. */
+    document.documentElement.setAttribute('lang', L);
+    document.documentElement.setAttribute('dir', L === 'ar' ? 'rtl' : 'ltr');
     document.querySelectorAll('[data-ar][data-en]').forEach(function(el){
       if(el.children.length > 0 && el.tagName !== 'OPTION') return;
       var t = el.getAttribute('data-' + L);
