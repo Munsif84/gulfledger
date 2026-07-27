@@ -695,7 +695,7 @@
       fl.href = 'https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;600&display=swap';
       document.head.appendChild(fl);
     }
-    var st = document.createElement('style'); st.textContent = SHELL_CSS; document.head.appendChild(st);
+    var st = document.createElement('style'); st.textContent = SHELL_CSS + '@media print{#gl-shell{display:none !important;}}'; document.head.appendChild(st);
     var shell = document.createElement('div'); shell.id = 'gl-shell';
     shell.innerHTML = shellHeaderHTML();
     /* Replace page-owned chrome: topnav + app-nav (+ sub-tab strips) die here. */
