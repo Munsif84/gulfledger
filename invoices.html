@@ -4373,8 +4373,37 @@ async function loadCreditNotes(){
     return;
   }
   allCreditNotes = data || [];
+  loadNoteZatcaStatuses((allCreditNotes||[]).map(x=>x.id)).then(()=>{ try{ renderCreditNotesList(); }catch(_e){} });
   document.getElementById('tab-count-credit-notes').textContent = allCreditNotes.length;
   renderCreditNotesList();
+}
+
+
+/* ═══ NOTE ZATCA STATUS (derived from zatca_submissions archive) ═════════ */
+let _noteZatcaMap = {};
+async function loadNoteZatcaStatuses(ids){
+  if(!ids || !ids.length) return;
+  const need = ids.filter(id => !(id in _noteZatcaMap));
+  if(!need.length) return;
+  const {data} = await sb.from('zatca_submissions')
+    .select('invoice_id, response_status, zatca_response, submitted_at')
+    .in('invoice_id', need).order('submitted_at', {ascending:false});
+  need.forEach(id => _noteZatcaMap[id] = null);
+  (data||[]).forEach(r => { if(!_noteZatcaMap[r.invoice_id]) _noteZatcaMap[r.invoice_id] = r; });
+}
+function noteZatcaBadge(id){
+  const ar = currentLang === 'ar';
+  const sub = _noteZatcaMap[id];
+  if(sub === undefined) return '';
+  if(!sub) return `<span class="badge" style="background:#FEF3C7;color:#92400E;">⏳ ${ar?'بانتظار الإرسال':'Queued'}</span>`;
+  let raw = '';
+  try{ raw = typeof sub.zatca_response === 'string' ? sub.zatca_response : JSON.stringify(sub.zatca_response||''); }catch(_e){}
+  const ok = /clear|report|pass|success|warning|submitted/i.test(String(sub.response_status||''))
+    || /^2\d\d$/.test(String(sub.response_status||''))
+    || /"(clearanceStatus|reportingStatus)"\s*:\s*"(CLEARED|REPORTED)"/.test(raw);
+  return ok
+    ? `<span class="badge" style="background:#DCFCE7;color:#14532D;">🟢 ${ar?'مقبول':'Accepted'}</span>`
+    : `<span class="badge" style="background:#FEE2E2;color:#991B1B;">🔴 ${ar?'مرفوض':'Rejected'}</span>`;
 }
 
 function renderCreditNotesList(){
@@ -4411,6 +4440,7 @@ function renderCreditNotesList(){
             <th>${ar?'التاريخ':'Date'}</th>
             <th>${ar?'الفاتورة الأصلية':'Original Invoice'}</th>
             <th>${ar?'العميل':'Customer'}</th>
+            <th>${ar?'زاتكا':'ZATCA'}</th>
             <th>${ar?'السبب':'Reason'}</th>
             <th class="num">${ar?'المبلغ':'Amount'}</th>
             <th class="center"></th>
@@ -4424,6 +4454,7 @@ function renderCreditNotesList(){
               <td class="num">${escHTML(cn.issue_date||'—')}</td>
               <td class="num"><a href="invoice-view.html?id=${cn.original_invoice_id}" onclick="event.stopPropagation()" style="color:var(--blue);">${escHTML(cn.original_invoice_number||'—')}</a></td>
               <td>${escHTML(customer)}</td>
+              <td>${noteZatcaBadge(cn.id)}</td>
               <td style="font-size:12px;color:var(--muted);max-width:200px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${escHTML(cn.reason||'')}">${escHTML(cn.reason||'—')}</td>
               <td class="num" style="color:#7f1d1d;font-weight:700;">−SAR ${fmt(cn.total)}</td>
               <td class="center">
@@ -4468,6 +4499,7 @@ async function loadDebitNotes(){
     }
   } else {
     allDebitNotes = data || [];
+  loadNoteZatcaStatuses((allDebitNotes||[]).map(x=>x.id)).then(()=>{ try{ renderDebitNotesList(); }catch(_e){} });
   }
   /* Update tab count */
   const cntEl = document.getElementById('tab-count-debit-notes');
@@ -4509,7 +4541,7 @@ function renderDebitNotesList(){
             <th>${ar?'رقم الإشعار':'DN Number'}</th>
             <th>${ar?'التاريخ':'Date'}</th>
             <th>${ar?'الفاتورة الأصلية':'Original Invoice'}</th>
-            <th>${ar?'العميل':'Customer'}</th>
+            <th>${ar?'العميل':'Customer'}</th><th>${ar?'زاتكا':'ZATCA'}</th>
             <th class="num">${ar?'المبلغ':'Amount'}</th>
             <th>${ar?'الحالة':'Status'}</th>
           </tr>
@@ -4526,6 +4558,7 @@ function renderDebitNotesList(){
               <td class="num">${escHTML(dn.issue_date||'—')}</td>
               <td><span style="font-family:inherit;font-variant-numeric:tabular-nums;font-size:12px;">${escHTML(dn.original_invoice_number||'—')}</span></td>
               <td>${escHTML(customerName)}</td>
+              <td>${noteZatcaBadge(dn.id)}</td>
               <td class="num">SAR ${fmt(dn.total)}</td>
               <td>${statusBadge}</td>
             </tr>`;

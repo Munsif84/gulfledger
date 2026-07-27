@@ -1786,8 +1786,28 @@ async function loadZatcaDashStatus(){
       .gte('created_at', activatedAt)
       .in('zatca_status', ['pending','submitting','rejected'])
       .not('status','in','("voided","reversed","cancelled")');
-    const pending = (rows||[]).filter(r => r.zatca_status !== 'rejected').length;
-    const rejected = (rows||[]).filter(r => r.zatca_status === 'rejected').length;
+    /* Notes (credit/debit) join the compliance picture: unsubmitted = pending
+       (the sweep will take them); a rejected latest submission = rejected. */
+    let notePending = 0, noteRejected = 0;
+    try{
+      for(const tbl of ['credit_notes','debit_notes']){
+        const {data: ns} = await sb.from(tbl).select('id').eq('business_id', currentBiz.id).neq('status','voided').gte('created_at', activatedAt);
+        const ids = (ns||[]).map(n => n.id);
+        if(!ids.length) continue;
+        const {data: subs} = await sb.from('zatca_submissions').select('invoice_id, response_status, zatca_response, submitted_at').in('invoice_id', ids).order('submitted_at',{ascending:false});
+        const latest = {};
+        (subs||[]).forEach(s => { if(!latest[s.invoice_id]) latest[s.invoice_id] = s; });
+        ids.forEach(id => {
+          const s = latest[id];
+          if(!s){ notePending++; return; }
+          let raw=''; try{ raw = typeof s.zatca_response==='string'?s.zatca_response:JSON.stringify(s.zatca_response||''); }catch(_e){}
+          const ok = /clear|report|pass|success|warning|submitted/i.test(String(s.response_status||'')) || /^2\d\d$/.test(String(s.response_status||'')) || /"(clearanceStatus|reportingStatus)"\s*:\s*"(CLEARED|REPORTED)"/.test(raw);
+          if(!ok) noteRejected++;
+        });
+      }
+    }catch(_e){}
+    const pending = (rows||[]).filter(r => r.zatca_status !== 'rejected').length + notePending;
+    const rejected = (rows||[]).filter(r => r.zatca_status === 'rejected').length + noteRejected;
     const el = document.getElementById('zatca-status-banner');
     const check = document.getElementById('zatca-status-check');
     const text = document.getElementById('zatca-status-text');
