@@ -1427,6 +1427,7 @@ function renderStatusBar(){
 
   /* ZATCA pill — debit notes follow invoice ZATCA status (Phase 1: QR only) */
   pills.push(`<span class="status-pill pill-zatca-soon">🔜 ${ar?'زاتكا قريباً':'ZATCA Coming Soon'}</span>`);
+  setTimeout(glNoteZatcaRender, 60);
 
   setHTML('status-pills', pills.join(''));
 
@@ -2111,6 +2112,55 @@ document.addEventListener('keydown', e => {
 init();
 </script>
 <div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.06.06-doc1</div>
-<script>console.log('%c[GulfLedger build] v2026.05.17-02 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');</script>
+<script>console.log('%c[GulfLedger build] v2026.05.17-02 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');
+
+/* ═══ ZATCA NOTE SUBMISSION (383 debit note) ═══
+   Notes are first-class ZATCA documents: same pipeline as invoices, with
+   BillingReference to the original and the reason as InstructionNote. */
+async function glNoteZatcaStatus(){
+  try{
+    const { data } = await sb.from('zatca_submissions')
+      .select('response_status, errors, zatca_response, submitted_at')
+      .eq('invoice_id', currentDN.id).order('submitted_at', {ascending:false}).limit(1);
+    return (data && data[0]) || null;
+  }catch(_e){ return null; }
+}
+async function glNoteZatcaRender(){
+  const ar = currentLang === 'ar';
+  const host = document.getElementById('status-pills');
+  if(!host) return;
+  const sub = await glNoteZatcaStatus();
+  const soon = host.querySelector('.pill-zatca-soon');
+  let pill;
+  if(sub && /clear|report|pass|success|warning/i.test(String(sub.response_status||''))){
+    pill = `<span class="status-pill pill-paid">🟢 ${ar?'زاتكا: مقبول':'ZATCA: Accepted'}</span>`;
+  } else if(sub){
+    pill = `<span class="status-pill pill-unpaid" style="background:#FEE2E2;color:#991B1B;">🔴 ${ar?'زاتكا: مرفوض':'ZATCA: Rejected'}</span>`;
+  } else {
+    pill = `<button class="status-pill" style="cursor:pointer;border:1px solid #0E5232;background:#fff;color:#0E5232;font-weight:700;" onclick="glNoteZatcaSubmit(this)">⇪ ${ar?'إرسال إلى زاتكا':'Submit to ZATCA'}</button>`;
+  }
+  if(soon) soon.outerHTML = pill; else host.insertAdjacentHTML('beforeend', pill);
+  if(sub && !/clear|report|pass|success|warning/i.test(String(sub.response_status||''))){
+    const errs = (sub.errors||[]).map(e => (e && e.message) || String(e));
+    const msg = errs.length ? errs.join(' · ') : (ar?'راجع سجل الإرسال':'See submission log');
+    host.insertAdjacentHTML('afterend', `<div style="margin-top:6px;font-size:12px;color:#991B1B;">${msg.replace(/</g,'&lt;')} — <a href="#" onclick="glNoteZatcaSubmit(this);return false;" style="color:#991B1B;font-weight:700;">${ar?'↻ إعادة الإرسال':'↻ Resubmit'}</a></div>`);
+  }
+}
+async function glNoteZatcaSubmit(el){
+  const ar = currentLang === 'ar';
+  if(el){ el.disabled = true; el.textContent = ar?'جارٍ الإرسال…':'Submitting…'; }
+  try{
+    const { data, error } = await sb.functions.invoke('zatca-submit-invoice', {
+      body: { note_id: currentDN.id, note_type: "debit" }
+    });
+    if(error) throw error;
+    notify(ar?'تم الإرسال — جارٍ التحديث':'Submitted — refreshing','success');
+  }catch(e){
+    notify((ar?'فشل الإرسال: ':'Submission failed: ') + (e.message||e), 'error');
+  }
+  setTimeout(() => location.reload(), 1200);
+}
+
+</script>
 </body>
 </html>
