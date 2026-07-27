@@ -6349,12 +6349,16 @@ async function voidInvoice(id, num, total, buyerName){
     }
 
     /* If we did restore inventory, also write reversal stock_movements rows for the audit trail */
-    if(restoreInfo && restoreInfo.restored_lines > 0){
-      const {data: invLines} = await sb.from('invoice_items')
-        .select('id, quantity, sort_order')
-        .eq('invoice_id', id);
-      /* Find which inventory items were sold via inventory_movements (out) for this invoice ref */
-      const {data: outMoves} = await sb.from('inventory_movements')
+    /* Quantity restore runs on the movement trail — independent of FIFO
+       batches, so stock born from opening balances or manual adjustments
+       (no purchase batches) restores correctly too. Batch-level restore
+       (the RPC above) remains a bonus when consumption rows exist. */
+    let qtyRestored = 0;
+    {
+      /* double-run guard: if reversal movements already exist, skip */
+      const {data: already} = await sb.from('inventory_movements')
+        .select('id').eq('reference', num + '-VOID').limit(1);
+      const {data: outMoves} = already && already.length ? {data: []} : await sb.from('inventory_movements')
         .select('item_id, quantity, unit_cost')
         .eq('reference', num)
         .eq('movement_type', 'out');
@@ -6382,6 +6386,7 @@ async function voidInvoice(id, num, total, buyerName){
         }
         if(reversalRows.length){
           await sb.from('inventory_movements').insert(reversalRows);
+          qtyRestored = reversalRows.length;
         }
       }
     }
@@ -6522,7 +6527,7 @@ async function voidInvoice(id, num, total, buyerName){
     let successMsg;
     const cnSuffix = createdCnNumber ? (currentLang==='ar' ? ` · إشعار دائن ${createdCnNumber}` : ` · CN ${createdCnNumber}`) : '';
     if(currentLang === 'ar'){
-      if(restoreInfo && restoreInfo.restored_lines > 0){
+      if(qtyRestored > 0 || (restoreInfo && restoreInfo.restored_lines > 0)){
         successMsg = `✅ تم إلغاء الفاتورة ${num}${cnSuffix} - الكميات أُعيدت إلى المخزون`;
       } else if(restoreInfo && restoreInfo.retroactive){
         successMsg = `✅ تم إلغاء الفاتورة ${num}${cnSuffix} - (فاتورة قبل تتبع الاستهلاك، عدّل المخزون يدوياً إذا لزم الأمر)`;
