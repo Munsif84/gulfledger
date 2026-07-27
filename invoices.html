@@ -1699,7 +1699,13 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:inheri
           <span data-ar="الإجمالي" data-en="Total">الإجمالي</span>
           <span></span>
         </div>
-        <div id="items-container"></div>
+        <div class="field" style="margin-bottom:8px;">
+        <input type="text" id="scan-input" class="mono" dir="ltr" autocomplete="off"
+               placeholder="🔍 امسح الباركود لإضافة صنف — Scan barcode to add item"
+               data-ph-ar="🔍 امسح الباركود لإضافة صنف" data-ph-en="🔍 Scan barcode to add item"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();glScanSell(this);}">
+      </div>
+      <div id="items-container"></div>
         <button class="btn-add-item" onclick="addItem()">
           + <span data-ar="إضافة بند" data-en="Add Item">إضافة بند</span>
         </button>
@@ -5278,6 +5284,35 @@ document.addEventListener('click', e => {
 /* ═══════════════════════════════════════════════════════
    ITEMS RENDERING
 ═══════════════════════════════════════════════════════ */
+
+/* ═══ BARCODE SELLING (keyboard-wedge scanners: type + Enter) ════════════
+   Scan → lookup by barcode → existing line increments qty; new item adds a
+   line at qty 1. Focus stays in the scan box for continuous scanning. */
+async function glScanSell(inp){
+  const code = (inp.value || '').trim();
+  inp.value = '';
+  if(!code) return;
+  const ar = currentLang === 'ar';
+  const {data: it} = await sb.from('items')
+    .select('id, name, name_ar, name_en, sale_price, barcode')
+    .eq('business_id', currentBiz.id).eq('barcode', code).limit(1).maybeSingle();
+  if(!it){ notify((ar?'باركود غير معروف: ':'Unknown barcode: ') + code, 'error'); inp.focus(); return; }
+  const existing = items.findIndex(x => x.itemId === it.id);
+  if(existing >= 0){
+    items[existing].qty = (parseFloat(items[existing].qty) || 0) + 1;
+  } else {
+    let idx = items.findIndex(x => !x.desc && !x.itemId && !(x.qty > 0 && x.price > 0));
+    if(idx < 0){ items.push({desc:'', qty:0, price:0, disc:0}); idx = items.length - 1; }
+    items[idx].itemId = it.id;
+    items[idx].desc = it.name || it.name_en || it.name_ar || code;
+    items[idx].desc_ar = it.name_ar || '';
+    items[idx].price = parseFloat(it.sale_price) || 0;
+    items[idx].qty = 1;
+  }
+  renderItems(); renderTotals();
+  inp.focus();
+}
+
 function renderItems(){
   const c = document.getElementById('items-container');
   if(!c) return;

@@ -1530,6 +1530,12 @@ html,body{background:var(--bg);color:var(--ink);min-height:100vh;}
 
       <div class="section-title-sm" data-ar="الأصناف المستلمة" data-en="Items Received">الأصناف المستلمة</div>
 
+      <div class="field" style="margin:6px 0 8px;">
+        <input type="text" id="rcp-scan" class="mono" dir="ltr" autocomplete="off"
+               placeholder="🔍 امسح الباركود للاستلام — Scan barcode to receive"
+               data-ph-ar="🔍 امسح الباركود للاستلام" data-ph-en="🔍 Scan barcode to receive"
+               onkeydown="if(event.key==='Enter'){event.preventDefault();glScanReceive(this);}">
+      </div>
       <table class="receipt-items-table">
         <thead>
           <tr>
@@ -4602,6 +4608,27 @@ function onPaymentMethodChange(){
     /* Cash/bank = mark as fully paid */
     setVal('rcp-amount-paid', String(parseFloat(document.getElementById('rcp-total').textContent.replace(/[^\d.]/g,'')) || 0));
   }
+}
+
+
+/* ═══ BARCODE RECEIVING — scan increments the matching receipt line ═════ */
+function glScanReceive(inp){
+  const code = (inp.value || '').trim();
+  inp.value = '';
+  if(!code) return;
+  const ar = currentLang === 'ar';
+  const it = (allItems || []).find(x => x.barcode === code);
+  if(!it){ notify((ar?'باركود غير معروف: ':'Unknown barcode: ') + code, 'error'); inp.focus(); return; }
+  const existing = receiptItems.findIndex(r => r.item_id === it.id);
+  if(existing >= 0){
+    receiptItems[existing].quantity = (parseFloat(receiptItems[existing].quantity) || 0) + 1;
+  } else {
+    const empty = receiptItems.findIndex(r => !r.item_id);
+    const row = { item_id: it.id, quantity: 1, unit_cost: parseFloat(it.cost_price) || 0, vat_pct: 15 };
+    if(empty >= 0) receiptItems[empty] = row; else receiptItems.push(row);
+  }
+  renderReceiptItems(); computeReceiptTotals();
+  inp.focus();
 }
 
 function addReceiptItem(){
