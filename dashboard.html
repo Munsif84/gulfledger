@@ -1791,7 +1791,8 @@ async function loadZatcaDashStatus(){
     let notePending = 0, noteRejected = 0;
     try{
       for(const tbl of ['credit_notes','debit_notes']){
-        const {data: ns} = await sb.from(tbl).select('id').eq('business_id', currentBiz.id).neq('status','voided').gte('created_at', activatedAt);
+        /* Notes are retroactive by doctrine — no activation-date cutover: the sweep submits ALL of them, so the counter sees all of them. */
+        const {data: ns} = await sb.from(tbl).select('id').eq('business_id', currentBiz.id).neq('status','voided');
         const ids = (ns||[]).map(n => n.id);
         if(!ids.length) continue;
         const {data: subs} = await sb.from('zatca_submissions').select('invoice_id, response_status, zatca_response, submitted_at').in('invoice_id', ids).order('submitted_at',{ascending:false});
