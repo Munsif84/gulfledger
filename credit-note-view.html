@@ -2174,6 +2174,30 @@ async function glNoteZatcaRender(){
     glNoteZatcaDetail(e.message || String(e), true);
   }
 }
+
+async function glNoteZatcaForce(){
+  const ar = currentLang === 'ar';
+  const d = document.getElementById('gl-znote-detail'); if(d) d.remove();
+  const host = document.getElementById('status-pills');
+  const s = host.querySelector('.gl-zpill');
+  if(s) s.outerHTML = `<span class="status-pill gl-zpill" style="background:#FEF3C7;color:#92400E;">⏳ ${ar?'إعادة الإرسال…':'Resubmitting…'}</span>`;
+  try{
+    const { error } = await sb.functions.invoke('zatca-submit-invoice', {
+      body: { note_id: currentCN.id, note_type: "credit" }
+    });
+    if(error){
+      let body = '';
+      try{ body = error.context ? JSON.stringify(await error.context.json()) : (error.message||String(error)); }
+      catch(_e){ body = error.message || String(error); }
+      glNoteZatcaDetail(body, true);
+    }
+  }catch(e){ glNoteZatcaDetail(e.message || String(e), true); }
+  const { data } = await sb.from('zatca_submissions')
+    .select('response_status, errors, zatca_response, submitted_at')
+    .eq('invoice_id', currentCN.id).order('submitted_at', {ascending:false}).limit(1);
+  if(data && data[0]) glNoteZatcaVerdict(data[0]);
+}
+
 function glNoteZatcaVerdict(sub){
   const ar = currentLang === 'ar';
   const host = document.getElementById('status-pills');
@@ -2199,7 +2223,7 @@ function glNoteZatcaDetail(text, isSystem){
   const host = document.getElementById('status-pills');
   if(!text || document.getElementById('gl-znote-detail')) return;
   host.insertAdjacentHTML('afterend',
-    `<div id="gl-znote-detail" style="margin-top:6px;font-size:12px;color:#991B1B;max-width:680px;overflow-wrap:anywhere;">${String(text).replace(/</g,'&lt;')} — <a href="#" onclick="document.getElementById('gl-znote-detail').remove();glNoteZatcaRender();return false;" style="color:#991B1B;font-weight:700;">↻ ${ar?'إعادة المحاولة':'Retry'}</a></div>`);
+    `<div id="gl-znote-detail" style="margin-top:6px;font-size:12px;color:#991B1B;max-width:680px;overflow-wrap:anywhere;">${String(text).replace(/</g,'&lt;')} — <a href="#" onclick="glNoteZatcaForce();return false;" style="color:#991B1B;font-weight:700;">↻ ${ar?'إعادة المحاولة':'Retry'}</a></div>`);
 }
 
 </script>
