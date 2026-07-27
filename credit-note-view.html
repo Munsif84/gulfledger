@@ -2114,51 +2114,69 @@ init();
 <div class="gl-build-badge" title="Build version (Ctrl+Shift+R to refresh if stale)">v2026.06.06-doc1</div>
 <script>console.log('%c[GulfLedger build] v2026.05.17-01 · 2026-05-17T10:15:04Z', 'color:#006C35;font-weight:bold;');
 
-/* ═══ ZATCA NOTE SUBMISSION (381 credit note) ═══
-   Notes are first-class ZATCA documents: same pipeline as invoices, with
-   BillingReference to the original and the reason as InstructionNote. */
-async function glNoteZatcaStatus(){
+
+
+/* ═══ ZATCA NOTE PIPELINE — mirrors the invoice auto-submit structure ═══
+   Opens → checks archive → if unsubmitted, submits AUTOMATICALLY (no
+   button). Verdict renders inline: green accepted, red with the full
+   reason on rejection. No reloads — failures stay visible. */
+async function glNoteZatcaRender(){
+  const ar = currentLang === 'ar';
+  const host = document.getElementById('status-pills');
+  if(!host || currentCN?.status === 'voided') return;
+  const soon = host.querySelector('.pill-zatca-soon');
+  const setPill = html => { const s = host.querySelector('.pill-zatca-soon, .gl-zpill'); if(s) s.outerHTML = html; else host.insertAdjacentHTML('beforeend', html); };
   try{
     const { data } = await sb.from('zatca_submissions')
       .select('response_status, errors, zatca_response, submitted_at')
       .eq('invoice_id', currentCN.id).order('submitted_at', {ascending:false}).limit(1);
-    return (data && data[0]) || null;
-  }catch(_e){ return null; }
-}
-async function glNoteZatcaRender(){
-  const ar = currentLang === 'ar';
-  const host = document.getElementById('status-pills');
-  if(!host) return;
-  const sub = await glNoteZatcaStatus();
-  const soon = host.querySelector('.pill-zatca-soon');
-  let pill;
-  if(sub && /clear|report|pass|success|warning/i.test(String(sub.response_status||''))){
-    pill = `<span class="status-pill pill-paid">🟢 ${ar?'زاتكا: مقبول':'ZATCA: Accepted'}</span>`;
-  } else if(sub){
-    pill = `<span class="status-pill pill-unpaid" style="background:#FEE2E2;color:#991B1B;">🔴 ${ar?'زاتكا: مرفوض':'ZATCA: Rejected'}</span>`;
-  } else {
-    pill = `<button class="status-pill" style="cursor:pointer;border:1px solid #0E5232;background:#fff;color:#0E5232;font-weight:700;" onclick="glNoteZatcaSubmit(this)">⇪ ${ar?'إرسال إلى زاتكا':'Submit to ZATCA'}</button>`;
-  }
-  if(soon) soon.outerHTML = pill; else host.insertAdjacentHTML('beforeend', pill);
-  if(sub && !/clear|report|pass|success|warning/i.test(String(sub.response_status||''))){
-    const errs = (sub.errors||[]).map(e => (e && e.message) || String(e));
-    const msg = errs.length ? errs.join(' · ') : (ar?'راجع سجل الإرسال':'See submission log');
-    host.insertAdjacentHTML('afterend', `<div style="margin-top:6px;font-size:12px;color:#991B1B;">${msg.replace(/</g,'&lt;')} — <a href="#" onclick="glNoteZatcaSubmit(this);return false;" style="color:#991B1B;font-weight:700;">${ar?'↻ إعادة الإرسال':'↻ Resubmit'}</a></div>`);
-  }
-}
-async function glNoteZatcaSubmit(el){
-  const ar = currentLang === 'ar';
-  if(el){ el.disabled = true; el.textContent = ar?'جارٍ الإرسال…':'Submitting…'; }
-  try{
-    const { data, error } = await sb.functions.invoke('zatca-submit-invoice', {
+    const sub = data && data[0];
+    if(sub){ glNoteZatcaVerdict(sub); return; }
+    /* auto-submit, exactly like invoices */
+    setPill(`<span class="status-pill gl-zpill" style="background:#FEF3C7;color:#92400E;">⏳ ${ar?'زاتكا: جارٍ الإرسال…':'ZATCA: submitting…'}</span>`);
+    const { data: res, error } = await sb.functions.invoke('zatca-submit-invoice', {
       body: { note_id: currentCN.id, note_type: "credit" }
     });
-    if(error) throw error;
-    notify(ar?'تم الإرسال — جارٍ التحديث':'Submitted — refreshing','success');
+    if(error){
+      let body = '';
+      try{ body = error.context ? JSON.stringify(await error.context.json()) : (error.message||String(error)); }
+      catch(_e){ body = error.message || String(error); }
+      setPill(`<span class="status-pill gl-zpill" style="background:#FEE2E2;color:#991B1B;">🔴 ${ar?'زاتكا: فشل الإرسال':'ZATCA: submission failed'}</span>`);
+      glNoteZatcaDetail(body, true);
+      return;
+    }
+    /* read our own archive for the persisted verdict */
+    const { data: after } = await sb.from('zatca_submissions')
+      .select('response_status, errors, zatca_response, submitted_at')
+      .eq('invoice_id', currentCN.id).order('submitted_at', {ascending:false}).limit(1);
+    glNoteZatcaVerdict((after && after[0]) || { response_status: res?.status || 'submitted' });
   }catch(e){
-    notify((ar?'فشل الإرسال: ':'Submission failed: ') + (e.message||e), 'error');
+    setPill(`<span class="status-pill gl-zpill" style="background:#FEE2E2;color:#991B1B;">🔴 ZATCA</span>`);
+    glNoteZatcaDetail(e.message || String(e), true);
   }
-  setTimeout(() => location.reload(), 1200);
+}
+function glNoteZatcaVerdict(sub){
+  const ar = currentLang === 'ar';
+  const host = document.getElementById('status-pills');
+  const ok = /clear|report|pass|success|warning|submitted/i.test(String(sub.response_status||''));
+  const pill = ok
+    ? `<span class="status-pill gl-zpill" style="background:#DCFCE7;color:#14532D;">🟢 ${ar?'زاتكا: مقبول':'ZATCA: Accepted'}</span>`
+    : `<span class="status-pill gl-zpill" style="background:#FEE2E2;color:#991B1B;">🔴 ${ar?'زاتكا: مرفوض':'ZATCA: Rejected'}</span>`;
+  const s = host.querySelector('.pill-zatca-soon, .gl-zpill');
+  if(s) s.outerHTML = pill; else host.insertAdjacentHTML('beforeend', pill);
+  if(!ok){
+    const errs = (sub.errors||[]).map(e => (e && e.message) || String(e)).filter(Boolean);
+    let raw = '';
+    try{ raw = typeof sub.zatca_response === 'string' ? sub.zatca_response : JSON.stringify(sub.zatca_response||''); }catch(_e){}
+    glNoteZatcaDetail(errs.length ? errs.join(' · ') : raw.slice(0, 600), false);
+  }
+}
+function glNoteZatcaDetail(text, isSystem){
+  const ar = currentLang === 'ar';
+  const host = document.getElementById('status-pills');
+  if(!text || document.getElementById('gl-znote-detail')) return;
+  host.insertAdjacentHTML('afterend',
+    `<div id="gl-znote-detail" style="margin-top:6px;font-size:12px;color:#991B1B;max-width:680px;overflow-wrap:anywhere;">${String(text).replace(/</g,'&lt;')} — <a href="#" onclick="document.getElementById('gl-znote-detail').remove();glNoteZatcaRender();return false;" style="color:#991B1B;font-weight:700;">↻ ${ar?'إعادة المحاولة':'Retry'}</a></div>`);
 }
 
 </script>
