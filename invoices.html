@@ -1662,6 +1662,9 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:inheri
             oninput="onCustomerSearchInput(this.value)"
             onfocus="onCustomerSearchInput(this.value)"
             autocomplete="off">
+          <button type="button" class="btn btn-ghost btn-sm" id="walkin-chip" style="margin-top:6px;"
+                  onclick="setWalkIn()" 
+                  data-ar="🚶 عميل نقدي (بدون بيانات)" data-en="🚶 Walk-in (no buyer details)">🚶 عميل نقدي (بدون بيانات)</button>
           <div class="customer-dd" id="customer-dd"></div>
         </div>
         <div class="customer-hint">
@@ -5055,6 +5058,7 @@ function selectCustomer(c){
   setText('selected-customer-meta', metaParts.join(' · '));
   wrap.style.display = 'block';
 
+  walkInMode = false;
   /* Round 4c.1: handle foreign customer — show export banner + auto-zero VAT on lines */
   applyExportTreatment();
 
@@ -5078,11 +5082,30 @@ function getCustomerRegion(c){
    This makes downstream code (ZATCA submission, reporting) able to filter
    exports cleanly. The original b2b/b2c distinction is preserved on the
    customer record. */
+let walkInMode = false;
+function setWalkIn(){
+  walkInMode = true;
+  selectedCustomer = null;
+  const ar = currentLang === 'ar';
+  const meta = document.getElementById('selected-customer-meta');
+  const wrap = meta ? meta.closest('div[style*="display"]') || meta.parentElement : null;
+  setText('selected-customer-name', ar ? 'عميل نقدي' : 'Cash Customer');
+  setText('selected-customer-meta', ar ? 'مبيعات تجزئة — فاتورة مبسطة، مستحقة فوراً' : 'Retail sale — simplified invoice, due immediately');
+  const w = document.getElementById('selected-customer-wrap') || (meta && meta.parentElement);
+  if(w) w.style.display = 'block';
+  const t = document.getElementById('f-type'); if(t) t.value = 'b2c';
+  if(typeof setInvoiceMode === 'function') try{ setInvoiceMode('quick'); }catch(_e){}
+  autoFillDueDate();
+  renderTotals();
+}
 function getEffectiveInvoiceType(){
   const formType = v('f-type');
   if(getCustomerRegion(selectedCustomer) !== 'domestic'){
     return 'export';
   }
+  /* TRN rule: a VAT-registered buyer must receive a standard tax invoice —
+     a simplified receipt denies them input-VAT recovery. */
+  if(selectedCustomer && selectedCustomer.trn) return 'b2b';
   return formType;
 }
 
@@ -5170,12 +5193,12 @@ function autoFillDueDate(){
   if(!issueDate) return;
 
   /* Use customer's payment terms if available, default 30 for B2B, 0 for B2C */
-  let termsDays = 30;
-  if(selectedCustomer && selectedCustomer.payment_terms_days != null){
-    termsDays = parseInt(selectedCustomer.payment_terms_days) || 0;
-  } else if(currentInvType !== 'tax'){
-    /* B2C without selected customer — typically immediate */
-    termsDays = 0;
+  /* Simplified invoices are point-of-sale receipts: due = issue, always.
+     Payment terms are a tax-invoice (B2B) concept. */
+  let termsDays = 0;
+  if(getEffectiveInvoiceType() === 'b2b' || currentInvType === 'tax'){
+    termsDays = (selectedCustomer && selectedCustomer.payment_terms_days != null)
+      ? (parseInt(selectedCustomer.payment_terms_days) || 0) : 30;
   }
 
   /* Calculate due date */
@@ -5468,7 +5491,7 @@ async function saveDraft(){
     invoice_format: getEffectiveInvoiceFormat(),
     issue_date: v('f-date') || todayISO(),
     due_date: v('f-duedate') || null,
-    buyer_name: selectedCustomer ? custNameAr(selectedCustomer) : '',
+    buyer_name: selectedCustomer ? custNameAr(selectedCustomer) : (walkInMode || v('f-type') === 'b2c' ? (currentLang==='ar'?'عميل نقدي':'Cash Customer') : ''),
     buyer_country: selectedCustomer?.country || 'SA',
     buyer_name_en: selectedCustomer ? (custNameEn(selectedCustomer) || null) : null,
     buyer_trn: selectedCustomer?.trn || '',
@@ -5594,7 +5617,7 @@ async function previewInvoice(){
     invoice_format: getEffectiveInvoiceFormat(),
     issue_date: v('f-date') || todayISO(),
     due_date: v('f-duedate') || null,
-    buyer_name: selectedCustomer ? custNameAr(selectedCustomer) : '',
+    buyer_name: selectedCustomer ? custNameAr(selectedCustomer) : (walkInMode || v('f-type') === 'b2c' ? (currentLang==='ar'?'عميل نقدي':'Cash Customer') : ''),
     buyer_country: selectedCustomer?.country || 'SA',
     buyer_name_en: selectedCustomer ? (custNameEn(selectedCustomer) || null) : null,
     buyer_trn: selectedCustomer?.trn || '',
@@ -5766,7 +5789,7 @@ async function generateInvoice(){
     invoice_format: getEffectiveInvoiceFormat(),
     issue_date: v('f-date') || todayISO(),
     due_date: v('f-duedate') || null,
-    buyer_name: selectedCustomer ? custNameAr(selectedCustomer) : '',
+    buyer_name: selectedCustomer ? custNameAr(selectedCustomer) : (walkInMode || v('f-type') === 'b2c' ? (currentLang==='ar'?'عميل نقدي':'Cash Customer') : ''),
     buyer_country: selectedCustomer?.country || 'SA',
     buyer_name_en: selectedCustomer ? (custNameEn(selectedCustomer) || null) : null,
     buyer_trn: selectedCustomer?.trn || '',
