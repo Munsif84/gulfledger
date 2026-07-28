@@ -1941,11 +1941,81 @@ function updatePOLine(idx, field, value){
     }
   } else if(['quantity','unit_price','vat_rate'].includes(field)){
     poItems[idx][field] = parseFloat(value) || 0;
+    poRefreshTotals(idx);            /* targeted — input keeps focus, digits, arrows */
+    return;
   } else {
     poItems[idx][field] = value;
+    return;                           /* description typing never re-renders */
   }
   renderPOLines();
 }
+/* Patch line-total + footer totals in place, no DOM rebuild. */
+function poRefreshTotals(idx){
+  let subtotal = 0, vatTotal = 0;
+  poItems.forEach((it, i2) => {
+    const ls = (parseFloat(it.quantity)||0) * (parseFloat(it.unit_price)||0);
+    const lv = ls * ((parseFloat(it.vat_rate)||0) / 100);
+    subtotal += ls; vatTotal += lv;
+    const cell = document.getElementById('po-lt-' + i2);
+    if(cell) cell.textContent = 'SAR ' + fmt(ls + lv);
+  });
+  setText('po-tot-sub', 'SAR ' + fmt(subtotal));
+  setText('po-tot-vat', 'SAR ' + fmt(vatTotal));
+  setText('po-tot-all', 'SAR ' + fmt(subtotal + vatTotal));
+}
+
+
+/* ═══ PO TYPE-AHEAD (same grammar as the invoice form) ═══ */
+let _poTaBox = null, _poTaSel = -1, _poTaM = [];
+function poTA(inp){
+  const q = (inp.value||'').trim().toLowerCase();
+  poTAClose();
+  if(q.length < 1) return;
+  _poTaM = (allItems||[]).filter(it =>
+    (it.name||'').toLowerCase().includes(q) || (it.name_ar||'').toLowerCase().includes(q) ||
+    (it.name_en||'').toLowerCase().includes(q) || (it.sku||'').toLowerCase().includes(q) ||
+    (it.barcode||'').toLowerCase().includes(q)).slice(0, 8);
+  if(!_poTaM.length) return;
+  const ar = currentLang === 'ar';
+  const r = inp.getBoundingClientRect();
+  _poTaSel = -1;
+  _poTaBox = document.createElement('div');
+  _poTaBox.style.cssText = `position:fixed;z-index:10000;top:${r.bottom+2}px;${ar?('right:'+(window.innerWidth-r.right)+'px;'):('left:'+r.left+'px;')}width:${Math.max(r.width,300)}px;background:#fff;border:1px solid #D6D3CB;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);overflow:hidden;`;
+  _poTaBox.innerHTML = _poTaM.map((it, i2) => {
+    const nm = ar ? (it.name_ar||it.name||it.name_en) : (it.name_en||it.name||it.name_ar);
+    return `<div class="po-ta-row" style="padding:7px 10px;cursor:pointer;display:flex;justify-content:space-between;gap:10px;font-size:13px;" onmousedown="event.preventDefault();poTAPick(${i2})">
+      <span>${escHTML(nm||'—')}</span><span style="color:#8A9B8F;font-size:11px;direction:ltr;">${escHTML(it.sku||'')}</span></div>`;
+  }).join('');
+  document.body.appendChild(_poTaBox);
+  _poTaBox._input = inp;
+}
+function poTAClose(){ if(_poTaBox){ _poTaBox.remove(); _poTaBox = null; _poTaSel = -1; } }
+function poTAKeys(e, inp){
+  if(!_poTaBox) return;
+  const rows = _poTaBox.querySelectorAll('.po-ta-row');
+  if(e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+    e.preventDefault();
+    _poTaSel = e.key === 'ArrowDown' ? Math.min(_poTaSel+1, rows.length-1) : Math.max(_poTaSel-1, 0);
+    rows.forEach((r2,i2) => r2.style.background = i2===_poTaSel ? '#EAF3EE' : '#fff');
+  } else if(e.key === 'Enter'){ if(_poTaSel >= 0){ e.preventDefault(); poTAPick(_poTaSel); } }
+  else if(e.key === 'Escape'){ poTAClose(); }
+}
+function poTAPick(i2){
+  const it = _poTaM[i2]; if(!it) return;
+  const idx = parseInt(_poTaBox?._input?.dataset?.idx ?? -1);
+  poTAClose();
+  if(idx < 0 || !poItems[idx]) return;
+  poItems[idx].item_id = it.id;
+  poItems[idx].description = it.name_ar || it.name || it.name_en || '';
+  poItems[idx].unit_price = parseFloat(it.cost_price) || 0;
+  renderPOLines();
+  setTimeout(() => {
+    const row = document.querySelectorAll('#po-lines-body tr')[idx];
+    row?.querySelector('input[type="number"]')?.focus();
+    row?.querySelector('input[type="number"]')?.select();
+  }, 30);
+}
+document.addEventListener('click', e => { if(_poTaBox && !_poTaBox.contains(e.target)) poTAClose(); });
 
 function renderPOLines(){
   const tbody = document.getElementById('po-lines-body');
@@ -1962,11 +2032,7 @@ function renderPOLines(){
     return `<tr>
       <td>
         <div class="field" style="margin:0;">
-          <select onchange="updatePOLine(${idx},'item_id',this.value)" style="margin-bottom:4px;">
-            <option value="">${ar?'صنف من المخزون':'Pick from inventory'} --</option>
-            ${allItems.map(i => `<option value="${i.id}"${it.item_id===i.id?' selected':''}>${escHTML(i.name_ar || i.name || '')}${i.sku ? ' · ' + escHTML(i.sku) : ''}</option>`).join('')}
-          </select>
-          <input type="text" value="${escHTML(it.description||'')}" oninput="updatePOLine(${idx},'description',this.value)" placeholder="${ar?'وصف البند':'Description'}">
+          <input type="text" class="po-desc" data-idx="${idx}" value="${escHTML(it.description||'')}" oninput="poTA(this);updatePOLine(${idx},'description',this.value)" onkeydown="poTAKeys(event,this)" placeholder="${ar?'اكتب أول الحروف لاقتراح الأصناف — أو وصفاً حراً':'Type letters for item suggestions — or free text'}">
         </div>
       </td>
       <td>
@@ -1978,7 +2044,7 @@ function renderPOLines(){
       <td>
         <div class="field" style="margin:0;"><input type="number" step="0.01" min="0" class="mono" value="${it.vat_rate}" oninput="updatePOLine(${idx},'vat_rate',this.value)" style="text-align:end;"></div>
       </td>
-      <td class="num">SAR ${fmt(lineTotal)}</td>
+      <td class="num" id="po-lt-${idx}">SAR ${fmt(lineTotal)}</td>
       <td class="center"><button class="btn btn-ghost btn-sm" onclick="removePOLine(${idx})" title="${ar?'حذف':'Remove'}" style="color:var(--red);padding:4px 8px;">×</button></td>
     </tr>`;
   }).join('');
