@@ -88,9 +88,13 @@ a:hover{text-decoration:underline;}
   <div class="tabs">
     <button class="tab active" id="tab-expenses" onclick="switchTab('expenses')" data-ar="المصاريف" data-en="Expenses">المصاريف</button>
     <button class="tab" id="tab-pos" onclick="switchTab('pos')" data-ar="أوامر الشراء" data-en="POs">أوامر الشراء</button>
+    <button class="tab" id="tab-receipts" onclick="switchTab('receipts')" data-ar="الاستلامات" data-en="Receipts">الاستلامات</button>
+    <button class="tab" id="tab-imports" onclick="switchTab('imports')" data-ar="الاستيراد" data-en="Imports">الاستيراد</button>
   </div>
   <div id="pane-expenses"><div id="expenses-list"></div></div>
   <div id="pane-pos" style="display:none;"><div id="pos-list"></div></div>
+  <div id="pane-receipts" style="display:none;"><div id="receipts-list"></div></div>
+  <div id="pane-imports" style="display:none;"><div id="imports-list"></div></div>
 </div>
 <script>
 const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
@@ -171,7 +175,7 @@ function renderAll(){
     ? '<div style="color:var(--muted);font-size:13px;">لا توجد بيانات إضافية · No additional info</div>'
     : items.map(([l,vv,m])=>`<div><div class="info-label">${escHTML(l)}</div><div class="info-value ${m?'mono':''}">${escHTML(vv)}</div></div>`).join('');
   renderExpensesList();
-  renderPOsList();
+  renderPOsList(); renderReceiptsList(); renderImportsList();
 }
 function renderExpensesList(){
   const wrap = document.getElementById('expenses-list');
@@ -206,8 +210,25 @@ function renderPOsList(){
     <td class="num">SAR ${fmt(parseFloat(po.total)||0)}</td>
     <td>${escHTML(po.status||'—')}</td></tr>`).join('')}</tbody></table>`;
 }
+
+function renderReceiptsList(){
+  const ar = currentLang === 'ar';
+  const el = document.getElementById('receipts-list');
+  if(!allReceipts.length){ el.innerHTML = `<div class="empty-state">${ar?'لا توجد استلامات':'No receipts'}</div>`; return; }
+  el.innerHTML = `<table class="tbl"><thead><tr><th>${ar?'رقم الاستلام':'Receipt #'}</th><th class="num">${ar?'التاريخ':'Date'}</th><th class="num">${ar?'الإجمالي':'Total'}</th><th>${ar?'السداد':'Payment'}</th></tr></thead><tbody>
+    ${allReceipts.map(r => `<tr><td>${escapeHTML(r.receipt_number||'—')}</td><td class="num">${r.receipt_date||'—'}</td><td class="num">SAR ${fmt(r.total)}</td><td>${escapeHTML(r.payment_status||'—')}</td></tr>`).join('')}
+  </tbody></table>`;
+}
+function renderImportsList(){
+  const ar = currentLang === 'ar';
+  const el = document.getElementById('imports-list');
+  if(!allImports.length){ el.innerHTML = `<div class="empty-state">${ar?'لا توجد شحنات استيراد':'No import shipments'}</div>`; return; }
+  el.innerHTML = `<table class="tbl"><thead><tr><th>${ar?'المرجع':'Reference'}</th><th class="num">${ar?'التاريخ':'Date'}</th><th class="num">${ar?'المدفوع':'Paid'}</th><th>${ar?'الحالة':'Status'}</th></tr></thead><tbody>
+    ${allImports.map(s => `<tr><td>${escapeHTML(s.reference||'—')}</td><td class="num">${s.shipment_date||'—'}</td><td class="num">SAR ${fmt(s.total_paid)}</td><td>${s.status==='reversed'?(ar?'↩ معكوسة':'↩ Reversed'):escapeHTML(s.status||'—')}</td></tr>`).join('')}
+  </tbody></table>`;
+}
 function switchTab(name){
-  ['expenses','pos'].forEach(t=>{
+  ['expenses','pos','receipts','imports'].forEach(t=>{
     document.getElementById('tab-'+t).classList.toggle('active', t===name);
     document.getElementById('pane-'+t).style.display = t===name?'':'none';
   });
