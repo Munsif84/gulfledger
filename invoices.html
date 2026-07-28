@@ -3092,33 +3092,27 @@ async function loadZatcaActiveFlag(){
   }catch(_e){}
 }
 function zatcaBadge(status){
+  /* ═══ UNIFIED ZATCA VOCABULARY (sitewide agreement) ═══
+     Three states everywhere: Accepted / Rejected / Queued.
+     cleared, reported, compliance_ok → Accepted (all are ZATCA acceptance
+     forms; the technical distinction lives in the submission archive).
+     pending, submitting, submitted   → Queued (in the pipeline).
+     rejected                          → Rejected. */
   const ar = currentLang === 'ar';
   switch(status){
     case 'cleared':
-      return `<span class="badge badge-zatca-cleared">✅ ${ar?'معتمد':'Cleared'}</span>`;
     case 'compliance_ok':
-      return `<span class="badge badge-zatca-cleared">✅ ${ar?'اجتاز الفحص (تجريبي)':'Compliance OK'}</span>`;
     case 'reported':
-      return `<span class="badge badge-zatca-cleared">✅ ${ar?'تم الإبلاغ':'Reported'}</span>`;
-    case 'submitting':
-      return `<span class="badge badge-zatca-pending">🟡 ${ar?'جارٍ الإرسال':'Submitting'}</span>`;
-    case 'pending':
-      return `<span class="badge badge-zatca-pending">🟡 ${ar?'معلق':'Pending'}</span>`;
-    case 'submitted':
-      return `<span class="badge badge-zatca-submitted">📤 ${ar?'مُرسل':'Submitted'}</span>`;
+      return `<span class="badge badge-zatca-cleared">🟢 ${ar?'مقبول':'Accepted'}</span>`;
     case 'rejected':
-      return `<span class="badge badge-zatca-rejected">🔴 ${ar?'مرفوض':'Rejected'}</span>`;
     case 'failed':
-      return `<span class="badge badge-zatca-failed">⚠️ ${ar?'فشل':'Failed'}</span>`;
-    case 'not_required':
+      return `<span class="badge badge-zatca-rejected">🔴 ${ar?'مرفوض':'Rejected'}</span>`;
+    case 'pending':
+    case 'submitting':
+    case 'submitted':
+      return `<span class="badge badge-zatca-pending">⏳ ${ar?'قيد الانتظار':'Queued'}</span>`;
     default:
-      /* Two truths share this default: ZATCA not yet activated ("coming soon"),
-         or the invoice predates activation (legally out of Phase-2 scope —
-         labeled honestly, never submitted). */
-      if (window._zatcaActive) {
-        return `<span class="badge badge-zatca-soon" title="${ar?'صدرت قبل تفعيل الربط مع زاتكا — خارج نطاق الإلزام':'Issued before ZATCA activation — outside the reporting obligation'}">🗂 ${ar?'قبل الربط':'Pre-ZATCA'}</span>`;
-      }
-      return `<span class="badge badge-zatca-soon" title="${ar?'سيتم تفعيل الربط مع زاتكا قريباً':'ZATCA integration coming soon'}">🔜 ${ar?'قريباً':'Coming Soon'}</span>`;
+      return status ? `<span class="badge">${escHTML(String(status))}</span>` : '';
   }
 }
 
@@ -4401,7 +4395,7 @@ function noteZatcaBadge(id){
   const ar = currentLang === 'ar';
   const sub = _noteZatcaMap[id];
   if(sub === undefined) return '';
-  if(!sub) return `<span class="badge" style="background:#FEF3C7;color:#92400E;">⏳ ${ar?'بانتظار الإرسال':'Queued'}</span>`;
+  if(!sub) return `<span class="badge" style="background:#FEF3C7;color:#92400E;">⏳ ${ar?'قيد الانتظار':'Queued'}</span>`;
   let raw = '';
   try{ raw = typeof sub.zatca_response === 'string' ? sub.zatca_response : JSON.stringify(sub.zatca_response||''); }catch(_e){}
   const ok = /clear|report|pass|success|warning|submitted/i.test(String(sub.response_status||''))
