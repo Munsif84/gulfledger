@@ -719,6 +719,10 @@ body.format-a4-quick .biz-ids{justify-content:flex-start !important;}
   .reference-banner, #reference-banner { display: none !important; }
 }
 
+
+.addr-lbl{color:#6b7a70;font-weight:600;font-size:0.92em;}
+.biz-address-stack .address-line, .party-card .address-line{line-height:1.35;}
+
 </style>
 </head>
 <body>
@@ -1760,6 +1764,14 @@ function renderInvoice(){
   } else {
     setHTML('buyer-address', renderAddress({
       country: inv.buyer_country,
+      street: inv.buyer_address,
+      street_en: inv.buyer_street_en,
+      district: inv.buyer_district,
+      district_en: inv.buyer_district_en,
+      city_en: inv.buyer_city_en,
+      building_no: inv.buyer_building_no,
+      postal_code: inv.buyer_postal_code,
+      additional_no: inv.buyer_additional_no,
       address: inv.buyer_address,
       city: inv.buyer_city
     }));
@@ -1796,39 +1808,32 @@ function renderInvoice(){
    Numbers naturally come first; their position identifies their meaning. */
 function renderAddress(obj){
   if(!obj) return '';
-  const parts = [];
-
-  /* Line 1: building_number + street_name (e.g. "5421 شارع العمال") */
-  const line1Parts = [];
-  if(obj.building_number) line1Parts.push(String(obj.building_number));
-  if(obj.street_name) line1Parts.push(obj.street_name);
-  if(line1Parts.length) parts.push(`<div class="address-line">${line1Parts.join(' ')}</div>`);
-
-  /* Line 2: district, city postal_code (e.g. "حي الأندلس، الرياض 85264") */
-  const line2Parts = [];
-  if(obj.district) line2Parts.push(obj.district);
-  const cityPostal = [obj.city, obj.postal_code].filter(Boolean).join(' ');
-  if(cityPostal) line2Parts.push(cityPostal);
-  if(line2Parts.length) parts.push(`<div class="address-line">${line2Parts.join('، ')}</div>`);
-
-  /* Line 3 (optional): additional_number — only if present and useful */
-  if(obj.additional_number){
-    parts.push(`<div class="address-line" style="font-size:10px;opacity:0.85;">${obj.additional_number}</div>`);
+  /* National-address display: SPL component order (Building → Street →
+     District → City → Postal → Additional), each line LABELED bilingually,
+     value showing Arabic · English when the mirror exists. Compact single
+     block occupying the same footprint as the previous free-form lines. */
+  const g = (a, b) => obj[a] ?? obj[b] ?? '';
+  const pair = (ar, en) => en && ar ? `${ar} · ${en}` : (ar || en || '');
+  const rows = [];
+  const add = (labAr, labEn, val) => { if(val) rows.push(
+    `<div class="address-line"><span class="addr-lbl">${labAr} ${labEn}:</span> ${val}</div>`); };
+  add('المبنى','Bldg', g('building_number','building_no'));
+  add('الشارع','St', pair(g('street_name','street'), g('street_name_en','street_en')));
+  add('الحي','Dist', pair(g('district','district_ar'), g('district_en','')));
+  add('المدينة','City', pair(g('city',''), g('city_en','')));
+  add('الرمز البريدي','Postal', g('postal_code','postal'));
+  add('الرقم الإضافي','Add\u2019l', g('additional_number','additional_no'));
+  if(rows.length === 0 && obj.address){
+    rows.push(`<div class="address-line">${obj.address}</div>`);
   }
-
-  /* Fallback to legacy address string if no structured data */
-  if(parts.length === 0 && obj.address){
-    parts.push(`<div class="address-line">${obj.address}</div>`);
-  }
-
   /* Country */
-  if(parts.length > 0){
+  if(rows.length > 0){
     const _cc = (obj.country || 'SA').toUpperCase();
     const _cn = ({SA:['المملكة العربية السعودية','Saudi Arabia'],JO:['الأردن','Jordan'],AE:['الإمارات','UAE'],KW:['الكويت','Kuwait'],BH:['البحرين','Bahrain'],QA:['قطر','Qatar'],OM:['عُمان','Oman'],EG:['مصر','Egypt'],IN:['الهند','India'],CN:['الصين','China'],TR:['تركيا','Türkiye'],US:['أمريكا','USA']})[_cc] || [_cc,_cc];
-    parts.push(`<div class="address-line" style="font-size:10px;opacity:0.75;margin-top:2px;">${currentLang==='ar'?_cn[0]:_cn[1]}</div>`);
+    rows.push(`<div class="address-line" style="font-size:10px;opacity:0.75;margin-top:2px;">${currentLang==='ar'?_cn[0]:_cn[1]}</div>`);
   }
 
-  return parts.join('');
+  return rows.join('');
 }
 
 /* ═══════════════════════════════════════════════════════
