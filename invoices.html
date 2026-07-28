@@ -7315,6 +7315,31 @@ async function saveCustomer(){
 
   /* Country (drives VAT treatment — domestic vs GCC vs export). Default 'SA'. */
   payload.country = v('cm-country') || 'SA';
+  /* ═══ ADDRESS LANGUAGE + FORMAT GATE ═══
+     Arabic slots must hold genuine Arabic (English belongs in the EN
+     mirror row); numeric components must match national-address formats.
+     Enforced for SA B2B customers, where the address is a ZATCA mandate. */
+  {
+    const _isSA = (v('cm-country') || 'SA') === 'SA';
+    const _isB2B = (document.getElementById('cm-type')?.value || v('cm-type') || '') === 'b2b'
+                || !!v('cm-trn');
+    if(_isSA && _isB2B){
+      const _arRe = /[\u0600-\u06FF]/, _latRe = /[A-Za-z]/;
+      for(const [id, lbl] of [['cm-street','الشارع/Street'],['cm-district','الحي/District'],['cm-city','المدينة/City']]){
+        const val = v(id);
+        if(val && !_arRe.test(val) && _latRe.test(val)){
+          notify(currentLang==='ar'
+            ? `حقل ${lbl} العربي يحتوي نصاً إنجليزياً — اكتب العربية هنا وضع الإنجليزية في حقل (EN)`
+            : `The Arabic ${lbl} field contains English — write Arabic here and put English in the (EN) field`, 'error');
+          return;
+        }
+      }
+      const _b = v('cm-building'), _p = v('cm-postal'), _a = v('cm-additional');
+      if(_b && !/^\d{4}$/.test(_b)){ notify(currentLang==='ar'?'رقم المبنى: 4 أرقام':'Building no.: 4 digits','error'); return; }
+      if(_p && !/^\d{5}$/.test(_p)){ notify(currentLang==='ar'?'الرمز البريدي: 5 أرقام':'Postal code: 5 digits','error'); return; }
+      if(_a && !/^\d{4}$/.test(_a)){ notify(currentLang==='ar'?'الرقم الإضافي: 4 أرقام':'Additional no.: 4 digits','error'); return; }
+    }
+  }
   payload.street = v('cm-street') || null;
   payload.additional_no = v('cm-additional') || null;
   payload.street_en = v('cm-street-en') || null;
