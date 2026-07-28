@@ -640,7 +640,7 @@ body.format-thermal-58 .t-cut{
 @page{size:A4;margin:0;}
 
 @media print{
-  body{background:#fff!important;margin:0;padding:0;}
+  html,body{background:#fff!important;margin:0;padding:0;min-height:auto!important;}
   .inv-page-header,.inv-status-bar,.pay-cta-banner,
   .inv-public-footer,.share-modal-overlay,.notify,
   .preview-banner{display:none!important;}
@@ -776,7 +776,7 @@ body.format-a4-quick .biz-ids{justify-content:flex-start !important;}
       <button class="btn btn-primary" id="btn-pay" onclick="onPayClick()">
         💰 <span data-ar="تسجيل دفعة" data-en="Record payment">تسجيل دفعة</span>
       </button>
-      <button class="btn btn-secondary" onclick="window.print()">
+      <span id="gl-pagecount" style="font-size:12px;color:var(--muted);margin-inline-end:8px;"></span><button class="btn btn-secondary" onclick="window.print()">
         🖨️ <span data-ar="طباعة" data-en="Print">طباعة</span>
       </button>
       <!-- Per-print format override dropdown -->
@@ -1832,9 +1832,23 @@ function renderItems(items){
   const tbody = document.getElementById('items-body');
   tbody.innerHTML = items.map((it, idx) => {
     const disc = parseFloat(it.discount_pct) || 0;
+  try{ glUpdatePageCount((typeof invItems!=='undefined'&&invItems&&invItems.length)|| (typeof items!=='undefined'&&items&&items.length)||0); }catch(_e){}
     const vat = parseFloat(it.vat_amount) || 0;
     const total = parseFloat(it.total) || 0;
-    const _hasAr = s => /[\u0600-\u06FF]/.test(s || '');
+    
+/* Print-fact: computed page count shown beside Print. Model: page 1 carries
+   the identity header + parties (~24 line rows fit); continuation pages fit
+   ~40 rows with the repeating table header. */
+function glUpdatePageCount(lineCount){
+  const el = document.getElementById('gl-pagecount');
+  if(!el) return;
+  const n = lineCount || 0;
+  const pages = n <= 24 ? 1 : 1 + Math.ceil((n - 24) / 40);
+  const ar = currentLang === 'ar';
+  el.textContent = ar ? `${pages} ${pages === 1 ? 'صفحة' : 'صفحات'} عند الطباعة` : `${pages} page${pages > 1 ? 's' : ''} when printed`;
+}
+
+const _hasAr = s => /[\u0600-\u06FF]/.test(s || '');
     const _rawAr = it.description_ar || (_hasAr(it.description) ? it.description : '');
     const _rawEn = it.description_en || (!_hasAr(it.description) ? it.description : '');
     const descAr = escapeHTML(_rawAr || _rawEn || '—');
