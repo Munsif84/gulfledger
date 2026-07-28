@@ -74,9 +74,7 @@ a:hover{text-decoration:underline;}
       <div class="cust-title-en" id="vend-name-en"></div>
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-      <span id="vend-type-badge"></span>
-      <a href="#" id="new-expense-btn" style="background:var(--blue);color:#fff;padding:8px 16px;border-radius:8px;font-weight:700;font-size:13px;">+ مصروف جديد · New Expense</a>
-    </div>
+      </div>
   </div>
   <div class="stats">
     <div class="stat"><div class="stat-label">عدد المصاريف · Expenses</div><div class="stat-value" id="stat-count">0</div></div>
@@ -86,15 +84,17 @@ a:hover{text-decoration:underline;}
   </div>
   <div class="info-card"><div class="info-grid" id="info-grid"></div></div>
   <div class="tabs">
-    <button class="tab active" id="tab-expenses" onclick="switchTab('expenses')" data-ar="مصاريف خدمية" data-en="Service Expenses">مصاريف خدمية</button>
+    <button class="tab active" id="tab-receipts" onclick="switchTab('receipts')" data-ar="فواتير الشراء" data-en="Purchase Invoices">فواتير الشراء</button>
     <button class="tab" id="tab-pos" onclick="switchTab('pos')" data-ar="أوامر الشراء" data-en="POs">أوامر الشراء</button>
-    <button class="tab" id="tab-receipts" onclick="switchTab('receipts')" data-ar="فواتير الشراء" data-en="Purchase Invoices">فواتير الشراء</button>
     <button class="tab" id="tab-imports" onclick="switchTab('imports')" data-ar="الاستيراد" data-en="Imports">الاستيراد</button>
+    <button class="tab" id="tab-balance" onclick="switchTab('balance')" data-ar="الأرصدة والمدفوعات" data-en="Balance & Payments">الأرصدة والمدفوعات</button>
+    <button class="tab" id="tab-expenses" onclick="switchTab('expenses')" data-ar="مصاريف خدمية" data-en="Service Expenses">مصاريف خدمية</button>
   </div>
-  <div id="pane-expenses"><div id="expenses-list"></div></div>
+  <div id="pane-receipts"><div id="receipts-list"></div></div>
   <div id="pane-pos" style="display:none;"><div id="pos-list"></div></div>
-  <div id="pane-receipts" style="display:none;"><div id="receipts-list"></div></div>
   <div id="pane-imports" style="display:none;"><div id="imports-list"></div></div>
+  <div id="pane-balance" style="display:none;"><div id="balance-list"></div></div>
+  <div id="pane-expenses" style="display:none;"><div id="expenses-list"></div></div>
 </div>
 <script>
 const SUPABASE_URL = 'https://ykzivnasjwtuhvjxfxzf.supabase.co';
@@ -148,14 +148,7 @@ function renderAll(){
   const nameEn = v.name_en || '';
   document.getElementById('vend-name-ar').textContent = nameAr || nameEn || '—';
   document.getElementById('vend-name-en').textContent = (nameEn && nameEn !== nameAr) ? nameEn : '';
-  const typeBadge = document.getElementById('vend-type-badge');
   const usage = v.usage_type || 'expense';
-  let cls, label;
-  if(usage==='purchase'){ cls='purchase'; label='مشتريات · Purchase'; }
-  else if(usage==='both'){ cls='both'; label='الاثنان · Both'; }
-  else { cls='expense'; label='مصاريف · Expense'; }
-  typeBadge.innerHTML = `<span class="badge ${cls}">${label}</span>`;
-  document.getElementById('new-expense-btn').href = `finance.html?tab=expenses&action=new_expense&vendor=${v.id}`;
   const validExps = allExpenses.filter(e=>e.status!=='voided');
   document.getElementById('stat-count').textContent = validExps.length;
   document.getElementById('stat-total').textContent = 'SAR ' + fmt(v.total_purchases||0);
@@ -163,6 +156,11 @@ function renderAll(){
   document.getElementById('stat-last-date').textContent = validExps[0]?.expense_date || '—';
   const info = document.getElementById('info-grid');
   const items = [];
+  const _arT = currentLang === 'ar';
+  items.push([_arT?'النوع':'Type',
+    usage==='purchase' ? (_arT?'مورد بضائع':'Goods supplier')
+    : usage==='both' ? (_arT?'بضائع وخدمات':'Goods & services')
+    : (_arT?'مورد خدمات':'Service supplier'), false]);
   if(v.cr_number) items.push(['CR · سجل تجاري', v.cr_number, true]);
   if(v.tax_number || v.trn) items.push(['VAT · الرقم الضريبي', v.tax_number||v.trn, true]);
   if(v.phone || v.mobile) items.push(['الهاتف · Phone', v.phone||v.mobile, true]);
@@ -177,12 +175,8 @@ function renderAll(){
     ? '<div style="color:var(--muted);font-size:13px;">لا توجد بيانات إضافية · No additional info</div>'
     : items.map(([l,vv,m])=>`<div><div class="info-label">${escHTML(l)}</div><div class="info-value ${m?'mono':''}">${escHTML(vv)}</div></div>`).join('');
   renderExpensesList();
-  renderPOsList(); renderReceiptsList(); renderImportsList();
-  /* Goods-supplier default: open on purchase history when it exists;
-     service-only suppliers keep expenses first. */
-  if(allReceipts.length) switchTab('receipts');
-  else if(allPOs.length) switchTab('pos');
-  else if(allImports.length) switchTab('imports');
+  renderPOsList(); renderReceiptsList(); renderImportsList(); renderBalanceList();
+  switchTab('receipts');   /* purchase invoices are the supplier's face */
 }
 function renderExpensesList(){
   const wrap = document.getElementById('expenses-list');
@@ -226,6 +220,30 @@ function renderReceiptsList(){
     ${allReceipts.map(r => `<tr><td>${escapeHTML(r.receipt_number||'—')}</td><td class="num">${r.receipt_date||'—'}</td><td class="num">SAR ${fmt(r.total)}</td><td>${escapeHTML(r.payment_status||'—')}</td></tr>`).join('')}
   </tbody></table>`;
 }
+
+function renderBalanceList(){
+  const ar = currentLang === 'ar';
+  const el = document.getElementById('balance-list');
+  let purchased = 0, paid = 0;
+  const open = [];
+  allReceipts.forEach(r => {
+    const t = parseFloat(r.total)||0, p = parseFloat(r.amount_paid)||0;
+    purchased += t; paid += p;
+    if(t - p > 0.005) open.push({ref: r.receipt_number, date: r.receipt_date, due: t - p});
+  });
+  allImports.forEach(s => { purchased += parseFloat(s.total_paid)||0; paid += parseFloat(s.total_paid)||0; });
+  const out = purchased - paid;
+  el.innerHTML = `
+    <div class="stats-row" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
+      <div class="stat-card"><div class="label">${ar?'إجمالي المشتريات':'Total Purchased'}</div><div class="value">SAR ${fmt(purchased)}</div></div>
+      <div class="stat-card"><div class="label">${ar?'المدفوع':'Paid'}</div><div class="value">SAR ${fmt(paid)}</div></div>
+      <div class="stat-card"><div class="label">${ar?'الرصيد المستحق':'Outstanding'}</div><div class="value" style="color:${out>0.005?'#b45309':'#0E5232'};">SAR ${fmt(out)}</div></div>
+    </div>
+    ${open.length ? `<table class="tbl"><thead><tr><th>${ar?'الفاتورة':'Invoice'}</th><th class="num">${ar?'التاريخ':'Date'}</th><th class="num">${ar?'المتبقي':'Due'}</th></tr></thead><tbody>
+      ${open.map(o => `<tr><td>${escapeHTML(o.ref||'—')}</td><td class="num">${o.date||'—'}</td><td class="num" style="font-weight:700;">SAR ${fmt(o.due)}</td></tr>`).join('')}
+    </tbody></table>` : `<div class="empty-state">${ar?'لا توجد أرصدة مستحقة — جميع الفواتير مسددة':'No outstanding balances — all invoices settled'}</div>`}`;
+}
+
 function renderImportsList(){
   const ar = currentLang === 'ar';
   const el = document.getElementById('imports-list');
@@ -235,7 +253,7 @@ function renderImportsList(){
   </tbody></table>`;
 }
 function switchTab(name){
-  ['expenses','pos','receipts','imports'].forEach(t=>{
+  ['expenses','pos','receipts','imports','balance'].forEach(t=>{
     document.getElementById('tab-'+t).classList.toggle('active', t===name);
     document.getElementById('pane-'+t).style.display = t===name?'':'none';
   });
