@@ -5296,9 +5296,8 @@ async function glScanSell(inp){
   inp.value = '';
   if(!code) return;
   const ar = currentLang === 'ar';
-  const {data: it} = await sb.from('items')
-    .select('id, name, name_ar, name_en, sale_price, barcode')
-    .eq('business_id', currentBiz.id).eq('barcode', code).limit(1).maybeSingle();
+  const all = await glInvItems();
+  const it = all.find(x => x.barcode === code) || all.find(x => x.sku === code);
   if(!it){ notify((ar?'باركود غير معروف: ':'Unknown barcode: ') + code, 'error'); inp.focus(); return; }
   const existing = items.findIndex(x => x.itemId === it.id);
   if(existing >= 0){
@@ -5315,6 +5314,62 @@ async function glScanSell(inp){
   renderItems(); renderTotals();
   inp.focus();
 }
+
+
+/* ═══ TYPE-AHEAD on invoice lines: write first letters → suggestion list
+   (name AR/EN, SKU, barcode). ↑/↓ navigate, Enter picks, Esc closes. ═══ */
+let _taBox = null, _taSel = -1, _taMatches = [];
+async function glTypeahead(inp){
+  const q = (inp.value || '').trim().toLowerCase();
+  glTypeaheadClose();
+  if(q.length < 1) return;
+  const all = await glInvItems();
+  _taMatches = all.filter(it =>
+    (it.name||'').toLowerCase().includes(q) || (it.name_ar||'').toLowerCase().includes(q) ||
+    (it.name_en||'').toLowerCase().includes(q) || (it.sku||'').toLowerCase().includes(q) ||
+    (it.barcode||'').toLowerCase().includes(q)).slice(0, 8);
+  if(!_taMatches.length) return;
+  const ar = currentLang === 'ar';
+  _taSel = -1;
+  const r = inp.getBoundingClientRect();
+  _taBox = document.createElement('div');
+  _taBox.id = 'gl-typeahead';
+  _taBox.style.cssText = `position:fixed;z-index:9999;top:${r.bottom+2}px;inset-inline-start:${ar?'auto':r.left+'px'};${ar?('right:'+(window.innerWidth-r.right)+'px;'):''}width:${Math.max(r.width,280)}px;background:#fff;border:1px solid #D6D3CB;border-radius:8px;box-shadow:0 8px 24px rgba(0,0,0,.12);overflow:hidden;`;
+  _taBox.innerHTML = _taMatches.map((it, i2) => {
+    const nm = ar ? (it.name_ar||it.name||it.name_en) : (it.name_en||it.name||it.name_ar);
+    return `<div class="ta-row" data-i="${i2}" onmousedown="event.preventDefault();glTypeaheadPick(${i2}, document.activeElement)"
+      style="padding:7px 10px;cursor:pointer;display:flex;justify-content:space-between;gap:10px;font-size:13px;">
+      <span>${escHTML(nm||'—')}</span>
+      <span style="color:#8A9B8F;font-size:11px;direction:ltr;">${escHTML(it.sku||'')} · ${fmt(it.sale_price)}</span></div>`;
+  }).join('');
+  document.body.appendChild(_taBox);
+  _taBox._input = inp;
+}
+function glTypeaheadClose(){ if(_taBox){ _taBox.remove(); _taBox = null; _taSel = -1; } }
+function glTypeaheadKeys(e, inp){
+  if(!_taBox) return;
+  const rows = _taBox.querySelectorAll('.ta-row');
+  if(e.key === 'ArrowDown' || e.key === 'ArrowUp'){
+    e.preventDefault();
+    _taSel = e.key === 'ArrowDown' ? Math.min(_taSel + 1, rows.length - 1) : Math.max(_taSel - 1, 0);
+    rows.forEach((r2, i2) => r2.style.background = i2 === _taSel ? '#EAF3EE' : '#fff');
+  } else if(e.key === 'Enter'){
+    if(_taSel >= 0){ e.preventDefault(); glTypeaheadPick(_taSel, inp); }
+  } else if(e.key === 'Escape'){ glTypeaheadClose(); }
+}
+function glTypeaheadPick(i2, inp){
+  const it = _taMatches[i2]; if(!it) return;
+  const idx = parseInt((inp && inp.dataset && inp.dataset.idx) ?? (_taBox && _taBox._input && _taBox._input.dataset.idx) ?? -1);
+  glTypeaheadClose();
+  if(idx < 0) return;
+  items[idx].itemId = it.id;
+  items[idx].desc = it.name || it.name_en || it.name_ar || '';
+  items[idx].desc_ar = it.name_ar || '';
+  items[idx].price = parseFloat(it.sale_price) || 0;
+  if(!items[idx].qty) items[idx].qty = 1;
+  renderItems(); renderTotals();
+}
+document.addEventListener('click', e => { if(_taBox && !_taBox.contains(e.target)) glTypeaheadClose(); });
 
 function renderItems(){
   const c = document.getElementById('items-container');
@@ -5343,7 +5398,7 @@ function renderItems(){
         <button class="btn-pick" onclick="openInventoryPicker(${i})" title="${currentLang==='ar'?'تغيير المنتج':'Change product'}"><svg class="gl-i gl-i-sm"><use href="/gl-icons.svg#i-package"/></svg></button>`;
     } else {
       descCellHtml = `
-        <input type="text" class="desc-input" value="${(item.desc||'').replace(/"/g,'&quot;')}" placeholder="${currentLang==='ar'?'اختر من المخزون أو اكتب الوصف':'Pick from inventory or type'}" oninput="items[${i}].desc=this.value">
+        <input type="text" class="desc-input" value="${(item.desc||'').replace(/"/g,'&quot;')}" data-idx="${i}" onkeydown="glTypeaheadKeys(event,this)" onfocus="glTypeahead(this)" oninput2="" placeholder="${currentLang==='ar'?'اختر من المخزون أو اكتب الوصف':'Pick from inventory or type'}" oninput="glTypeahead(this);items[${i}].desc=this.value">
         <button class="btn-pick" onclick="openInventoryPicker(${i})" title="${currentLang==='ar'?'اختر من المخزون':'Pick from inventory'}"><svg class="gl-i gl-i-sm"><use href="/gl-icons.svg#i-package"/></svg></button>`;
     }
 
@@ -5464,11 +5519,7 @@ async function openInventoryPicker(itemIdx){
 
   /* Round C bugfix: include name_en (was missing — caused inconsistent picker labels)
      and filter out soft-deleted items (is_active=false). */
-  const {data} = await sb.from('inventory_items')
-    .select('id,name,name_ar,name_en,sku,sale_price,current_qty,unit')
-    .eq('business_id', currentBiz.id)
-    .eq('is_active', true)
-    .order('name_ar', {ascending: true});
+  const data = await glInvItems();
 
   if(!data || !data.length){
     notify(currentLang==='ar'?'لا توجد أصناف في المخزون':'No inventory items', 'a');
@@ -5526,6 +5577,24 @@ function renderPickerItems(items, itemIdx){
   }).join('');
 }
 
+
+/* ═══ INVENTORY CACHE — one fetch feeds picker, scanner, and type-ahead.
+   Instant opens; background refresh keeps it honest. ═══ */
+let _invCache = null, _invCacheAt = 0;
+async function glInvItems(force){
+  const fresh = _invCache && (Date.now() - _invCacheAt < 60000);
+  if(_invCache && !force){
+    if(!fresh) glInvItems(true);          /* silent background refresh */
+    return _invCache;
+  }
+  const {data} = await sb.from('inventory_items')
+    .select('id,name,name_ar,name_en,sku,barcode,sale_price,current_qty,unit')
+    .eq('business_id', currentBiz.id).eq('is_active', true)
+    .order('name_ar', {ascending: true});
+  _invCache = data || []; _invCacheAt = Date.now();
+  return _invCache;
+}
+
 function filterPickerList(search){
   const modal = document.getElementById('inv-picker-modal');
   if(!modal || !modal._items) return;
@@ -5535,6 +5604,7 @@ function filterPickerList(search){
     (it.name||'').toLowerCase().includes(q) ||
     (it.name_ar||'').toLowerCase().includes(q) ||
     (it.name_en||'').toLowerCase().includes(q) ||
+    (it.barcode||'').toLowerCase().includes(q) ||
     (it.sku||'').toLowerCase().includes(q)
   );
   document.getElementById('picker-list').innerHTML = renderPickerItems(filtered, modal._itemIdx);
