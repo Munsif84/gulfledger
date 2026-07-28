@@ -679,6 +679,16 @@
     + '.gls-sub.on{background:#0E5232;border-color:#0E5232;color:#fff;}'
     + '@media(max-width:600px){.gls-gulf{font-size:19px;}.gls-top{padding:8px 12px;}.gls-nav{padding:0 8px;}}';
 
+
+  /* ═══ FORM MODE LAW: editing an existing record → side DRAWER (the record's
+     residence); creating a new one → centered POPUP (a focused birth moment).
+     Call at every open site with the edit-ness of the moment. ═══ */
+  window.glFormMode = function(overlayId, isEdit){
+    var el = document.getElementById(overlayId);
+    if(!el) return;
+    el.classList.toggle('gl-as-drawer', !!isEdit);
+  };
+
   function glAssertDir(){
     var L2 = localStorage.getItem('gl_lang') || document.documentElement.lang || 'ar';
     document.documentElement.setAttribute('lang', L2);
