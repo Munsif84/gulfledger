@@ -150,10 +150,20 @@ function renderAll(){
   document.getElementById('vend-name-en').textContent = (nameEn && nameEn !== nameAr) ? nameEn : '';
   const usage = v.usage_type || 'expense';
   const validExps = allExpenses.filter(e=>e.status!=='voided');
-  document.getElementById('stat-count').textContent = validExps.length;
-  document.getElementById('stat-total').textContent = 'SAR ' + fmt(v.total_purchases||0);
-  document.getElementById('stat-outstanding').textContent = 'SAR ' + fmt(v.total_outstanding||0);
-  document.getElementById('stat-last-date').textContent = validExps[0]?.expense_date || '—';
+  /* Header stats: LIVE across every purchase source — receipts (purchase
+     invoices), imports, and service expenses — never stale master columns. */
+  {
+    const rTot = allReceipts.reduce((s,r)=>s+(parseFloat(r.total)||0),0);
+    const rPaid = allReceipts.reduce((s,r)=>s+(parseFloat(r.amount_paid)||0),0);
+    const iTot = allImports.reduce((s,x)=>s+(parseFloat(x.total_paid)||0),0);
+    const eTot = validExps.reduce((s,x)=>s+(parseFloat(x.amount)||parseFloat(x.total)||0),0);
+    const eOut = validExps.reduce((s,x)=>s+((x.payment_status&&x.payment_status!=='paid')?((parseFloat(x.amount)||parseFloat(x.total)||0)-(parseFloat(x.amount_paid)||0)):0),0);
+    document.getElementById('stat-count').textContent = allReceipts.length + allImports.length + validExps.length;
+    document.getElementById('stat-total').textContent = 'SAR ' + fmt(rTot + iTot + eTot);
+    document.getElementById('stat-outstanding').textContent = 'SAR ' + fmt(Math.max(0,(rTot - rPaid)) + Math.max(0,eOut));
+    const dates = [...allReceipts.map(r=>r.receipt_date), ...allImports.map(x=>x.shipment_date), ...validExps.map(x=>x.expense_date)].filter(Boolean).sort();
+    document.getElementById('stat-last-date').textContent = dates[dates.length-1] || '—';
+  }
   const info = document.getElementById('info-grid');
   const items = [];
   const _arT = currentLang === 'ar';
