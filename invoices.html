@@ -5319,7 +5319,9 @@ async function glScanSell(inp){
 /* ═══ TYPE-AHEAD on invoice lines: write first letters → suggestion list
    (name AR/EN, SKU, barcode). ↑/↓ navigate, Enter picks, Esc closes. ═══ */
 let _taBox = null, _taSel = -1, _taMatches = [];
+let _taSuppressUntil = 0;
 async function glTypeahead(inp){
+  if(Date.now() < _taSuppressUntil) return;
   const q = (inp.value || '').trim().toLowerCase();
   glTypeaheadClose();
   if(q.length < 1) return;
@@ -5345,6 +5347,15 @@ async function glTypeahead(inp){
   document.body.appendChild(_taBox);
   _taBox._input = inp;
 }
+
+/* Unlink a picked line: back to a free editable input (qty preserved). */
+function glClearLine(i){
+  const q = items[i]?.qty || 0;
+  items[i] = { desc:'', desc_ar:'', qty:q, price:0, disc:0 };
+  renderItems(); renderTotals();
+  setTimeout(() => { document.querySelectorAll('.desc-input')[i]?.focus(); }, 30);
+}
+
 function glTypeaheadClose(){ if(_taBox){ _taBox.remove(); _taBox = null; _taSel = -1; } }
 function glTypeaheadKeys(e, inp){
   if(!_taBox) return;
@@ -5359,6 +5370,7 @@ function glTypeaheadKeys(e, inp){
 }
 function glTypeaheadPick(i2, inp){
   const it = _taMatches[i2]; if(!it) return;
+  _taSuppressUntil = Date.now() + 400;
   const idx = parseInt((inp && inp.dataset && inp.dataset.idx) ?? (_taBox && _taBox._input && _taBox._input.dataset.idx) ?? -1);
   glTypeaheadClose();
   if(idx < 0) return;
@@ -5395,11 +5407,13 @@ function renderItems(){
           <span class="chip-name">${displayName}</span>
           <button type="button" class="btn-unlink" onclick="unlinkItem(${i})" aria-label="${currentLang==='ar'?'إلغاء الربط':'Unlink'}" title="${currentLang==='ar'?'إلغاء الربط (تحويل إلى نص حر)':'Unlink (convert to free-text)'}">×</button>
         </div>
-        <button class="btn-pick" onclick="openInventoryPicker(${i})" title="${currentLang==='ar'?'تغيير المنتج':'Change product'}"><svg class="gl-i gl-i-sm"><use href="/gl-icons.svg#i-package"/></svg></button>`;
+        <button class="btn-pick" onclick="openInventoryPicker(${i})" title="${currentLang==='ar'?'تغيير المنتج':'Change product'}"><svg class="gl-i gl-i-sm"><use href="/gl-icons.svg#i-package"/></svg></button>
+        <button class="btn-pick" onclick="glClearLine(${i})" title="${currentLang==='ar'?'إلغاء الربط والكتابة يدوياً':'Unlink & type freely'}" style="color:#991B1B;">✕</button>`;
     } else {
       descCellHtml = `
-        <input type="text" class="desc-input" value="${(item.desc||'').replace(/"/g,'&quot;')}" data-idx="${i}" onkeydown="glTypeaheadKeys(event,this)" onfocus="glTypeahead(this)" oninput2="" placeholder="${currentLang==='ar'?'اختر من المخزون أو اكتب الوصف':'Pick from inventory or type'}" oninput="glTypeahead(this);items[${i}].desc=this.value">
-        <button class="btn-pick" onclick="openInventoryPicker(${i})" title="${currentLang==='ar'?'اختر من المخزون':'Pick from inventory'}"><svg class="gl-i gl-i-sm"><use href="/gl-icons.svg#i-package"/></svg></button>`;
+        <input type="text" class="desc-input" value="${(item.desc||'').replace(/"/g,'&quot;')}" data-idx="${i}" onkeydown="glTypeaheadKeys(event,this)" placeholder="${currentLang==='ar'?'اختر من المخزون أو اكتب الوصف':'Pick from inventory or type'}" oninput="glTypeahead(this);items[${i}].desc=this.value">
+        <button class="btn-pick" onclick="openInventoryPicker(${i})" title="${currentLang==='ar'?'اختر من المخزون':'Pick from inventory'}"><svg class="gl-i gl-i-sm"><use href="/gl-icons.svg#i-package"/></svg></button>
+        <button class="btn-pick" onclick="glClearLine(${i})" title="${currentLang==='ar'?'إلغاء الربط والكتابة يدوياً':'Unlink & type freely'}" style="color:#991B1B;">✕</button>`;
     }
 
     row.innerHTML = `
