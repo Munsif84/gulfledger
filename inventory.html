@@ -4783,6 +4783,24 @@ async function saveReceipt(){
   /* Validation */
   if(!v('rcp-supplier')){
     notify(currentLang==='ar'?'يجب اختيار مورد':'Select a supplier','error');
+
+  /* ═══ RECEIVING HARDENING: a purchase invoice must be reconcilable ═══
+     Supplier invoice number is the reconciliation key a supplier's own
+     statement will quote — mandatory. Date mandatory. Every line must be
+     a real item with qty and cost. */
+  if(!v('rcp-supplier-invoice')){
+    notify(currentLang==='ar' ? 'رقم فاتورة المورد إلزامي — هو مفتاح المطابقة مع كشف حساب المورد' : 'Supplier invoice number is mandatory — it is the reconciliation key', 'error');
+    return;
+  }
+  if(!v('rcp-date')){
+    notify(currentLang==='ar' ? 'تاريخ الاستلام إلزامي' : 'Receipt date is required', 'error');
+    return;
+  }
+  const _badLine = receiptItems.findIndex(r => !r.item_id || !(parseFloat(r.quantity) > 0) || !(parseFloat(r.unit_cost) >= 0));
+  if(_badLine >= 0 || !receiptItems.length){
+    notify(currentLang==='ar' ? `السطر ${_badLine+1}: اختر الصنف وأدخل كمية وتكلفة صحيحة` : `Line ${_badLine+1}: pick an item with valid qty & cost`, 'error');
+    return;
+  }
     return;
   }
   /* Round 4m: location is required */
