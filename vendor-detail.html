@@ -261,47 +261,77 @@ function renderReceiptsList(){
 function glVendorStatement(){
   const ar = currentLang === 'ar';
   const v = currentVendor;
-  const rows = [];
-  allReceipts.forEach(r => rows.push({
-    date: r.receipt_date, ref: r.receipt_number, theirRef: r.supplier_invoice_number || '—',
-    debit: r.total, credit: parseFloat(r.amount_paid)||0
-  }));
-  allImports.forEach(s => rows.push({
-    date: s.shipment_date, ref: 'IMP ' + (s.reference||''), theirRef: '—',
-    debit: parseFloat(s.total_paid)||0, credit: parseFloat(s.total_paid)||0
-  }));
-  rows.sort((a,b) => String(a.date).localeCompare(String(b.date)));
-  let bal = 0;
-  const body = rows.map(r => {
+  const from = document.getElementById('stmt-from')?.value || '';
+  const to = document.getElementById('stmt-to')?.value || '';
+  /* Typed movements: every row carries a transaction CODE.
+     INV purchase invoice · PMT payment · IMP import shipment
+     (RTN / DN reserved for supplier-return flows when built). */
+  const all = [];
+  allReceipts.forEach(r => {
+    all.push({date: r.receipt_date, code: 'INV', desc: (ar?'فاتورة شراء':'Purchase invoice'),
+      ref: r.receipt_number, theirRef: r.supplier_invoice_number || '—', debit: r.total, credit: 0});
+    const p = parseFloat(r.amount_paid)||0;
+    if(p > 0) all.push({date: r.receipt_date, code: 'PMT', desc: (ar?'دفعة':'Payment'),
+      ref: r.receipt_number, theirRef: r.supplier_invoice_number || '—', debit: 0, credit: p});
+  });
+  allImports.forEach(s => {
+    const t = parseFloat(s.total_paid)||0;
+    all.push({date: s.shipment_date, code: 'IMP', desc: (ar?'شحنة استيراد':'Import shipment'),
+      ref: s.reference||'—', theirRef: '—', debit: t, credit: 0});
+    all.push({date: s.shipment_date, code: 'PMT', desc: (ar?'سداد استيراد':'Import payment'),
+      ref: s.reference||'—', theirRef: '—', debit: 0, credit: t});
+  });
+  all.sort((a,b) => String(a.date).localeCompare(String(b.date)) || a.code.localeCompare(b.code));
+  /* Opening balance = everything before FROM; period rows between FROM..TO */
+  let opening = 0;
+  const period = [];
+  all.forEach(r => {
+    if(from && String(r.date) < from){ opening += (r.debit - r.credit); return; }
+    if(to && String(r.date) > to) return;
+    period.push(r);
+  });
+  let bal = opening;
+  const body = period.map(r => {
     bal += (r.debit - r.credit);
-    return `<tr><td class="num">${r.date||'—'}</td><td>${escHTML(r.ref)}</td><td class="mono">${escHTML(r.theirRef)}</td>
-      <td class="num">SAR ${fmt(r.debit)}</td><td class="num">SAR ${fmt(r.credit)}</td>
+    return `<tr><td class="num">${r.date||'—'}</td>
+      <td><span class="mono" style="font-weight:700;">${r.code}</span> · ${r.desc}</td>
+      <td>${escHTML(r.ref)}</td><td class="mono">${escHTML(r.theirRef)}</td>
+      <td class="num">${r.debit?('SAR '+fmt(r.debit)):'—'}</td>
+      <td class="num">${r.credit?('SAR '+fmt(r.credit)):'—'}</td>
       <td class="num" style="font-weight:700;">SAR ${fmt(bal)}</td></tr>`;
   }).join('');
   const nm = ar ? (v.name_ar||v.name||v.name_en) : (v.name_en||v.name||v.name_ar);
   const today = new Date().toISOString().slice(0,10);
+  const periodLbl = (from||to) ? `${from||'…'} ← ${to||today}` : (ar?'كامل الفترة':'All time');
   const host = document.getElementById('gl-vd-statement') || (() => {
     const d = document.createElement('div'); d.id = 'gl-vd-statement'; document.body.appendChild(d); return d;
   })();
   host.innerHTML = `
-    <div class="stmt-sheet" style="background:#fff;max-width:820px;margin:0 auto;padding:26px;">
+    <div class="stmt-sheet" style="background:#fff;max-width:860px;margin:0 auto;padding:26px;">
       <div style="display:flex;justify-content:space-between;border-bottom:2px solid #0E5232;padding-bottom:10px;margin-bottom:14px;">
         <div><div style="font-size:17px;font-weight:800;">${ar?'كشف حساب مورد':'Supplier Statement of Account'}</div>
-          <div style="font-size:12px;color:#5B7263;">${escHTML(nm||'')} · ${ar?'حتى':'as of'} ${today}</div></div>
-        <div style="font-size:12px;color:#5B7263;text-align:end;">${escHTML(currentBiz?.name_ar||currentBiz?.name||'')}</div>
+          <div style="font-size:12px;color:#5B7263;">${escHTML(nm||'')} · ${ar?'الفترة':'Period'}: ${periodLbl}</div></div>
+        <div style="font-size:12px;color:#5B7263;text-align:end;">${escHTML(currentBiz?.name_ar||currentBiz?.name||'')}<br>${today}</div>
       </div>
-      <table class="tbl" style="width:100%;font-size:12px;"><thead><tr>
-        <th class="num">${ar?'التاريخ':'Date'}</th><th>${ar?'مستندنا':'Our Ref'}</th><th>${ar?'فاتورة المورد':'Supplier Inv #'}</th>
-        <th class="num">${ar?'مدين (مشتريات)':'Debit (Purchases)'}</th><th class="num">${ar?'دائن (مدفوعات)':'Credit (Payments)'}</th>
+      <table class="tbl" style="width:100%;font-size:11.5px;"><thead><tr>
+        <th class="num">${ar?'التاريخ':'Date'}</th><th>${ar?'نوع الحركة':'Transaction'}</th>
+        <th>${ar?'مستندنا':'Our Ref'}</th><th>${ar?'فاتورة المورد':'Supplier Inv #'}</th>
+        <th class="num">${ar?'مدين':'Debit'}</th><th class="num">${ar?'دائن':'Credit'}</th>
         <th class="num">${ar?'الرصيد':'Balance'}</th></tr></thead>
-        <tbody>${body || `<tr><td colspan="6" style="text-align:center;color:#8A9B8F;">${ar?'لا توجد حركات':'No transactions'}</td></tr>`}</tbody>
+        <tbody>
+          <tr style="background:#F4F8F5;"><td class="num">${from||'—'}</td>
+            <td colspan="5" style="font-weight:700;">${ar?'رصيد افتتاحي':'Opening balance'}</td>
+            <td class="num" style="font-weight:800;">SAR ${fmt(opening)}</td></tr>
+          ${body || `<tr><td colspan="7" style="text-align:center;color:#8A9B8F;">${ar?'لا توجد حركات في الفترة':'No transactions in period'}</td></tr>`}
+        </tbody>
       </table>
-      <div style="margin-top:14px;display:flex;justify-content:flex-end;">
+      <div style="margin-top:14px;display:flex;justify-content:space-between;align-items:flex-end;">
+        <div style="font-size:10px;color:#8A9B8F;">INV ${ar?'فاتورة شراء':'Purchase inv'} · PMT ${ar?'دفعة':'Payment'} · IMP ${ar?'استيراد':'Import'}</div>
         <div style="border:2px solid #0E5232;border-radius:8px;padding:8px 18px;font-weight:800;">
-          ${ar?'الرصيد المستحق':'Balance Due'}: SAR ${fmt(bal)}
+          ${ar?'الرصيد الختامي':'Closing Balance'}: SAR ${fmt(bal)}
         </div>
       </div>
-      <div style="margin-top:16px;font-size:10.5px;color:#8A9B8F;">${ar?'أُعد هذا الكشف من دفاتر المنشأة لغرض المطابقة مع سجلات المورد — رقم فاتورة المورد هو مفتاح المطابقة.':'Prepared from our books for reconciliation with supplier records — the supplier invoice number is the matching key.'}</div>
+      <div style="margin-top:14px;font-size:10.5px;color:#8A9B8F;">${ar?'أُعد من دفاتر المنشأة لغرض المطابقة — رقم فاتورة المورد هو مفتاح المطابقة.':'Prepared from our books for reconciliation — the supplier invoice number is the matching key.'}</div>
     </div>`;
   document.body.classList.add('gl-print-statement');
   window.print();
@@ -321,7 +351,11 @@ function renderBalanceList(){
   allImports.forEach(s => { purchased += parseFloat(s.total_paid)||0; paid += parseFloat(s.total_paid)||0; });
   const out = purchased - paid;
   el.innerHTML = `
-    <div style="display:flex;justify-content:flex-end;margin-bottom:8px;">
+    <div style="display:flex;justify-content:flex-end;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap;">
+      <label style="font-size:12px;color:#5B7263;">${ar?'من':'From'}</label>
+      <input type="date" id="stmt-from" class="mono" style="padding:5px 8px;">
+      <label style="font-size:12px;color:#5B7263;">${ar?'إلى':'To'}</label>
+      <input type="date" id="stmt-to" class="mono" style="padding:5px 8px;">
       <button class="btn btn-primary" onclick="glVendorStatement()">🖨 ${ar?'طباعة كشف حساب':'Print Statement'}</button>
     </div>
     <div class="stats-row" style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:14px;">
