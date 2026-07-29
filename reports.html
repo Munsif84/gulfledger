@@ -3482,142 +3482,91 @@ async function runReportCustomer(){
        collapsed credit at the bill date (loses payment timing precision).
 ═══════════════════════════════════════════════════════ */
 async function runReportSupplierStatement(){
+  /* ═══ PAYABLES STATEMENT — the shared statement-engine doctrine ═══
+     Typed movements from EVERY payable source, opening balance before the
+     period, running balance through it, boxed closing. Codes:
+     INV purchase invoice (stock receipt) · PMT payment · IMP import ·
+     EXP service expense. The supplier invoice number rides along as the
+     reconciliation matching key. */
   const from = document.getElementById('rt-from').value;
   const to = document.getElementById('rt-to').value;
   const supplierId = document.getElementById('rt-supplier-select').value;
   const ar = currentLang === 'ar';
   const content = document.getElementById('report-supplier_statement-content');
   const periodEl = document.getElementById('report-supplier_statement-period');
-
   if(!supplierId){
     content.innerHTML = '<div class="report-error">' + (ar ? 'الرجاء اختيار مورد' : 'Please select a supplier') + '</div>';
     return;
   }
-  if(!from || !to){
-    content.innerHTML = '<div class="report-error">' + (ar ? 'الرجاء تحديد نطاق التاريخ' : 'Please select a date range') + '</div>';
-    return;
-  }
-  periodEl.textContent = periodLabel(from, to);
-  content.innerHTML = '<div class="report-loading">' + (ar ? 'جارٍ التحميل...' : 'Loading...') + '</div>';
-
-  /* Resolve supplier name from the cached list (loaded by loadSuppliersForDropdown) */
-  const supplier = (allSuppliers || []).find(s => s.id === supplierId);
-  const supplierName = supplier
-    ? (ar
-        ? (supplier.name_ar || supplier.name_en || '—')
-        : (supplier.name_en || supplier.name_ar || '—'))
-    : '—';
-
-  /* Fetch bills (expenses) for this supplier in range, posted only */
-  const {data: bills, error: billsErr} = await sb.from('expenses')
-    .select('id, expense_number, expense_date, total, amount_paid, payment_status, status, description, vendor_invoice_number, due_date')
-    .eq('business_id', currentBiz.id)
-    .eq('supplier_id', supplierId)
-    .eq('status', 'posted')
-    .gte('expense_date', from)
-    .lte('expense_date', to)
-    .order('expense_date', { ascending: true });
-
-  if(billsErr){
-    content.innerHTML = '<div class="report-error">' + escHTML(billsErr.message) + '</div>';
-    return;
-  }
-
-  /* Build the transaction list: each bill produces one debit row.
-     If the bill has amount_paid > 0, we also synthesize one credit row at the
-     same date capturing the payment (pilot-grade simplification — real payment
-     timing would require querying journal_entries source='payment'). */
-  const txns = [];
-  (bills || []).forEach(bill => {
-    const total = parseFloat(bill.total) || 0;
-    const paid = parseFloat(bill.amount_paid) || 0;
-    txns.push({
-      date: bill.expense_date,
-      reference: bill.expense_number || '—',
-      vendor_ref: bill.vendor_invoice_number || '',
-      type: ar ? 'فاتورة' : 'Bill',
-      debit: total,
-      credit: 0,
-      status: bill.payment_status,
-      description: bill.description || ''
+  content.innerHTML = '<div class="report-empty">' + (ar ? 'جارٍ التحميل…' : 'Loading…') + '</div>';
+  const all = [];
+  try{
+    const {data: rcs} = await sb.from('stock_receipts')
+      .select('receipt_number, receipt_date, subtotal, vat_amount, amount_paid, supplier_invoice_number')
+      .eq('supplier_id', supplierId).order('receipt_date');
+    (rcs||[]).forEach(r => {
+      const t = (parseFloat(r.subtotal)||0) + (parseFloat(r.vat_amount)||0);
+      all.push({date: r.receipt_date, code:'INV', desc: ar?'فاتورة شراء':'Purchase invoice', ref: r.receipt_number, theirRef: r.supplier_invoice_number||'—', debit: t, credit: 0});
+      const p = parseFloat(r.amount_paid)||0;
+      if(p > 0) all.push({date: r.receipt_date, code:'PMT', desc: ar?'دفعة':'Payment', ref: r.receipt_number, theirRef: r.supplier_invoice_number||'—', debit: 0, credit: p});
     });
-    if(paid > 0){
-      txns.push({
-        date: bill.expense_date,
-        reference: bill.expense_number || '—',
-        vendor_ref: '',
-        type: ar ? 'سداد' : 'Payment',
-        debit: 0,
-        credit: paid,
-        status: '',
-        description: ar ? `سداد جزئي/كلي للفاتورة ${bill.expense_number || ''}` : `Payment against ${bill.expense_number || ''}`
-      });
-    }
+  }catch(e){ console.error('[GL rpt] receipts:', e.message||e); }
+  try{
+    const {data: imps} = await sb.from('import_shipments')
+      .select('reference, shipment_date, total_paid').eq('supplier_id', supplierId).order('shipment_date');
+    (imps||[]).forEach(s => {
+      const t = parseFloat(s.total_paid)||0;
+      all.push({date: s.shipment_date, code:'IMP', desc: ar?'شحنة استيراد':'Import shipment', ref: s.reference||'—', theirRef:'—', debit: t, credit: 0});
+      all.push({date: s.shipment_date, code:'PMT', desc: ar?'سداد استيراد':'Import payment', ref: s.reference||'—', theirRef:'—', debit: 0, credit: t});
+    });
+  }catch(e){ console.error('[GL rpt] imports:', e.message||e); }
+  try{
+    const {data: exps} = await sb.from('expenses')
+      .select('expense_number, expense_date, amount, payment_status, amount_paid')
+      .eq('vendor_id', supplierId).neq('status','voided').order('expense_date');
+    (exps||[]).forEach(x => {
+      const t = parseFloat(x.amount)||0;
+      all.push({date: x.expense_date, code:'EXP', desc: ar?'فاتورة خدمات':'Service expense', ref: x.expense_number||'—', theirRef:'—', debit: t, credit: 0});
+      const p = (x.payment_status === 'paid') ? t : (parseFloat(x.amount_paid)||0);
+      if(p > 0) all.push({date: x.expense_date, code:'PMT', desc: ar?'دفعة':'Payment', ref: x.expense_number||'—', theirRef:'—', debit: 0, credit: p});
+    });
+  }catch(e){ console.error('[GL rpt] expenses:', e.message||e); }
+  all.sort((a,b) => String(a.date).localeCompare(String(b.date)) || a.code.localeCompare(b.code));
+  let opening = 0;
+  const period = [];
+  all.forEach(r => {
+    if(from && String(r.date) < from){ opening += (r.debit - r.credit); return; }
+    if(to && String(r.date) > to) return;
+    period.push(r);
   });
-
-  /* Stable sort by date with bills before payments on same date */
-  txns.sort((a, b) => {
-    const dc = (a.date || '').localeCompare(b.date || '');
-    if(dc !== 0) return dc;
-    /* Bill before payment when dates tie */
-    if(a.type !== b.type){
-      if(a.type === (ar?'فاتورة':'Bill')) return -1;
-      if(b.type === (ar?'فاتورة':'Bill')) return 1;
-    }
-    return 0;
-  });
-
-  let html = '<div style="margin-bottom:14px;font-size:14px;font-weight:700;color:var(--ink);">' + escHTML(supplierName) + '</div>';
-
-  if(txns.length === 0){
-    html += '<div class="report-no-data"><div class="report-no-data-icon">📭</div><div class="report-no-data-msg">' + (ar ? 'لا توجد معاملات لهذا المورد في النطاق المحدد.' : 'No transactions for this supplier in the selected range.') + '</div></div>';
-    content.innerHTML = html;
-    return;
-  }
-
-  html += '<div class="table-wrap"><table class="r-table"><thead><tr>';
-  html += '<th>' + (ar?'التاريخ':'Date') + '</th>';
-  html += '<th>' + (ar?'النوع':'Type') + '</th>';
-  html += '<th>' + (ar?'مرجع داخلي':'Internal Ref') + '</th>';
-  html += '<th>' + (ar?'مرجع المورد':'Vendor Ref') + '</th>';
-  html += '<th class="r-num">' + (ar?'مدين':'Debit') + '</th>';
-  html += '<th class="r-num">' + (ar?'دائن':'Credit') + '</th>';
-  html += '<th class="r-num">' + (ar?'الرصيد':'Balance') + '</th>';
-  html += '</tr></thead><tbody>';
-
-  let balance = 0;
-  let totalDebit = 0;
-  let totalCredit = 0;
-  txns.forEach(t => {
-    balance += t.debit - t.credit;
-    totalDebit += t.debit;
-    totalCredit += t.credit;
-    html += '<tr>';
-    html += '<td>' + escHTML(t.date) + '</td>';
-    html += '<td>' + escHTML(t.type) + '</td>';
-    html += '<td>' + escHTML(t.reference) + '</td>';
-    html += '<td>' + escHTML(t.vendor_ref || '—') + '</td>';
-    html += '<td class="r-num">' + (t.debit ? fmtMoney(t.debit) : '—') + '</td>';
-    html += '<td class="r-num">' + (t.credit ? fmtMoney(t.credit) : '—') + '</td>';
-    html += '<td class="r-num">' + fmtMoney(balance) + '</td>';
-    html += '</tr>';
-  });
-
-  html += '<tr class="r-row-grandtotal">';
-  html += '<td colspan="4">' + (ar?'الإجمالي':'Total') + '</td>';
-  html += '<td class="r-num">' + fmtMoney(totalDebit) + '</td>';
-  html += '<td class="r-num">' + fmtMoney(totalCredit) + '</td>';
-  html += '<td class="r-num">' + fmtSar(balance) + '</td>';
-  html += '</tr>';
-  html += '</tbody></table></div>';
-
-  /* Closing balance summary line — what we still owe at end of period */
-  html += '<div style="margin-top:14px;padding:12px 14px;background:var(--tint);border:1px solid var(--border);border-radius:8px;display:flex;justify-content:space-between;align-items:center;font-size:14px;">';
-  html += '<span style="font-weight:600;color:var(--ink);">' + (ar?'الرصيد المستحق للمورد في نهاية الفترة':'Closing balance owed to supplier') + '</span>';
-  html += '<span style="font-variant-numeric:tabular-nums;font-weight:800;font-size:16px;color:' + (balance > 0 ? 'var(--red)' : 'var(--green)') + ';">' + fmtSar(balance) + '</span>';
-  html += '</div>';
-
-  content.innerHTML = html;
+  let bal = opening;
+  const rowsHtml = period.map(r => {
+    bal += (r.debit - r.credit);
+    return `<tr><td class="num">${r.date||'—'}</td>
+      <td><span class="mono" style="font-weight:700;">${r.code}</span> · ${r.desc}</td>
+      <td>${escHTML(r.ref)}</td><td class="mono">${escHTML(r.theirRef)}</td>
+      <td class="num">${r.debit ? fmt(r.debit) : '—'}</td>
+      <td class="num">${r.credit ? fmt(r.credit) : '—'}</td>
+      <td class="num" style="font-weight:700;">${fmt(bal)}</td></tr>`;
+  }).join('');
+  periodEl.textContent = (from||to) ? `${from||'…'} ← ${to||'…'}` : (ar?'كامل الفترة':'All time');
+  content.innerHTML = `
+    <table class="rpt-tbl" style="width:100%;font-size:12px;"><thead><tr>
+      <th class="num">${ar?'التاريخ':'Date'}</th><th>${ar?'نوع الحركة':'Transaction'}</th>
+      <th>${ar?'مستندنا':'Our Ref'}</th><th>${ar?'فاتورة المورد':'Supplier Inv #'}</th>
+      <th class="num">${ar?'مدين':'Debit'}</th><th class="num">${ar?'دائن':'Credit'}</th>
+      <th class="num">${ar?'الرصيد':'Balance'}</th></tr></thead><tbody>
+      <tr style="background:var(--tint);"><td class="num">${from||'—'}</td>
+        <td colspan="5" style="font-weight:700;">${ar?'رصيد افتتاحي':'Opening balance'}</td>
+        <td class="num" style="font-weight:800;">${fmt(opening)}</td></tr>
+      ${rowsHtml || `<tr><td colspan="7" style="text-align:center;color:var(--muted);">${ar?'لا توجد حركات في الفترة':'No transactions in period'}</td></tr>`}
+    </tbody></table>
+    <div style="margin-top:12px;display:flex;justify-content:space-between;align-items:flex-end;">
+      <div style="font-size:10px;color:var(--muted);">INV ${ar?'فاتورة شراء':'Purchase'} · PMT ${ar?'دفعة':'Payment'} · IMP ${ar?'استيراد':'Import'} · EXP ${ar?'خدمات':'Service'}</div>
+      <div style="border:2px solid #0E5232;border-radius:8px;padding:7px 16px;font-weight:800;">
+        ${ar?'الرصيد الختامي':'Closing Balance'}: SAR ${fmt(bal)}
+      </div>
+    </div>`;
 }
 
 /* ═══════════════════════════════════════════════════════
@@ -6749,6 +6698,25 @@ async function init(){
   setLang(currentLang);
 }
 init();
+  /* Deep-link: ?open=<report>&supplier=<id> — cards hand off to the engine. */
+  try{
+    const _qp = new URLSearchParams(location.search); /* gl_open_param */
+    const _open = _qp.get('open');
+    if(_open){
+      const _btn = document.querySelector(`.sidebar-link[onclick*="'${_open}'"]`);
+      showReport(_open, _btn);
+      const _sup = _qp.get('supplier');
+      if(_sup){
+        const _trySet = (n) => {
+          const sel = document.getElementById('rt-supplier-select');
+          if(sel && [...sel.options].some(o => o.value === _sup)){ sel.value = _sup; runCurrentReport(); }
+          else if(n > 0) setTimeout(() => _trySet(n-1), 300);
+        };
+        _trySet(12);
+      }
+    }
+  }catch(_e){ console.warn('[GL rpt] deep-link:', _e); }
+
 </script>
 
 <script>
