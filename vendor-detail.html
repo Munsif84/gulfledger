@@ -132,6 +132,20 @@ async function init(){
         .select('id, po_number, po_date, total, status').eq('supplier_id', vendorId).order('po_date',{ascending:false});
       allPOs = pos || [];
     } catch(e){ allPOs = []; }
+    try {
+      const {data: rcs, error: rcErr} = await sb.from('stock_receipts')
+        .select('id, receipt_number, receipt_date, subtotal, vat_amount, amount_paid, payment_status')
+        .eq('supplier_id', vendorId).order('receipt_date',{ascending:false}).limit(100);
+      if(rcErr) console.error('[GL vd] receipts load:', rcErr.message);
+      allReceipts = (rcs || []).map(r => ({...r, total: (parseFloat(r.subtotal)||0) + (parseFloat(r.vat_amount)||0)}));
+    } catch(e){ allReceipts = []; console.error('[GL vd] receipts:', e.message||e); }
+    try {
+      const {data: imps, error: imErr} = await sb.from('import_shipments')
+        .select('id, reference, shipment_date, total_paid, status')
+        .eq('supplier_id', vendorId).order('shipment_date',{ascending:false}).limit(100);
+      if(imErr) console.error('[GL vd] imports load:', imErr.message);
+      allImports = imps || [];
+    } catch(e){ allImports = []; console.error('[GL vd] imports:', e.message||e); }
     renderAll();
     document.getElementById('loading-state').style.display='none';
     document.getElementById('page').style.display='';
@@ -227,7 +241,7 @@ function renderReceiptsList(){
   const el = document.getElementById('receipts-list');
   if(!allReceipts.length){ el.innerHTML = `<div class="empty-state">${ar?'لا توجد استلامات':'No receipts'}</div>`; return; }
   el.innerHTML = `<table class="tbl"><thead><tr><th>${ar?'رقم الاستلام':'Receipt #'}</th><th class="num">${ar?'التاريخ':'Date'}</th><th class="num">${ar?'الإجمالي':'Total'}</th><th>${ar?'السداد':'Payment'}</th></tr></thead><tbody>
-    ${allReceipts.map(r => `<tr><td>${escapeHTML(r.receipt_number||'—')}</td><td class="num">${r.receipt_date||'—'}</td><td class="num">SAR ${fmt(r.total)}</td><td>${escapeHTML(r.payment_status||'—')}</td></tr>`).join('')}
+    ${allReceipts.map(r => `<tr><td>${escHTML(r.receipt_number||'—')}</td><td class="num">${r.receipt_date||'—'}</td><td class="num">SAR ${fmt(r.total)}</td><td>${escHTML(r.payment_status||'—')}</td></tr>`).join('')}
   </tbody></table>`;
 }
 
@@ -250,7 +264,7 @@ function renderBalanceList(){
       <div class="stat-card"><div class="label">${ar?'الرصيد المستحق':'Outstanding'}</div><div class="value" style="color:${out>0.005?'#b45309':'#0E5232'};">SAR ${fmt(out)}</div></div>
     </div>
     ${open.length ? `<table class="tbl"><thead><tr><th>${ar?'الفاتورة':'Invoice'}</th><th class="num">${ar?'التاريخ':'Date'}</th><th class="num">${ar?'المتبقي':'Due'}</th></tr></thead><tbody>
-      ${open.map(o => `<tr><td>${escapeHTML(o.ref||'—')}</td><td class="num">${o.date||'—'}</td><td class="num" style="font-weight:700;">SAR ${fmt(o.due)}</td></tr>`).join('')}
+      ${open.map(o => `<tr><td>${escHTML(o.ref||'—')}</td><td class="num">${o.date||'—'}</td><td class="num" style="font-weight:700;">SAR ${fmt(o.due)}</td></tr>`).join('')}
     </tbody></table>` : `<div class="empty-state">${ar?'لا توجد أرصدة مستحقة — جميع الفواتير مسددة':'No outstanding balances — all invoices settled'}</div>`}`;
 }
 
@@ -259,7 +273,7 @@ function renderImportsList(){
   const el = document.getElementById('imports-list');
   if(!allImports.length){ el.innerHTML = `<div class="empty-state">${ar?'لا توجد شحنات استيراد':'No import shipments'}</div>`; return; }
   el.innerHTML = `<table class="tbl"><thead><tr><th>${ar?'المرجع':'Reference'}</th><th class="num">${ar?'التاريخ':'Date'}</th><th class="num">${ar?'المدفوع':'Paid'}</th><th>${ar?'الحالة':'Status'}</th></tr></thead><tbody>
-    ${allImports.map(s => `<tr><td>${escapeHTML(s.reference||'—')}</td><td class="num">${s.shipment_date||'—'}</td><td class="num">SAR ${fmt(s.total_paid)}</td><td>${s.status==='reversed'?(ar?'↩ معكوسة':'↩ Reversed'):escapeHTML(s.status||'—')}</td></tr>`).join('')}
+    ${allImports.map(s => `<tr><td>${escHTML(s.reference||'—')}</td><td class="num">${s.shipment_date||'—'}</td><td class="num">SAR ${fmt(s.total_paid)}</td><td>${s.status==='reversed'?(ar?'↩ معكوسة':'↩ Reversed'):escHTML(s.status||'—')}</td></tr>`).join('')}
   </tbody></table>`;
 }
 function switchTab(name){
