@@ -1296,6 +1296,7 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:inheri
 .btn-pick{ padding:3px 7px !important; margin-inline-start:4px; }
 
 </style>
+<script src="gl-report-engine.js"></script>
 </head>
 <body>
 
@@ -1438,6 +1439,9 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:inheri
           <span data-ar="إشعارات مدينة" data-en="Debit Notes">إشعارات مدينة</span>
           <span class="count-badge" id="tab-count-debit-notes">0</span>
         </button>
+        <button class="sidebar-link" id="tab-sales-reports" onclick="switchTab('sales-reports')">
+          <span data-ar="📊 التقارير" data-en="📊 Reports">📊 التقارير</span>
+        </button>
       </div>
     </aside>
     <div class="invoices-main">
@@ -1560,6 +1564,14 @@ input[type="date"]{-webkit-appearance:none;color-scheme:light;font-family:inheri
             <span class="search-icon"><svg class="gl-i gl-i-sm"><use href="/gl-icons.svg#i-search"/></svg></span>
             <input type="text" class="search-input" id="dn-search" placeholder="بحث برقم الإشعار، الفاتورة الأصلية..." data-ph-ar="بحث برقم الإشعار، الفاتورة الأصلية..." data-ph-en="Search by note no., original invoice..." oninput="renderDebitNotesList()">
           </div>
+
+      <div id="pane-sales-reports" style="display:none;">
+        <div style="display:flex;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+          <button class="btn btn-ghost btn-sm glr-subnav active-sub" id="srn-lines" onclick="glSalesReport('sales_lines', this)" data-ar="حركة المبيعات" data-en="Sales Transactions">حركة المبيعات</button>
+          <button class="btn btn-ghost btn-sm glr-subnav" id="srn-cust" onclick="glSalesReport('customers_master', this)" data-ar="قائمة العملاء" data-en="Customers Master">قائمة العملاء</button>
+        </div>
+        <div id="glr-host"></div>
+      </div>
         </div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;">
           <button class="btn btn-secondary btn-sm" onclick="loadDebitNotes()" title="تحديث">↻</button>
@@ -4180,11 +4192,24 @@ document.addEventListener('click', e => {
 /* ═══════════════════════════════════════════════════════
    TABS
 ═══════════════════════════════════════════════════════ */
+
+/* ═══ IN-PAGE SALES REPORTS — stem-cell engine mounted in the sales page ═══ */
+function glSalesReport(key, btn){
+  document.querySelectorAll('.glr-subnav').forEach(b => { b.style.background=''; b.style.color=''; });
+  if(btn){ btn.style.background = 'var(--green, #0E5232)'; btn.style.color = '#fff'; }
+  glReportEngine.mount(GLR_CONFIGS[key], 'glr-host', { sb, biz: currentBiz, lang: currentLang });
+}
+
 function switchTab(tab){
   console.log('[GL invoices] switchTab called with:', tab);
   currentTab = tab;
   /* 4-way: invoices | customers | credit-notes | debit-notes */
   document.getElementById('pane-invoices').style.display = (tab === 'invoices') ? 'block' : 'none';
+  const _pr = document.getElementById('pane-sales-reports');
+  if(_pr) _pr.style.display = (tab === 'sales-reports') ? 'block' : 'none';
+  const _tr2 = document.getElementById('tab-sales-reports');
+  if(_tr2) _tr2.classList.toggle('active', tab === 'sales-reports');
+  if(tab === 'sales-reports' && !window._glrMounted){ window._glrMounted = true; glSalesReport('sales_lines', document.getElementById('srn-lines')); }
   document.getElementById('pane-customers').style.display = (tab === 'customers') ? 'block' : 'none';
   document.getElementById('pane-credit-notes').style.display = (tab === 'credit-notes') ? 'block' : 'none';
   document.getElementById('pane-debit-notes').style.display = (tab === 'debit-notes') ? 'block' : 'none';
