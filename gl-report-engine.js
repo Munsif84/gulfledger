@@ -36,7 +36,7 @@
       this._state = {
         cols: LS(cfg.id,'cols') || cfg.columns.filter(c=>c.default!==false).map(c=>c.key),
         sort: LS(cfg.id,'sort') || {key: cfg.columns.find(c=>c.type==='money'||c.type==='num')?.key || cfg.columns[0].key, dir:-1},
-        group: LS(cfg.id,'group') || '', q: '', selVals: {}
+        group: LS(cfg.id,'group') || '', selVals: {}, page: 1, perPage: 25, view: 'table'
       };
       const host = document.getElementById(hostId);
       host.innerHTML = `
@@ -50,7 +50,10 @@
         </div>
         <div class="glr-kpis" id="glr-kpis"></div>
         <div class="glr-toolbar">
-          <input type="search" id="glr-q" placeholder="🔍 ${ar?'بحث في كل الأعمدة':'Search all columns'}" oninput="glReportEngine._state.q=this.value;glReportEngine.render()">
+          <div class="glr-seg">
+            <button id="glr-vt" class="on" onclick="glReportEngine.setView('table')">☰ ${ar?'جدول':'Table'}</button>
+            <button id="glr-vc" onclick="glReportEngine.setView('chart')">📊 ${ar?'رسم':'Chart'}</button>
+          </div>
           <select id="glr-group" onchange="glReportEngine.setGroup(this.value)">
             <option value="">${ar?'بدون تجميع':'No grouping'}</option>
             ${(cfg.groupBy||[]).map(g=>`<option value="${g.key}">${ar?'تجميع: ':'Group: '}${ar?g.ar:g.en}</option>`).join('')}
@@ -79,6 +82,7 @@
         }catch(e){ console.error('[GLR] select', s.id, e.message||e); }
       }
       const gsel = document.getElementById('glr-group'); if(gsel) gsel.value = this._state.group;
+      this.run();   /* reports open WITH data — defaults are the first answer */
     },
 
     toggleCol(key, on){
@@ -88,7 +92,13 @@
       s.cols = this._cfg.columns.map(c=>c.key).filter(k=>s.cols.includes(k));
       LS(this._cfg.id,'cols',s.cols); this.render();
     },
-    setGroup(g){ this._state.group = g; LS(this._cfg.id,'group',g); this.render(); },
+    setGroup(g){ this._state.group = g; this._state.page = 1; LS(this._cfg.id,'group',g); this.render(); },
+    setView(v){ this._state.view = v;
+      const t = document.getElementById('glr-vt'), c = document.getElementById('glr-vc');
+      if(t){ t.classList.toggle('on', v==='table'); c.classList.toggle('on', v==='chart'); }
+      this.render(); },
+    setPage(p){ this._state.page = p; this.render(); },
+    setPerPage(n){ this._state.perPage = n; this._state.page = 1; this.render(); },
     sortBy(k){ const s=this._state.sort; s.dir = s.key===k ? -s.dir : -1; s.key = k; LS(this._cfg.id,'sort',s); this.render(); },
 
     async run(){
@@ -106,12 +116,10 @@
 
     _visible(){
       let rows = this._rows;
-      const q = (this._state.q||'').toLowerCase();
       (this._cfg.selects||[]).forEach(s => {
         const v = this._state.selVals[s.id];
         if(v) rows = rows.filter(r => s.apply(r, v));
       });
-      if(q) rows = rows.filter(r => this._cfg.columns.some(c => String(r[c.key]??'').toLowerCase().includes(q)));
       const { key, dir } = this._state.sort;
       const ctype = this._cfg.columns.find(c=>c.key===key)?.type;
       rows = [...rows].sort((a,b) => {
@@ -151,7 +159,27 @@
       const head = `<tr>${cols.map(c=>`<th class="${c.type==='money'||c.type==='num'||c.type==='pct'?'num':''}" onclick="glReportEngine.sortBy('${c.key}')">${ar?c.ar:c.en} ${arr(c.key)}</th>`).join('')}</tr>`;
       const rowHtml = r => `<tr ${cfg.drill?`class="glr-drill" onclick='glReportEngine._cfg.drill(${JSON.stringify(JSON.stringify(r._id||''))}.length?${JSON.stringify(r._id||'')}:null, this)'`:''}>
         ${cols.map(c=>`<td class="${c.type==='money'||c.type==='num'||c.type==='pct'?'num':''}">${this._cell(c,r)}</td>`).join('')}</tr>`;
+      /* ── CHART VIEW: top groups by primary money column, CSS bars ── */
+      if(s.view === 'chart'){
+        const mcol = cols.find(c=>c.type==='money') || cols.find(c=>c.type==='num');
+        const dim = s.group || (this._cfg.groupBy?.[0]?.key) || cols[0].key;
+        const gcol = this._cfg.columns.find(c=>c.key===dim);
+        const gg = {};
+        rows.forEach(r => { const k = r[dim] ?? '—'; gg[k] = (gg[k]||0) + (parseFloat(r[mcol?.key])||0); });
+        const top = Object.entries(gg).sort((a,b)=>b[1]-a[1]).slice(0,12);
+        const mx = Math.max(...top.map(t=>t[1]), 1);
+        document.getElementById('glr-stage').innerHTML = `
+          <div class="glr-chart">
+            <div class="glr-count">${ar?(gcol?.ar||''):(gcol?.en||'')} × ${ar?(mcol?.ar||''):(mcol?.en||'')} · ${ar?'أعلى':'top'} ${top.length}</div>
+            ${top.map(([k,v])=>`<div class="glr-bar-row">
+              <div class="glr-bar-lbl">${esc(k)}</div>
+              <div class="glr-bar-track"><div class="glr-bar" style="width:${(v/mx*100).toFixed(1)}%"></div></div>
+              <div class="glr-bar-val">SAR ${fmtM(v)}</div></div>`).join('')}
+          </div>`;
+        return;
+      }
       let body = '';
+      let pagerHtml = '';
       if(s.group){
         const gcol = cfg.columns.find(c=>c.key===s.group);
         const groups = {};
@@ -162,13 +190,30 @@
             + list.map(rowHtml).join('')
             + `<tr class="glr-sub">${cols.map((c,i)=>`<td class="${c.type==='money'?'num':''}">${subs[i]!==null?('SAR '+fmtM(subs[i])):''}</td>`).join('')}</tr>`;
         }).join('');
-      } else body = rows.map(rowHtml).join('');
+      } else {
+        const pages = Math.max(1, Math.ceil(rows.length / s.perPage));
+        if(s.page > pages) s.page = pages;
+        const slice = rows.slice((s.page-1)*s.perPage, s.page*s.perPage);
+        body = slice.map(rowHtml).join('');
+        const win = [];
+        for(let p = Math.max(1, s.page-2); p <= Math.min(pages, s.page+2); p++) win.push(p);
+        pagerHtml = `<div class="glr-pager">
+          <span>${ar?'صفوف بالصفحة':'Rows/page'}</span>
+          <select onchange="glReportEngine.setPerPage(+this.value)">${[25,50,100].map(n=>`<option ${s.perPage===n?'selected':''}>${n}</option>`).join('')}</select>
+          <span>${(s.page-1)*s.perPage+1}–${Math.min(s.page*s.perPage, rows.length)} ${ar?'من':'of'} ${rows.length}</span>
+          <div class="glr-pgs">
+            <button ${s.page<=1?'disabled':''} onclick="glReportEngine.setPage(${s.page-1})">‹</button>
+            ${win[0]>1?`<button onclick="glReportEngine.setPage(1)">1</button>${win[0]>2?'<span>…</span>':''}`:''}
+            ${win.map(p=>`<button class="${p===s.page?'on':''}" onclick="glReportEngine.setPage(${p})">${p}</button>`).join('')}
+            ${win[win.length-1]<pages?`${win[win.length-1]<pages-1?'<span>…</span>':''}<button onclick="glReportEngine.setPage(${pages})">${pages}</button>`:''}
+            <button ${s.page>=pages?'disabled':''} onclick="glReportEngine.setPage(${s.page+1})">›</button>
+          </div></div>`;
+      }
       document.getElementById('glr-stage').innerHTML = `
-        <div class="glr-count">${rows.length} ${ar?'صف':'rows'}</div>
         <div class="glr-scroll"><table class="glr-tbl"><thead>${head}</thead><tbody>
           ${body || `<tr><td colspan="${cols.length}" class="glr-none">${ar?'لا بيانات':'No data'}</td></tr>`}
           <tr class="glr-total">${totalRow.map(t=>`<td class="${t.c.type==='money'||t.c.type==='num'?'num':''}">${t.v===null?'':(t.c.type==='money'?'SAR '+fmtM(t.v):fmtN(t.v))}</td>`).join('')}</tr>
-        </tbody></table></div>`;
+        </tbody></table></div>${pagerHtml}`;
     },
 
     exportCSV(){
@@ -218,7 +263,22 @@
 .glr-total td{background:var(--navy,#0D2618);color:#fff;font-weight:800;}
 .glr-empty,.glr-none{padding:26px;text-align:center;color:var(--muted,#7A8B80);}
 .glr-error{padding:18px;color:#991B1B;font-weight:700;}
-@media print{.glr-filters,.glr-toolbar{display:none!important;}}`;
+.glr-seg{display:inline-flex;border:1.5px solid var(--border,#E3E1D9);border-radius:9px;overflow:hidden;}
+.glr-seg button{border:none;background:#fff;padding:7px 14px;font-family:inherit;font-size:12.5px;cursor:pointer;font-weight:700;color:var(--muted,#7A8B80);}
+.glr-seg button.on{background:var(--green,#0E5232);color:#fff;}
+.glr-pager{display:flex;align-items:center;gap:10px;padding:10px 4px;font-size:12px;color:var(--muted,#7A8B80);flex-wrap:wrap;}
+.glr-pager select{padding:4px 8px;border:1.5px solid var(--border,#E3E1D9);border-radius:7px;font-family:inherit;}
+.glr-pgs{display:flex;gap:4px;margin-inline-start:auto;align-items:center;}
+.glr-pgs button{min-width:28px;height:28px;border:1.5px solid var(--border,#E3E1D9);background:#fff;border-radius:7px;font-family:inherit;font-size:12px;cursor:pointer;}
+.glr-pgs button.on{background:var(--green,#0E5232);border-color:var(--green,#0E5232);color:#fff;font-weight:800;}
+.glr-pgs button:disabled{opacity:.4;cursor:default;}
+.glr-chart{background:#fff;border:1px solid var(--border,#E3E1D9);border-radius:12px;padding:16px;}
+.glr-bar-row{display:flex;align-items:center;gap:10px;margin:7px 0;}
+.glr-bar-lbl{width:180px;font-size:12px;font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.glr-bar-track{flex:1;background:var(--tint,#F4F8F5);border-radius:6px;height:18px;overflow:hidden;}
+.glr-bar{height:100%;background:var(--green,#0E5232);opacity:.8;border-radius:6px;}
+.glr-bar-val{width:130px;text-align:end;font-size:11.5px;font-weight:700;unicode-bidi:plaintext;}
+@media print{.glr-filters,.glr-toolbar,.glr-pager{display:none!important;}}`;
   document.head.appendChild(st);
 })();
 
